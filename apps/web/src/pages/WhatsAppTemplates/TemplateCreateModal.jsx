@@ -23,9 +23,12 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
 
   const [validationErrors, setValidationErrors] = useState({});
   const [apiError, setApiError] = useState(null);
+  const [nameAvailable, setNameAvailable] = useState(null);
+  const [checkingName, setCheckingName] = useState(false);
   const [saving, setSaving] = useState(false);
   const [unsavedChanges, setUnsavedChanges] = useState(false);
   const [lastSaveDraft, setLastSaveDraft] = useState(null);
+  const nameCheckTimeoutRef = useRef(null);
 
   const languages = [
     'English', 'Hindi', 'Spanish', 'Portuguese', 'French', 'German', 'Italian',
@@ -79,7 +82,7 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
 
   const getValidationStatus = () => {
     return {
-      name: form.name && /^[a-z0-9_]+$/.test(form.name),
+      name: form.name && /^[a-z0-9_]+$/.test(form.name) && nameAvailable !== false,
       category: !!form.category,
       language: !!form.language,
       body: form.body && form.body.length <= 1024 && form.body.length > 0,
@@ -119,10 +122,43 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, isFormValid]);
 
+  const checkNameAvailability = async (templateName) => {
+    if (!templateName.trim() || !/^[a-z0-9_]+$/.test(templateName)) {
+      setNameAvailable(null);
+      return;
+    }
+
+    setCheckingName(true);
+    try {
+      const response = await api.post(
+        `/whatsapp/integrations/${integrationId}/templates/check-name`,
+        {
+          templateName: templateName.toLowerCase(),
+          excludeId: editingTemplate?.id || null
+        }
+      );
+      setNameAvailable(response.available);
+    } catch (error) {
+      setNameAvailable(null);
+    } finally {
+      setCheckingName(false);
+    }
+  };
+
   const handleChange = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }));
     setUnsavedChanges(true);
     setApiError(null);
+
+    // Check name availability with debounce
+    if (field === 'name') {
+      if (nameCheckTimeoutRef.current) {
+        clearTimeout(nameCheckTimeoutRef.current);
+      }
+      nameCheckTimeoutRef.current = setTimeout(() => {
+        checkNameAvailability(value);
+      }, 500);
+    }
   };
 
   const handleAddQuickReply = () => {
@@ -310,6 +346,8 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
               validationErrors={validationErrors}
               languages={languages}
               hasVariables={hasVariables}
+              nameAvailable={nameAvailable}
+              checkingName={checkingName}
             />
           </div>
 
@@ -416,7 +454,7 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
   );
 }
 
-function FormContent({ form, handleChange, validationErrors, languages, hasVariables }) {
+function FormContent({ form, handleChange, validationErrors, languages, hasVariables, nameAvailable, checkingName }) {
   return (
     <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* Section 1: Basic Information */}
@@ -427,23 +465,75 @@ function FormContent({ form, handleChange, validationErrors, languages, hasVaria
             error={validationErrors.name}
             isCompact
           >
-            <input
-              type="text"
-              value={form.name}
-              onChange={e => handleChange('name', e.target.value)}
-              placeholder="lowercase_name"
-              maxLength="50"
-              style={{
-                width: '100%',
-                height: '36px',
-                border: validationErrors.name ? '1px solid #dc2626' : '1px solid #d1d5db',
-                borderRadius: '6px',
-                padding: '0 10px',
-                fontSize: '13px',
-                outline: 0,
-                fontFamily: 'monospace'
-              }}
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                type="text"
+                value={form.name}
+                onChange={e => handleChange('name', e.target.value)}
+                placeholder="lowercase_name"
+                maxLength="50"
+                style={{
+                  width: '100%',
+                  height: '36px',
+                  border: validationErrors.name ? '1px solid #dc2626' :
+                          nameAvailable === false ? '1px solid #f97316' :
+                          nameAvailable === true ? '1px solid #16a34a' :
+                          '1px solid #d1d5db',
+                  borderRadius: '6px',
+                  padding: '0 36px 0 10px',
+                  fontSize: '13px',
+                  outline: 0,
+                  fontFamily: 'monospace',
+                  background: nameAvailable === true ? '#f0fdf4' :
+                               nameAvailable === false ? '#fef3c7' : '#fff'
+                }}
+              />
+              {checkingName && (
+                <div style={{
+                  position: 'absolute',
+                  right: '10px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  fontSize: '14px'
+                }}>
+                  ⟳
+                </div>
+              )}
+              {!checkingName && nameAvailable === true && (
+                <div style={{
+                  position: 'absolute',
+                  right: '10px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#16a34a',
+                  fontSize: '16px'
+                }}>
+                  ✓
+                </div>
+              )}
+              {!checkingName && nameAvailable === false && (
+                <div style={{
+                  position: 'absolute',
+                  right: '10px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#dc2626',
+                  fontSize: '16px'
+                }}>
+                  ✗
+                </div>
+              )}
+            </div>
+            {nameAvailable === false && (
+              <div style={{ fontSize: '11px', color: '#dc2626', marginTop: '4px' }}>
+                This name is already in use
+              </div>
+            )}
+            {nameAvailable === true && form.name && !/^[a-z0-9_]+$/.test(form.name) === false && (
+              <div style={{ fontSize: '11px', color: '#16a34a', marginTop: '4px' }}>
+                Name is available
+              </div>
+            )}
           </FormField>
 
           <FormField

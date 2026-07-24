@@ -176,6 +176,36 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
     }
   });
 
+  // Check template name availability
+  router.post('/integrations/:integrationId/templates/check-name', authenticate, async (req, res, next) => {
+    try {
+      const organizationId = req.user?.id || 1;
+      const integrationId = parseInt(req.params.integrationId);
+      const { templateName, excludeId = null } = req.body;
+
+      if (!templateName || templateName.trim().length === 0) {
+        return res.json({ available: false, message: 'Template name is required' });
+      }
+
+      const query = excludeId
+        ? 'SELECT id FROM whatsapp_templates WHERE integration_id = ? AND template_name = ? AND deleted_at IS NULL AND id != ?'
+        : 'SELECT id FROM whatsapp_templates WHERE integration_id = ? AND template_name = ? AND deleted_at IS NULL';
+
+      const params = excludeId
+        ? [integrationId, templateName.toLowerCase(), excludeId]
+        : [integrationId, templateName.toLowerCase()];
+
+      const existing = await pool.query(query, params);
+
+      res.json({
+        available: existing.length === 0,
+        message: existing.length > 0 ? `Template name "${templateName}" already exists` : null
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // Validate template
   router.post('/integrations/:integrationId/templates/validate', authenticate, async (req, res, next) => {
     try {

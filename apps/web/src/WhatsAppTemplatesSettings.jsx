@@ -1,12 +1,16 @@
 import { useState, useEffect } from 'react';
 import { AlertCircle, Loader } from 'lucide-react';
 import { api } from './api';
-import WhatsAppTemplatesPage from './pages/WhatsAppTemplates/WhatsAppTemplatesPage.jsx';
+import WhatsAppTemplateLibrary from './pages/WhatsAppTemplates/WhatsAppTemplateLibrary';
+import WhatsAppTemplateCreatePage from './pages/WhatsAppTemplates/WhatsAppTemplateCreatePage';
 
 export default function WhatsAppTemplatesSettings({ onMessage }) {
   const [integrationId, setIntegrationId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [view, setView] = useState('library'); // 'library' | 'create' | 'edit'
+  const [editingTemplateId, setEditingTemplateId] = useState(null);
+  const [businessName, setBusinessName] = useState('Your Business');
 
   useEffect(() => {
     fetchSmartpingIntegration();
@@ -25,12 +29,43 @@ export default function WhatsAppTemplatesSettings({ onMessage }) {
       }
 
       setIntegrationId(smartpingIntegration.id);
+      // Get business name from integration or use default
+      setBusinessName(smartpingIntegration.integration_name || 'Your Business');
       setError(null);
     } catch (err) {
       setError(`Failed to load WhatsApp integration: ${err.message}`);
       console.error('Error fetching smartping integration:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCreateNew = () => {
+    setEditingTemplateId(null);
+    setView('create');
+  };
+
+  const handleEdit = (templateId) => {
+    setEditingTemplateId(templateId);
+    setView('edit');
+  };
+
+  const handleSave = () => {
+    setView('library');
+    setEditingTemplateId(null);
+    if (onMessage) {
+      onMessage({ type: 'success', text: 'Template saved successfully!' });
+    }
+  };
+
+  const handleCancel = () => {
+    setView('library');
+    setEditingTemplateId(null);
+  };
+
+  const handleDelete = () => {
+    if (onMessage) {
+      onMessage({ type: 'success', text: 'Template deleted successfully!' });
     }
   };
 
@@ -72,14 +107,42 @@ export default function WhatsAppTemplatesSettings({ onMessage }) {
   }
 
   return (
-    <main style={{ padding: 0, display: 'flex', flexDirection: 'column' }}>
+    <main style={{ padding: 0, display: 'flex', flexDirection: 'column', height: '100%' }}>
       <style>{`
         @keyframes spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
       `}</style>
-      {integrationId && <WhatsAppTemplatesPage integrationId={integrationId} />}
+
+      {view === 'library' && (
+        <WhatsAppTemplateLibrary
+          integrationId={integrationId}
+          onCreateNew={handleCreateNew}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+        />
+      )}
+
+      {view === 'create' && (
+        <WhatsAppTemplateCreatePage
+          integrationId={integrationId}
+          templateId={null}
+          onSave={handleSave}
+          onCancel={handleCancel}
+          businessName={businessName}
+        />
+      )}
+
+      {view === 'edit' && editingTemplateId && (
+        <WhatsAppTemplateCreatePage
+          integrationId={integrationId}
+          templateId={editingTemplateId}
+          onSave={handleSave}
+          onCancel={handleCancel}
+          businessName={businessName}
+        />
+      )}
     </main>
   );
 }
