@@ -208,9 +208,16 @@ export default function TemplateFormPanel({ integrationId, onCancel, onSuccess }
 
     setSaving(true);
     try {
+      // Ensure template_name is not undefined
+      if (!form.name || !form.name.trim()) {
+        setValidationErrors({ name: 'Template name is required' });
+        setSaving(false);
+        return;
+      }
+
       // Map form to WhatsApp template API payload
       const payload = {
-        template_name: form.name,
+        template_name: form.name.trim().toLowerCase(),
         category: form.category,
         language: form.language,
         template_type: form.type,

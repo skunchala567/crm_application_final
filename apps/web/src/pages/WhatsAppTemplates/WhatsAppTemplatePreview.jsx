@@ -1,155 +1,201 @@
-import { MessageCircle } from 'lucide-react';
-
 export default function WhatsAppTemplatePreview({ template }) {
   const variables = template.body?.match(/\{\{(\d+)\}\}/g) || [];
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <div>
-        <h4 style={{ margin: '0 0 8px 0', fontSize: '12px', fontWeight: '600', color: '#5c5e72' }}>
-          Preview
-        </h4>
-      </div>
+  const replaceSampleValues = (text, sampleText) => {
+    if (!sampleText || !text) return text;
 
+    const sampleWords = sampleText.split(/\s+/);
+    let result = text;
+
+    variables.forEach((variable, idx) => {
+      const replacement = sampleWords[idx] || variable;
+      const regex = new RegExp(variable.replace(/\{/g, '\\{').replace(/\}/g, '\\}'), 'g');
+      result = result.replace(regex, replacement);
+    });
+
+    return result;
+  };
+
+  const displayText = replaceSampleValues(template.body || '', template.sample_text || '');
+
+  return (
+    <div style={{
+      width: '100%',
+      maxWidth: '320px',
+      margin: '0 auto'
+    }}>
       {/* Phone Mockup */}
       <div style={{
         background: '#000',
         borderRadius: '40px',
-        padding: '12px',
-        boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-        minHeight: '600px',
+        padding: '10px',
+        boxShadow: '0 10px 40px rgba(0,0,0,0.4)',
+        aspectRatio: '9/19.5',
         display: 'flex',
-        flexDirection: 'column'
+        flexDirection: 'column',
+        overflow: 'hidden'
       }}>
-        {/* Phone Notch */}
+        {/* Notch */}
         <div style={{
-          height: '28px',
+          height: '24px',
           background: '#000',
-          borderBottomLeftRadius: '20px',
-          borderBottomRightRadius: '20px',
-          marginBottom: '8px'
+          borderBottomLeftRadius: '18px',
+          borderBottomRightRadius: '18px',
+          marginBottom: '6px'
         }} />
 
-        {/* Phone Screen */}
+        {/* Screen */}
         <div style={{
           background: '#fff',
-          borderRadius: '24px',
+          borderRadius: '20px',
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
           flex: 1,
-          minHeight: '0'
+          minHeight: 0
         }}>
-          {/* Chat Header */}
+          {/* Header - WhatsApp Styling */}
           <div style={{
-            padding: '12px 14px',
-            background: '#f5f5f5',
-            borderBottom: '1px solid #e5e7eb',
+            background: '#f0f0f0',
+            padding: '8px 12px',
+            borderBottom: '1px solid #e5e5e5',
             display: 'flex',
             alignItems: 'center',
-            gap: '10px'
+            gap: '8px'
           }}>
-            <MessageCircle size={20} style={{ color: '#25d366' }} />
-            <div>
-              <div style={{ fontSize: '12px', fontWeight: '600', color: '#000' }}>
-                Template Preview
+            <div style={{
+              width: '32px',
+              height: '32px',
+              borderRadius: '50%',
+              background: '#25d366',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#fff',
+              fontSize: '16px',
+              fontWeight: 'bold'
+            }}>
+              💬
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{
+                fontSize: '13px',
+                fontWeight: '600',
+                color: '#000',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}>
+                WhatsApp Message
               </div>
-              <div style={{ fontSize: '10px', color: '#999' }}>
-                WhatsApp Business
+              <div style={{
+                fontSize: '11px',
+                color: '#666',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}>
+                Business Account
               </div>
+            </div>
+            <div style={{
+              fontSize: '20px',
+              cursor: 'pointer'
+            }}>
+              ⋮
             </div>
           </div>
 
-          {/* Message Bubble */}
+          {/* Chat Area */}
           <div style={{
             flex: 1,
-            padding: '12px 14px',
             overflow: 'auto',
+            padding: '12px 8px',
+            background: '#fff',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'flex-end',
             gap: '8px'
           }}>
-            {/* Header */}
-            {template.header_type !== 'NONE' && (
+            {/* Message Bubble */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'flex-start',
+              marginBottom: '4px'
+            }}>
               <div style={{
-                background: '#e5f4f8',
-                borderRadius: '12px',
-                padding: '8px',
-                marginBottom: '8px',
-                textAlign: 'center'
+                background: '#e5e5ea',
+                color: '#000',
+                borderRadius: '18px',
+                padding: '8px 12px',
+                maxWidth: '85%',
+                wordWrap: 'break-word',
+                lineHeight: '1.4',
+                fontSize: '13px',
+                whiteSpace: 'pre-wrap',
+                overflowWrap: 'break-word'
               }}>
-                {template.header_type === 'TEXT' && (
-                  <div style={{ fontSize: '12px', color: '#333' }}>
-                    📝 {template.header_content || '[Header Text]'}
+                {/* Header if present */}
+                {template.header_type !== 'NONE' && (
+                  <div style={{ marginBottom: '8px', paddingBottom: '8px', borderBottom: '1px solid #d0d0d0' }}>
+                    {template.header_type === 'TEXT' && (
+                      <div style={{ fontSize: '12px', fontWeight: '600', color: '#0084ff' }}>
+                        {template.header_content || '[Header]'}
+                      </div>
+                    )}
+                    {template.header_type === 'IMAGE' && (
+                      <div style={{ fontSize: '11px', color: '#666' }}>
+                        🖼️ Image
+                      </div>
+                    )}
+                    {template.header_type === 'VIDEO' && (
+                      <div style={{ fontSize: '11px', color: '#666' }}>
+                        🎥 Video
+                      </div>
+                    )}
+                    {template.header_type === 'DOCUMENT' && (
+                      <div style={{ fontSize: '11px', color: '#666' }}>
+                        📄 Document
+                      </div>
+                    )}
                   </div>
                 )}
-                {template.header_type === 'IMAGE' && (
-                  <div style={{ fontSize: '11px', color: '#666' }}>
-                    🖼️ Image Header
-                  </div>
-                )}
-                {template.header_type === 'VIDEO' && (
-                  <div style={{ fontSize: '11px', color: '#666' }}>
-                    🎥 Video Header
-                  </div>
-                )}
-                {template.header_type === 'DOCUMENT' && (
-                  <div style={{ fontSize: '11px', color: '#666' }}>
-                    📄 Document Header
+
+                {/* Body */}
+                <div>{displayText || '[Message body]'}</div>
+
+                {/* Footer if present */}
+                {template.footer && (
+                  <div style={{
+                    marginTop: '8px',
+                    paddingTop: '8px',
+                    borderTop: '1px solid #d0d0d0',
+                    fontSize: '11px',
+                    color: '#999'
+                  }}>
+                    {template.footer}
                   </div>
                 )}
               </div>
-            )}
-
-            {/* Body */}
-            <div style={{
-              background: '#e5f4f8',
-              borderRadius: '12px',
-              padding: '10px 12px',
-              color: '#000',
-              fontSize: '13px',
-              lineHeight: '1.4',
-              wordBreak: 'break-word'
-            }}>
-              {template.body ? (
-                <BodyWithVariables body={template.body} sampleText={template.sample_text} />
-              ) : (
-                <span style={{ color: '#999' }}>[Message body]</span>
-              )}
             </div>
 
-            {/* Footer */}
-            {template.footer && (
-              <div style={{
-                fontSize: '11px',
-                color: '#666',
-                textAlign: 'center',
-                paddingTop: '4px'
-              }}>
-                {template.footer}
-              </div>
-            )}
-
-            {/* Quick Replies */}
+            {/* Quick Replies if present */}
             {template.quick_replies && template.quick_replies.length > 0 && (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '6px',
-                marginTop: '8px'
-              }}>
-                {template.quick_replies.map((reply, idx) => (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
+                {template.quick_replies.slice(0, 3).map((reply, idx) => (
                   <div
                     key={idx}
                     style={{
-                      background: '#f0f0f0',
-                      border: '1px solid #d1d5db',
-                      borderRadius: '20px',
-                      padding: '8px 12px',
-                      textAlign: 'center',
+                      alignSelf: 'flex-start',
+                      background: '#e7f7ff',
+                      border: '1px solid #0084ff',
+                      borderRadius: '18px',
+                      padding: '6px 12px',
                       fontSize: '12px',
-                      color: '#333'
+                      color: '#0084ff',
+                      fontWeight: '500',
+                      maxWidth: '85%',
+                      cursor: 'pointer'
                     }}
                   >
                     {reply.button_title || '[Button]'}
@@ -161,77 +207,57 @@ export default function WhatsAppTemplatePreview({ template }) {
 
           {/* Input Area */}
           <div style={{
-            padding: '10px 12px',
-            borderTop: '1px solid #e5e7eb',
+            padding: '8px 12px',
+            borderTop: '1px solid #e5e5e5',
             background: '#f5f5f5',
             display: 'flex',
-            gap: '8px',
+            gap: '6px',
             alignItems: 'center'
           }}>
             <input
               type="text"
-              placeholder="Type a message..."
+              placeholder="Type message..."
               disabled
               style={{
                 flex: 1,
-                border: '1px solid #d1d5db',
+                border: '1px solid #d0d0d0',
                 borderRadius: '20px',
-                padding: '8px 12px',
+                padding: '6px 12px',
                 fontSize: '12px',
-                background: '#fff'
+                background: '#fff',
+                outline: 'none',
+                color: '#999'
               }}
             />
-            <button
-              disabled
-              style={{
-                background: '#25d366',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '50%',
-                width: '32px',
-                height: '32px',
-                cursor: 'not-allowed',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '16px'
-              }}
-            >
+            <button disabled style={{
+              background: '#25d366',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '50%',
+              width: '28px',
+              height: '28px',
+              cursor: 'not-allowed',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '14px'
+            }}>
               ➤
             </button>
           </div>
         </div>
       </div>
 
-      {/* Info */}
+      {/* Info Text */}
       <div style={{
         fontSize: '11px',
         color: '#67697b',
-        padding: '8px',
-        background: '#f3f4f6',
-        borderRadius: '6px',
-        textAlign: 'center'
+        textAlign: 'center',
+        marginTop: '12px',
+        padding: '0 8px'
       }}>
         Preview updates as you type
       </div>
     </div>
   );
-}
-
-function BodyWithVariables({ body, sampleText }) {
-  if (!sampleText) {
-    return <span>{body}</span>;
-  }
-
-  // Replace variables with sample values
-  let displayText = body;
-  const variables = body.match(/\{\{(\d+)\}\}/g) || [];
-
-  variables.forEach((variable, idx) => {
-    const sampleWords = sampleText.split(/\s+/);
-    const replacement = sampleWords[idx] || variable;
-    displayText = displayText.replace(variable, <strong key={idx} style={{ background: '#fff3cd' }}>{replacement}</strong>);
-  });
-
-  return <span>{displayText}</span>;
 }

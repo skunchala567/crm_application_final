@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Plus, ChevronDown, AlertCircle, CheckCircle } from 'lucide-react';
+import { X, Plus, ChevronDown } from 'lucide-react';
 import { api } from '../../api';
 import WhatsAppTemplatePreview from './WhatsAppTemplatePreview';
 
 export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editingTemplate = null, integrationId }) {
-  const modalRef = useRef(null);
   const [form, setForm] = useState({
     name: '',
     label: '',
@@ -13,23 +12,13 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
     type: 'TEXT',
     header_type: 'NONE',
     header_text: '',
-    header_file: null,
-    text: '',
+    body: '',
     sample_text: '',
     footer: '',
     footer_enabled: false,
-    call_to_action: [],
     quick_replies: [],
     buttons_expanded: false,
     footer_expanded: false
-  });
-
-  const [currentButton, setCurrentButton] = useState({
-    type: 'quick_reply',
-    button_type: 'Quick Reply',
-    button_title: '',
-    button_value: '',
-    cta_type: 'URL'
   });
 
   const [validationErrors, setValidationErrors] = useState({});
@@ -43,10 +32,8 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
     'Thai', 'Vietnamese', 'Indonesian', 'Filipino', 'Malaysian'
   ];
 
-  const buttonTypes = ['Quick Reply', 'Call', 'Website', 'Copy Code'];
-
   // Extract variables from body
-  const bodyVariables = form.text.match(/\{\{(\d+)\}\}/g) || [];
+  const bodyVariables = form.body.match(/\{\{(\d+)\}\}/g) || [];
   const hasVariables = bodyVariables.length > 0;
 
   // Validation
@@ -56,7 +43,7 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
     if (!form.name.trim()) {
       errors.name = 'Template name is required';
     } else if (!/^[a-z0-9_]+$/.test(form.name)) {
-      errors.name = 'Only lowercase, numbers, and underscores allowed';
+      errors.name = 'Only lowercase, numbers, and underscores';
     }
 
     if (!form.label.trim()) {
@@ -64,25 +51,25 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
     }
 
     if (!form.category) {
-      errors.category = 'Category is required';
+      errors.category = 'Required';
     }
 
     if (!form.language) {
-      errors.language = 'Language is required';
+      errors.language = 'Required';
     }
 
-    if (!form.text.trim()) {
-      errors.text = 'Body text is required';
-    } else if (form.text.length > 1024) {
-      errors.text = `Body exceeds maximum length (${form.text.length}/1024)`;
+    if (!form.body.trim()) {
+      errors.body = 'Message body is required';
+    } else if (form.body.length > 1024) {
+      errors.body = `Max 1024 chars (${form.body.length})`;
     }
 
     if (hasVariables && !form.sample_text.trim()) {
-      errors.sample_text = 'Sample text required when variables exist';
+      errors.sample_text = 'Required for variables';
     }
 
     if (form.header_type === 'TEXT' && !form.header_text.trim()) {
-      errors.header_text = 'Header text required';
+      errors.header_text = 'Required';
     }
 
     setValidationErrors(errors);
@@ -94,7 +81,7 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
       name: form.name && /^[a-z0-9_]+$/.test(form.name),
       category: !!form.category,
       language: !!form.language,
-      body: form.text && form.text.length <= 1024 && form.text.length > 0,
+      body: form.body && form.body.length <= 1024 && form.body.length > 0,
       sample_values: !hasVariables || !!form.sample_text.trim()
     };
   };
@@ -136,51 +123,33 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
     setUnsavedChanges(true);
   };
 
-  const handleAddButton = () => {
-    if (!currentButton.button_title) {
-      setValidationErrors(prev => ({ ...prev, button_title: 'Button title required' }));
-      return;
-    }
-
-    setForm(prev => ({
-      ...prev,
-      quick_replies: [...prev.quick_replies, { ...currentButton }]
-    }));
-
-    setCurrentButton({
-      type: 'quick_reply',
-      button_type: 'Quick Reply',
-      button_title: '',
-      button_value: '',
-      cta_type: 'URL'
-    });
-    setUnsavedChanges(true);
-  };
-
-  const handleRemoveButton = (idx) => {
-    setForm(prev => ({
-      ...prev,
-      quick_replies: prev.quick_replies.filter((_, i) => i !== idx)
-    }));
+  const handleAddQuickReply = () => {
+    // For now, just placeholder
     setUnsavedChanges(true);
   };
 
   const handleSubmit = async () => {
     if (!validate()) return;
 
+    // Final validation - ensure template_name is not undefined
+    if (!form.name || !form.name.trim()) {
+      setValidationErrors({ name: 'Template name is required' });
+      return;
+    }
+
     setSaving(true);
     try {
       const payload = {
-        template_name: form.name,
+        template_name: form.name.trim().toLowerCase(),
         category: form.category,
         language: form.language,
         template_type: form.type,
         header_type: form.header_type,
-        header_content: form.header_type === 'TEXT' ? form.header_text : null,
-        body: form.text,
+        header_content: form.header_type === 'TEXT' ? form.header_text : (form.header_file || null),
+        body: form.body,
         sample_values: form.sample_text ? { '{{1}}': form.sample_text } : undefined,
         footer: form.footer_enabled ? form.footer : null,
-        buttons: form.quick_replies.length > 0 ? form.quick_replies : undefined
+        buttons: form.quick_replies && form.quick_replies.length > 0 ? form.quick_replies : undefined
       };
 
       if (editingTemplate) {
@@ -226,38 +195,39 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      zIndex: 1000
+      zIndex: 1000,
+      padding: '16px'
     }}>
-      <div
-        ref={modalRef}
-        style={{
-          background: '#fff',
-          borderRadius: '16px',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-          width: '90%',
-          maxWidth: '1200px',
-          height: '85vh',
-          display: 'flex',
-          flexDirection: 'column',
-          animation: 'slideUp 0.3s ease-out'
-        }}
-      >
+      <div style={{
+        background: '#fff',
+        borderRadius: '16px',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+        width: '100%',
+        maxWidth: '1100px',
+        height: '90vh',
+        display: 'flex',
+        flexDirection: 'column',
+        animation: 'slideUp 0.3s ease-out'
+      }}>
         {/* Sticky Header */}
         <div style={{
-          padding: '24px',
+          padding: '20px 24px',
           borderBottom: '1px solid #e5e7eb',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          flexShrink: 0
+          flexShrink: 0,
+          background: '#fff'
         }}>
           <div>
-            <h2 style={{ margin: '0 0 4px 0', fontSize: '20px', fontWeight: '600' }}>
+            <h2 style={{ margin: '0 0 3px 0', fontSize: '18px', fontWeight: '600', color: '#000' }}>
               {editingTemplate ? 'Edit Template' : 'Create New Template'}
             </h2>
-            <p style={{ margin: 0, fontSize: '13px', color: '#67697b' }}>
-              {lastSaveDraft && `Last auto-saved: ${lastSaveDraft.toLocaleTimeString()}`}
-            </p>
+            {lastSaveDraft && (
+              <p style={{ margin: 0, fontSize: '12px', color: '#67697b' }}>
+                Auto-saved at {lastSaveDraft.toLocaleTimeString()}
+              </p>
+            )}
           </div>
           <button
             onClick={handleClose}
@@ -267,58 +237,68 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
               cursor: 'pointer',
               fontSize: '24px',
               color: '#67697b',
-              padding: '8px'
+              padding: '4px',
+              display: 'flex',
+              alignItems: 'center'
             }}
           >
             <X size={24} />
           </button>
         </div>
 
-        {/* Content Area - Two Columns */}
+        {/* Main Content - Two Columns */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: '60% 40%',
-          gap: '24px',
-          padding: '24px',
+          gridTemplateColumns: '58% 42%',
+          gap: '0',
           flex: 1,
-          overflow: 'hidden'
+          overflow: 'hidden',
+          borderTop: '1px solid #e5e7eb'
         }}>
           {/* Left Panel - Form */}
-          <div style={{ overflow: 'auto', paddingRight: '12px' }}>
-            <TemplateFormContent
+          <div style={{
+            overflow: 'auto',
+            background: '#fafafa',
+            display: 'flex',
+            flexDirection: 'column'
+          }}>
+            <FormContent
               form={form}
               handleChange={handleChange}
               validationErrors={validationErrors}
               languages={languages}
-              buttonTypes={buttonTypes}
-              currentButton={currentButton}
-              setCurrentButton={setCurrentButton}
-              handleAddButton={handleAddButton}
-              handleRemoveButton={handleRemoveButton}
-              bodyVariables={bodyVariables}
               hasVariables={hasVariables}
             />
           </div>
 
-          {/* Right Panel - Live Preview */}
+          {/* Right Panel - Live Preview (Sticky) */}
           <div style={{
-            background: '#f9fafb',
-            borderRadius: '12px',
-            padding: '16px',
-            overflow: 'auto',
-            position: 'sticky',
-            top: 0
+            background: '#f3f4f6',
+            borderLeft: '1px solid #e5e7eb',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+            position: 'relative'
           }}>
-            <WhatsAppTemplatePreview
-              template={{
-                header_type: form.header_type,
-                header_content: form.header_text,
-                body: form.text,
-                footer: form.footer_enabled ? form.footer : null,
-                quick_replies: form.quick_replies,
-                sample_text: form.sample_text
-              }}
-            />
+            <div style={{
+              padding: '16px',
+              overflow: 'auto',
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <WhatsAppTemplatePreview
+                template={{
+                  header_type: form.header_type,
+                  header_content: form.header_text,
+                  body: form.body,
+                  footer: form.footer_enabled ? form.footer : null,
+                  quick_replies: form.quick_replies,
+                  sample_text: form.sample_text
+                }}
+              />
+            </div>
           </div>
         </div>
 
@@ -326,17 +306,19 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
         <div style={{
           padding: '16px 24px',
           borderTop: '1px solid #e5e7eb',
-          background: '#f9fafb',
+          background: '#fff',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           flexShrink: 0
         }}>
           <div style={{ fontSize: '12px', color: '#67697b' }}>
-            {validationStatus.name ? (
-              <span style={{ color: '#258268' }}>✓ Ready to create</span>
+            {isFormValid ? (
+              <span style={{ color: '#258268', fontWeight: '600' }}>✓ Ready to create</span>
             ) : (
-              <span style={{ color: '#dc2626' }}>✗ Complete required fields</span>
+              <span style={{ color: '#dc2626', fontWeight: '600' }}>
+                {Object.keys(validationErrors).length} field(s) need attention
+              </span>
             )}
           </div>
 
@@ -344,13 +326,14 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
             <button
               onClick={handleClose}
               style={{
-                padding: '10px 16px',
+                padding: '10px 20px',
                 border: '1px solid #d1d5db',
                 background: '#fff',
                 borderRadius: '8px',
                 cursor: 'pointer',
                 fontSize: '13px',
-                fontWeight: '600'
+                fontWeight: '600',
+                color: '#374151'
               }}
             >
               Cancel
@@ -359,7 +342,7 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
               onClick={handleSubmit}
               disabled={!isFormValid || saving}
               style={{
-                padding: '10px 16px',
+                padding: '10px 20px',
                 background: isFormValid ? 'var(--primary)' : '#d1d5db',
                 color: '#fff',
                 border: 'none',
@@ -368,7 +351,6 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
                 fontSize: '13px',
                 fontWeight: '600'
               }}
-              title={!isFormValid ? 'Complete required fields to create' : ''}
             >
               {saving ? 'Creating...' : editingTemplate ? 'Save Changes' : 'Create Template'}
             </button>
@@ -392,80 +374,74 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
   );
 }
 
-function TemplateFormContent({
-  form,
-  handleChange,
-  validationErrors,
-  languages,
-  buttonTypes,
-  currentButton,
-  setCurrentButton,
-  handleAddButton,
-  handleRemoveButton,
-  bodyVariables,
-  hasVariables
-}) {
+function FormContent({ form, handleChange, validationErrors, languages, hasVariables }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+    <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* Section 1: Basic Information */}
       <FormSection title="Basic Information">
-        <FormField
-          label="Template Name *"
-          error={validationErrors.name}
-        >
-          <input
-            type="text"
-            value={form.name}
-            onChange={e => handleChange('name', e.target.value)}
-            placeholder="lowercase_template_name"
-            maxLength="50"
-            style={{
-              width: '100%',
-              height: '40px',
-              border: validationErrors.name ? '1px solid #dc2626' : '1px solid #d1d5db',
-              borderRadius: '8px',
-              padding: '0 12px',
-              fontSize: '13px',
-              outline: 0
-            }}
-          />
-        </FormField>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <FormField
+            label="Template Name *"
+            error={validationErrors.name}
+            isCompact
+          >
+            <input
+              type="text"
+              value={form.name}
+              onChange={e => handleChange('name', e.target.value)}
+              placeholder="lowercase_name"
+              maxLength="50"
+              style={{
+                width: '100%',
+                height: '36px',
+                border: validationErrors.name ? '1px solid #dc2626' : '1px solid #d1d5db',
+                borderRadius: '6px',
+                padding: '0 10px',
+                fontSize: '13px',
+                outline: 0,
+                fontFamily: 'monospace'
+              }}
+            />
+          </FormField>
 
-        <FormField
-          label="Label *"
-          error={validationErrors.label}
-        >
-          <input
-            type="text"
-            value={form.label}
-            onChange={e => handleChange('label', e.target.value)}
-            placeholder="Template description"
-            maxLength="100"
-            style={{
-              width: '100%',
-              height: '40px',
-              border: validationErrors.label ? '1px solid #dc2626' : '1px solid #d1d5db',
-              borderRadius: '8px',
-              padding: '0 12px',
-              fontSize: '13px',
-              outline: 0
-            }}
-          />
-        </FormField>
+          <FormField
+            label="Label *"
+            error={validationErrors.label}
+            isCompact
+          >
+            <input
+              type="text"
+              value={form.label}
+              onChange={e => handleChange('label', e.target.value)}
+              placeholder="Description"
+              maxLength="100"
+              style={{
+                width: '100%',
+                height: '36px',
+                border: validationErrors.label ? '1px solid #dc2626' : '1px solid #d1d5db',
+                borderRadius: '6px',
+                padding: '0 10px',
+                fontSize: '13px',
+                outline: 0
+              }}
+            />
+          </FormField>
+        </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-          <FormField label="Category *">
+          <FormField label="Category *" error={validationErrors.category} isCompact>
             <select
               value={form.category}
               onChange={e => handleChange('category', e.target.value)}
               style={{
                 width: '100%',
-                height: '40px',
+                height: '36px',
                 border: '1px solid #d1d5db',
-                borderRadius: '8px',
-                padding: '0 12px',
+                borderRadius: '6px',
+                padding: '0 10px',
                 fontSize: '13px',
-                outline: 0
+                outline: 0,
+                background: '#fff'
               }}
             >
               <option value="MARKETING">Marketing</option>
@@ -474,18 +450,19 @@ function TemplateFormContent({
             </select>
           </FormField>
 
-          <FormField label="Language *">
+          <FormField label="Language *" error={validationErrors.language} isCompact>
             <select
               value={form.language}
               onChange={e => handleChange('language', e.target.value)}
               style={{
                 width: '100%',
-                height: '40px',
+                height: '36px',
                 border: '1px solid #d1d5db',
-                borderRadius: '8px',
-                padding: '0 12px',
+                borderRadius: '6px',
+                padding: '0 10px',
                 fontSize: '13px',
-                outline: 0
+                outline: 0,
+                background: '#fff'
               }}
             >
               {languages.map(lang => (
@@ -498,18 +475,19 @@ function TemplateFormContent({
 
       {/* Section 2: Header */}
       <FormSection title="Header (Optional)">
-        <FormField label="Header Type">
+        <FormField label="Header Type" isCompact>
           <select
             value={form.header_type}
             onChange={e => handleChange('header_type', e.target.value)}
             style={{
               width: '100%',
-              height: '40px',
+              height: '36px',
               border: '1px solid #d1d5db',
-              borderRadius: '8px',
-              padding: '0 12px',
+              borderRadius: '6px',
+              padding: '0 10px',
               fontSize: '13px',
-              outline: 0
+              outline: 0,
+              background: '#fff'
             }}
           >
             <option value="NONE">None</option>
@@ -521,7 +499,11 @@ function TemplateFormContent({
         </FormField>
 
         {form.header_type === 'TEXT' && (
-          <FormField label="Header Text" error={validationErrors.header_text}>
+          <FormField
+            label="Header Text"
+            error={validationErrors.header_text}
+            isCompact
+          >
             <input
               type="text"
               value={form.header_text}
@@ -530,10 +512,10 @@ function TemplateFormContent({
               maxLength="100"
               style={{
                 width: '100%',
-                height: '40px',
+                height: '36px',
                 border: validationErrors.header_text ? '1px solid #dc2626' : '1px solid #d1d5db',
-                borderRadius: '8px',
-                padding: '0 12px',
+                borderRadius: '6px',
+                padding: '0 10px',
                 fontSize: '13px',
                 outline: 0
               }}
@@ -541,49 +523,97 @@ function TemplateFormContent({
           </FormField>
         )}
 
-        {['IMAGE', 'VIDEO', 'DOCUMENT'].includes(form.header_type) && (
-          <FormField label={`Upload ${form.header_type}`}>
-            <input
-              type="file"
-              onChange={e => handleChange('header_file', e.target.files?.[0])}
-              style={{
-                width: '100%',
-                height: '40px',
-                border: '1px solid #d1d5db',
-                borderRadius: '8px',
-                padding: '8px 12px',
-                fontSize: '13px'
-              }}
-            />
+        {(form.header_type === 'IMAGE' || form.header_type === 'VIDEO' || form.header_type === 'DOCUMENT') && (
+          <FormField
+            label={`Upload ${form.header_type} File`}
+            error={validationErrors.header_file}
+            isCompact
+          >
+            <div style={{
+              display: 'flex',
+              gap: '12px',
+              alignItems: 'center'
+            }}>
+              <input
+                type="file"
+                accept={
+                  form.header_type === 'IMAGE' ? 'image/*' :
+                  form.header_type === 'VIDEO' ? 'video/*' :
+                  '.pdf,.doc,.docx'
+                }
+                onChange={e => {
+                  if (e.target.files?.[0]) {
+                    handleChange('header_file', e.target.files[0]);
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  padding: '8px 10px',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '6px',
+                  fontSize: '13px',
+                  cursor: 'pointer'
+                }}
+              />
+              {form.header_file && (
+                <span style={{
+                  fontSize: '12px',
+                  color: '#059669',
+                  whiteSpace: 'nowrap'
+                }}>
+                  ✓ {form.header_file.name || 'File selected'}
+                </span>
+              )}
+            </div>
+            <p style={{
+              margin: '8px 0 0 0',
+              fontSize: '12px',
+              color: '#6b7280'
+            }}>
+              {form.header_type === 'IMAGE' && 'Max 5MB. Formats: JPG, PNG, GIF, BMP'}
+              {form.header_type === 'VIDEO' && 'Max 16MB. Formats: MP4, 3GP'}
+              {form.header_type === 'DOCUMENT' && 'Max 100MB. Formats: PDF'}
+            </p>
           </FormField>
         )}
       </FormSection>
 
-      {/* Section 3: Body */}
+      {/* Section 3: Message Body */}
       <FormSection title="Message Body">
         <FormField
           label="Body *"
-          error={validationErrors.text}
+          error={validationErrors.body}
         >
           <textarea
-            value={form.text}
-            onChange={e => handleChange('text', e.target.value)}
-            placeholder="Message body. Use {{1}}, {{2}} for variables"
+            value={form.body}
+            onChange={e => handleChange('body', e.target.value)}
+            placeholder="Enter message. Use {{1}}, {{2}} for variables"
             maxLength="1024"
             style={{
               width: '100%',
-              minHeight: '100px',
-              border: validationErrors.text ? '1px solid #dc2626' : '1px solid #d1d5db',
-              borderRadius: '8px',
-              padding: '12px',
+              height: '280px',
+              border: validationErrors.body ? '1px solid #dc2626' : '1px solid #d1d5db',
+              borderRadius: '6px',
+              padding: '10px',
               fontSize: '13px',
               fontFamily: 'monospace',
-              resize: 'vertical',
-              outline: 0
+              resize: 'none',
+              outline: 0,
+              whiteSpace: 'pre-wrap',
+              overflowWrap: 'break-word'
             }}
           />
-          <div style={{ fontSize: '12px', color: '#67697b', marginTop: '4px' }}>
-            {form.text.length}/1024 characters
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            fontSize: '11px',
+            color: '#67697b',
+            marginTop: '6px'
+          }}>
+            <span>{form.body.length}/1024 characters</span>
+            {hasVariables && (
+              <span>{bodyVariables.length} variable(s): {bodyVariables.join(', ')}</span>
+            )}
           </div>
         </FormField>
 
@@ -599,14 +629,17 @@ function TemplateFormContent({
               placeholder="Example with sample values"
               style={{
                 width: '100%',
-                height: '40px',
+                height: '36px',
                 border: validationErrors.sample_text ? '1px solid #dc2626' : '1px solid #d1d5db',
-                borderRadius: '8px',
-                padding: '0 12px',
+                borderRadius: '6px',
+                padding: '0 10px',
                 fontSize: '13px',
                 outline: 0
               }}
             />
+            <div style={{ fontSize: '11px', color: '#67697b', marginTop: '4px' }}>
+              Shows how variables appear in the preview
+            </div>
           </FormField>
         )}
       </FormSection>
@@ -617,151 +650,61 @@ function TemplateFormContent({
         expanded={form.footer_expanded}
         onToggle={() => handleChange('footer_expanded', !form.footer_expanded)}
       >
-        <div style={{ display: 'flex', gap: '12px', marginBottom: '12px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
           <input
             type="checkbox"
             checked={form.footer_enabled}
             onChange={e => handleChange('footer_enabled', e.target.checked)}
+            id="footer-toggle"
             style={{ cursor: 'pointer' }}
           />
-          <label style={{ fontSize: '13px', cursor: 'pointer' }}>Add footer text</label>
+          <label htmlFor="footer-toggle" style={{ fontSize: '13px', cursor: 'pointer' }}>
+            Add footer text
+          </label>
         </div>
 
         {form.footer_enabled && (
-          <FormField label="Footer Text">
+          <FormField label="Footer Text" isCompact>
             <input
               type="text"
               value={form.footer}
               onChange={e => handleChange('footer', e.target.value)}
-              placeholder="Footer text (max 60 chars)"
+              placeholder="Footer (max 60 chars)"
               maxLength="60"
               style={{
                 width: '100%',
-                height: '40px',
+                height: '36px',
                 border: '1px solid #d1d5db',
-                borderRadius: '8px',
-                padding: '0 12px',
+                borderRadius: '6px',
+                padding: '0 10px',
                 fontSize: '13px',
                 outline: 0
               }}
             />
-            <div style={{ fontSize: '12px', color: '#67697b', marginTop: '4px' }}>
+            <div style={{ fontSize: '11px', color: '#67697b', marginTop: '4px' }}>
               {form.footer.length}/60 characters
             </div>
           </FormField>
         )}
       </CollapsibleSection>
 
-      {/* Section 5: Buttons */}
-      <CollapsibleSection
-        title="Buttons"
-        expanded={form.buttons_expanded}
-        onToggle={() => handleChange('buttons_expanded', !form.buttons_expanded)}
-      >
-        {form.quick_replies.length > 0 && (
-          <div style={{ marginBottom: '12px' }}>
-            {form.quick_replies.map((btn, idx) => (
-              <div
-                key={idx}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '8px',
-                  background: '#f3f4f6',
-                  borderRadius: '6px',
-                  marginBottom: '6px',
-                  fontSize: '12px'
-                }}
-              >
-                <span>{btn.button_title} ({btn.button_type})</span>
-                <button
-                  onClick={() => handleRemoveButton(idx)}
-                  style={{
-                    border: 'none',
-                    background: 'transparent',
-                    color: '#dc2626',
-                    cursor: 'pointer'
-                  }}
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <FormField label="Button Type">
-          <select
-            value={currentButton.button_type}
-            onChange={e => setCurrentButton(prev => ({ ...prev, button_type: e.target.value }))}
-            style={{
-              width: '100%',
-              height: '40px',
-              border: '1px solid #d1d5db',
-              borderRadius: '8px',
-              padding: '0 12px',
-              fontSize: '13px',
-              outline: 0
-            }}
-          >
-            {buttonTypes.map(type => (
-              <option key={type} value={type}>{type}</option>
-            ))}
-          </select>
-        </FormField>
-
-        <FormField label="Button Title">
-          <input
-            type="text"
-            value={currentButton.button_title}
-            onChange={e => setCurrentButton(prev => ({ ...prev, button_title: e.target.value.slice(0, 25) }))}
-            placeholder="Button text"
-            maxLength="25"
-            style={{
-              width: '100%',
-              height: '40px',
-              border: '1px solid #d1d5db',
-              borderRadius: '8px',
-              padding: '0 12px',
-              fontSize: '13px',
-              outline: 0
-            }}
-          />
-          <div style={{ fontSize: '12px', color: '#67697b', marginTop: '4px' }}>
-            {currentButton.button_title.length}/25 characters
-          </div>
-        </FormField>
-
-        <button
-          onClick={handleAddButton}
-          style={{
-            width: '100%',
-            padding: '10px',
-            background: '#667eea',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            fontSize: '13px',
-            fontWeight: '600',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '6px'
-          }}
-        >
-          <Plus size={16} /> Add Button
-        </button>
-      </CollapsibleSection>
+      {/* Spacer */}
+      <div style={{ height: '8px' }} />
     </div>
   );
 }
 
 function FormSection({ title, children }) {
   return (
-    <div style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: '16px' }}>
-      <h3 style={{ margin: '0 0 12px 0', fontSize: '13px', fontWeight: '600', color: '#5c5e72', textTransform: 'uppercase' }}>
+    <div>
+      <h3 style={{
+        margin: '0 0 12px 0',
+        fontSize: '12px',
+        fontWeight: '600',
+        color: '#5c5e72',
+        textTransform: 'uppercase',
+        letterSpacing: '0.5px'
+      }}>
         {title}
       </h3>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -771,29 +714,39 @@ function FormSection({ title, children }) {
   );
 }
 
-function FormField({ label, error, children }) {
+function FormField({ label, error, children, isCompact }) {
   return (
-    <label style={{ display: 'grid', gap: '6px', fontSize: '12px', fontWeight: '600', color: '#5c5e72' }}>
+    <label style={{
+      display: 'grid',
+      gap: isCompact ? '4px' : '6px',
+      fontSize: '12px',
+      fontWeight: '600',
+      color: '#5c5e72'
+    }}>
       {label}
       {children}
-      {error && <span style={{ fontSize: '11px', color: '#dc2626' }}>✕ {error}</span>}
+      {error && (
+        <span style={{ fontSize: '11px', color: '#dc2626', fontWeight: '400' }}>
+          ✕ {error}
+        </span>
+      )}
     </label>
   );
 }
 
 function CollapsibleSection({ title, expanded, onToggle, children }) {
   return (
-    <div style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: '16px' }}>
+    <div>
       <button
         onClick={onToggle}
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '8px',
+          gap: '6px',
           background: 'transparent',
           border: 'none',
           cursor: 'pointer',
-          fontSize: '13px',
+          fontSize: '12px',
           fontWeight: '600',
           color: '#5c5e72',
           textTransform: 'uppercase',
@@ -802,7 +755,7 @@ function CollapsibleSection({ title, expanded, onToggle, children }) {
         }}
       >
         <ChevronDown
-          size={16}
+          size={14}
           style={{
             transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)',
             transition: 'transform 0.2s'
