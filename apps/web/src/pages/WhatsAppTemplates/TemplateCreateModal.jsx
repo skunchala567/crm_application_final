@@ -22,6 +22,7 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
   });
 
   const [validationErrors, setValidationErrors] = useState({});
+  const [apiError, setApiError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [unsavedChanges, setUnsavedChanges] = useState(false);
   const [lastSaveDraft, setLastSaveDraft] = useState(null);
@@ -121,6 +122,7 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
   const handleChange = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }));
     setUnsavedChanges(true);
+    setApiError(null);
   };
 
   const handleAddQuickReply = () => {
@@ -167,7 +169,7 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
       onSuccess();
       handleClose();
     } catch (error) {
-      setValidationErrors({ submit: error.message });
+      setApiError(error.message || 'Failed to create template. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -245,6 +247,46 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
             <X size={24} />
           </button>
         </div>
+
+        {/* API Error Alert */}
+        {apiError && (
+          <div style={{
+            padding: '12px 24px',
+            background: '#fee2e2',
+            borderBottom: '1px solid #fecaca',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: '12px',
+            flexShrink: 0
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              color: '#dc2626',
+              fontSize: '13px'
+            }}>
+              <span style={{ fontSize: '16px' }}>⚠️</span>
+              <span>{apiError}</span>
+            </div>
+            <button
+              onClick={() => setApiError(null)}
+              style={{
+                border: 'none',
+                background: 'transparent',
+                cursor: 'pointer',
+                color: '#dc2626',
+                fontSize: '18px',
+                padding: '2px 4px',
+                display: 'flex',
+                alignItems: 'center'
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
 
         {/* Main Content - Two Columns */}
         <div style={{
