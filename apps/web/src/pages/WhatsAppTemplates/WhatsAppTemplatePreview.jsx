@@ -42,10 +42,10 @@ export default function WhatsAppTemplatePreview({ template, businessName = 'Pall
     }}>
       {/* Phone Mockup */}
       <div style={{
-        width: '360px',
+        width: '468px',
         background: '#000',
-        borderRadius: '48px',
-        padding: '12px',
+        borderRadius: '62px',
+        padding: '16px',
         boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
         overflow: 'hidden',
         display: 'flex',
@@ -54,17 +54,17 @@ export default function WhatsAppTemplatePreview({ template, businessName = 'Pall
       }}>
         {/* Notch */}
         <div style={{
-          height: '28px',
+          height: '36px',
           background: '#000',
-          borderBottomLeftRadius: '20px',
-          borderBottomRightRadius: '20px',
-          marginBottom: '8px'
+          borderBottomLeftRadius: '26px',
+          borderBottomRightRadius: '26px',
+          marginBottom: '10px'
         }} />
 
         {/* Screen */}
         <div style={{
           background: '#fff',
-          borderRadius: '24px',
+          borderRadius: '32px',
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
