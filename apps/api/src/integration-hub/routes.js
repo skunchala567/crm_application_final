@@ -210,7 +210,9 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
 
       res.json({ success: true, data: result });
     } catch (error) {
-      res.status(500).json({ success: false, message: error.message });
+      const errorMessage = error?.message || error?.toString?.() || 'Unknown error';
+      console.error('Test connection error:', error);
+      res.status(500).json({ success: false, message: errorMessage });
     }
   });
 
@@ -229,15 +231,15 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
         return res.status(404).json({ success: false, message: 'Integration not found' });
       }
 
-      // WhatsApp doesn't use OAuth - just activate it
-      if (integration.provider_name === 'whatsapp') {
+      // Smartping uses API key authentication - just activate it
+      if (integration.provider_name === 'smartping') {
         await service.configs.updateSyncStatus(integrationId, organizationId, {
           status: 'active',
           lastErrorMessage: null,
           lastSyncedAt: null,
           nextSyncAt: null
         });
-        return res.json({ success: true, data: { message: 'WhatsApp activated successfully' } });
+        return res.json({ success: true, data: { message: 'Smartping activated successfully' } });
       }
 
       // OAuth flow for other providers
@@ -644,15 +646,14 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
     }
   });
 
-  // ============= WhatsApp Messaging =============
+  // ============= Smartping Messaging =============
 
-  // Send message to individual lead
-  // Send individual message to phone number
-  router.post('/integrations/:integrationId/whatsapp/send', authenticate, async (req, res, next) => {
+  // Send message to individual contact
+  router.post('/integrations/:integrationId/smartping/send', authenticate, async (req, res, next) => {
     try {
       const organizationId = req.user?.id || 1;
       const integrationId = parseInt(req.params.integrationId);
-      const { phoneNumber, message, templateId } = req.body;
+      const { phoneNumber, message } = req.body;
 
       if (!phoneNumber || !message) {
         return res.status(400).json({
@@ -661,12 +662,11 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
         });
       }
 
-      const result = await service.sendWhatsAppMessage(
+      const result = await service.sendSmartpingMessage(
         integrationId,
         organizationId,
         phoneNumber,
-        message,
-        { templateId }
+        message
       );
 
       res.json({ success: true, data: result });
@@ -675,12 +675,12 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
     }
   });
 
-  // Send bulk messages to phone numbers from Excel/CSV
-  router.post('/integrations/:integrationId/whatsapp/send-bulk', authenticate, async (req, res, next) => {
+  // Send bulk messages to phone numbers
+  router.post('/integrations/:integrationId/smartping/send-bulk', authenticate, async (req, res, next) => {
     try {
       const organizationId = req.user?.id || 1;
       const integrationId = parseInt(req.params.integrationId);
-      const { phoneNumbers, message, templateId } = req.body;
+      const { phoneNumbers, message } = req.body;
 
       if (!phoneNumbers || !Array.isArray(phoneNumbers) || phoneNumbers.length === 0) {
         return res.status(400).json({
@@ -696,12 +696,11 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
         });
       }
 
-      const result = await service.sendWhatsAppBulkMessages(
+      const result = await service.sendSmartpingBulkMessages(
         integrationId,
         organizationId,
         phoneNumbers,
-        message,
-        { templateId }
+        message
       );
 
       res.json({ success: true, data: result });
@@ -710,15 +709,49 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
     }
   });
 
-  // Get WhatsApp message templates
-  router.get('/integrations/:integrationId/whatsapp/templates', authenticate, async (req, res, next) => {
+  // Create WhatsApp template
+  router.post('/integrations/:integrationId/smartping/templates', authenticate, async (req, res, next) => {
+    try {
+      const organizationId = req.user?.id || 1;
+      const integrationId = parseInt(req.params.integrationId);
+      const templateData = req.body;
+
+      const template = await service.createSmartpingTemplate(
+        integrationId,
+        organizationId,
+        templateData
+      );
+
+      res.status(201).json({ success: true, data: template });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Get Smartping message templates
+  router.get('/integrations/:integrationId/smartping/templates', authenticate, async (req, res, next) => {
     try {
       const organizationId = req.user?.id || 1;
       const integrationId = parseInt(req.params.integrationId);
 
-      const templates = await service.getWhatsAppTemplates(integrationId, organizationId);
+      const templates = await service.getSmartpingTemplates(integrationId, organizationId);
 
       res.json({ success: true, data: templates });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Get specific template
+  router.get('/integrations/:integrationId/smartping/templates/:templateId', authenticate, async (req, res, next) => {
+    try {
+      const organizationId = req.user?.id || 1;
+      const integrationId = parseInt(req.params.integrationId);
+      const templateId = req.params.templateId;
+
+      const template = await service.getSmartpingTemplate(integrationId, organizationId, templateId);
+
+      res.json({ success: true, data: template });
     } catch (error) {
       next(error);
     }

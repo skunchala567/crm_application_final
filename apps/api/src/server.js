@@ -7,6 +7,7 @@ import mysql from 'mysql2/promise';
 import ExcelJS from 'exceljs';
 import { demoLeads, demoUser } from './data.js';
 import { IntegrationHubService, createIntegrationHubRoutes } from './integration-hub/index.js';
+import { createWhatsAppTemplateRoutes } from './whatsapp/whatsapp-template.routes.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -42,19 +43,15 @@ const integrationHubService = new IntegrationHubService(pool);
 
 // Register providers
 try {
-  // Import and register Google Sheets provider (Phase 4)
+  // Import and register Google Sheets provider
   const { GoogleSheetsProvider } = await import('./integration-hub/providers/google-sheets-provider.js');
   integrationHubService.registerProvider('google_sheets', GoogleSheetsProvider);
   console.log('✓ Google Sheets provider registered');
 
-  // Import and register WhatsApp provider (Phase 5)
-  const { WhatsAppProvider } = await import('./integration-hub/providers/whatsapp-provider.js');
-  integrationHubService.registerProvider('whatsapp', WhatsAppProvider);
-  console.log('✓ WhatsApp provider registered');
-
-  // SmartPing provider can be registered similarly
-  // const { SmartPingProvider } = await import('./integration-hub/providers/smartping-provider.js');
-  // integrationHubService.registerProvider('smartping', SmartPingProvider);
+  // Import and register Smartping provider
+  const { SmartpingProvider } = await import('./integration-hub/providers/smartping-provider.js');
+  integrationHubService.registerProvider('smartping', SmartpingProvider);
+  console.log('✓ Smartping provider registered');
 } catch (error) {
   console.error('❌ ERROR loading providers:');
   console.error('Message:', error.message);
@@ -2814,6 +2811,9 @@ async function processBulkUploadImport(uploadId, records, branchId, userId, pool
 
 // ============= Integration Hub Routes =============
 app.use('/api/hub', createIntegrationHubRoutes(integrationHubService, authenticate, requireCrmAccess));
+
+// ============= WhatsApp Template Routes =============
+app.use('/api/whatsapp', createWhatsAppTemplateRoutes(pool, authenticate, console));
 
 app.use((error, _req, res, _next) => {
   console.error('[API Error]', error.message, error.stack);

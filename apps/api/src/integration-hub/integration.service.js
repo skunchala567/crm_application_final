@@ -121,12 +121,11 @@ export class IntegrationHubService {
         status: 'status' in updateData ? updateData.status : oldConfig.status
       };
 
-      // Debug logging for token storage
-      if (updatePayload.config?.accessToken) {
-        this.logger.log('[WhatsApp Config] Storing token:', {
-          tokenLength: updatePayload.config.accessToken.length,
-          tokenPrefix: updatePayload.config.accessToken.substring(0, 20),
-          tokenSuffix: updatePayload.config.accessToken.substring(updatePayload.config.accessToken.length - 10)
+      // Debug logging for Smartping credentials
+      if (updatePayload.config?.projectApiPassword) {
+        this.logger.log('[Smartping Config] Storing API password:', {
+          passwordLength: updatePayload.config.projectApiPassword.length,
+          projectId: updatePayload.config.projectId
         });
       }
 
@@ -199,16 +198,25 @@ export class IntegrationHubService {
         }
       }
 
-      // Build provider config with OAuth credentials from environment
-      const providerConfig = {
-        ...config.config,
-        clientId: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        redirectUrl: process.env.GOOGLE_REDIRECT_URI
-      };
+      // Build provider config based on provider type
+      let providerConfig;
+      if (providerName === 'smartping') {
+        // Smartping doesn't use OAuth, just pass the config
+        providerConfig = config.config;
+      } else {
+        // Google Sheets and other OAuth providers
+        providerConfig = {
+          ...config.config,
+          clientId: process.env.GOOGLE_CLIENT_ID,
+          clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+          redirectUrl: process.env.GOOGLE_REDIRECT_URI
+        };
+      }
 
-      // Initialize provider with config and token
-      const providerInstance = new provider(providerConfig, decryptedAccessToken, this.logger);
+      // Initialize provider with appropriate parameters
+      const providerInstance = providerName === 'smartping'
+        ? new provider(providerConfig, this.logger)
+        : new provider(providerConfig, decryptedAccessToken, this.logger);
 
       // Test connection
       let result;
@@ -1172,55 +1180,61 @@ export class IntegrationHubService {
     return 0;
   }
 
-  // ============= WhatsApp Messaging =============
+  // ============= Smartping Messaging =============
 
-  async sendWhatsAppMessage(integrationId, organizationId, phoneNumber, message, options = {}) {
+  async sendSmartpingMessage(integrationId, organizationId, phoneNumber, message, options = {}) {
     try {
       const config = await this.configs.getById(integrationId, organizationId);
       if (!config) throw new Error('Integration not found');
-      if (config.provider_name !== 'whatsapp') throw new Error('Integration is not WhatsApp');
+      if (config.provider_name !== 'smartping') throw new Error('Integration is not Smartping');
 
       if (!phoneNumber) {
         throw new Error('Phone number is required');
       }
 
+      if (!message) {
+        throw new Error('Message is required');
+      }
+
       const provider = this.getProvider(config.provider_name);
-      if (!provider) throw new Error('WhatsApp provider not registered');
+      if (!provider) throw new Error('Smartping provider not registered');
 
       const providerInstance = new provider(config.config, this.logger);
       const result = await providerInstance.sendMessage(phoneNumber, message, options);
 
-      // Log message sent
       await this.audit.log(integrationId, {
         action: 'message_sent',
-        notes: `WhatsApp message sent to ${phoneNumber}`,
+        notes: `Smartping message sent to ${phoneNumber}`,
         createdById: null
       });
 
       return result;
     } catch (error) {
-      this.safeLogError('Failed to send WhatsApp message', error);
+      this.safeLogError('Failed to send Smartping message', error);
       throw error;
     }
   }
 
-  async sendWhatsAppBulkMessages(integrationId, organizationId, phoneNumbers, message, options = {}) {
+  async sendSmartpingBulkMessages(integrationId, organizationId, phoneNumbers, message, options = {}) {
     try {
       const config = await this.configs.getById(integrationId, organizationId);
       if (!config) throw new Error('Integration not found');
-      if (config.provider_name !== 'whatsapp') throw new Error('Integration is not WhatsApp');
+      if (config.provider_name !== 'smartping') throw new Error('Integration is not Smartping');
 
       if (!phoneNumbers || !Array.isArray(phoneNumbers) || phoneNumbers.length === 0) {
         throw new Error('Phone numbers array is required');
       }
 
+      if (!message) {
+        throw new Error('Message is required');
+      }
+
       const provider = this.getProvider(config.provider_name);
-      if (!provider) throw new Error('WhatsApp provider not registered');
+      if (!provider) throw new Error('Smartping provider not registered');
 
       const providerInstance = new provider(config.config, this.logger);
       const result = await providerInstance.sendBulkMessages(phoneNumbers, message, options);
 
-      // Log bulk send
       await this.audit.log(integrationId, {
         action: 'bulk_messages_sent',
         notes: `Sent to ${result.sent} numbers, ${result.failed} failed`,
@@ -1229,25 +1243,66 @@ export class IntegrationHubService {
 
       return result;
     } catch (error) {
-      this.safeLogError('Failed to send bulk WhatsApp messages', error);
+      this.safeLogError('Failed to send bulk Smartping messages', error);
       throw error;
     }
   }
 
-  async getWhatsAppTemplates(integrationId, organizationId) {
+  async createSmartpingTemplate(integrationId, organizationId, templateData) {
     try {
       const config = await this.configs.getById(integrationId, organizationId);
       if (!config) throw new Error('Integration not found');
-      if (config.provider_name !== 'whatsapp') throw new Error('Integration is not WhatsApp');
+      if (config.provider_name !== 'smartping') throw new Error('Integration is not Smartping');
 
       const provider = this.getProvider(config.provider_name);
-      if (!provider) throw new Error('WhatsApp provider not registered');
+      if (!provider) throw new Error('Smartping provider not registered');
+
+      const providerInstance = new provider(config.config, this.logger);
+      const template = await providerInstance.createTemplate(templateData);
+
+      await this.audit.log(integrationId, {
+        action: 'template_created',
+        notes: `Template "${templateData.name}" created with status ${template.status}`,
+        createdById: null
+      });
+
+      return template;
+    } catch (error) {
+      this.safeLogError('Failed to create template', error);
+      throw error;
+    }
+  }
+
+  async getSmartpingTemplates(integrationId, organizationId) {
+    try {
+      const config = await this.configs.getById(integrationId, organizationId);
+      if (!config) throw new Error('Integration not found');
+      if (config.provider_name !== 'smartping') throw new Error('Integration is not Smartping');
+
+      const provider = this.getProvider(config.provider_name);
+      if (!provider) throw new Error('Smartping provider not registered');
 
       const providerInstance = new provider(config.config, this.logger);
       return await providerInstance.getTemplates();
     } catch (error) {
-      const errorMsg = error.message || 'Unknown error';
-      this.safeLogError('Failed to get WhatsApp templates', error);
+      this.safeLogError('Failed to get Smartping templates', error);
+      throw error;
+    }
+  }
+
+  async getSmartpingTemplate(integrationId, organizationId, templateId) {
+    try {
+      const config = await this.configs.getById(integrationId, organizationId);
+      if (!config) throw new Error('Integration not found');
+      if (config.provider_name !== 'smartping') throw new Error('Integration is not Smartping');
+
+      const provider = this.getProvider(config.provider_name);
+      if (!provider) throw new Error('Smartping provider not registered');
+
+      const providerInstance = new provider(config.config, this.logger);
+      return await providerInstance.getTemplate(templateId);
+    } catch (error) {
+      this.safeLogError('Failed to get template', error);
       throw error;
     }
   }

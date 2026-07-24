@@ -1,15 +1,17 @@
 import { useState } from 'react';
-import { Settings, Users, ClipboardList, X, BookOpen, Calendar } from 'lucide-react';
+import { Settings, Users, ClipboardList, X, BookOpen, Calendar, MessageCircle } from 'lucide-react';
 import UserManagementPage from './UserManagementPage.jsx';
 import LeadConfiguration from './LeadConfiguration.jsx';
 import AdmissionClassConfiguration from './AdmissionClassConfiguration.jsx';
 import AcademicYearsConfiguration from './AcademicYearsConfiguration.jsx';
+import WhatsAppTemplatesSettings from './WhatsAppTemplatesSettings.jsx';
 
 const settingsTabs = [
   { id: 'users', label: 'User Management', icon: Users, component: UserManagementPage },
   { id: 'config', label: 'Lead Configuration', icon: ClipboardList, component: LeadConfiguration },
   { id: 'academic-years', label: 'Academic Years', icon: Calendar, component: AcademicYearsConfiguration },
   { id: 'admission', label: 'Admission Classes', icon: BookOpen, component: AdmissionClassConfiguration },
+  { id: 'whatsapp-templates', label: 'WhatsApp Templates', icon: MessageCircle, component: WhatsAppTemplatesSettings },
 ];
 
 export default function SettingsPage(){

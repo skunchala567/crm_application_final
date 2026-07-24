@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
-import { Plus, RefreshCw, Settings, Trash2, Activity, AlertCircle, CheckCircle, Clock, MessageCircle } from 'lucide-react';
+import { Plus, RefreshCw, Settings, Trash2, Activity, AlertCircle, CheckCircle, Clock, Link as LinkIcon } from 'lucide-react';
 import { api } from '../api';
 import SpreadsheetPicker from './SpreadsheetPicker';
 import FieldMappingPanel from './FieldMappingPanel';
-import WhatsAppMessaging from './WhatsAppMessaging';
-import WhatsAppConfig from './WhatsAppConfig';
+import SmartpingConfig from './SmartpingConfig';
 import GoogleSheetsConfig from './GoogleSheetsConfig';
 import SyncDataPanel from './SyncDataPanel';
+import StatCard from './components/StatCard';
+import IntegrationTable from './components/IntegrationTable';
+import ActionToolbar from './components/ActionToolbar';
+import PageHeader from './components/PageHeader';
 import './IntegrationHub.css';
 
 export default function IntegrationHubPage() {
@@ -15,11 +18,12 @@ export default function IntegrationHubPage() {
   const [error, setError] = useState(null);
   const [showWizard, setShowWizard] = useState(false);
   const [selectedIntegration, setSelectedIntegration] = useState(null);
-  const [syncStatus, setSyncStatus] = useState({});
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState('');
 
   useEffect(() => {
     fetchIntegrations();
-    const interval = setInterval(fetchIntegrations, 5000); // Poll every 5 seconds
+    const interval = setInterval(fetchIntegrations, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -47,10 +51,10 @@ export default function IntegrationHubPage() {
     }
   };
 
-  const handleSync = async (integration, syncType) => {
+  const handleSync = async (integration) => {
     try {
-      const response = await api.post(`/hub/integrations/${integration.id}/sync/${syncType}`);
-      alert(`Sync started: Job #${response.data.jobId}`);
+      const response = await api.post(`/hub/integrations/${integration.id}/sync/manual`);
+      alert(`✅ Sync started: Job #${response.data.jobId}`);
       fetchIntegrations();
     } catch (err) {
       alert('❌ Sync failed: ' + err.message);
@@ -59,90 +63,127 @@ export default function IntegrationHubPage() {
 
   const handleAuthorize = async (integration) => {
     try {
-      // WhatsApp doesn't use OAuth - just activate it
-      if (integration.provider_name === 'whatsapp') {
-        const response = await api.post(`/hub/integrations/${integration.id}/auth/start`, {});
-        alert('✅ WhatsApp activated! Go to the Messaging tab to start sending messages.');
+      if (integration.provider_name === 'smartping') {
+        await api.post(`/hub/integrations/${integration.id}/auth/start`, {});
+        alert('✅ Smartping activated!');
         fetchIntegrations();
         return;
       }
 
-      // Request authorization URL from backend for OAuth providers
       const response = await api.post(`/hub/oauth/initiate`, {
         integrationId: integration.id,
         providerName: integration.provider_name
       });
 
       if (response.data?.authUrl) {
-        // Redirect to OAuth provider
         window.location.href = response.data.authUrl;
-      } else {
-        alert('❌ Failed to get authorization URL');
       }
     } catch (err) {
       alert('❌ Authorization failed: ' + err.message);
     }
   };
 
-  const handleDisconnect = async (integration) => {
-    if (!confirm('Disconnect this integration? You can re-authorize it later.')) return;
+  const handleDelete = async (integration) => {
+    if (!confirm(`Delete integration "${integration.integration_name}"?`)) return;
 
     try {
-      await api.post(`/hub/integrations/${integration.id}/auth/disconnect`, {});
-      alert('✅ Integration disconnected. Click "Authorize Now" to reconnect.');
+      await api.delete(`/hub/integrations/${integration.id}`);
+      alert('✅ Integration deleted');
       fetchIntegrations();
     } catch (err) {
-      alert('❌ Failed: ' + err.message);
+      alert('❌ Delete failed: ' + err.message);
     }
   };
 
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case 'active':
-        return <CheckCircle className="status-icon active" size={20} />;
-      case 'pending_auth':
-        return <Clock className="status-icon pending" size={20} />;
-      case 'error':
-        return <AlertCircle className="status-icon error" size={20} />;
-      default:
-        return <Activity className="status-icon" size={20} />;
-    }
+  // Calculate statistics
+  const stats = {
+    total: integrations.length,
+    connected: integrations.filter(i => i.status === 'active').length,
+    disconnected: integrations.filter(i => i.status === 'disconnected' || i.status === 'inactive').length,
+    needsAttention: integrations.filter(i => i.status === 'error' || i.status === 'pending_auth').length
   };
 
-  const getStatusBadge = (status) => {
-    const statusMap = {
-      active: { label: 'Connected', color: 'success' },
-      pending_auth: { label: 'Awaiting Auth', color: 'warning' },
-      error: { label: 'Error', color: 'danger' },
-      inactive: { label: 'Disconnected', color: 'muted' }
-    };
-    const info = statusMap[status] || statusMap.inactive;
-    return <span className={`badge badge-${info.color}`}>{info.label}</span>;
-  };
+  // Filter integrations
+  const filteredIntegrations = integrations.filter(i => {
+    const matchesSearch = i.integration_name.toLowerCase().includes(search.toLowerCase()) ||
+                          i.provider_name.toLowerCase().includes(search.toLowerCase());
+    const matchesFilter = !filter || i.status === filter;
+    return matchesSearch && matchesFilter;
+  });
 
   if (loading) {
-    return <div className="integration-hub-page"><p>Loading integrations...</p></div>;
+    return (
+      <main className="integration-main">
+        <PageHeader title="Integrations" subtitle="Connect and manage third-party services" />
+        <div className="loading-state">Loading integrations...</div>
+      </main>
+    );
   }
 
   return (
-    <div className="integration-hub-page">
-      <div className="hub-header">
-        <div className="hub-title">
-          <h1>Integration Hub</h1>
-          <p>Connect third-party services to your CRM</p>
-        </div>
+    <main className="integration-main">
+      <PageHeader
+        title="Integrations"
+        subtitle="Manage and monitor all third-party integrations connected with the CRM"
+      >
         <button className="btn btn-primary" onClick={() => setShowWizard(true)}>
-          <Plus size={18} /> New Integration
+          <Plus size={18} />
+          Add Integration
         </button>
-      </div>
+      </PageHeader>
 
       {error && (
-        <div className="alert alert-danger" role="alert">
+        <div className="alert alert-danger">
           <AlertCircle size={18} />
           <span>{error}</span>
         </div>
       )}
 
+      {/* Statistics Cards */}
+      <div className="stats-grid">
+        <StatCard
+          icon={LinkIcon}
+          label="Total Integrations"
+          value={stats.total}
+          color="primary"
+        />
+        <StatCard
+          icon={CheckCircle}
+          label="Connected"
+          value={stats.connected}
+          color="success"
+        />
+        <StatCard
+          icon={AlertCircle}
+          label="Disconnected"
+          value={stats.disconnected}
+          color="warning"
+        />
+        <StatCard
+          icon={Activity}
+          label="Needs Attention"
+          value={stats.needsAttention}
+          color="danger"
+        />
+      </div>
+
+      {/* Search & Filter Toolbar */}
+      <ActionToolbar
+        searchValue={search}
+        onSearchChange={setSearch}
+        filterValue={filter}
+        onFilterChange={setFilter}
+        onRefresh={fetchIntegrations}
+        onAddNew={() => setShowWizard(true)}
+        filters={[
+          { label: 'Connected', value: 'active' },
+          { label: 'Disconnected', value: 'disconnected' },
+          { label: 'Error', value: 'error' },
+          { label: 'Pending', value: 'pending_auth' }
+        ]}
+      />
+
+      {/* Modals */}
       {showWizard && (
         <ConnectionWizard
           onClose={() => setShowWizard(false)}
@@ -161,98 +202,28 @@ export default function IntegrationHubPage() {
         />
       )}
 
-      <div className="integrations-grid">
-        {integrations.length === 0 ? (
-          <div className="empty-state">
-            <Activity size={48} />
-            <h2>No Integrations Yet</h2>
-            <p>Connect your first service to get started</p>
-            <button className="btn btn-primary" onClick={() => setShowWizard(true)}>
-              <Plus size={18} /> Connect Now
-            </button>
-          </div>
-        ) : (
-          integrations.map(integration => (
-            <div key={integration.id} className="integration-card">
-              <div className="card-header">
-                <div className="integration-info">
-                  <h3>{integration.integration_name}</h3>
-                  <p className="provider">{integration.provider_name}</p>
-                </div>
-                {getStatusIcon(integration.status)}
-              </div>
-
-              <div className="card-body">
-                {getStatusBadge(integration.status)}
-
-                {integration.last_synced_at && (
-                  <div className="sync-info">
-                    <span>Last sync: {new Date(integration.last_synced_at).toLocaleString()}</span>
-                  </div>
-                )}
-
-                {integration.last_error_message && (
-                  <div className="error-info">
-                    <AlertCircle size={16} />
-                    <span>{integration.last_error_message}</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="card-actions">
-                {(integration.status === 'pending_auth' || integration.status === 'disconnected' || integration.status === 'inactive') && (
-                  <button
-                    className="btn btn-sm btn-primary"
-                    onClick={() => handleAuthorize(integration)}
-                    title="Authorize with Provider"
-                  >
-                    🔐 Authorize Now
-                  </button>
-                )}
-
-                {integration.status !== 'pending_auth' && integration.status !== 'disconnected' && integration.status !== 'inactive' && (
-                  <button
-                    className="btn btn-sm btn-outline"
-                    onClick={() => handleTestConnection(integration)}
-                    title="Test Connection"
-                  >
-                    <Activity size={16} /> Test
-                  </button>
-                )}
-
-                {integration.status === 'active' && (
-                  <>
-                    <button
-                      className="btn btn-sm btn-outline"
-                      onClick={() => handleSync(integration, 'manual')}
-                      title="Manual Sync"
-                    >
-                      <RefreshCw size={16} /> Sync
-                    </button>
-
-                    <button
-                      className="btn btn-sm btn-outline"
-                      onClick={() => setSelectedIntegration(integration)}
-                      title="Settings"
-                    >
-                      <Settings size={16} /> Settings
-                    </button>
-                  </>
-                )}
-
-                <button
-                  className="btn btn-sm btn-danger"
-                  onClick={() => handleDisconnect(integration)}
-                  title="Disconnect"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
+      {/* Integration Table or Empty State */}
+      {filteredIntegrations.length === 0 && search === '' && filter === '' ? (
+        <div className="empty-state">
+          <Activity size={48} />
+          <h2>No Integrations Yet</h2>
+          <p>Connect your first service to extend your CRM capabilities</p>
+          <button className="btn btn-primary" onClick={() => setShowWizard(true)}>
+            <Plus size={18} />
+            Add Your First Integration
+          </button>
+        </div>
+      ) : (
+        <IntegrationTable
+          integrations={filteredIntegrations}
+          onViewDetails={setSelectedIntegration}
+          onSync={handleSync}
+          onSettings={setSelectedIntegration}
+          onDelete={handleDelete}
+          loading={loading}
+        />
+      )}
+    </main>
   );
 }
 
@@ -269,19 +240,18 @@ function ConnectionWizard({ onClose, onSuccess }) {
   });
   const [loading, setLoading] = useState(false);
 
-  // Phase 4: Google Sheets
-  // Phase 5: WhatsApp enabled, SMS & Email coming soon
+  // Google Sheets and Smartping (WhatsApp via AiSensy)
   const integrationTypes = [
     { id: 'google_sheets', name: 'Google Sheets', providers: ['Google Sheets API v4'], available: true },
-    { id: 'whatsapp', name: 'WhatsApp', providers: ['WhatsApp Business'], available: true },
-    { id: 'sms', name: 'SMS (Coming Soon)', providers: ['SmartPing', 'MSG91', 'TextLocal'], available: false },
+    { id: 'smartping', name: 'WhatsApp (Smartping)', providers: ['AiSensy Smartping'], available: true },
+    { id: 'sms', name: 'SMS (Coming Soon)', providers: ['MSG91', 'TextLocal'], available: false },
     { id: 'email', name: 'Email (Coming Soon)', providers: ['SMTP', 'SendGrid', 'Mailgun'], available: false }
   ];
 
   // Map display provider names to backend provider names
   const providerNameMap = {
     'Google Sheets API v4': 'google_sheets',
-    'WhatsApp Business': 'whatsapp'
+    'AiSensy Smartping': 'smartping'
   };
 
   const selectedType = integrationTypes.find(t => t.id === formData.integrationType);
@@ -429,7 +399,7 @@ function ConnectionWizard({ onClose, onSuccess }) {
  * Integration Details - Settings, sync, field mapping
  */
 function IntegrationDetails({ integration, onClose, onRefresh }) {
-  const [tab, setTab] = useState(integration.provider_name === 'whatsapp' ? 'messaging' : 'settings');
+  const [tab, setTab] = useState('settings');
   const [loading, setLoading] = useState(false);
 
 
@@ -442,22 +412,13 @@ function IntegrationDetails({ integration, onClose, onRefresh }) {
         </div>
 
         <div className="details-tabs">
-          {integration.provider_name === 'whatsapp' && (
-            <button
-              className={`tab ${tab === 'messaging' ? 'active' : ''}`}
-              onClick={() => setTab('messaging')}
-            >
-              <MessageCircle size={16} style={{ marginRight: '4px' }} />
-              Messaging
-            </button>
-          )}
           <button
             className={`tab ${tab === 'settings' ? 'active' : ''}`}
             onClick={() => setTab('settings')}
           >
             Settings
           </button>
-          {integration.provider_name !== 'whatsapp' && (
+          {integration.provider_name !== 'smartping' && (
             <>
               <button
                 className={`tab ${tab === 'mapping' ? 'active' : ''}`}
@@ -491,15 +452,18 @@ function IntegrationDetails({ integration, onClose, onRefresh }) {
                 <p><strong>Created:</strong> {new Date(integration.created_at).toLocaleString()}</p>
               </div>
 
-              {integration.provider_name === 'whatsapp' && (
-                <div style={{ marginTop: '2rem' }}>
-                  <WhatsAppConfig integrationId={integration.id} onConfigSaved={onRefresh} />
-                </div>
-              )}
-
               {integration.provider_name === 'google_sheets' && (
                 <div style={{ marginTop: '2rem' }}>
                   <GoogleSheetsConfig
+                    integrationId={integration.id}
+                    onConfigSaved={onRefresh}
+                  />
+                </div>
+              )}
+
+              {integration.provider_name === 'smartping' && (
+                <div style={{ marginTop: '2rem' }}>
+                  <SmartpingConfig
                     integrationId={integration.id}
                     onConfigSaved={onRefresh}
                   />
@@ -526,12 +490,6 @@ function IntegrationDetails({ integration, onClose, onRefresh }) {
             <div className="logs-panel">
               <h3>Sync History</h3>
               <SyncLogsViewer integrationId={integration.id} />
-            </div>
-          )}
-
-          {tab === 'messaging' && (
-            <div className="messaging-panel">
-              <WhatsAppMessaging integrationId={integration.id} />
             </div>
           )}
         </div>
