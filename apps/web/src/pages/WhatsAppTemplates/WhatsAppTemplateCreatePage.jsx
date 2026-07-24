@@ -364,7 +364,7 @@ export default function WhatsAppTemplateCreatePage({
                 {form.body.length} / 1024
               </div>
               <small className="hint">
-                Use {{'{{'}}1{{'}}'}}, {{'{{'}}2{{'}}}'}} etc. for variables. Supports **bold**, __underline__, ~~strike~~
+                {"Use {{1}}, {{2}}, etc. for variables. Supports **bold**, __underline__, ~~strike~~"}
               </small>
             </FormField>
           </Section>
