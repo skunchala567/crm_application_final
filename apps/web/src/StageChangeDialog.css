@@ -1,0 +1,215 @@
+.stage-change-dialog {
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: clamp(320px, 90vw, 500px);
+  background: white;
+  border-left: 1px solid var(--border, #dfe1ea);
+  box-shadow: -4px 0 16px rgba(36, 38, 76, 0.12);
+  display: flex;
+  flex-direction: column;
+  z-index: 999;
+  animation: slideInRight 0.3s ease-out;
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.stage-change-header {
+  padding: 24px;
+  border-bottom: 1px solid var(--border, #dfe1ea);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.stage-change-header div {
+  flex: 1;
+}
+
+.stage-change-header .eyebrow {
+  display: block;
+  font: 600 11px Manrope;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #8a8c9b;
+  margin-bottom: 4px;
+}
+
+.stage-change-header h2 {
+  font: 700 18px Manrope;
+  margin: 0 0 8px;
+  color: #222439;
+}
+
+.stage-change-header p {
+  margin: 0;
+  font-size: 13px;
+  color: #55576d;
+}
+
+.stage-change-header .icon-btn {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: none;
+  color: #8a8c9b;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.stage-change-header .icon-btn:hover {
+  background: #f5f5fc;
+  color: #555ab1;
+}
+
+.stage-change-dialog form {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.stage-change-dialog .form-grid {
+  padding: 24px;
+  display: grid;
+  gap: 16px;
+  flex: 1;
+}
+
+.stage-change-dialog label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font: 600 12px Manrope;
+  color: #222439;
+}
+
+.stage-change-dialog select {
+  padding: 8px 12px;
+  border: 1px solid var(--border, #dfe1ea);
+  border-radius: 6px;
+  background: white;
+  font-size: 13px;
+  color: #222439;
+  transition: all 0.15s ease;
+}
+
+.stage-change-dialog select:hover:not(:disabled) {
+  border-color: #aeb0d1;
+  background: #f9f9fd;
+}
+
+.stage-change-dialog select:focus {
+  outline: none;
+  border-color: var(--icon, #555ab1);
+  box-shadow: 0 0 0 3px rgba(85, 90, 177, 0.1);
+}
+
+.stage-change-dialog select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: #f5f5f8;
+}
+
+.stage-change-dialog .error-message {
+  padding: 0 24px;
+  color: #a63e3e;
+  font-size: 12px;
+  background: #fff0f0;
+  border: 1px solid #efc5c5;
+  border-radius: 6px;
+  padding: 12px;
+  margin: 0 24px;
+}
+
+.stage-change-dialog footer {
+  padding: 24px;
+  border-top: 1px solid var(--border, #dfe1ea);
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.stage-change-dialog button {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid var(--border, #dde0e8);
+}
+
+.stage-change-dialog button.secondary {
+  background: white;
+  color: #666875;
+  border-color: var(--border, #dde0e8);
+}
+
+.stage-change-dialog button.secondary:hover:not(:disabled) {
+  background: #f5f5fc;
+  border-color: #aeb0d1;
+  color: #555ab1;
+}
+
+.stage-change-dialog button.primary {
+  background: var(--icon, #555ab1);
+  color: white;
+  border-color: var(--icon, #555ab1);
+}
+
+.stage-change-dialog button.primary:hover:not(:disabled) {
+  background: #3d4289;
+  border-color: #3d4289;
+}
+
+.stage-change-dialog button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (max-width: 760px) {
+  .stage-change-dialog {
+    width: 100%;
+    border-left: none;
+    border-top: 1px solid var(--border, #dfe1ea);
+  }
+
+  @keyframes slideInRight {
+    from {
+      transform: translateY(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  .stage-change-dialog .form-grid {
+    padding: 20px;
+  }
+
+  .stage-change-dialog footer {
+    flex-direction: column-reverse;
+  }
+
+  .stage-change-dialog footer button {
+    width: 100%;
+  }
+}
