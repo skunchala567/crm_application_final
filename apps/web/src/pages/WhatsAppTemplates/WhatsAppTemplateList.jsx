@@ -198,24 +198,24 @@ export default function WhatsAppTemplateList({ integrationId, onEditTemplate, on
         <div style={styles.tableWrapper}>
           <table style={styles.table}>
             <thead>
-              <tr>
-                <th>Template Name</th>
-                <th>Category</th>
-                <th>Language</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>Created</th>
-                <th>Actions</th>
+              <tr style={styles.tableHeader}>
+                <th style={{ ...styles.tableHeaderCell, minWidth: '180px', maxWidth: '250px' }}>Template Name</th>
+                <th style={{ ...styles.tableHeaderCell, minWidth: '100px' }}>Category</th>
+                <th style={{ ...styles.tableHeaderCell, minWidth: '80px' }}>Language</th>
+                <th style={{ ...styles.tableHeaderCell, minWidth: '80px' }}>Type</th>
+                <th style={{ ...styles.tableHeaderCell, minWidth: '100px' }}>Status</th>
+                <th style={{ ...styles.tableHeaderCell, minWidth: '110px' }}>Created</th>
+                <th style={{ ...styles.tableHeaderCell, minWidth: '200px' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {templates.map(template => (
                 <tr key={template.id} style={styles.tableRow}>
-                  <td style={styles.nameCell}>{template.template_name}</td>
-                  <td>{template.category}</td>
-                  <td>{template.language}</td>
-                  <td>{template.template_type}</td>
-                  <td>
+                  <td style={{ ...styles.tableCell, ...styles.nameCell, minWidth: '180px', maxWidth: '250px' }}>{template.template_name}</td>
+                  <td style={{ ...styles.tableCell, minWidth: '100px' }}>{template.category}</td>
+                  <td style={{ ...styles.tableCell, minWidth: '80px' }}>{template.language}</td>
+                  <td style={{ ...styles.tableCell, minWidth: '80px' }}>{template.template_type}</td>
+                  <td style={{ ...styles.tableCell, minWidth: '100px' }}>
                     <span
                       style={{
                         ...styles.statusBadge,
@@ -225,8 +225,8 @@ export default function WhatsAppTemplateList({ integrationId, onEditTemplate, on
                       {template.status}
                     </span>
                   </td>
-                  <td>{new Date(template.created_at).toLocaleDateString()}</td>
-                  <td style={styles.actionsCell}>
+                  <td style={{ ...styles.tableCell, minWidth: '110px' }}>{new Date(template.created_at).toLocaleDateString()}</td>
+                  <td style={{ ...styles.tableCell, ...styles.actionsCell, minWidth: '200px' }}>
                     <button
                       onClick={() => onEditTemplate(template.id)}
                       title="Preview"
@@ -414,6 +414,29 @@ const styles = {
     width: '100%',
     borderCollapse: 'collapse',
     fontSize: '0.9rem',
+    tableLayout: 'auto',
+  },
+  tableHeader: {
+    background: '#f9fafb',
+    borderBottom: '2px solid #e5e7eb',
+  },
+  tableHeaderCell: {
+    padding: '0.75rem',
+    textAlign: 'left',
+    fontWeight: 600,
+    color: '#374151',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  tableCell: {
+    padding: '0.75rem',
+    textAlign: 'left',
+    wordWrap: 'break-word',
+    wordBreak: 'break-word',
+    overflowWrap: 'break-word',
+    whiteSpace: 'normal',
+    verticalAlign: 'middle',
   },
   tableRow: {
     borderBottom: '1px solid #e5e7eb',
@@ -423,6 +446,13 @@ const styles = {
   },
   nameCell: {
     fontWeight: 500,
+    padding: '0.75rem',
+    minWidth: '180px',
+    maxWidth: '250px',
+    wordWrap: 'break-word',
+    wordBreak: 'break-word',
+    whiteSpace: 'normal',
+    overflowWrap: 'break-word',
   },
   statusBadge: {
     display: 'inline-block',
@@ -431,11 +461,14 @@ const styles = {
     fontSize: '0.8rem',
     fontWeight: 500,
     color: '#000',
+    whiteSpace: 'nowrap',
   },
   actionsCell: {
     display: 'flex',
     gap: '0.5rem',
     padding: '0.5rem',
+    minWidth: '200px',
+    flexWrap: 'wrap',
   },
   actionButton: {
     padding: '0.5rem',
@@ -445,5 +478,6 @@ const styles = {
     color: '#667eea',
     display: 'flex',
     alignItems: 'center',
+    flexShrink: 0,
   },
 };
