@@ -241,3 +241,86 @@
     color: white;
   }
 }
+
+/* Creation screen theme alignment */
+.settings-create-template .template-preview-panel {
+  padding: 18px;
+  background: var(--surface);
+}
+
+.settings-create-template .template-preview-panel > h3 {
+  margin-bottom: 12px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid var(--border);
+  font: 700 14px Manrope, sans-serif;
+}
+
+.settings-create-template .template-preview-panel .whatsapp-preview {
+  min-height: 330px;
+  border-radius: 9px;
+  border-color: var(--border);
+  background: var(--canvas);
+  box-shadow: 0 2px 7px rgba(25, 27, 48, .04);
+}
+
+.settings-create-template .preview-header {
+  padding: 12px 14px;
+  background: var(--primary);
+}
+
+.settings-create-template .business-logo {
+  width: 36px;
+  height: 36px;
+  color: var(--primary);
+  background: #fff;
+  border: 3px solid rgba(255, 255, 255, .28);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.settings-create-template .preview-messages {
+  padding: 14px;
+  background: var(--canvas);
+}
+
+.settings-create-template .message-bubble {
+  padding: 10px 12px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px 8px 8px 2px;
+  box-shadow: 0 1px 3px rgba(25, 27, 48, .06);
+}
+
+.settings-create-template .message-text {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.settings-create-template .preview-info {
+  padding: 11px 13px;
+  background: var(--surface);
+}
+
+.settings-create-template .category-badge {
+  color: var(--primary) !important;
+  font-size: 10px !important;
+  font-weight: 700;
+}
+
+.settings-create-template .preview-notes {
+  padding: 13px 14px;
+  background: var(--canvas);
+  border-color: var(--border);
+  border-radius: 8px;
+}
+
+.settings-create-template .preview-notes h4 {
+  font: 700 12px Manrope, sans-serif;
+}
+
+.settings-create-template .preview-notes li {
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.45;
+}

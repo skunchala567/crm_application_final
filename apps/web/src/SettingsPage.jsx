@@ -6,12 +6,14 @@ import LeadConfiguration from './LeadConfiguration.jsx';
 import AdmissionClassConfiguration from './AdmissionClassConfiguration.jsx';
 import AcademicYearsConfiguration from './AcademicYearsConfiguration.jsx';
 import WhatsAppTemplatesSettings from './WhatsAppTemplatesSettings.jsx';
+import IntegrationHubPage from './pages/IntegrationHubPage.jsx';
 
 const settingsTabs = [
   { id: 'users', path: '/settings/users', label: 'User Management', icon: Users, component: UserManagementPage },
   { id: 'config', path: '/settings/lead-config', label: 'Lead Configuration', icon: ClipboardList, component: LeadConfiguration },
   { id: 'academic-years', path: '/settings/academic-years', label: 'Academic Years', icon: Calendar, component: AcademicYearsConfiguration },
   { id: 'admission', path: '/settings/admission-classes', label: 'Admission Classes', icon: BookOpen, component: AdmissionClassConfiguration },
+  { id: 'integrations', path: '/settings/integrations', label: 'Integrations', icon: Settings, component: IntegrationHubPage },
   { id: 'whatsapp-templates', path: '/settings/whatsapp-templates', label: 'WhatsApp Templates', icon: MessageCircle, component: WhatsAppTemplatesSettings },
 ];
 
@@ -27,6 +29,7 @@ export default function SettingsPage(){
       '/settings/lead-config': 'config',
       '/settings/academic-years': 'academic-years',
       '/settings/admission-classes': 'admission',
+      '/settings/integrations': 'integrations',
       '/settings/whatsapp-templates': 'whatsapp-templates',
       '/settings': 'users', // default
     };

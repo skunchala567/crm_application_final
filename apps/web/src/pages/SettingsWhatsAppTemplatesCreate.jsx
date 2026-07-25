@@ -96,15 +96,16 @@ export default function SettingsWhatsAppTemplatesCreate({ integrationId, onBack,
 
   return (
     <div className="settings-create-template">
-      <header className="page-header">
-        <button className="btn-back" onClick={onBack}>
-          <ArrowLeft size={20} />
-          Back
-        </button>
-        <div>
+      <header className="create-page-header">
+        <div className="create-page-heading">
+          <button className="btn-back" onClick={onBack}>
+            <ArrowLeft size={17} />
+            Back to templates
+          </button>
           <h1>Create New Template</h1>
           <p>Design and submit a new WhatsApp Business message template</p>
         </div>
+        <span className="create-page-context">WhatsApp Templates</span>
       </header>
 
       {serverError && (
@@ -130,14 +131,14 @@ export default function SettingsWhatsAppTemplatesCreate({ integrationId, onBack,
               onClick={handleCancel}
               disabled={loading}
             >
-              Cancel
+              Discard
             </button>
             <button
               type="submit"
               className="btn btn-primary"
               disabled={loading}
             >
-              {loading ? 'Submitting...' : 'Submit to AiSensy'}
+              {loading ? 'Submitting...' : 'Create template'}
             </button>
           </div>
         </form>

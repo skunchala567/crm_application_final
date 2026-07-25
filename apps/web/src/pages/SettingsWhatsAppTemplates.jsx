@@ -227,6 +227,32 @@ export default function SettingsWhatsAppTemplates({ integrationId, onNavigate, o
 
   return (
     <div className="templates-redesigned">
+      <header className="template-page-header">
+        <div className="template-page-heading">
+          <h1>WhatsApp Templates</h1>
+          <p>Create and manage WhatsApp Business message templates</p>
+        </div>
+        <div className="template-header-controls">
+          <label className="template-header-search">
+            <Search size={18} aria-hidden="true" />
+            <input
+              type="search"
+              placeholder="Search templates"
+              aria-label="Search templates"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </label>
+          <button className="template-header-button secondary" onClick={handleSync} disabled={syncing}>
+            <RefreshCw size={17} className={syncing ? 'spinning' : ''} />
+            <span>Sync</span>
+          </button>
+          <button className="template-header-button primary" onClick={() => onNavigate('create')}>
+            <Plus size={18} />
+            <span>New template</span>
+          </button>
+        </div>
+      </header>
 
       {/* ✅ FIX 2: Error message outside scroll container */}
       {error && (
@@ -249,16 +275,6 @@ export default function SettingsWhatsAppTemplates({ integrationId, onNavigate, o
         {/* Left Panel - List (65%) */}
         <div className="templates-list-panel">
           <nav className="templates-list-nav" aria-label="Filter templates by status">
-            <div className="search-wrapper">
-              <Search size={18} className="search-icon" />
-              <input
-                type="text"
-                className="search-input"
-                placeholder="Search templates, name, body, category, language or status..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
             <div className="filter-tabs">
               <button
                 className={`filter-chip ${!selectedStatus ? 'active' : ''}`}
@@ -352,23 +368,6 @@ export default function SettingsWhatsAppTemplates({ integrationId, onNavigate, o
                   </div>
                 )}
               </div>
-              <button
-                className="list-nav-icon-button sync"
-                onClick={handleSync}
-                disabled={syncing}
-                title={syncMessage || 'Sync templates'}
-                aria-label="Sync templates"
-              >
-                <RefreshCw size={18} className={syncing ? 'spinning' : ''} />
-              </button>
-              <button
-                className="list-nav-icon-button create"
-                onClick={() => onNavigate('create')}
-                title="New template"
-                aria-label="Create new template"
-              >
-                <Plus size={19} />
-              </button>
             </div>
           </nav>
 

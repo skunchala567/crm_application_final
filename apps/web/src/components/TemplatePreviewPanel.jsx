@@ -32,7 +32,7 @@ export default function TemplatePreviewPanel({ formData }) {
         {/* WhatsApp Header */}
         <div className="preview-header">
           <div className="business-info">
-            <div className="business-logo">🏢</div>
+            <div className="business-logo">WA</div>
             <div className="business-name">
               <p className="name">{formData.label || 'Business Name'}</p>
               <p className="status">Official account</p>

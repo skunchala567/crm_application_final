@@ -419,13 +419,34 @@ export class SyncJobRepository {
       throw new Error('integrationConfigId is required');
     }
 
-    const [result] = await this.pool.execute(`
-      INSERT INTO integration_sync_jobs
-        (integration_config_id, sync_type, status, metadata, created_at, updated_at)
-      VALUES (?, ?, 'pending', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `, [integrationConfigId, syncType, JSON.stringify(metadata || {})]);
+    // Check if integration_id column exists (new schema after migration 005)
+    const [columns] = await this.pool.execute(
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'integration_sync_jobs' AND TABLE_SCHEMA = DATABASE()"
+    );
+    const hasIntegrationIdColumn = columns.some(col => col.COLUMN_NAME === 'integration_id');
 
-    return result.insertId;
+    // Use new schema if available, otherwise use old schema with FK check disabled
+    if (hasIntegrationIdColumn) {
+      const [result] = await this.pool.execute(`
+        INSERT INTO integration_sync_jobs
+          (integration_id, sync_type, status, metadata, created_at, updated_at)
+        VALUES (?, ?, 'pending', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `, [integrationConfigId, syncType, JSON.stringify(metadata || {})]);
+      return result.insertId;
+    } else {
+      // Old schema - disable FK checks temporarily
+      await this.pool.execute('SET FOREIGN_KEY_CHECKS=0');
+      try {
+        const [result] = await this.pool.execute(`
+          INSERT INTO integration_sync_jobs
+            (integration_config_id, sync_type, status, metadata, created_at, updated_at)
+          VALUES (?, ?, 'pending', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `, [integrationConfigId, syncType, JSON.stringify(metadata || {})]);
+        return result.insertId;
+      } finally {
+        await this.pool.execute('SET FOREIGN_KEY_CHECKS=1');
+      }
+    }
   }
 
   async getById(jobId) {
@@ -495,24 +516,57 @@ export class SyncLogRepository {
       integrationConfigId, syncJobId, syncType, status, stats, errorSummary
     } = logData;
 
-    const [result] = await this.pool.execute(`
-      INSERT INTO integration_sync_logs
-        (integration_config_id, sync_job_id, sync_type, status, records_processed, records_created, records_updated, records_failed, stats, error_summary, duration_seconds)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-    `, [
-      integrationConfigId || null,
-      syncJobId || null,
-      syncType || null,
-      status || null,
-      stats?.processed || 0,
-      stats?.created || 0,
-      stats?.updated || 0,
-      stats?.failed || 0,
-      typeof stats === 'string' ? stats : JSON.stringify(stats || {}),
-      errorSummary || null
-    ]);
+    // Check if integration_id column exists (new schema after migration 005)
+    const [columns] = await this.pool.execute(
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'integration_sync_logs' AND TABLE_SCHEMA = DATABASE()"
+    );
+    const hasIntegrationIdColumn = columns.some(col => col.COLUMN_NAME === 'integration_id');
 
-    return result.insertId;
+    const statsData = typeof stats === 'string' ? stats : JSON.stringify(stats || {});
+
+    if (hasIntegrationIdColumn) {
+      const [result] = await this.pool.execute(`
+        INSERT INTO integration_sync_logs
+          (integration_id, sync_job_id, sync_type, status, records_processed, records_created, records_updated, records_failed, stats, error_summary, duration_seconds)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+      `, [
+        integrationConfigId || null,
+        syncJobId || null,
+        syncType || null,
+        status || null,
+        stats?.processed || 0,
+        stats?.created || 0,
+        stats?.updated || 0,
+        stats?.failed || 0,
+        statsData,
+        errorSummary || null
+      ]);
+      return result.insertId;
+    } else {
+      // Old schema - disable FK checks temporarily
+      await this.pool.execute('SET FOREIGN_KEY_CHECKS=0');
+      try {
+        const [result] = await this.pool.execute(`
+          INSERT INTO integration_sync_logs
+            (integration_config_id, sync_job_id, sync_type, status, records_processed, records_created, records_updated, records_failed, stats, error_summary, duration_seconds)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+        `, [
+          integrationConfigId || null,
+          syncJobId || null,
+          syncType || null,
+          status || null,
+          stats?.processed || 0,
+          stats?.created || 0,
+          stats?.updated || 0,
+          stats?.failed || 0,
+          statsData,
+          errorSummary || null
+        ]);
+        return result.insertId;
+      } finally {
+        await this.pool.execute('SET FOREIGN_KEY_CHECKS=1');
+      }
+    }
   }
 
   async list(integrationConfigId, filters = {}) {

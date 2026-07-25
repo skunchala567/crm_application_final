@@ -102,7 +102,7 @@ export default function IntegrationHubPage() {
 
   if (loading) {
     return (
-      <main className="integration-main">
+      <main className="integration-main settings-integration-page">
         <PageHeader title="Integrations" subtitle="Connect and manage third-party services" />
         <div className="loading-state">Loading integrations...</div>
       </main>
@@ -110,7 +110,7 @@ export default function IntegrationHubPage() {
   }
 
   return (
-    <main className="integration-main">
+    <main className="integration-main settings-integration-page">
       <PageHeader
         title="Integrations"
         subtitle="Manage and monitor all third-party integrations connected with the CRM"

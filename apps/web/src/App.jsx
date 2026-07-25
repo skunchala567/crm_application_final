@@ -4,6 +4,7 @@ import {
   NavLink,
   Route,
   Routes,
+  useLocation,
   useNavigate,
 } from "react-router-dom";
 import { api } from "./api";
@@ -11,7 +12,6 @@ import LeadsPage from "./LeadsPage.jsx";
 import SettingsPage from "./SettingsPage.jsx";
 import AutomationPage from "./AutomationPage.jsx";
 import BulkActionsPage from "./BulkActionsPage.jsx";
-import IntegrationHubPage from "./pages/IntegrationHubPage.jsx";
 import OAuthCallbackPage from "./pages/OAuthCallbackPage.jsx";
 import GlobalSearch from "./GlobalSearch.jsx";
 import {
@@ -24,7 +24,6 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
-  MessageCircle,
   PanelLeftClose,
   PanelLeftOpen,
   PhoneCall,
@@ -46,8 +45,6 @@ const menu = [
   ["Bulk Actions", "/bulk-actions", UploadCloud],
   ["Reports", "/reports", BarChart3],
   ["Automations", "/automations", Zap],
-  ["Integrations", "/integrations", MessageCircle],
-  ["Settings", "/settings", Settings],
 ];
 
 function loadStoredUser() {
@@ -180,8 +177,10 @@ function Login({ onLogin }) {
 function Shell({ user, onLogout }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("crm_sidebar_collapsed") === "true");
+  const [settingsExpanded, setSettingsExpanded] = useState(false);
   const [sessionSeconds, setSessionSeconds] = useState(0);
   const navigate = useNavigate();
+  const location = useLocation();
   useEffect(() => {
     const timer = setInterval(() => setSessionSeconds((value) => value + 1), 1000);
     return () => clearInterval(timer);
@@ -210,22 +209,25 @@ function Shell({ user, onLogout }) {
               {label === "Follow-ups" && <b>24</b>}
             </NavLink>
           ))}
-          {/* Settings Submenu */}
-          <NavLink to="/settings/users" className="settings-submenu-item">
-            <span className="submenu-indent">User Management</span>
-          </NavLink>
-          <NavLink to="/settings/lead-config" className="settings-submenu-item">
-            <span className="submenu-indent">Lead Configuration</span>
-          </NavLink>
-          <NavLink to="/settings/academic-years" className="settings-submenu-item">
-            <span className="submenu-indent">Academic Years</span>
-          </NavLink>
-          <NavLink to="/settings/admission-classes" className="settings-submenu-item">
-            <span className="submenu-indent">Admission Classes</span>
-          </NavLink>
-          <NavLink to="/settings/whatsapp-templates" className="settings-submenu-item">
-            <span className="submenu-indent">WhatsApp Templates</span>
-          </NavLink>
+          <button
+            type="button"
+            className={`settings-nav-trigger ${settingsExpanded ? "expanded" : ""} ${location.pathname.startsWith("/settings") ? "active" : ""}`}
+            onClick={() => setSettingsExpanded(current => !current)}
+            aria-expanded={settingsExpanded}
+            aria-controls="settings-submenu"
+          >
+            <Settings size={19} />
+            <span>Settings</span>
+            <ChevronDown className="settings-chevron" size={16} />
+          </button>
+          <div id="settings-submenu" className={`settings-submenu ${settingsExpanded ? "expanded" : ""}`}>
+            <NavLink to="/settings/users" className="settings-submenu-item"><span className="submenu-indent">User Management</span></NavLink>
+            <NavLink to="/settings/lead-config" className="settings-submenu-item"><span className="submenu-indent">Lead Configuration</span></NavLink>
+            <NavLink to="/settings/academic-years" className="settings-submenu-item"><span className="submenu-indent">Academic Years</span></NavLink>
+            <NavLink to="/settings/admission-classes" className="settings-submenu-item"><span className="submenu-indent">Admission Classes</span></NavLink>
+            <NavLink to="/settings/integrations" className="settings-submenu-item"><span className="submenu-indent">Integrations</span></NavLink>
+            <NavLink to="/settings/whatsapp-templates" className="settings-submenu-item"><span className="submenu-indent">WhatsApp Templates</span></NavLink>
+          </div>
         </nav>
         <div className="sidebar-help">
           <CircleHelp size={19} />
@@ -256,8 +258,9 @@ function Shell({ user, onLogout }) {
           <Route path="/settings/lead-config" element={<SettingsPage initialTab="config" />} />
           <Route path="/settings/academic-years" element={<SettingsPage initialTab="academic-years" />} />
           <Route path="/settings/admission-classes" element={<SettingsPage initialTab="admission" />} />
+          <Route path="/settings/integrations" element={<SettingsPage initialTab="integrations" />} />
           <Route path="/settings/whatsapp-templates" element={<SettingsPage initialTab="whatsapp-templates" />} />
-          <Route path="/integrations" element={<IntegrationHubPage />} />
+          <Route path="/integrations" element={<Navigate to="/settings/integrations" replace />} />
           <Route path="/oauth-callback" element={<OAuthCallbackPage />} />
           <Route path="/oauth-error" element={<OAuthCallbackPage />} />
           <Route path="/automations" element={<AutomationPage />} />

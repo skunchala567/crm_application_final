@@ -1,147 +1,31 @@
-/* Settings Create Template Page */
-
-.settings-create-template {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: var(--canvas);
-}
-
-.page-header {
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  padding: 24px;
-  display: flex;
-  align-items: flex-start;
-  gap: 24px;
-}
-
-.btn-back {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--primary);
-  padding: 8px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  transition: all 0.2s ease;
-  border-radius: 4px;
-}
-
-.btn-back:hover {
-  background: var(--canvas);
-}
-
-.header-title {
-  flex: 1;
-}
-
-.header-title h1 {
-  margin: 0;
-  font-size: 28px;
-  font-weight: 600;
-  color: var(--ink);
-}
-
-.header-title p {
-  margin: 8px 0 0 0;
-  font-size: 14px;
-  color: var(--text-secondary);
-}
-
-.header-meta {
-  display: flex;
-  gap: 8px;
-  margin-top: 12px;
-  flex-wrap: wrap;
-}
-
-.badge {
-  display: inline-block;
-  padding: 4px 8px;
-  background: var(--primary);
-  color: white;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.create-container {
-  display: grid;
-  grid-template-columns: 1fr 380px;
-  gap: 24px;
-  flex: 1;
-  overflow: hidden;
-  padding: 24px;
-}
-
-.template-form-wrapper {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 24px;
-  overflow-y: auto;
-}
-
-.form-actions {
-  display: flex;
-  gap: 12px;
-  margin-top: 24px;
-  padding-top: 24px;
-  border-top: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.btn-secondary {
-  flex: 1;
-}
-
-.btn-primary {
-  flex: 1;
-}
-
-.preview-sidebar {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow-y: auto;
-  position: sticky;
-  top: 0;
-  max-height: calc(100vh - 200px);
-}
-
-@media (max-width: 1200px) {
-  .create-container {
-    grid-template-columns: 1fr;
-  }
-
-  .preview-sidebar {
-    max-height: 400px;
-  }
-}
-
-@media (max-width: 768px) {
-  .page-header {
-    flex-direction: column;
-  }
-
-  .create-container {
-    padding: 16px;
-    gap: 16px;
-  }
-
-  .template-form-wrapper {
-    padding: 16px;
-  }
-
-  .form-actions {
-    flex-direction: column;
-  }
-}
+/* WhatsApp template creation — CRM themed layout */
+.settings-create-template{display:flex;flex-direction:column;height:100vh;min-height:0;overflow:hidden;background:var(--canvas)}
+.create-page-header{min-height:98px;padding:15px clamp(20px,3vw,34px);display:flex;align-items:center;justify-content:space-between;gap:24px;flex-shrink:0;position:relative;z-index:2;background:var(--surface);border-bottom:1px solid var(--border)}
+.create-page-heading{min-width:0}
+.create-page-heading h1{margin:5px 0 3px;color:var(--ink);font:800 27px/1.2 Manrope,sans-serif}
+.create-page-heading p{margin:0;color:var(--text-secondary);font-size:13px}
+.btn-back{min-height:26px;padding:0;display:inline-flex;align-items:center;gap:6px;color:var(--primary);background:transparent;border:0;border-radius:6px;font-size:11px;font-weight:700}
+.btn-back:hover{color:var(--primary-dark)}
+.create-page-context{padding:6px 10px;color:var(--primary);background:var(--primary-soft,rgba(var(--primary-rgb),.08));border:1px solid rgba(var(--primary-rgb),.14);border-radius:16px;font-size:10px;font-weight:700;white-space:nowrap}
+.settings-create-template>.alert{margin:14px clamp(20px,3vw,34px) 0;flex-shrink:0}
+.create-container{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:18px;flex:1;min-height:0;overflow:hidden;padding:18px clamp(20px,3vw,34px) 22px}
+.template-form-wrapper{display:flex;flex-direction:column;min-height:0;padding:22px 22px 0;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 2px 7px rgba(25,27,48,.04)}
+.form-actions{display:flex;justify-content:flex-end;gap:9px;margin:24px -22px 0;padding:13px 22px;position:sticky;bottom:0;z-index:3;flex-shrink:0;background:var(--surface);border-top:1px solid var(--border);box-shadow:0 -5px 14px rgba(25,27,48,.035)}
+.form-actions .btn{flex:0 0 auto;min-width:130px;height:38px;padding:0 17px;border-radius:7px;box-shadow:none;font-size:12px;text-transform:none}
+.form-actions .btn-secondary{color:var(--primary);background:var(--surface);border:1px solid var(--primary)}
+.form-actions .btn-primary{min-width:165px;color:#fff;background:var(--primary);border:1px solid var(--primary)}
+.form-actions .btn:hover:not(:disabled){color:#fff;background:var(--primary-dark)}
+.preview-sidebar{min-height:0;overflow:hidden;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 2px 7px rgba(25,27,48,.04)}
+.settings-create-template .template-form-builder{gap:22px}
+.settings-create-template .basic-info-title{margin-bottom:0;padding-bottom:12px;border-bottom:1px solid var(--border);font:700 15px Manrope,sans-serif}
+.settings-create-template .template-basic-grid{column-gap:16px;row-gap:18px}
+.settings-create-template .grid-field,.settings-create-template .form-group{gap:6px}
+.settings-create-template .grid-field label,.settings-create-template .form-group label{color:#55576d;font-size:11px;font-weight:700}
+.settings-create-template .grid-field label .field-hint,.settings-create-template .form-group label .help-text{color:var(--text-tertiary);font-size:10px}
+.settings-create-template .grid-field input,.settings-create-template .grid-field select,.settings-create-template .form-group input,.settings-create-template .form-group select,.settings-create-template .form-group textarea{min-height:40px;padding:9px 11px;color:var(--ink);background:var(--surface);border:1px solid #dcdde6;border-radius:8px;font-size:12px}
+.settings-create-template .form-group textarea{min-height:122px;line-height:1.5;resize:vertical}
+.settings-create-template .grid-field input:focus,.settings-create-template .grid-field select:focus,.settings-create-template .form-group input:focus,.settings-create-template .form-group select:focus,.settings-create-template .form-group textarea:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(var(--primary-rgb),.08)}
+.settings-create-template .char-count{color:var(--text-tertiary);font-size:10px}
+.settings-create-template .form-section{padding:16px;background:var(--canvas);border-color:var(--border);border-radius:9px}
+@media(max-width:1100px){.settings-create-template{height:auto;min-height:100vh;overflow:visible}.create-container{grid-template-columns:1fr;overflow:visible}.template-form-wrapper{overflow:visible}.preview-sidebar{min-height:480px}}
+@media(max-width:700px){.create-page-header{min-height:90px;padding:13px 14px}.create-page-heading h1{font-size:22px}.create-page-context{display:none}.create-container{gap:14px;padding:14px}.template-form-wrapper{padding:16px 14px 0}.form-actions{margin-inline:-14px;padding-inline:14px}.form-actions .btn{flex:1;min-width:0}}
