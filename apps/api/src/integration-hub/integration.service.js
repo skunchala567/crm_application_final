@@ -306,6 +306,12 @@ export class IntegrationHubService {
       // Normalize provider name (handle both 'google_sheets' and 'Google Sheets API v4')
       const providerName = this.getNormalizedProviderName(config);
 
+      // Check if this provider supports OAuth
+      const oauthProviders = ['google_sheets'];
+      if (!oauthProviders.includes(providerName)) {
+        throw new Error(`Provider ${providerName} does not support OAuth. Use direct authorization (/hub/integrations/{id}/auth/start) instead.`);
+      }
+
       const provider = this.getProvider(providerName);
       if (!provider) throw new Error(`Provider ${config.provider_name} not registered. Available: ${Array.from(this.providers.keys()).join(', ')}`);
 
@@ -364,6 +370,13 @@ export class IntegrationHubService {
 
       // Normalize provider name
       const providerName = this.getNormalizedProviderName(config);
+
+      // Check if this provider supports OAuth
+      const oauthProviders = ['google_sheets'];
+      if (!oauthProviders.includes(providerName)) {
+        throw new Error(`Provider ${providerName} does not support OAuth. Use direct authorization instead.`);
+      }
+
       const provider = this.getProvider(providerName);
       if (!provider) throw new Error(`Provider ${config.provider_name} not registered. Available: ${Array.from(this.providers.keys()).join(', ')}`);
 

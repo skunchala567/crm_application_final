@@ -31,13 +31,22 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
       // For now, default organizationId to 1 (will be improved in future with state management)
       const organizationId = 1;
 
-      // Try to extract integrationId from state using state manager, fallback to 1
-      let integrationId = 1;
+      // Extract integrationId from state using state manager
+      let integrationId = null;
       try {
         // The state manager stores { integrationId, organizationId, etc }
-        // But we're being lenient - if it fails, we'll use default
+        const stateData = stateManager.validateState(state);
+        if (stateData?.integrationId) {
+          integrationId = stateData.integrationId;
+        }
       } catch (err) {
-        // Could not parse state metadata
+        console.warn('State validation failed in OAuth callback:', err.message);
+      }
+
+      if (!integrationId) {
+        const err = 'Could not extract integrationId from OAuth state. State may have expired.';
+        console.error(err);
+        return res.redirect(`http://localhost:3000/oauth-error?error=${encodeURIComponent(err)}`);
       }
 
       // Exchange code for token - completeOAuthFlow will use state to validate
