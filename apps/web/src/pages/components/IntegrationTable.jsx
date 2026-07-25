@@ -1,11 +1,10 @@
-import { Eye, RefreshCw, Settings, Trash2, AlertCircle, CheckCircle } from 'lucide-react';
+import { Eye, RefreshCw, Settings, AlertCircle, CheckCircle } from 'lucide-react';
 
 export default function IntegrationTable({
   integrations,
   onViewDetails,
   onSync,
   onSettings,
-  onDelete,
   loading
 }) {
   const getStatusColor = (status) => {
@@ -98,13 +97,6 @@ export default function IntegrationTable({
                       onClick={() => onSettings(integration)}
                     >
                       <Settings size={16} />
-                    </button>
-                    <button
-                      className="btn-icon btn-danger"
-                      title="Delete"
-                      onClick={() => onDelete(integration)}
-                    >
-                      <Trash2 size={16} />
                     </button>
                   </div>
                 </td>

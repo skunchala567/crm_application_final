@@ -494,10 +494,33 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
       const organizationId = req.user?.id || 1;
       const integrationId = parseInt(req.params.integrationId);
 
+      // Check if integration exists and is authorized
+      const integration = await service.getIntegration(integrationId, organizationId);
+      if (!integration) {
+        return res.status(404).json({
+          success: false,
+          message: 'Integration not found'
+        });
+      }
+
+      if (integration.status !== 'active' && integration.status !== 'connected') {
+        return res.status(400).json({
+          success: false,
+          message: 'Integration is not authorized. Please authorize it first.'
+        });
+      }
+
       const spreadsheets = await service.listSpreadsheets(integrationId, organizationId);
 
       res.json({ success: true, data: spreadsheets });
     } catch (error) {
+      // Handle OAuth token missing error gracefully
+      if (error.message.includes('OAuth token')) {
+        return res.status(401).json({
+          success: false,
+          message: 'Authorization required. Please authorize this integration first.'
+        });
+      }
       next(error);
     }
   });
@@ -517,10 +540,33 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
         });
       }
 
+      // Check if integration is authorized
+      const integration = await service.getIntegration(integrationId, organizationId);
+      if (!integration) {
+        return res.status(404).json({
+          success: false,
+          message: 'Integration not found'
+        });
+      }
+
+      if (integration.status !== 'active' && integration.status !== 'connected') {
+        return res.status(400).json({
+          success: false,
+          message: 'Integration is not authorized. Please authorize it first.'
+        });
+      }
+
       const result = await service.selectSpreadsheet(integrationId, organizationId, sheetId, sheetName);
 
       res.json({ success: true, data: result });
     } catch (error) {
+      // Handle OAuth token missing error gracefully
+      if (error.message.includes('OAuth token')) {
+        return res.status(401).json({
+          success: false,
+          message: 'Authorization required. Please authorize this integration first.'
+        });
+      }
       next(error);
     }
   });
@@ -532,10 +578,33 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
       const integrationId = parseInt(req.params.integrationId);
       const sheetId = req.params.sheetId;
 
+      // Check if integration is authorized
+      const integration = await service.getIntegration(integrationId, organizationId);
+      if (!integration) {
+        return res.status(404).json({
+          success: false,
+          message: 'Integration not found'
+        });
+      }
+
+      if (integration.status !== 'active' && integration.status !== 'connected') {
+        return res.status(400).json({
+          success: false,
+          message: 'Integration is not authorized. Please authorize it first.'
+        });
+      }
+
       const preview = await service.getSpreadsheetPreview(integrationId, organizationId, sheetId);
 
       res.json({ success: true, data: preview });
     } catch (error) {
+      // Handle OAuth token missing error gracefully
+      if (error.message.includes('OAuth token')) {
+        return res.status(401).json({
+          success: false,
+          message: 'Authorization required. Please authorize this integration first.'
+        });
+      }
       next(error);
     }
   });
@@ -800,12 +869,15 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   router.post('/oauth/initiate', authenticate, async (req, res, next) => {
     try {
       const organizationId = req.user?.id || 1;
-      const { integrationId, providerName } = req.body;
+      let { integrationId, providerName } = req.body;
 
-      if (!integrationId || !providerName) {
+      // Ensure integrationId is a number
+      integrationId = parseInt(integrationId);
+
+      if (!integrationId || isNaN(integrationId) || !providerName) {
         return res.status(400).json({
           success: false,
-          message: 'Missing required fields: integrationId, providerName'
+          message: `Missing or invalid required fields. integrationId: ${integrationId} (${typeof integrationId}), providerName: ${providerName}`
         });
       }
 

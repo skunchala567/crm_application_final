@@ -83,17 +83,6 @@ export default function IntegrationHubPage() {
     }
   };
 
-  const handleDelete = async (integration) => {
-    if (!confirm(`Delete integration "${integration.integration_name}"?`)) return;
-
-    try {
-      await api.delete(`/hub/integrations/${integration.id}`);
-      alert('✅ Integration deleted');
-      fetchIntegrations();
-    } catch (err) {
-      alert('❌ Delete failed: ' + err.message);
-    }
-  };
 
   // Calculate statistics
   const stats = {
@@ -174,7 +163,6 @@ export default function IntegrationHubPage() {
         filterValue={filter}
         onFilterChange={setFilter}
         onRefresh={fetchIntegrations}
-        onAddNew={() => setShowWizard(true)}
         filters={[
           { label: 'Connected', value: 'active' },
           { label: 'Disconnected', value: 'disconnected' },
@@ -199,6 +187,7 @@ export default function IntegrationHubPage() {
           integration={selectedIntegration}
           onClose={() => setSelectedIntegration(null)}
           onRefresh={fetchIntegrations}
+          onAuthorize={handleAuthorize}
         />
       )}
 
@@ -219,7 +208,6 @@ export default function IntegrationHubPage() {
           onViewDetails={setSelectedIntegration}
           onSync={handleSync}
           onSettings={setSelectedIntegration}
-          onDelete={handleDelete}
           loading={loading}
         />
       )}
@@ -398,10 +386,11 @@ function ConnectionWizard({ onClose, onSuccess }) {
 /**
  * Integration Details - Settings, sync, field mapping
  */
-function IntegrationDetails({ integration, onClose, onRefresh }) {
+function IntegrationDetails({ integration, onClose, onRefresh, onAuthorize }) {
   const [tab, setTab] = useState('settings');
   const [loading, setLoading] = useState(false);
 
+  const isAuthorized = integration.status === 'active' || integration.status === 'connected';
 
   return (
     <div className="details-overlay">
@@ -418,7 +407,7 @@ function IntegrationDetails({ integration, onClose, onRefresh }) {
           >
             Settings
           </button>
-          {integration.provider_name !== 'smartping' && (
+          {isAuthorized && integration.provider_name !== 'smartping' && (
             <>
               <button
                 className={`tab ${tab === 'mapping' ? 'active' : ''}`}
@@ -452,7 +441,23 @@ function IntegrationDetails({ integration, onClose, onRefresh }) {
                 <p><strong>Created:</strong> {new Date(integration.created_at).toLocaleString()}</p>
               </div>
 
-              {integration.provider_name === 'google_sheets' && (
+              {!isAuthorized && (
+                <div style={{ marginTop: '2rem', padding: '1rem', backgroundColor: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '0.5rem' }}>
+                  <p style={{ color: '#92400e', marginBottom: '1rem' }}>
+                    ⚠️ This integration is not authorized. Please authorize it first to enable functionality.
+                  </p>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => onAuthorize(integration)}
+                    disabled={loading}
+                    style={{ width: '100%' }}
+                  >
+                    {loading ? 'Authorizing...' : 'Authorize Integration'}
+                  </button>
+                </div>
+              )}
+
+              {isAuthorized && integration.provider_name === 'google_sheets' && (
                 <div style={{ marginTop: '2rem' }}>
                   <GoogleSheetsConfig
                     integrationId={integration.id}
@@ -461,7 +466,7 @@ function IntegrationDetails({ integration, onClose, onRefresh }) {
                 </div>
               )}
 
-              {integration.provider_name === 'smartping' && (
+              {isAuthorized && integration.provider_name === 'smartping' && (
                 <div style={{ marginTop: '2rem' }}>
                   <SmartpingConfig
                     integrationId={integration.id}

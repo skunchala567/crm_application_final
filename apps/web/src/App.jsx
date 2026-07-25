@@ -210,6 +210,22 @@ function Shell({ user, onLogout }) {
               {label === "Follow-ups" && <b>24</b>}
             </NavLink>
           ))}
+          {/* Settings Submenu */}
+          <NavLink to="/settings/users" className="settings-submenu-item">
+            <span className="submenu-indent">User Management</span>
+          </NavLink>
+          <NavLink to="/settings/lead-config" className="settings-submenu-item">
+            <span className="submenu-indent">Lead Configuration</span>
+          </NavLink>
+          <NavLink to="/settings/academic-years" className="settings-submenu-item">
+            <span className="submenu-indent">Academic Years</span>
+          </NavLink>
+          <NavLink to="/settings/admission-classes" className="settings-submenu-item">
+            <span className="submenu-indent">Admission Classes</span>
+          </NavLink>
+          <NavLink to="/settings/whatsapp-templates" className="settings-submenu-item">
+            <span className="submenu-indent">WhatsApp Templates</span>
+          </NavLink>
         </nav>
         <div className="sidebar-help">
           <CircleHelp size={19} />
@@ -235,7 +251,12 @@ function Shell({ user, onLogout }) {
           <Route path="/" element={<Dashboard user={user} />} />
           <Route path="/leads" element={<LeadsPage />} />
           <Route path="/bulk-actions" element={<BulkActionsPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/settings" element={<SettingsPage initialTab="users" />} />
+          <Route path="/settings/users" element={<SettingsPage initialTab="users" />} />
+          <Route path="/settings/lead-config" element={<SettingsPage initialTab="config" />} />
+          <Route path="/settings/academic-years" element={<SettingsPage initialTab="academic-years" />} />
+          <Route path="/settings/admission-classes" element={<SettingsPage initialTab="admission" />} />
+          <Route path="/settings/whatsapp-templates" element={<SettingsPage initialTab="whatsapp-templates" />} />
           <Route path="/integrations" element={<IntegrationHubPage />} />
           <Route path="/oauth-callback" element={<OAuthCallbackPage />} />
           <Route path="/oauth-error" element={<OAuthCallbackPage />} />

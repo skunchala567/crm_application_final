@@ -1,243 +1,307 @@
+// =====================================================
+// WhatsApp Template Routes - API-First
+// All endpoints delegate to service layer
+// AiSensy is source of truth
+// =====================================================
+
 import express from 'express';
 import { WhatsAppTemplateService } from './whatsapp-template.service.js';
 
 export function createWhatsAppTemplateRoutes(pool, authenticate, logger = console) {
   const router = express.Router();
-  const templateService = new WhatsAppTemplateService(pool, logger);
+  const service = new WhatsAppTemplateService(pool, logger);
 
-  // ============= Template CRUD =============
+  // ============= Integration Management =============
 
-  // Create template
-  router.post('/integrations/:integrationId/templates', authenticate, async (req, res, next) => {
+  /**
+   * GET /whatsapp/integrations
+   * List integrations (for selecting which one to use)
+   */
+  router.get('/integrations', authenticate, async (req, res, next) => {
     try {
       const organizationId = req.user?.id || 1;
-      const integrationId = parseInt(req.params.integrationId);
+      const { provider } = req.query;
 
-      const template = await templateService.createTemplate(
-        organizationId,
-        integrationId,
-        req.body
-      );
+      let query = 'SELECT id, name, type, status, project_id, created_at FROM integrations WHERE organization_id = ? AND deleted_at IS NULL';
+      const params = [organizationId];
 
-      res.status(201).json({ success: true, data: template });
+      if (provider) {
+        query += ' AND type = ?';
+        params.push(provider.toUpperCase());
+      }
+
+      const [integrations] = await pool.query(query, params);
+
+      const formatted = integrations.map(i => ({
+        id: i.id,
+        name: i.name,
+        integration_name: i.name,
+        type: i.type,
+        status: i.status,
+        has_credentials: !!i.project_id,
+        created_at: i.created_at
+      }));
+
+      res.json({ success: true, data: formatted });
     } catch (error) {
       next(error);
     }
   });
 
-  // Get template list
-  router.get('/integrations/:integrationId/templates', authenticate, async (req, res, next) => {
+  /**
+   * GET /whatsapp/integrations/:integrationId
+   * Get single integration details
+   */
+  router.get('/integrations/:integrationId', authenticate, async (req, res, next) => {
     try {
       const organizationId = req.user?.id || 1;
       const integrationId = parseInt(req.params.integrationId);
-      const { status, category, language, search, type, limit = 20, offset = 0 } = req.query;
 
-      const templates = await templateService.listTemplates(
-        organizationId,
-        integrationId,
-        {
-          status,
-          category,
-          language,
-          search,
-          type,
-          limit: parseInt(limit),
-          offset: parseInt(offset)
-        }
+      if (isNaN(integrationId)) {
+        return res.status(400).json({ success: false, message: 'Invalid integration ID' });
+      }
+
+      const [integrations] = await pool.query(
+        'SELECT id, name, type, status, created_at FROM integrations WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+        [integrationId, organizationId]
       );
 
-      const total = await templateService.countTemplates(
-        organizationId,
-        integrationId,
-        { status, category, language, search, type }
-      );
+      if (integrations.length === 0) {
+        return res.status(404).json({ success: false, message: 'Integration not found' });
+      }
 
+      const i = integrations[0];
       res.json({
         success: true,
-        data: templates,
-        pagination: { limit: parseInt(limit), offset: parseInt(offset), total }
+        data: {
+          id: i.id,
+          name: i.name,
+          integration_name: i.name,
+          type: i.type,
+          status: i.status,
+          created_at: i.created_at
+        }
       });
     } catch (error) {
       next(error);
     }
   });
 
-  // Get single template
-  router.get('/integrations/:integrationId/templates/:templateId', authenticate, async (req, res, next) => {
+  // ============= Template CRUD =============
+
+  /**
+   * GET /whatsapp/integrations/:integrationId/templates
+   * List all templates from AiSensy (source of truth)
+   */
+  router.get('/integrations/:integrationId/templates', authenticate, async (req, res, next) => {
     try {
       const organizationId = req.user?.id || 1;
       const integrationId = parseInt(req.params.integrationId);
-      const templateId = parseInt(req.params.templateId);
 
-      const template = await templateService.getTemplate(organizationId, integrationId, templateId);
+      if (isNaN(integrationId)) {
+        return res.status(400).json({ success: false, message: 'Invalid integration ID' });
+      }
+
+      const { status, category, search, limit = 20, offset = 0 } = req.query;
+
+      const templates = await service.listTemplates(organizationId, integrationId, {
+        status,
+        category,
+        search
+      });
+
+      // Apply pagination
+      const paginatedTemplates = templates.slice(
+        parseInt(offset),
+        parseInt(offset) + parseInt(limit)
+      );
+
+      res.json({
+        success: true,
+        data: paginatedTemplates,
+        pagination: {
+          limit: parseInt(limit),
+          offset: parseInt(offset),
+          total: templates.length
+        }
+      });
+    } catch (error) {
+      logger.error('[Routes] Failed to list templates', { error: error.message });
+      res.status(500).json({
+        success: false,
+        error: { message: error.message }
+      });
+    }
+  });
+
+  /**
+   * GET /whatsapp/integrations/:integrationId/templates/:aisensy_template_id
+   * Get single template details from AiSensy
+   */
+  router.get('/integrations/:integrationId/templates/:aisensy_template_id', authenticate, async (req, res, next) => {
+    try {
+      const organizationId = req.user?.id || 1;
+      const integrationId = parseInt(req.params.integrationId);
+      const aisensy_template_id = req.params.aisensy_template_id;
+
+      if (isNaN(integrationId)) {
+        return res.status(400).json({ success: false, message: 'Invalid integration ID' });
+      }
+
+      const template = await service.getTemplate(organizationId, integrationId, aisensy_template_id);
+
       if (!template) {
         return res.status(404).json({ success: false, message: 'Template not found' });
       }
 
       res.json({ success: true, data: template });
     } catch (error) {
-      next(error);
+      logger.error('[Routes] Failed to get template', { error: error.message });
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: { message: error.message }
+      });
     }
   });
 
-  // Update template
-  router.put('/integrations/:integrationId/templates/:templateId', authenticate, async (req, res, next) => {
+  /**
+   * POST /whatsapp/integrations/:integrationId/templates
+   * Create and submit new template to AiSensy
+   */
+  router.post('/integrations/:integrationId/templates', authenticate, async (req, res, next) => {
     try {
       const organizationId = req.user?.id || 1;
       const integrationId = parseInt(req.params.integrationId);
-      const templateId = parseInt(req.params.templateId);
 
-      const template = await templateService.updateTemplate(
-        organizationId,
-        integrationId,
-        templateId,
-        req.body
-      );
+      if (isNaN(integrationId)) {
+        return res.status(400).json({ success: false, message: 'Invalid integration ID' });
+      }
 
-      res.json({ success: true, data: template });
+      const template = await service.createTemplate(organizationId, integrationId, req.body);
+
+      res.status(201).json({ success: true, data: template });
     } catch (error) {
-      next(error);
+      logger.error('[Routes] Failed to create template', {
+        error: error.message,
+        validationErrors: error.validationErrors
+      });
+
+      if (error.statusCode === 400) {
+        return res.status(400).json({
+          success: false,
+          message: error.message,
+          errors: error.validationErrors
+        });
+      }
+
+      if (error.message.includes('already exists')) {
+        return res.status(409).json({
+          success: false,
+          message: error.message
+        });
+      }
+
+      res.status(500).json({
+        success: false,
+        error: { message: error.message }
+      });
     }
   });
 
-  // Delete template
-  router.delete('/integrations/:integrationId/templates/:templateId', authenticate, async (req, res, next) => {
+  /**
+   * DELETE /whatsapp/integrations/:integrationId/templates/:aisensy_template_id
+   * Delete template from AiSensy
+   */
+  router.delete('/integrations/:integrationId/templates/:aisensy_template_id', authenticate, async (req, res, next) => {
     try {
       const organizationId = req.user?.id || 1;
       const integrationId = parseInt(req.params.integrationId);
-      const templateId = parseInt(req.params.templateId);
+      const aisensy_template_id = req.params.aisensy_template_id;
 
-      await templateService.deleteTemplate(organizationId, integrationId, templateId);
+      if (isNaN(integrationId)) {
+        return res.status(400).json({ success: false, message: 'Invalid integration ID' });
+      }
+
+      await service.deleteTemplate(organizationId, integrationId, aisensy_template_id);
 
       res.json({ success: true, message: 'Template deleted' });
     } catch (error) {
-      next(error);
+      logger.error('[Routes] Failed to delete template', { error: error.message });
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: { message: error.message }
+      });
     }
   });
 
-  // ============= Template Actions =============
+  // ============= Sync Operations =============
 
-  // Submit template
-  router.post('/integrations/:integrationId/templates/:templateId/submit', authenticate, async (req, res, next) => {
+  /**
+   * POST /whatsapp/integrations/:integrationId/sync
+   * Sync all templates from AiSensy
+   */
+  router.post('/integrations/:integrationId/sync', authenticate, async (req, res, next) => {
     try {
       const organizationId = req.user?.id || 1;
       const integrationId = parseInt(req.params.integrationId);
-      const templateId = parseInt(req.params.templateId);
 
-      const template = await templateService.submitTemplate(
-        organizationId,
-        integrationId,
-        templateId
-      );
-
-      res.json({ success: true, data: template, message: 'Template submitted for approval' });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // Clone template
-  router.post('/integrations/:integrationId/templates/:templateId/clone', authenticate, async (req, res, next) => {
-    try {
-      const organizationId = req.user?.id || 1;
-      const integrationId = parseInt(req.params.integrationId);
-      const templateId = parseInt(req.params.templateId);
-      const { newName } = req.body;
-
-      if (!newName) {
-        return res.status(400).json({ success: false, message: 'newName is required' });
+      if (isNaN(integrationId)) {
+        return res.status(400).json({ success: false, message: 'Invalid integration ID' });
       }
 
-      const template = await templateService.cloneTemplate(
-        organizationId,
-        integrationId,
-        templateId,
-        newName
-      );
+      const result = await service.syncTemplates(organizationId, integrationId);
 
-      res.status(201).json({ success: true, data: template, message: 'Template cloned successfully' });
+      res.json({
+        success: true,
+        data: result,
+        message: `Synced ${result.count} templates from AiSensy`
+      });
     } catch (error) {
-      next(error);
+      logger.error('[Routes] Sync failed', { error: error.message });
+      res.status(500).json({
+        success: false,
+        error: { message: error.message }
+      });
     }
   });
 
-  // Archive template
-  router.post('/integrations/:integrationId/templates/:templateId/archive', authenticate, async (req, res, next) => {
+  /**
+   * GET /whatsapp/integrations/:integrationId/templates/status/counts
+   * Get template counts by status
+   */
+  router.get('/integrations/:integrationId/templates/status/counts', authenticate, async (req, res, next) => {
     try {
       const organizationId = req.user?.id || 1;
       const integrationId = parseInt(req.params.integrationId);
-      const templateId = parseInt(req.params.templateId);
 
-      await templateService.archiveTemplate(organizationId, integrationId, templateId);
-
-      res.json({ success: true, message: 'Template archived' });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // Check template name availability
-  router.post('/integrations/:integrationId/templates/check-name', authenticate, async (req, res, next) => {
-    try {
-      const organizationId = req.user?.id || 1;
-      const integrationId = parseInt(req.params.integrationId);
-      const { templateName, excludeId = null } = req.body;
-
-      if (!templateName || templateName.trim().length === 0) {
-        return res.json({ available: false, message: 'Template name is required' });
+      if (isNaN(integrationId)) {
+        return res.status(400).json({ success: false, message: 'Invalid integration ID' });
       }
 
-      const query = excludeId
-        ? 'SELECT id FROM whatsapp_templates WHERE integration_id = ? AND template_name = ? AND deleted_at IS NULL AND id != ?'
-        : 'SELECT id FROM whatsapp_templates WHERE integration_id = ? AND template_name = ? AND deleted_at IS NULL';
-
-      const params = excludeId
-        ? [integrationId, templateName.toLowerCase(), excludeId]
-        : [integrationId, templateName.toLowerCase()];
-
-      const existing = await pool.query(query, params);
+      const counts = await service.getStatusCounts(organizationId, integrationId);
 
       res.json({
-        available: existing.length === 0,
-        message: existing.length > 0 ? `Template name "${templateName}" already exists` : null
+        success: true,
+        data: counts
       });
     } catch (error) {
-      next(error);
-    }
-  });
-
-  // Validate template
-  router.post('/integrations/:integrationId/templates/validate', authenticate, async (req, res, next) => {
-    try {
-      const validation = templateService.validateTemplate(req.body);
-
-      res.json({
-        success: validation.valid,
-        valid: validation.valid,
-        errors: validation.errors
+      logger.error('[Routes] Failed to get status counts', { error: error.message });
+      res.status(500).json({
+        success: false,
+        error: { message: error.message }
       });
-    } catch (error) {
-      next(error);
     }
   });
 
-  // Get sync logs
-  router.get('/integrations/:integrationId/templates/:templateId/sync-logs', authenticate, async (req, res, next) => {
-    try {
-      const templateId = parseInt(req.params.templateId);
-      const { limit = 10 } = req.query;
+  // ============= Error Handler =============
 
-      const logs = await templateService.getSyncLogs(templateId, parseInt(limit));
-
-      res.json({ success: true, data: logs });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // Error handler
   router.use((error, req, res, next) => {
-    logger.error('[WhatsApp Template Error]', error);
+    logger.error('[WhatsApp Template Error]', {
+      message: error.message,
+      status: error.statusCode,
+      path: req.path,
+      method: req.method
+    });
 
     const statusCode = error.statusCode || 500;
     const message = error.message || 'An unexpected error occurred';
@@ -250,3 +314,5 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
 
   return router;
 }
+
+export default createWhatsAppTemplateRoutes;

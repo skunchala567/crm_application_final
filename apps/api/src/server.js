@@ -8,6 +8,7 @@ import ExcelJS from 'exceljs';
 import { demoLeads, demoUser } from './data.js';
 import { IntegrationHubService, createIntegrationHubRoutes } from './integration-hub/index.js';
 import { createWhatsAppTemplateRoutes } from './whatsapp/whatsapp-template.routes.js';
+import { createWebhookRoutes } from './whatsapp/webhook.routes.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -39,6 +40,33 @@ const pool = mysql.createPool({
 pool.on('connection', (connection) => connection.query("SET time_zone = '+05:30'"));
 
 // ============= Integration Hub Setup =============
+
+// Check if migration 005 has been applied (consolidation of integrations tables)
+async function checkIntegrationsMigration() {
+  try {
+    const [columns] = await pool.execute(`
+      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_NAME = 'integrations'
+      AND TABLE_SCHEMA = DATABASE()
+    `);
+
+    const columnNames = columns.map(c => c.COLUMN_NAME);
+    const hasMigration = columnNames.includes('integration_type') && columnNames.includes('provider_name');
+
+    if (!hasMigration) {
+      console.warn('⚠️  WARNING: Migration 005 (integrations consolidation) not yet applied');
+      console.warn('   Columns integration_type, provider_name, integration_name are missing');
+      console.warn('   Using backward-compatible fallback. Please run: mysql -u root < apps/api/src/migrations/005_consolidate_integrations_tables.sql');
+    } else {
+      console.log('✓ Integration table consolidation (migration 005) detected');
+    }
+  } catch (error) {
+    console.warn('⚠️  Could not check migration status:', error.message);
+  }
+}
+
+await checkIntegrationsMigration();
+
 const integrationHubService = new IntegrationHubService(pool);
 
 // Register providers
@@ -2814,6 +2842,9 @@ app.use('/api/hub', createIntegrationHubRoutes(integrationHubService, authentica
 
 // ============= WhatsApp Template Routes =============
 app.use('/api/whatsapp', createWhatsAppTemplateRoutes(pool, authenticate, console));
+
+// ============= Webhook Routes (for AiSensy updates) =============
+app.use('/api/webhooks', createWebhookRoutes(pool, console));
 
 app.use((error, _req, res, _next) => {
   console.error('[API Error]', error.message, error.stack);

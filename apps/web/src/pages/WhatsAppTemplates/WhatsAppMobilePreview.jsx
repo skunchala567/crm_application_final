@@ -49,26 +49,23 @@ export default function WhatsAppMobilePreview({ template }) {
 
         {/* Messages Area */}
         <div style={styles.messagesArea}>
-          {/* Header */}
-          {template?.header_type !== 'NONE' && template?.header_content && (
+          {/* Header/Media (based on template_type) */}
+          {template?.header_content && (
             <div style={styles.messageBubble}>
-              {template.header_type === 'IMAGE' && (
+              {template.template_type === 'IMAGE' && (
                 <div style={styles.mediaPreview}>
                   <div style={styles.imagePlaceholder}>🖼️ Image</div>
                 </div>
               )}
-              {template.header_type === 'VIDEO' && (
+              {template.template_type === 'VIDEO' && (
                 <div style={styles.mediaPreview}>
                   <div style={styles.videoPlaceholder}>▶️ Video</div>
                 </div>
               )}
-              {template.header_type === 'DOCUMENT' && (
+              {template.template_type === 'FILE' && (
                 <div style={styles.mediaPreview}>
                   <div style={styles.docPlaceholder}>📄 Document</div>
                 </div>
-              )}
-              {template.header_type === 'TEXT' && (
-                <div style={styles.headerText}>{template.header_content}</div>
               )}
             </div>
           )}

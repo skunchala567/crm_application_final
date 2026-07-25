@@ -1,4 +1,4 @@
-import { Search, Filter, RefreshCw, Plus } from 'lucide-react';
+import { Search, Filter, RefreshCw } from 'lucide-react';
 
 export default function ActionToolbar({
   searchValue,
@@ -6,7 +6,6 @@ export default function ActionToolbar({
   filterValue,
   onFilterChange,
   onRefresh,
-  onAddNew,
   filters = []
 }) {
   return (
@@ -47,13 +46,6 @@ export default function ActionToolbar({
         >
           <RefreshCw size={18} />
           Refresh
-        </button>
-        <button
-          className="btn btn-primary"
-          onClick={onAddNew}
-        >
-          <Plus size={18} />
-          Add Integration
         </button>
       </div>
     </div>

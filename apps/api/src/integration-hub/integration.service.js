@@ -4,7 +4,7 @@
 // =====================================================
 
 import {
-  IntegrationConfigRepository,
+  IntegrationRepository,
   OAuthTokenRepository,
   SyncJobRepository,
   SyncLogRepository,
@@ -24,8 +24,8 @@ export class IntegrationHubService {
     this.pool = pool;
     this.logger = logger;
 
-    // Initialize repositories
-    this.configs = new IntegrationConfigRepository(pool);
+    // Initialize repositories (CONSOLIDATED: single integrations table)
+    this.configs = new IntegrationRepository(pool);
     this.oauthTokens = new OAuthTokenRepository(pool);
     this.syncJobs = new SyncJobRepository(pool);
     this.syncLogs = new SyncLogRepository(pool);
@@ -43,6 +43,14 @@ export class IntegrationHubService {
     const errorMsg = error?.message || String(error) || 'Unknown error';
     const errorStatus = error?.response?.status || null;
     this.logger.error(message, { message: errorMsg, status: errorStatus });
+  }
+
+  // Helper to safely get normalized provider name
+  getNormalizedProviderName(config) {
+    if (!config || !config.provider_name) {
+      throw new Error('Configuration missing provider_name. Ensure migration 005 has been applied.');
+    }
+    return config.provider_name.toLowerCase().includes('google') ? 'google_sheets' : config.provider_name;
   }
 
   // ============= Integration Management =============
@@ -178,8 +186,11 @@ export class IntegrationHubService {
       const config = await this.configs.getById(integrationId, organizationId);
       if (!config) throw new Error('Integration not found');
 
-      // Normalize provider name
-      const providerName = config.provider_name.toLowerCase().includes('google') ? 'google_sheets' : config.provider_name;
+      // Normalize provider name (with safety check for undefined)
+      if (!config.provider_name) {
+        throw new Error(`Integration missing provider_name. Ensure migration 005 has been applied and provider_name is set.`);
+      }
+      const providerName = this.getNormalizedProviderName(config);
       const provider = this.getProvider(providerName);
       if (!provider) throw new Error(`Provider ${config.provider_name} not registered`);
 
@@ -283,11 +294,17 @@ export class IntegrationHubService {
 
   async startOAuthFlow(integrationId, organizationId, callbackUrl) {
     try {
+      this.logger.log('Starting OAuth flow', { integrationId, organizationId });
+
+      if (!integrationId) {
+        throw new Error('integrationId is required to start OAuth flow');
+      }
+
       const config = await this.configs.getById(integrationId, organizationId);
-      if (!config) throw new Error('Integration not found');
+      if (!config) throw new Error(`Integration ${integrationId} not found for organization ${organizationId}`);
 
       // Normalize provider name (handle both 'google_sheets' and 'Google Sheets API v4')
-      const providerName = config.provider_name.toLowerCase().includes('google') ? 'google_sheets' : config.provider_name;
+      const providerName = this.getNormalizedProviderName(config);
 
       const provider = this.getProvider(providerName);
       if (!provider) throw new Error(`Provider ${config.provider_name} not registered. Available: ${Array.from(this.providers.keys()).join(', ')}`);
@@ -329,9 +346,9 @@ export class IntegrationHubService {
   }
 
   async completeOAuthFlow(integrationId, organizationId, code, state) {
+    let actualIntegrationId = integrationId; // Define at function level for catch block access
     try {
       // Validate state token (prevents CSRF) - attempt to get integrationId from state
-      let actualIntegrationId = integrationId;
       try {
         const stateData = stateManager.validateState(state);
         if (stateData?.integrationId) {
@@ -346,7 +363,7 @@ export class IntegrationHubService {
       if (!config) throw new Error('Integration not found');
 
       // Normalize provider name
-      const providerName = config.provider_name.toLowerCase().includes('google') ? 'google_sheets' : config.provider_name;
+      const providerName = this.getNormalizedProviderName(config);
       const provider = this.getProvider(providerName);
       if (!provider) throw new Error(`Provider ${config.provider_name} not registered. Available: ${Array.from(this.providers.keys()).join(', ')}`);
 
@@ -466,7 +483,7 @@ export class IntegrationHubService {
       }
 
       // Normalize provider name
-      const providerName = config.provider_name.toLowerCase().includes('google') ? 'google_sheets' : config.provider_name;
+      const providerName = this.getNormalizedProviderName(config);
       const provider = this.getProvider(providerName);
       const decryptedAccessToken = decryptToken(oauthToken.access_token, masterKey);
 
@@ -548,7 +565,7 @@ export class IntegrationHubService {
       if (!config) throw new Error('Integration not found');
 
       // Normalize provider name
-      const providerName = config.provider_name.toLowerCase().includes('google') ? 'google_sheets' : config.provider_name;
+      const providerName = this.getNormalizedProviderName(config);
       const provider = this.getProvider(providerName);
       if (!provider) throw new Error(`Provider ${config.provider_name} not registered`);
 
@@ -684,7 +701,7 @@ export class IntegrationHubService {
       if (!config.config?.spreadsheetId) throw new Error('No spreadsheet selected');
 
       // Normalize provider name
-      const providerName = config.provider_name.toLowerCase().includes('google') ? 'google_sheets' : config.provider_name;
+      const providerName = this.getNormalizedProviderName(config);
       const provider = this.getProvider(providerName);
       if (!provider) throw new Error(`Provider ${config.provider_name} not registered`);
 
@@ -1022,7 +1039,7 @@ export class IntegrationHubService {
       if (!config) throw new Error('Integration not found');
 
       // Normalize provider name
-      const providerName = config.provider_name.toLowerCase().includes('google') ? 'google_sheets' : config.provider_name;
+      const providerName = this.getNormalizedProviderName(config);
       const provider = this.getProvider(providerName);
       if (!provider) throw new Error(`Provider ${config.provider_name} not registered`);
 
@@ -1102,7 +1119,7 @@ export class IntegrationHubService {
       if (!config) throw new Error('Integration not found');
 
       // Normalize provider name
-      const providerName = config.provider_name.toLowerCase().includes('google') ? 'google_sheets' : config.provider_name;
+      const providerName = this.getNormalizedProviderName(config);
       const provider = this.getProvider(providerName);
       if (!provider) throw new Error(`Provider ${config.provider_name} not registered`);
 

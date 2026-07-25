@@ -1,461 +1,638 @@
 // =====================================================
-// WhatsApp Template Service
-// Handles template management, validation, and API sync
+// WhatsApp Template Service - API-First Architecture
+// AiSensy is source of truth, local DB is metadata cache
 // =====================================================
+
+import { AiSensyTemplateClient } from './aisensy-template-client.js';
+import { TemplateValidator } from './template-validator.js';
 
 export class WhatsAppTemplateService {
   constructor(pool, logger = console) {
     this.pool = pool;
     this.logger = logger;
+    this.aisensy = new AiSensyTemplateClient(logger);
+    this.validator = TemplateValidator;
   }
 
-  // ============= Template Creation & Management =============
+  // ============= Template Listing (From AiSensy) =============
 
+  /**
+   * List all templates from AiSensy
+   * This is the source of truth
+   * @param {number} organizationId
+   * @param {number} integrationId
+   * @param {object} filters - Optional filters (status, category, search, etc)
+   * @returns {Promise<Array>} Templates with all metadata from local database
+   */
+  async listTemplates(organizationId, integrationId, filters = {}) {
+    try {
+      // Get integration configuration
+      const integration = await this._getIntegration(organizationId, integrationId);
+      if (!integration) {
+        throw new Error('Integration not found');
+      }
+
+      // Try to call AiSensy API to sync latest data
+      try {
+        this.logger.info('[Service] Listing templates from AiSensy', {
+          integrationId,
+          projectId: integration.project_id
+        });
+
+        const aisensy_templates = await this.aisensy.listTemplates(
+          integration.project_id,
+          integration.project_api_password
+        );
+
+        // Update local cache with AiSensy data (this preserves template_type, created_at, etc)
+        await this._syncTemplatesLocally(organizationId, integrationId, aisensy_templates);
+      } catch (apiError) {
+        // If AiSensy call fails, we'll use local cache below
+        this.logger.warn('[Service] AiSensy API failed, using local cache', {
+          error: apiError.message,
+          integrationId
+        });
+      }
+
+      // ✅ FIX: Always return from local database to get all metadata fields
+      // (template_type, created_at, updated_at, header_type, etc.)
+      const [templates] = await this.pool.query(
+        'SELECT * FROM whatsapp_templates WHERE integration_id = ? AND deleted_at IS NULL ORDER BY created_at DESC',
+        [integrationId]
+      );
+
+      // Apply local filters if specified
+      let filtered = templates || [];
+      if (filters.status) {
+        filtered = filtered.filter(t => t.status === filters.status);
+      }
+      if (filters.category) {
+        filtered = filtered.filter(t => t.category === filters.category);
+      }
+      if (filters.search) {
+        const searchLower = filters.search.toLowerCase();
+        filtered = filtered.filter(t => {
+          const name = t.template_name || t.name || '';
+          const label = t.label || '';
+          return name.toLowerCase().includes(searchLower) ||
+                 label.toLowerCase().includes(searchLower);
+        });
+      }
+
+      this.logger.info('[Service] Returned templates from local database', {
+        count: filtered.length,
+        integrationId
+      });
+
+      return filtered;
+    } catch (error) {
+      this.logger.error('[Service] Failed to list templates', {
+        error: error.message,
+        integrationId
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Get single template by ID
+   * @param {number} organizationId
+   * @param {number} integrationId
+   * @param {string} aisensy_template_id - AiSensy template ID
+   * @returns {Promise<object>} Template with all metadata from local database
+   */
+  async getTemplate(organizationId, integrationId, aisensy_template_id) {
+    try {
+      // Get integration
+      const integration = await this._getIntegration(organizationId, integrationId);
+      if (!integration) {
+        throw new Error('Integration not found');
+      }
+
+      // Try to fetch from AiSensy to get latest data
+      try {
+        this.logger.info('[Service] Getting template from AiSensy', {
+          integrationId,
+          templateId: aisensy_template_id
+        });
+
+        const aisensy_template = await this.aisensy.getTemplate(
+          integration.project_id,
+          aisensy_template_id,
+          integration.project_api_password
+        );
+
+        // Update local cache
+        if (aisensy_template?.id) {
+          await this._syncTemplatesLocally(organizationId, integrationId, [aisensy_template]);
+        }
+      } catch (apiError) {
+        // If AiSensy call fails, we'll use local cache below
+        this.logger.warn('[Service] AiSensy API failed, using local cache', {
+          error: apiError.message,
+          integrationId
+        });
+      }
+
+      // ✅ FIX: Always return from local database to get all metadata fields
+      // (template_type, created_at, updated_at, header_type, etc.)
+      const [templates] = await this.pool.query(
+        'SELECT * FROM whatsapp_templates WHERE integration_id = ? AND aisensy_template_id = ? AND deleted_at IS NULL LIMIT 1',
+        [integrationId, aisensy_template_id]
+      );
+
+      if (templates.length === 0) {
+        throw new Error('Template not found');
+      }
+
+      return templates[0];
+    } catch (error) {
+      this.logger.error('[Service] Failed to get template', {
+        error: error.message,
+        integrationId,
+        templateId: aisensy_template_id
+      });
+      throw error;
+    }
+  }
+
+  // ============= Template Creation (Submit to AiSensy) =============
+
+  /**
+   * Create and submit new template to AiSensy
+   * @param {number} organizationId
+   * @param {number} integrationId
+   * @param {object} templateData - Template data from form
+   * @returns {Promise<object>} Template from AiSensy
+   */
   async createTemplate(organizationId, integrationId, templateData) {
     const conn = await this.pool.getConnection();
     try {
-      await conn.beginTransaction();
+      // Map form field names to validator field names
+      const templateForValidation = {
+        name: templateData.template_name,
+        label: templateData.label,
+        category: templateData.category,
+        language: templateData.language,
+        type: templateData.template_type,
+        header_type: templateData.header_type,
+        text: templateData.body,
+        footer: templateData.footer,
+        sample_text: templateData.sample_text,
+        quick_replies: templateData.quick_replies,
+        call_to_action: templateData.call_to_action
+      };
 
-      const {
-        template_name,
-        category,
-        language,
-        template_type,
-        header_type,
-        header_content,
-        body,
-        footer,
-        buttons,
-        sample_values,
-        variables
-      } = templateData;
-
-      // Validate template name uniqueness
-      const existing = await conn.query(
-        'SELECT id FROM whatsapp_templates WHERE integration_id = ? AND template_name = ? AND deleted_at IS NULL',
-        [integrationId, template_name]
-      );
-      if (existing.length > 0) {
-        throw new Error(`Template name "${template_name}" already exists`);
+      // Validate template data
+      const validation = this.validator.validate(templateForValidation, 'create');
+      if (!validation.valid) {
+        const error = new Error('Template validation failed');
+        error.statusCode = 400;
+        error.validationErrors = validation.errors;
+        throw error;
       }
 
-      // Insert template
+      this.logger.info('[Service] Creating template', {
+        integrationId,
+        templateName: templateData.template_name
+      });
+
+      // Get integration
+      const integration = await this._getIntegration(organizationId, integrationId);
+      if (!integration) {
+        throw new Error('Integration not found');
+      }
+
+      // Map form data to AiSensy API format
+      const aisensy_payload = this._mapFormToAiSensy(templateData);
+
+      // Submit to AiSensy
+      const aisensy_response = await this.aisensy.submitTemplate(
+        integration.project_id,
+        aisensy_payload,
+        integration.project_api_password
+      );
+
+      this.logger.info('[Service] Template submitted to AiSensy', {
+        integrationId,
+        aisensy_template_id: aisensy_response.id,
+        status: aisensy_response.status
+      });
+
+      // Store in local database for reference
+      await conn.beginTransaction();
+
+      // Extract media URLs for storage (if template type includes media)
+      const templateType = (templateData.template_type || 'TEXT').toUpperCase();
+      let mediaUrl = null;
+      let videoUrl = null;
+      let documentUrl = null;
+
+      if (templateType === 'IMAGE' && templateData.header_content) {
+        mediaUrl = templateData.header_content;
+      }
+      if (templateType === 'VIDEO' && templateData.header_content) {
+        videoUrl = templateData.header_content;
+      }
+      if ((templateType === 'FILE' || templateType === 'DOCUMENT') && templateData.header_content) {
+        documentUrl = templateData.header_content;
+      }
+
       const [result] = await conn.query(
         `INSERT INTO whatsapp_templates (
           integration_id, organization_id, template_name, category, language,
-          template_type, header_type, header_content, body, footer,
-          buttons_json, sample_values_json, variables_list, status, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?)`,
+          template_type, header_content, body, footer,
+          buttons_json, sample_values_json, status, aisensy_template_id, created_by,
+          media_url, video_url, document_url, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
         [
-          integrationId, organizationId, template_name, category, language,
-          template_type, header_type, header_content, body, footer,
-          JSON.stringify(buttons || []),
-          JSON.stringify(sample_values || {}),
-          JSON.stringify(variables || []),
-          organizationId
+          integrationId,
+          organizationId,
+          templateData.template_name,
+          templateData.category,
+          templateData.language,
+          templateData.template_type,
+          templateData.header_content,
+          templateData.body,
+          templateData.footer,
+          JSON.stringify(templateData.buttons || []),
+          JSON.stringify(templateData.sample_values || {}),
+          aisensy_response.status || 'PENDING',
+          aisensy_response.id,
+          organizationId,
+          mediaUrl,
+          videoUrl,
+          documentUrl
         ]
       );
 
       const templateId = result.insertId;
 
-      // Insert buttons if any
-      if (buttons && buttons.length > 0) {
-        for (let i = 0; i < buttons.length; i++) {
-          const btn = buttons[i];
-          await conn.query(
-            `INSERT INTO whatsapp_template_buttons (
-              template_id, button_type, cta_type, button_text, button_value, sequence_order
-            ) VALUES (?, ?, ?, ?, ?, ?)`,
-            [
-              templateId,
-              btn.type === 'QUICK_REPLY' ? 'QUICK_REPLY' : 'CALL_TO_ACTION',
-              btn.cta_type || null,
-              btn.button_text,
-              btn.button_value,
-              i
-            ]
-          );
-        }
-      }
-
-      await conn.commit();
-
-      this.logger.info('Template created', { templateId, integrationId });
-      return await this.getTemplate(organizationId, integrationId, templateId);
-    } catch (error) {
-      await conn.rollback();
-      this.logger.error('Failed to create template', { error: error.message });
-      throw error;
-    } finally {
-      conn.release();
-    }
-  }
-
-  async updateTemplate(organizationId, integrationId, templateId, updates) {
-    const conn = await this.pool.getConnection();
-    try {
-      await conn.beginTransaction();
-
-      const template = await this.getTemplate(organizationId, integrationId, templateId);
-      if (!template) throw new Error('Template not found');
-      if (template.status !== 'DRAFT') throw new Error('Only draft templates can be edited');
-
-      const {
-        template_name,
-        category,
-        language,
-        template_type,
-        header_type,
-        header_content,
-        body,
-        footer,
-        buttons,
-        sample_values,
-        variables
-      } = updates;
-
-      // Check name uniqueness if changing
-      if (template_name && template_name !== template.template_name) {
-        const existing = await conn.query(
-          'SELECT id FROM whatsapp_templates WHERE integration_id = ? AND template_name = ? AND id != ? AND deleted_at IS NULL',
-          [integrationId, template_name, templateId]
-        );
-        if (existing.length > 0) throw new Error(`Template name "${template_name}" already exists`);
-      }
-
+      // Log in audit trail
       await conn.query(
-        `UPDATE whatsapp_templates SET
-          template_name = ?, category = ?, language = ?,
-          template_type = ?, header_type = ?, header_content = ?,
-          body = ?, footer = ?,
-          buttons_json = ?, sample_values_json = ?, variables_list = ?,
-          updated_by = ?, updated_at = NOW()
-        WHERE id = ?`,
+        `INSERT INTO whatsapp_template_logs (
+          template_id, integration_id, aisensy_template_id, action, status,
+          api_request, api_response, created_at
+        ) VALUES (?, ?, ?, 'CREATED', ?, ?, ?, NOW())`,
         [
-          template_name || template.template_name,
-          category || template.category,
-          language || template.language,
-          template_type || template.template_type,
-          header_type || template.header_type,
-          header_content !== undefined ? header_content : template.header_content,
-          body || template.body,
-          footer !== undefined ? footer : template.footer,
-          JSON.stringify(buttons || JSON.parse(template.buttons_json || '[]')),
-          JSON.stringify(sample_values || JSON.parse(template.sample_values_json || '{}')),
-          JSON.stringify(variables || JSON.parse(template.variables_list || '[]')),
-          organizationId,
-          templateId
+          templateId,
+          integrationId,
+          aisensy_response.id,
+          aisensy_response.status || 'PENDING',
+          JSON.stringify(aisensy_payload),
+          JSON.stringify(aisensy_response)
         ]
       );
 
-      // Delete existing buttons and recreate
-      await conn.query('DELETE FROM whatsapp_template_buttons WHERE template_id = ?', [templateId]);
-      if (buttons && buttons.length > 0) {
-        for (let i = 0; i < buttons.length; i++) {
-          const btn = buttons[i];
-          await conn.query(
-            `INSERT INTO whatsapp_template_buttons (
-              template_id, button_type, cta_type, button_text, button_value, sequence_order
-            ) VALUES (?, ?, ?, ?, ?, ?)`,
-            [
-              templateId,
-              btn.type === 'QUICK_REPLY' ? 'QUICK_REPLY' : 'CALL_TO_ACTION',
-              btn.cta_type || null,
-              btn.button_text,
-              btn.button_value,
-              i
-            ]
-          );
-        }
-      }
-
       await conn.commit();
-      return await this.getTemplate(organizationId, integrationId, templateId);
+
+      return {
+        id: templateId,
+        aisensy_template_id: aisensy_response.id,
+        template_name: templateData.template_name,
+        status: aisensy_response.status || 'PENDING',
+        ...aisensy_response
+      };
     } catch (error) {
       await conn.rollback();
+      this.logger.error('[Service] Failed to create template', {
+        error: error.message,
+        integrationId
+      });
       throw error;
     } finally {
       conn.release();
     }
   }
 
-  async deleteTemplate(organizationId, integrationId, templateId) {
-    const template = await this.getTemplate(organizationId, integrationId, templateId);
-    if (!template) throw new Error('Template not found');
-    if (template.status !== 'DRAFT') throw new Error('Only draft templates can be deleted');
+  // ============= Template Deletion (Delete from AiSensy) =============
 
-    await this.pool.query(
-      'UPDATE whatsapp_templates SET deleted_at = NOW() WHERE id = ?',
-      [templateId]
-    );
-
-    this.logger.info('Template deleted', { templateId });
-  }
-
-  async getTemplate(organizationId, integrationId, templateId) {
-    const rows = await this.pool.query(
-      `SELECT * FROM whatsapp_templates
-       WHERE id = ? AND organization_id = ? AND integration_id = ? AND deleted_at IS NULL`,
-      [templateId, organizationId, integrationId]
-    );
-
-    if (rows.length === 0) return null;
-
-    const template = rows[0];
-    template.buttons_json = JSON.parse(template.buttons_json || '[]');
-    template.sample_values_json = JSON.parse(template.sample_values_json || '{}');
-    template.variables_list = JSON.parse(template.variables_list || '[]');
-
-    // Get buttons from button table
-    const buttons = await this.pool.query(
-      'SELECT * FROM whatsapp_template_buttons WHERE template_id = ? ORDER BY sequence_order',
-      [templateId]
-    );
-    template.buttons = buttons;
-
-    return template;
-  }
-
-  async listTemplates(organizationId, integrationId, filters = {}) {
-    let query = `
-      SELECT * FROM whatsapp_templates
-      WHERE organization_id = ? AND integration_id = ? AND deleted_at IS NULL
-    `;
-    const params = [organizationId, integrationId];
-
-    if (filters.status) {
-      query += ` AND status = ?`;
-      params.push(filters.status);
-    }
-
-    if (filters.category) {
-      query += ` AND category = ?`;
-      params.push(filters.category);
-    }
-
-    if (filters.language) {
-      query += ` AND language = ?`;
-      params.push(filters.language);
-    }
-
-    if (filters.search) {
-      query += ` AND template_name LIKE ?`;
-      params.push(`%${filters.search}%`);
-    }
-
-    if (filters.type) {
-      query += ` AND template_type = ?`;
-      params.push(filters.type);
-    }
-
-    query += ` ORDER BY created_at DESC`;
-
-    if (filters.limit) {
-      query += ` LIMIT ? OFFSET ?`;
-      params.push(filters.limit, filters.offset || 0);
-    }
-
-    const templates = await this.pool.query(query, params);
-
-    return templates.map(t => ({
-      ...t,
-      buttons_json: JSON.parse(t.buttons_json || '[]'),
-      sample_values_json: JSON.parse(t.sample_values_json || '{}'),
-      variables_list: JSON.parse(t.variables_list || '[]')
-    }));
-  }
-
-  async countTemplates(organizationId, integrationId, filters = {}) {
-    let query = `
-      SELECT COUNT(*) as count FROM whatsapp_templates
-      WHERE organization_id = ? AND integration_id = ? AND deleted_at IS NULL
-    `;
-    const params = [organizationId, integrationId];
-
-    if (filters.status) {
-      query += ` AND status = ?`;
-      params.push(filters.status);
-    }
-
-    if (filters.category) {
-      query += ` AND category = ?`;
-      params.push(filters.category);
-    }
-
-    if (filters.language) {
-      query += ` AND language = ?`;
-      params.push(filters.language);
-    }
-
-    if (filters.search) {
-      query += ` AND template_name LIKE ?`;
-      params.push(`%${filters.search}%`);
-    }
-
-    const result = await this.pool.query(query, params);
-    return result[0]?.count || 0;
-  }
-
-  // ============= Template Submission =============
-
-  async submitTemplate(organizationId, integrationId, templateId) {
-    const template = await this.getTemplate(organizationId, integrationId, templateId);
-    if (!template) throw new Error('Template not found');
-    if (template.status !== 'DRAFT') throw new Error('Only draft templates can be submitted');
-
-    const validation = this.validateTemplate(template);
-    if (!validation.valid) {
-      throw new Error(`Validation failed: ${validation.errors.join(', ')}`);
-    }
-
-    await this.pool.query(
-      'UPDATE whatsapp_templates SET status = ?, updated_at = NOW() WHERE id = ?',
-      ['PENDING', templateId]
-    );
-
-    await this.logSync(templateId, 'CREATE', 'PENDING', null, 'Template submitted for approval');
-
-    this.logger.info('Template submitted', { templateId });
-    return await this.getTemplate(organizationId, integrationId, templateId);
-  }
-
-  async cloneTemplate(organizationId, integrationId, templateId, newName) {
-    const template = await this.getTemplate(organizationId, integrationId, templateId);
-    if (!template) throw new Error('Template not found');
-
-    return this.createTemplate(organizationId, integrationId, {
-      template_name: newName,
-      category: template.category,
-      language: template.language,
-      template_type: template.template_type,
-      header_type: template.header_type,
-      header_content: template.header_content,
-      body: template.body,
-      footer: template.footer,
-      buttons: template.buttons_json,
-      sample_values: template.sample_values_json,
-      variables: template.variables_list
-    });
-  }
-
-  async archiveTemplate(organizationId, integrationId, templateId) {
-    const template = await this.getTemplate(organizationId, integrationId, templateId);
-    if (!template) throw new Error('Template not found');
-
-    await this.pool.query(
-      'UPDATE whatsapp_templates SET is_archived = TRUE, updated_at = NOW() WHERE id = ?',
-      [templateId]
-    );
-
-    this.logger.info('Template archived', { templateId });
-  }
-
-  // ============= Validation =============
-
-  validateTemplate(template) {
-    const errors = [];
-
-    // Template name validation
-    if (!template.template_name || !/^[a-z0-9_]+$/.test(template.template_name)) {
-      errors.push('Template name must be lowercase letters, numbers, and underscores only');
-    }
-
-    // Body validation
-    if (!template.body || template.body.trim().length === 0) {
-      errors.push('Template body is required');
-    } else if (template.body.length > 1024) {
-      errors.push('Template body must not exceed 1024 characters');
-    }
-
-    // Variables validation
-    const variables = template.variables_list || [];
-    const bodyVars = this.extractVariables(template.body);
-
-    // Check sequential variables
-    if (bodyVars.length > 0) {
-      for (let i = 0; i < bodyVars.length; i++) {
-        if (bodyVars[i] !== i + 1) {
-          errors.push('Variables must be sequential ({{1}}, {{2}}, etc.)');
-          break;
-        }
+  /**
+   * Delete template from AiSensy
+   * @param {number} organizationId
+   * @param {number} integrationId
+   * @param {string} aisensy_template_id - AiSensy template ID
+   * @returns {Promise<void>}
+   */
+  async deleteTemplate(organizationId, integrationId, aisensy_template_id) {
+    const conn = await this.pool.getConnection();
+    try {
+      // Get integration
+      const integration = await this._getIntegration(organizationId, integrationId);
+      if (!integration) {
+        throw new Error('Integration not found');
       }
 
-      // Check sample values exist
-      const sampleValues = template.sample_values_json || {};
-      for (let i = 1; i <= bodyVars.length; i++) {
-        if (!sampleValues[`{{${i}}}`] || sampleValues[`{{${i}}}`].trim() === '') {
-          errors.push(`Sample value for {{${i}}} is required`);
+      this.logger.info('[Service] Deleting template', {
+        integrationId,
+        templateId: aisensy_template_id
+      });
+
+      // ✅ FIX: Only delete from AiSensy if template has a valid aisensy_template_id
+      // Templates created but not yet synced/submitted to AiSensy won't have this ID
+      if (aisensy_template_id) {
+        try {
+          await this.aisensy.deleteTemplate(
+            aisensy_template_id,
+            integration.project_api_password
+          );
+          this.logger.info('[Service] Template deleted from AiSensy', { aisensy_template_id });
+        } catch (aisensy_error) {
+          // Log AiSensy error but continue with local deletion
+          this.logger.warn('[Service] Failed to delete from AiSensy, continuing with local deletion', {
+            error: aisensy_error.message,
+            templateId: aisensy_template_id
+          });
+          // Don't throw - allow local deletion to proceed even if AiSensy delete fails
         }
+      } else {
+        this.logger.info('[Service] Template has no aisensy_template_id, skipping AiSensy deletion');
       }
+
+      // Get template ID before soft deleting
+      const [templates] = await conn.query(
+        'SELECT id FROM whatsapp_templates WHERE aisensy_template_id = ? AND deleted_at IS NULL',
+        [aisensy_template_id]
+      );
+
+      const templateId = templates.length > 0 ? templates[0].id : null;
+
+      // Soft delete locally
+      await conn.query(
+        'UPDATE whatsapp_templates SET deleted_at = NOW() WHERE aisensy_template_id = ?',
+        [aisensy_template_id]
+      );
+
+      // ✅ FIX: Log deletion only if we found a template to delete
+      if (templateId) {
+        await conn.query(
+          `INSERT INTO whatsapp_template_logs (
+            template_id, integration_id, aisensy_template_id, action, status, created_at
+          ) VALUES (?, ?, ?, 'DELETED', 'DELETED', NOW())`,
+          [templateId, integrationId, aisensy_template_id]
+        );
+      }
+
+      this.logger.info('[Service] Template marked as deleted locally', {
+        templateId,
+        aisensy_template_id
+      });
+    } catch (error) {
+      this.logger.error('[Service] Failed to delete template', {
+        error: error.message,
+        templateId: aisensy_template_id
+      });
+      throw error;
+    } finally {
+      conn.release();
     }
+  }
 
-    // Buttons validation
-    if (template.buttons_json && template.buttons_json.length > 0) {
-      template.buttons_json.forEach((btn, idx) => {
-        if (!btn.button_text || btn.button_text.trim().length === 0) {
-          errors.push(`Button ${idx + 1}: Text is required`);
-        } else if (btn.button_text.length > 25) {
-          errors.push(`Button ${idx + 1}: Text must not exceed 25 characters`);
-        }
+  // ============= Sync Operations =============
 
-        if (btn.type === 'CALL_TO_ACTION') {
-          if (!btn.button_value) {
-            errors.push(`Button ${idx + 1}: Value is required`);
-          } else if (btn.cta_type === 'VISIT_WEBSITE' && !/^https:\/\//i.test(btn.button_value)) {
-            errors.push(`Button ${idx + 1}: URL must start with https://`);
-          } else if (btn.cta_type === 'CALL_PHONE' && !/^\+?[0-9]{7,15}$/.test(btn.button_value.replace(/[-\s]/g, ''))) {
-            errors.push(`Button ${idx + 1}: Invalid phone number format`);
-          }
+  /**
+   * Sync all templates from AiSensy to local database
+   * @param {number} organizationId
+   * @param {number} integrationId
+   * @returns {Promise<object>} Sync result
+   */
+  async syncTemplates(organizationId, integrationId) {
+    const conn = await this.pool.getConnection();
+    try {
+      this.logger.info('[Service] Starting template sync', { integrationId });
+
+      // Get integration
+      const integration = await this._getIntegration(organizationId, integrationId);
+      if (!integration) {
+        throw new Error('Integration not found');
+      }
+
+      // Fetch from AiSensy
+      const result = await this.aisensy.syncTemplates(
+        integration.project_id,
+        integration.project_api_password
+      );
+
+      // Sync locally
+      const syncResult = await this._syncTemplatesLocally(organizationId, integrationId, result.templates);
+
+      // Update last sync timestamp
+      await conn.query(
+        'UPDATE integrations SET last_template_sync_at = NOW() WHERE id = ?',
+        [integrationId]
+      );
+
+      this.logger.info('[Service] Sync complete', {
+        integrationId,
+        templateCount: result.templates.length,
+        synced: syncResult.synced,
+        updated: syncResult.updated
+      });
+
+      return {
+        success: true,
+        count: result.templates.length,
+        synced: syncResult.synced,
+        updated: syncResult.updated,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      this.logger.error('[Service] Sync failed', {
+        error: error.message,
+        integrationId
+      });
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+
+  /**
+   * Get template status counts
+   * @param {number} organizationId
+   * @param {number} integrationId
+   * @returns {Promise<object>} Status counts
+   */
+  async getStatusCounts(organizationId, integrationId) {
+    try {
+      const [counts] = await this.pool.query(
+        `SELECT
+          status,
+          COUNT(*) as count
+        FROM whatsapp_templates
+        WHERE integration_id = ? AND deleted_at IS NULL
+        GROUP BY status`,
+        [integrationId]
+      );
+
+      const result = {
+        DRAFT: 0,
+        PENDING: 0,
+        APPROVED: 0,
+        REJECTED: 0,
+        ARCHIVED: 0
+      };
+
+      counts.forEach(row => {
+        if (result.hasOwnProperty(row.status)) {
+          result[row.status] = row.count;
         }
       });
 
-      if (template.buttons_json.length > 3) {
-        errors.push('Maximum 3 buttons allowed');
+      return result;
+    } catch (error) {
+      this.logger.error('[Service] Failed to get status counts', { error: error.message });
+      throw error;
+    }
+  }
+
+  // ============= Helper Methods =============
+
+  /**
+   * Get integration with decrypted credentials
+   * @private
+   */
+  async _getIntegration(organizationId, integrationId) {
+    const [integrations] = await this.pool.query(
+      `SELECT id, organization_id, name, type, project_id, project_api_password, status
+       FROM integrations
+       WHERE id = ? AND organization_id = ? AND deleted_at IS NULL`,
+      [integrationId, organizationId]
+    );
+
+    if (integrations.length === 0) {
+      return null;
+    }
+
+    const integration = integrations[0];
+
+    // Validate required fields for AiSensy
+    if (!integration.project_id || !integration.project_api_password) {
+      throw new Error('Integration not configured with AiSensy credentials');
+    }
+
+    return integration;
+  }
+
+  /**
+   * Sync AiSensy templates to local database (metadata only)
+   * @private
+   */
+  async _syncTemplatesLocally(organizationId, integrationId, templates) {
+    const conn = await this.pool.getConnection();
+    let synced = 0;
+    let updated = 0;
+
+    try {
+      for (const template of templates) {
+        // Extract media URLs from template (from AiSensy response)
+        const mediaUrl = template.header && template.header_type === 'IMAGE' ? template.header : null;
+        const videoUrl = template.type === 'VIDEO' ? template.headerUrl || template.media_url : null;
+        const documentUrl = (template.type === 'FILE' || template.type === 'DOCUMENT') ? template.headerUrl || template.media_url : null;
+
+        // Check if exists
+        const [existing] = await conn.query(
+          'SELECT id FROM whatsapp_templates WHERE aisensy_template_id = ?',
+          [template.id]
+        );
+
+        if (existing.length > 0) {
+          // Update existing - also update media URLs if present
+          await conn.query(
+            `UPDATE whatsapp_templates
+             SET status = ?, rejection_reason = ?, media_url = ?, video_url = ?, document_url = ?, last_synced_at = NOW()
+             WHERE aisensy_template_id = ?`,
+            [
+              template.status,
+              template.rejection_reason || null,
+              mediaUrl,
+              videoUrl,
+              documentUrl,
+              template.id
+            ]
+          );
+          updated++;
+        } else {
+          // Insert new template with media URLs
+          await conn.query(
+            `INSERT INTO whatsapp_templates (
+              integration_id, organization_id, aisensy_template_id, template_name,
+              category, language, template_type, body, status, media_url, video_url, document_url,
+              last_synced_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+            [
+              integrationId,
+              organizationId,
+              template.id,
+              template.name,
+              template.category || 'MARKETING',
+              template.language || 'English',
+              template.type || 'TEXT',
+              template.text || '', // body
+              template.status || 'PENDING',
+              mediaUrl,
+              videoUrl,
+              documentUrl
+            ]
+          );
+          synced++;
+        }
       }
+    } finally {
+      conn.release();
     }
 
-    // Quick replies validation
-    const quickReplies = template.buttons_json?.filter(b => b.type === 'QUICK_REPLY') || [];
-    if (quickReplies.length > 3) {
-      errors.push('Maximum 3 quick replies allowed');
-    }
+    return { synced, updated };
+  }
 
-    return {
-      valid: errors.length === 0,
-      errors
+  /**
+   * Map form data to AiSensy API format
+   * @private
+   */
+  _mapFormToAiSensy(formData) {
+    const payload = {
+      name: formData.template_name.toLowerCase().trim(),
+      label: formData.label || formData.template_name,
+      category: formData.category.toUpperCase(),
+      type: formData.template_type.toUpperCase(),
+      language: formData.language,
+      text: formData.body
     };
-  }
 
-  extractVariables(text) {
-    const matches = text.match(/\{\{(\d+)\}\}/g) || [];
-    const numbers = [...new Set(matches.map(m => parseInt(m.replace(/\{\{|\}\}/g, ''))))];
-    return numbers.sort((a, b) => a - b);
-  }
+    // ✅ FIXED: sample_text is ALWAYS required by AiSensy
+    // - If no variables: use the body text as-is
+    // - If variables: use provided sample_text (already has values filled in)
+    const hasVariables = /\{\{(\d+)\}\}/.test(formData.body);
+    if (hasVariables) {
+      // With variables, sample_text must have example values
+      payload.sample_text = formData.sample_text || formData.body;
+    } else {
+      // Without variables, sample_text should be the same as body
+      payload.sample_text = formData.body;
+    }
 
-  // ============= Sync & Logging =============
+    // Add optional fields
+    if (formData.header_content) {
+      payload.header = formData.header_content;
+    }
 
-  async logSync(templateId, syncType, status, responseCode, message) {
-    await this.pool.query(
-      `INSERT INTO whatsapp_template_sync_logs (
-        template_id, sync_type, status, response_code, response_message
-      ) VALUES (?, ?, ?, ?, ?)`,
-      [templateId, syncType, status, responseCode, message]
-    );
-  }
+    if (formData.footer) {
+      payload.footer = formData.footer;
+    }
 
-  async getSyncLogs(templateId, limit = 10) {
-    return this.pool.query(
-      'SELECT * FROM whatsapp_template_sync_logs WHERE template_id = ? ORDER BY synced_at DESC LIMIT ?',
-      [templateId, limit]
-    );
-  }
+    // ✅ FIXED: Only set message_action_type if there are actual replies/buttons
+    if (formData.quick_replies && formData.quick_replies.length > 0) {
+      payload.quick_replies = formData.quick_replies;
+      payload.message_action_type = 'QuickReplies';
+    } else if (formData.call_to_action && formData.call_to_action.length > 0) {
+      payload.call_to_action = formData.call_to_action;
+      payload.message_action_type = 'CTA';
+    } else {
+      payload.message_action_type = 'NONE';
+    }
 
-  async updateTemplateStatus(templateId, status, rejectionReason = null, apiResponse = null) {
-    await this.pool.query(
-      `UPDATE whatsapp_templates SET
-        status = ?, rejection_reason = ?, api_response = ?, updated_at = NOW()
-      WHERE id = ?`,
-      [status, rejectionReason, JSON.stringify(apiResponse), templateId]
-    );
+    return payload;
   }
 }
+
+export default WhatsAppTemplateService;

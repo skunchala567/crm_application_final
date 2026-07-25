@@ -13,8 +13,9 @@ export class SmartpingMessageService {
 
   async getIntegrationByProjectId(projectId) {
     try {
+      // CONSOLIDATED: Uses single 'integrations' table (migration 005)
       const query = `
-        SELECT id FROM integration_configs
+        SELECT id FROM integrations
         WHERE provider_name = 'smartping'
         AND JSON_EXTRACT(config, '$.projectId') = ?
         LIMIT 1

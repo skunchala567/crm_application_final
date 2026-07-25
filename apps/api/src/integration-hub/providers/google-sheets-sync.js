@@ -238,13 +238,13 @@ export class GoogleSheetsSyncService {
 
   /**
    * Get field mappings for integration
-   * Reads from integration config (where they're actually saved)
+   * CONSOLIDATED: Uses single 'integrations' table (migration 005)
    */
   async getFieldMappings(integrationId) {
     // Field mappings are saved in the config.fieldMappings object
     // Format: { "sheet_0": "student_name", "sheet_1": "phone", ... }
     const [configs] = await this.pool.execute(
-      'SELECT config_json FROM integration_configs WHERE id = ?',
+      'SELECT config FROM integrations WHERE id = ?',
       [integrationId]
     );
 

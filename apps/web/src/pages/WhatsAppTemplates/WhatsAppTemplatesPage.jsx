@@ -81,6 +81,25 @@ export default function WhatsAppTemplatesPage({ integrationId }) {
     handleCloseModal();
   };
 
+  const handleDeleteTemplate = async (templateId, templateName) => {
+    if (!templateId || isNaN(templateId)) {
+      alert('Error: Invalid template ID');
+      return;
+    }
+
+    if (!window.confirm(`Delete template "${templateName}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      await api.delete(`/whatsapp/integrations/${integrationId}/templates/${templateId}`);
+      loadTemplates();
+    } catch (error) {
+      alert(`Failed to delete template: ${error.message}`);
+      console.error('Delete error:', error);
+    }
+  };
+
   return (
     <section className="lead-config-panel panel" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
@@ -222,6 +241,28 @@ export default function WhatsAppTemplatesPage({ integrationId }) {
                     >
                       <Pencil size={14} /> Edit
                     </button>
+
+                    {template.status === 'DRAFT' && (
+                      <button
+                        onClick={() => handleDeleteTemplate(template.id, template.template_name)}
+                        style={{
+                          border: 'none',
+                          background: 'transparent',
+                          color: '#dc2626',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          fontSize: '12px',
+                          fontWeight: '600',
+                          padding: 0,
+                          hover: { opacity: 0.7 }
+                        }}
+                        title="Delete draft template"
+                      >
+                        <Trash2 size={14} /> Delete
+                      </button>
+                    )}
 
                     <button
                       style={{

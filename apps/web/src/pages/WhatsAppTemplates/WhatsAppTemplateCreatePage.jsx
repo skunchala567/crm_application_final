@@ -22,7 +22,6 @@ export default function WhatsAppTemplateCreatePage({
     category: 'MARKETING',
     language: 'English',
     template_type: 'TEXT',
-    header_type: 'NONE',
     header_content: '',
     body: '',
     footer: '',
@@ -52,7 +51,6 @@ export default function WhatsAppTemplateCreatePage({
         category: template.category,
         language: template.language,
         template_type: template.template_type,
-        header_type: template.header_type,
         header_content: template.header_content || '',
         body: template.body,
         footer: template.footer || '',
@@ -157,8 +155,7 @@ export default function WhatsAppTemplateCreatePage({
         category: form.category,
         language: form.language,
         template_type: form.template_type,
-        header_type: form.header_type,
-        header_content: form.header_type === 'TEXT' ? form.header_content : null,
+        header_content: form.header_content || null,
         body: form.body,
         footer: form.footer || null,
         sample_values: form.sample_values,
@@ -300,45 +297,28 @@ export default function WhatsAppTemplateCreatePage({
             </div>
           </Section>
 
-          {/* Header */}
-          <Section
-            id="header"
-            title="Header (Optional)"
-            expanded={activeSection === 'header'}
-            onToggle={() => setActiveSection(activeSection === 'header' ? null : 'header')}
-          >
-            <div className="form-grid-2">
-              <FormField label="Header Type">
-                <select
-                  value={form.header_type}
-                  onChange={(e) => handleChange('header_type', e.target.value)}
-                  className="input"
-                >
-                  <option value="NONE">None</option>
-                  <option value="TEXT">Text</option>
-                  <option value="IMAGE">Image</option>
-                  <option value="VIDEO">Video</option>
-                  <option value="DOCUMENT">Document</option>
-                </select>
-              </FormField>
-            </div>
-
-            {form.header_type === 'TEXT' && (
+          {/* Header - Only for media templates */}
+          {form.template_type !== 'TEXT' && (
+            <Section
+              id="header"
+              title="Header Content (Optional)"
+              expanded={activeSection === 'header'}
+              onToggle={() => setActiveSection(activeSection === 'header' ? null : 'header')}
+            >
               <FormField
-                label="Header Text"
+                label={`${form.template_type} URL`}
                 error={validationErrors.header_content}
               >
                 <input
                   type="text"
                   value={form.header_content}
                   onChange={(e) => handleChange('header_content', e.target.value)}
-                  placeholder="Enter header text"
+                  placeholder="https://..."
                   className="input"
-                  maxLength="100"
                 />
               </FormField>
-            )}
-          </Section>
+            </Section>
+          )}
 
           {/* Message Body */}
           <Section
@@ -511,7 +491,7 @@ export default function WhatsAppTemplateCreatePage({
             <h3 className="preview-title">Live Preview</h3>
             <WhatsAppTemplatePreview
               template={{
-                header_type: form.header_type,
+                template_type: form.template_type,
                 header_content: form.header_content,
                 body: form.body,
                 footer: form.footer,

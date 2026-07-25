@@ -10,8 +10,7 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
     category: 'MARKETING',
     language: 'English',
     type: 'TEXT',
-    header_type: 'NONE',
-    header_text: '',
+    header_content: '',
     body: '',
     sample_text: '',
     footer: '',
@@ -72,9 +71,6 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
       errors.sample_text = 'Required for variables';
     }
 
-    if (form.header_type === 'TEXT' && !form.header_text.trim()) {
-      errors.header_text = 'Required';
-    }
 
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
@@ -182,8 +178,7 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
         category: form.category,
         language: form.language,
         template_type: form.type,
-        header_type: form.header_type,
-        header_content: form.header_type === 'TEXT' ? form.header_text : (form.header_file || null),
+        header_content: form.header_content || null,
         body: form.body,
         sample_values: form.sample_text ? { '{{1}}': form.sample_text } : undefined,
         footer: form.footer_enabled ? form.footer : null,
@@ -370,8 +365,8 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
             }}>
               <WhatsAppTemplatePreview
                 template={{
-                  header_type: form.header_type,
-                  header_content: form.header_text,
+                  template_type: form.type,
+                  header_content: form.header_content,
                   body: form.body,
                   footer: form.footer_enabled ? form.footer : null,
                   quick_replies: form.quick_replies,
@@ -605,47 +600,24 @@ function FormContent({ form, handleChange, validationErrors, languages, hasVaria
         </div>
       </FormSection>
 
-      {/* Section 2: Header */}
-      <FormSection title="Header (Optional)">
-        <FormField label="Header Type" isCompact>
-          <select
-            value={form.header_type}
-            onChange={e => handleChange('header_type', e.target.value)}
-            style={{
-              width: '100%',
-              height: '36px',
-              border: '1px solid #d1d5db',
-              borderRadius: '6px',
-              padding: '0 10px',
-              fontSize: '13px',
-              outline: 0,
-              background: '#fff'
-            }}
-          >
-            <option value="NONE">None</option>
-            <option value="TEXT">Text</option>
-            <option value="IMAGE">Image</option>
-            <option value="VIDEO">Video</option>
-            <option value="DOCUMENT">Document</option>
-          </select>
-        </FormField>
-
-        {form.header_type === 'TEXT' && (
+      {/* Section 2: Header (Optional, for media templates) */}
+      {form.type !== 'TEXT' && (
+        <FormSection title="Header Content (Optional)">
           <FormField
-            label="Header Text"
-            error={validationErrors.header_text}
+            label={`${form.type} URL`}
+            error={validationErrors.header_content}
             isCompact
           >
             <input
               type="text"
-              value={form.header_text}
-              onChange={e => handleChange('header_text', e.target.value)}
-              placeholder="Header text"
-              maxLength="100"
+              value={form.header_content}
+              onChange={e => handleChange('header_content', e.target.value)}
+              placeholder="https://..."
+              maxLength="2048"
               style={{
                 width: '100%',
                 height: '36px',
-                border: validationErrors.header_text ? '1px solid #dc2626' : '1px solid #d1d5db',
+                border: '1px solid #d1d5db',
                 borderRadius: '6px',
                 padding: '0 10px',
                 fontSize: '13px',
@@ -653,62 +625,8 @@ function FormContent({ form, handleChange, validationErrors, languages, hasVaria
               }}
             />
           </FormField>
-        )}
-
-        {(form.header_type === 'IMAGE' || form.header_type === 'VIDEO' || form.header_type === 'DOCUMENT') && (
-          <FormField
-            label={`Upload ${form.header_type} File`}
-            error={validationErrors.header_file}
-            isCompact
-          >
-            <div style={{
-              display: 'flex',
-              gap: '12px',
-              alignItems: 'center'
-            }}>
-              <input
-                type="file"
-                accept={
-                  form.header_type === 'IMAGE' ? 'image/*' :
-                  form.header_type === 'VIDEO' ? 'video/*' :
-                  '.pdf,.doc,.docx'
-                }
-                onChange={e => {
-                  if (e.target.files?.[0]) {
-                    handleChange('header_file', e.target.files[0]);
-                  }
-                }}
-                style={{
-                  flex: 1,
-                  padding: '8px 10px',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '6px',
-                  fontSize: '13px',
-                  cursor: 'pointer'
-                }}
-              />
-              {form.header_file && (
-                <span style={{
-                  fontSize: '12px',
-                  color: '#059669',
-                  whiteSpace: 'nowrap'
-                }}>
-                  ✓ {form.header_file.name || 'File selected'}
-                </span>
-              )}
-            </div>
-            <p style={{
-              margin: '8px 0 0 0',
-              fontSize: '12px',
-              color: '#6b7280'
-            }}>
-              {form.header_type === 'IMAGE' && 'Max 5MB. Formats: JPG, PNG, GIF, BMP'}
-              {form.header_type === 'VIDEO' && 'Max 16MB. Formats: MP4, 3GP'}
-              {form.header_type === 'DOCUMENT' && 'Max 100MB. Formats: PDF'}
-            </p>
-          </FormField>
-        )}
-      </FormSection>
+        </FormSection>
+      )}
 
       {/* Section 3: Message Body */}
       <FormSection title="Message Body">

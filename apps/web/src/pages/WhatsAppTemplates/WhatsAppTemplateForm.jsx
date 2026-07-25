@@ -13,7 +13,6 @@ export default function WhatsAppTemplateForm({ integrationId, templateId, onSave
     category: 'MARKETING',
     language: 'English',
     template_type: 'TEXT',
-    header_type: 'NONE',
     header_content: '',
     body: '',
     footer: '',
@@ -67,7 +66,6 @@ export default function WhatsAppTemplateForm({ integrationId, templateId, onSave
         category: template.category,
         language: template.language,
         template_type: template.template_type,
-        header_type: template.header_type,
         header_content: template.header_content || '',
         body: template.body,
         footer: template.footer || '',
@@ -111,7 +109,6 @@ export default function WhatsAppTemplateForm({ integrationId, templateId, onSave
         category: form.category,
         language: form.language,
         template_type: form.template_type,
-        header_type: form.header_type,
         header_content: form.header_content,
         body: form.body,
         footer: form.footer,
@@ -287,35 +284,16 @@ export default function WhatsAppTemplateForm({ integrationId, templateId, onSave
               </div>
             </div>
 
-            <div style={styles.formGroup}>
-              <label>Header (Optional)</label>
-              <select
-                value={form.header_type}
-                onChange={(e) => setForm(prev => ({ ...prev, header_type: e.target.value }))}
-                style={styles.select}
-              >
-                {['NONE', 'TEXT', 'IMAGE', 'VIDEO', 'DOCUMENT'].map(type => (
-                  <option key={type} value={type}>{type}</option>
-                ))}
-              </select>
-            </div>
-
-            {form.header_type !== 'NONE' && (
+            {form.template_type !== 'TEXT' && (
               <div style={styles.formGroup}>
-                <label>Header Content</label>
-                {form.header_type === 'TEXT' ? (
-                  <textarea
-                    value={form.header_content}
-                    onChange={(e) => setForm(prev => ({ ...prev, header_content: e.target.value }))}
-                    placeholder="Header text"
-                    style={styles.textarea}
-                    rows={2}
-                  />
-                ) : (
-                  <div style={styles.uploadPlaceholder}>
-                    📤 Upload {form.header_type.toLowerCase()} file
-                  </div>
-                )}
+                <label>Header Content ({form.template_type.toLowerCase()} URL)</label>
+                <input
+                  type="text"
+                  value={form.header_content}
+                  onChange={(e) => setForm(prev => ({ ...prev, header_content: e.target.value }))}
+                  placeholder="https://..."
+                  style={styles.input}
+                />
               </div>
             )}
           </div>

@@ -189,24 +189,14 @@ export default function WhatsAppTemplatePreview({ template, businessName = 'Pall
                   position: 'relative',
                   boxShadow: '0 1px 0.5px rgba(0,0,0,0.13)'
                 }}>
-                {/* Header if present */}
-                {template.header_type !== 'NONE' && (
+                {/* Header/Media if present (based on template_type) */}
+                {template.header_content && (
                   <div style={{
                     marginBottom: '8px',
                     paddingBottom: '8px',
                     borderBottom: '1px solid rgba(0,0,0,0.1)'
                   }}>
-                    {template.header_type === 'TEXT' && (
-                      <div style={{
-                        fontSize: '13px',
-                        fontWeight: '600',
-                        color: '#0084ff',
-                        whiteSpace: 'pre-wrap'
-                      }}>
-                        {template.header_content || '[Header]'}
-                      </div>
-                    )}
-                    {template.header_type === 'IMAGE' && (
+                    {template.template_type === 'IMAGE' && (
                       <div style={{
                         width: '200px',
                         height: '120px',
@@ -222,7 +212,7 @@ export default function WhatsAppTemplatePreview({ template, businessName = 'Pall
                         🖼️ Image
                       </div>
                     )}
-                    {template.header_type === 'VIDEO' && (
+                    {template.template_type === 'VIDEO' && (
                       <div style={{
                         width: '200px',
                         height: '120px',
@@ -238,7 +228,7 @@ export default function WhatsAppTemplatePreview({ template, businessName = 'Pall
                         ▶️ Video
                       </div>
                     )}
-                    {template.header_type === 'DOCUMENT' && (
+                    {template.template_type === 'FILE' && (
                       <div style={{
                         background: '#f0f0f0',
                         borderRadius: '8px',
