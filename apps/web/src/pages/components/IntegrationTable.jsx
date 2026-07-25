@@ -1,4 +1,4 @@
-import { Eye, RefreshCw, Settings, AlertCircle, CheckCircle } from 'lucide-react';
+import { RefreshCw, Settings, AlertCircle, CheckCircle } from 'lucide-react';
 
 export default function IntegrationTable({
   integrations,
@@ -77,13 +77,6 @@ export default function IntegrationTable({
                 </td>
                 <td>
                   <div className="action-buttons">
-                    <button
-                      className="btn-icon"
-                      title="View Details"
-                      onClick={() => onViewDetails(integration)}
-                    >
-                      <Eye size={16} />
-                    </button>
                     <button
                       className="btn-icon"
                       title="Sync Now"
