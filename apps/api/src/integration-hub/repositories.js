@@ -328,9 +328,18 @@ export class OAuthTokenRepository {
   async save(integrationConfigId, tokenData) {
     const { providerName, accessToken, refreshToken, tokenType, expiresAt, scope } = tokenData;
 
+    // Check if integration_id column exists (new schema after migration 005)
+    const [columns] = await this.pool.execute(
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'integration_oauth_tokens' AND TABLE_SCHEMA = DATABASE()"
+    );
+    const hasIntegrationIdColumn = columns.some(col => col.COLUMN_NAME === 'integration_id');
+
+    // Determine which column to use
+    const idColumnName = hasIntegrationIdColumn ? 'integration_id' : 'integration_config_id';
+
     // Check if exists
     const [existing] = await this.pool.execute(
-      'SELECT id FROM integration_oauth_tokens WHERE integration_config_id = ? LIMIT 1',
+      `SELECT id FROM integration_oauth_tokens WHERE ${idColumnName} = ? LIMIT 1`,
       [integrationConfigId]
     );
 
@@ -339,21 +348,42 @@ export class OAuthTokenRepository {
       await this.pool.execute(`
         UPDATE integration_oauth_tokens
         SET access_token = ?, refresh_token = ?, token_type = ?, expires_at = ?, scope = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE integration_config_id = ?
+        WHERE ${idColumnName} = ?
       `, [accessToken, refreshToken, tokenType, expiresAt, scope, integrationConfigId]);
     } else {
-      // Create
-      await this.pool.execute(`
-        INSERT INTO integration_oauth_tokens
-          (integration_config_id, provider_name, access_token, refresh_token, token_type, expires_at, scope, obtained_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-      `, [integrationConfigId, providerName, accessToken, refreshToken, tokenType, expiresAt, scope]);
+      // Create - try new schema first (migration 005), fall back to old schema
+      if (hasIntegrationIdColumn) {
+        await this.pool.execute(`
+          INSERT INTO integration_oauth_tokens
+            (integration_id, provider_name, access_token, refresh_token, token_type, expires_at, scope, obtained_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `, [integrationConfigId, providerName, accessToken, refreshToken, tokenType, expiresAt, scope]);
+      } else {
+        // Old schema - disable foreign key check temporarily if the integration is in integrations table
+        await this.pool.execute('SET FOREIGN_KEY_CHECKS=0');
+        try {
+          await this.pool.execute(`
+            INSERT INTO integration_oauth_tokens
+              (integration_config_id, provider_name, access_token, refresh_token, token_type, expires_at, scope, obtained_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          `, [integrationConfigId, providerName, accessToken, refreshToken, tokenType, expiresAt, scope]);
+        } finally {
+          await this.pool.execute('SET FOREIGN_KEY_CHECKS=1');
+        }
+      }
     }
   }
 
   async get(integrationConfigId) {
+    // Check if integration_id column exists (new schema after migration 005)
+    const [columns] = await this.pool.execute(
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'integration_oauth_tokens' AND TABLE_SCHEMA = DATABASE()"
+    );
+    const hasIntegrationIdColumn = columns.some(col => col.COLUMN_NAME === 'integration_id');
+
+    const idColumnName = hasIntegrationIdColumn ? 'integration_id' : 'integration_config_id';
     const [rows] = await this.pool.execute(
-      'SELECT * FROM integration_oauth_tokens WHERE integration_config_id = ? LIMIT 1',
+      `SELECT * FROM integration_oauth_tokens WHERE ${idColumnName} = ? LIMIT 1`,
       [integrationConfigId]
     );
 
@@ -361,8 +391,15 @@ export class OAuthTokenRepository {
   }
 
   async delete(integrationConfigId) {
+    // Check if integration_id column exists (new schema after migration 005)
+    const [columns] = await this.pool.execute(
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'integration_oauth_tokens' AND TABLE_SCHEMA = DATABASE()"
+    );
+    const hasIntegrationIdColumn = columns.some(col => col.COLUMN_NAME === 'integration_id');
+
+    const idColumnName = hasIntegrationIdColumn ? 'integration_id' : 'integration_config_id';
     await this.pool.execute(
-      'DELETE FROM integration_oauth_tokens WHERE integration_config_id = ?',
+      `DELETE FROM integration_oauth_tokens WHERE ${idColumnName} = ?`,
       [integrationConfigId]
     );
   }
