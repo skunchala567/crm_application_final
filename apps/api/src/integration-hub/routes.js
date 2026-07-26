@@ -33,9 +33,10 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
 
       // Extract integrationId from state using state manager
       let integrationId = null;
+      let stateData = null;
       try {
         // The state manager stores { integrationId, organizationId, etc }
-        const stateData = stateManager.validateState(state);
+        stateData = stateManager.validateState(state);
         if (stateData?.integrationId) {
           integrationId = stateData.integrationId;
         }
@@ -50,7 +51,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
       }
 
       // Exchange code for token - completeOAuthFlow will use state to validate
-      const result = await service.completeOAuthFlow(integrationId, organizationId, code, state);
+      const result = await service.completeOAuthFlow(integrationId, organizationId, code, state, stateData);
 
       if (!result) {
         return res.redirect(`http://localhost:3000/oauth-error?error=${encodeURIComponent('Failed to complete OAuth flow')}`);
@@ -60,10 +61,11 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
       const finalIntegrationId = result.integrationConfigId || integrationId;
 
       // Redirect to integrations page
-      res.redirect(`http://localhost:3000/integrations?oauth=success&integrationId=${finalIntegrationId}`);
+      const returnTo = stateData?.returnTo?.startsWith('/') ? stateData.returnTo : '/settings/google-sheets';
+      res.redirect(`http://localhost:3000${returnTo}?oauth=success&integrationId=${finalIntegrationId}`);
     } catch (error) {
       console.error('OAuth callback error:', error.message);
-      next(error);
+      return res.redirect(`http://localhost:3000/oauth-error?error=${encodeURIComponent(error.message || 'Failed to complete Google authorization')}`);
     }
   });
 
@@ -580,6 +582,69 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
     }
   });
 
+  router.get('/integrations/:integrationId/sheet-sources', authenticate, async (req, res, next) => {
+    try {
+      const sources = await service.listSheetSources(Number(req.params.integrationId), req.user?.id || 1);
+      res.json({ success: true, data: sources });
+    } catch (error) { next(error); }
+  });
+
+  router.post('/integrations/:integrationId/sheet-sources', authenticate, async (req, res, next) => {
+    try {
+      const source = await service.addSheetSource(Number(req.params.integrationId), req.user?.id || 1, req.body || {});
+      res.status(201).json({ success: true, data: source });
+    } catch (error) { next(error); }
+  });
+
+  router.delete('/integrations/:integrationId/sheet-sources/:sourceId', authenticate, async (req, res, next) => {
+    try {
+      await service.removeSheetSource(Number(req.params.integrationId), req.user?.id || 1, req.params.sourceId);
+      res.json({ success: true, message: 'Sheet source removed' });
+    } catch (error) { next(error); }
+  });
+
+  router.post('/integrations/:integrationId/sheet-sources/:sourceId/import', authenticate, async (req, res, next) => {
+    try {
+      const integrationId = Number(req.params.integrationId);
+      const organizationId = req.user?.id || 1;
+      const sources = await service.listSheetSources(integrationId, organizationId);
+      const source = sources.find(item => item.id === req.params.sourceId);
+      if (!source) return res.status(404).json({ success: false, message: 'Sheet source not found' });
+      const result = await service.importData(integrationId, organizationId, {
+        spreadsheetId: source.sheetId,
+        branchId: source.branchId,
+        fieldMappings: source.fieldMappings,
+        sourceId: source.id,
+        sourceName: source.sheetName,
+        branchName: source.branchName
+      });
+      res.json({ success: true, data: result });
+    } catch (error) { next(error); }
+  });
+
+  router.get('/integrations/:integrationId/sheet-sources/:sourceId/history', authenticate, async (req, res, next) => {
+    try {
+      const rows = await service.getSheetSourceHistory(
+        Number(req.params.integrationId),
+        req.user?.id || 1,
+        req.params.sourceId
+      );
+      res.json({ success: true, data: rows });
+    } catch (error) { next(error); }
+  });
+
+  router.get('/integrations/:integrationId/skipped-leads', authenticate, async (req, res, next) => {
+    try {
+      const rows = await service.getSkippedSheetLeads(
+        Number(req.params.integrationId),
+        req.user?.id || 1
+      );
+      res.json({ success: true, data: rows });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // Get spreadsheet preview (first few rows and headers)
   router.get('/integrations/:integrationId/spreadsheets/:sheetId/preview', authenticate, async (req, res, next) => {
     try {
@@ -621,15 +686,14 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // ============= Field Mapping =============
 
   const CRM_FIELDS = [
-    { name: 'student_name', label: 'Student Name', type: 'text' },
-    { name: 'phone', label: 'Phone', type: 'text' },
-    { name: 'alternate_phone', label: 'Alternate Phone', type: 'text' },
-    { name: 'email', label: 'Email', type: 'text' },
-    { name: 'applying_class', label: 'Applying Class', type: 'text' },
-    { name: 'parent_name', label: 'Parent Name', type: 'text' },
-    { name: 'city', label: 'City', type: 'text' },
-    { name: 'remarks', label: 'Remarks', type: 'text' },
-    { name: 'lead_score', label: 'Lead Score', type: 'number' }
+    { name: 'student_name', label: 'Student Name', type: 'text', required: true },
+    { name: 'phone', label: 'Phone', type: 'text', required: true },
+    { name: 'class_id', label: 'Class ID', type: 'number', required: true },
+    { name: 'campaign_name', label: 'Campaign Name', type: 'text', required: true },
+    { name: 'source_id', label: 'Source ID', type: 'number', required: true },
+    { name: 'substage_id', label: 'Sub-stage ID', type: 'number', required: true },
+    { name: 'assign_to', label: 'Assign To', type: 'email', required: true },
+    { name: 'remarks', label: 'Remarks', type: 'text', required: false }
   ];
 
   // Get sheet headers for mapping
@@ -638,7 +702,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
       const organizationId = req.user?.id || 1;
       const integrationId = parseInt(req.params.integrationId);
 
-      const headers = await service.getSheetHeaders(integrationId, organizationId);
+      const headers = await service.getSheetHeaders(integrationId, organizationId, req.query.sheetId || null);
 
       res.json({
         success: true,
@@ -658,7 +722,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
       const organizationId = req.user?.id || 1;
       const integrationId = parseInt(req.params.integrationId);
 
-      const mapping = await service.getFieldMapping(integrationId, organizationId);
+      const mapping = await service.getFieldMapping(integrationId, organizationId, req.query.sourceId || null);
 
       res.json({
         success: true,
@@ -677,7 +741,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
     try {
       const organizationId = req.user?.id || 1;
       const integrationId = parseInt(req.params.integrationId);
-      const { mappings } = req.body;
+      const { mappings, sourceId } = req.body;
 
       if (!mappings || typeof mappings !== 'object') {
         return res.status(400).json({
@@ -686,7 +750,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
         });
       }
 
-      const result = await service.saveFieldMapping(integrationId, organizationId, mappings);
+      const result = await service.saveFieldMapping(integrationId, organizationId, mappings, sourceId || null);
 
       res.json({ success: true, data: result });
     } catch (error) {
@@ -731,7 +795,10 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
     try {
       const organizationId = req.user?.id || 1;
       const integrationId = parseInt(req.params.integrationId);
-      const { phoneNumber, message } = req.body;
+      const {
+        phoneNumber, message, templateName, campaignName, leadId, clientRequestId,
+        userName, source, templateParams, media, tags, attributes, buttons, language
+      } = req.body;
 
       if (!phoneNumber || !message) {
         return res.status(400).json({
@@ -744,7 +811,11 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
         integrationId,
         organizationId,
         phoneNumber,
-        message
+        message,
+        {
+          templateName, campaignName, leadId, clientRequestId, userName, source,
+          templateParams, media, tags, attributes, buttons, language
+        }
       );
 
       res.json({ success: true, data: result });
@@ -758,7 +829,10 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
     try {
       const organizationId = req.user?.id || 1;
       const integrationId = parseInt(req.params.integrationId);
-      const { phoneNumbers, message } = req.body;
+      const {
+        phoneNumbers, message, templateName, campaignName, source, templateParams,
+        media, tags, attributes, buttons, language
+      } = req.body;
 
       if (!phoneNumbers || !Array.isArray(phoneNumbers) || phoneNumbers.length === 0) {
         return res.status(400).json({
@@ -778,10 +852,82 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
         integrationId,
         organizationId,
         phoneNumbers,
-        message
+        message,
+        { templateName, campaignName, source, templateParams, media, tags, attributes, buttons, language }
       );
 
       res.json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/smartping/message-history', authenticate, async (req, res, next) => {
+    try {
+      const organizationId = req.user?.id || 1;
+      const data = await service.getSmartpingMessageHistory(organizationId, req.query);
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/smartping/conversations', authenticate, async (req, res, next) => {
+    try {
+      const organizationId = req.user?.id || 1;
+      const data = await service.getWhatsAppConversations(organizationId, req.query);
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/smartping/conversations/:conversationId/messages', authenticate, async (req, res, next) => {
+    try {
+      const organizationId = req.user?.id || 1;
+      const data = await service.getWhatsAppConversationMessages(
+        organizationId,
+        Number(req.params.conversationId),
+        req.query
+      );
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.put('/smartping/conversations/:conversationId/read', authenticate, async (req, res, next) => {
+    try {
+      const organizationId = req.user?.id || 1;
+      const data = await service.markWhatsAppConversationRead(
+        organizationId,
+        Number(req.params.conversationId)
+      );
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/integrations/:integrationId/smartping/messages/:messageId/refresh', authenticate, async (req, res, next) => {
+    try {
+      const organizationId = req.user?.id || 1;
+      const data = await service.refreshWhatsAppMessage(
+        Number(req.params.integrationId),
+        organizationId,
+        Number(req.params.messageId)
+      );
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/smartping/messages/:messageId/retry', authenticate, async (req, res, next) => {
+    try {
+      const organizationId = req.user?.id || 1;
+      const data = await service.retryWhatsAppMessage(organizationId, Number(req.params.messageId));
+      res.json({ success: true, data });
     } catch (error) {
       next(error);
     }
@@ -878,7 +1024,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   router.post('/oauth/initiate', authenticate, async (req, res, next) => {
     try {
       const organizationId = req.user?.id || 1;
-      let { integrationId, providerName } = req.body;
+      let { integrationId, providerName, returnTo, confirmAccount } = req.body;
 
       // Ensure integrationId is a number
       integrationId = parseInt(integrationId);
@@ -890,19 +1036,20 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
         });
       }
 
-      // Always use the redirect URI from environment (more secure)
-      const redirectUrl = process.env.GOOGLE_REDIRECT_URI;
+      const integration = await service.getIntegration(integrationId, organizationId);
+      const redirectUrl = integration?.config?.redirectUrl;
       if (!redirectUrl) {
-        return res.status(500).json({
+        return res.status(400).json({
           success: false,
-          message: 'Server configuration error: GOOGLE_REDIRECT_URI not set'
+          message: 'Configure the Google Redirect URI for this integration before authorizing'
         });
       }
 
       const { authUrl } = await service.startOAuthFlow(
         integrationId,
         organizationId,
-        redirectUrl
+        redirectUrl,
+        { returnTo, confirmAccount }
       );
 
       res.json({ success: true, data: { authUrl } });

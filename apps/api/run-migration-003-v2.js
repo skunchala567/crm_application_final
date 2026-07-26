@@ -27,11 +27,11 @@ async function keyExists(conn, table, keyName) {
     console.log('Migration 003: Create WhatsApp Template Logs');
     console.log('========================================\n');
 
-    // 1. Create whatsapp_template_logs table
-    console.log('1️⃣  Creating whatsapp_template_logs table...');
+    // 1. Create crm_whatsapp_template_logs table
+    console.log('1️⃣  Creating crm_whatsapp_template_logs table...');
     try {
       await conn.query(`
-        CREATE TABLE IF NOT EXISTS whatsapp_template_logs (
+        CREATE TABLE IF NOT EXISTS crm_whatsapp_template_logs (
           id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
           template_id INT NOT NULL,
           integration_id INT NOT NULL,
@@ -52,12 +52,12 @@ async function keyExists(conn, table, keyName) {
           UNIQUE KEY unique_aisensy_template_id (aisensy_template_id),
           CONSTRAINT fk_template_logs_template
             FOREIGN KEY (template_id)
-            REFERENCES whatsapp_templates(id)
+            REFERENCES crm_whatsapp_templates(id)
             ON DELETE CASCADE,
 
           CONSTRAINT fk_template_logs_integration
             FOREIGN KEY (integration_id)
-            REFERENCES integrations(id)
+            REFERENCES crm_integrations(id)
             ON DELETE CASCADE,
 
           KEY idx_aisensy_template_id (aisensy_template_id),
@@ -79,9 +79,9 @@ async function keyExists(conn, table, keyName) {
     // 2. Add columns to integrations table
     console.log('2️⃣  Adding columns to integrations table...');
 
-    if (!await columnExists(conn, 'integrations', 'project_id')) {
+    if (!await columnExists(conn, 'crm_integrations', 'project_id')) {
       await conn.query(`
-        ALTER TABLE integrations
+        ALTER TABLE crm_integrations
         ADD COLUMN project_id VARCHAR(255) COMMENT 'AiSensy Project ID'
       `);
       console.log('✅ Added project_id');
@@ -89,9 +89,9 @@ async function keyExists(conn, table, keyName) {
       console.log('⚠️  project_id already exists');
     }
 
-    if (!await columnExists(conn, 'integrations', 'project_api_password')) {
+    if (!await columnExists(conn, 'crm_integrations', 'project_api_password')) {
       await conn.query(`
-        ALTER TABLE integrations
+        ALTER TABLE crm_integrations
         ADD COLUMN project_api_password VARCHAR(500) COMMENT 'AiSensy API Password'
       `);
       console.log('✅ Added project_api_password');
@@ -99,9 +99,9 @@ async function keyExists(conn, table, keyName) {
       console.log('⚠️  project_api_password already exists');
     }
 
-    if (!await columnExists(conn, 'integrations', 'last_template_sync_at')) {
+    if (!await columnExists(conn, 'crm_integrations', 'last_template_sync_at')) {
       await conn.query(`
-        ALTER TABLE integrations
+        ALTER TABLE crm_integrations
         ADD COLUMN last_template_sync_at TIMESTAMP NULL COMMENT 'Last template sync from AiSensy'
       `);
       console.log('✅ Added last_template_sync_at');
@@ -109,20 +109,20 @@ async function keyExists(conn, table, keyName) {
       console.log('⚠️  last_template_sync_at already exists');
     }
 
-    if (!await keyExists(conn, 'integrations', 'idx_project_id')) {
-      await conn.query('ALTER TABLE integrations ADD KEY idx_project_id (project_id)');
+    if (!await keyExists(conn, 'crm_integrations', 'idx_project_id')) {
+      await conn.query('ALTER TABLE crm_integrations ADD KEY idx_project_id (project_id)');
       console.log('✅ Added idx_project_id');
     } else {
       console.log('⚠️  idx_project_id already exists');
     }
     console.log();
 
-    // 3. Add columns to whatsapp_templates table
-    console.log('3️⃣  Adding columns to whatsapp_templates table...');
+    // 3. Add columns to crm_whatsapp_templates table
+    console.log('3️⃣  Adding columns to crm_whatsapp_templates table...');
 
-    if (!await columnExists(conn, 'whatsapp_templates', 'aisensy_template_id')) {
+    if (!await columnExists(conn, 'crm_whatsapp_templates', 'aisensy_template_id')) {
       await conn.query(`
-        ALTER TABLE whatsapp_templates
+        ALTER TABLE crm_whatsapp_templates
         ADD COLUMN aisensy_template_id VARCHAR(255) UNIQUE COMMENT 'AiSensy Template ID'
       `);
       console.log('✅ Added aisensy_template_id');
@@ -130,9 +130,9 @@ async function keyExists(conn, table, keyName) {
       console.log('⚠️  aisensy_template_id already exists');
     }
 
-    if (!await columnExists(conn, 'whatsapp_templates', 'message_action_type')) {
+    if (!await columnExists(conn, 'crm_whatsapp_templates', 'message_action_type')) {
       await conn.query(`
-        ALTER TABLE whatsapp_templates
+        ALTER TABLE crm_whatsapp_templates
         ADD COLUMN message_action_type VARCHAR(50) COMMENT 'QuickReplies or CTA'
       `);
       console.log('✅ Added message_action_type');
@@ -140,9 +140,9 @@ async function keyExists(conn, table, keyName) {
       console.log('⚠️  message_action_type already exists');
     }
 
-    if (!await columnExists(conn, 'whatsapp_templates', 'total_parameters')) {
+    if (!await columnExists(conn, 'crm_whatsapp_templates', 'total_parameters')) {
       await conn.query(`
-        ALTER TABLE whatsapp_templates
+        ALTER TABLE crm_whatsapp_templates
         ADD COLUMN total_parameters INT DEFAULT 0 COMMENT 'Count of {{n}} parameters'
       `);
       console.log('✅ Added total_parameters');
@@ -150,9 +150,9 @@ async function keyExists(conn, table, keyName) {
       console.log('⚠️  total_parameters already exists');
     }
 
-    if (!await columnExists(conn, 'whatsapp_templates', 'last_synced_at')) {
+    if (!await columnExists(conn, 'crm_whatsapp_templates', 'last_synced_at')) {
       await conn.query(`
-        ALTER TABLE whatsapp_templates
+        ALTER TABLE crm_whatsapp_templates
         ADD COLUMN last_synced_at TIMESTAMP NULL COMMENT 'Last sync with AiSensy'
       `);
       console.log('✅ Added last_synced_at');
@@ -160,9 +160,9 @@ async function keyExists(conn, table, keyName) {
       console.log('⚠️  last_synced_at already exists');
     }
 
-    if (!await columnExists(conn, 'whatsapp_templates', 'call_to_action')) {
+    if (!await columnExists(conn, 'crm_whatsapp_templates', 'call_to_action')) {
       await conn.query(`
-        ALTER TABLE whatsapp_templates
+        ALTER TABLE crm_whatsapp_templates
         ADD COLUMN call_to_action JSON COMMENT 'CTA buttons from AiSensy'
       `);
       console.log('✅ Added call_to_action');
@@ -170,9 +170,9 @@ async function keyExists(conn, table, keyName) {
       console.log('⚠️  call_to_action already exists');
     }
 
-    if (!await columnExists(conn, 'whatsapp_templates', 'quick_replies')) {
+    if (!await columnExists(conn, 'crm_whatsapp_templates', 'quick_replies')) {
       await conn.query(`
-        ALTER TABLE whatsapp_templates
+        ALTER TABLE crm_whatsapp_templates
         ADD COLUMN quick_replies JSON COMMENT 'Quick reply options'
       `);
       console.log('✅ Added quick_replies');
@@ -180,15 +180,15 @@ async function keyExists(conn, table, keyName) {
       console.log('⚠️  quick_replies already exists');
     }
 
-    if (!await keyExists(conn, 'whatsapp_templates', 'idx_aisensy_template_id')) {
-      await conn.query('ALTER TABLE whatsapp_templates ADD KEY idx_aisensy_template_id (aisensy_template_id)');
+    if (!await keyExists(conn, 'crm_whatsapp_templates', 'idx_aisensy_template_id')) {
+      await conn.query('ALTER TABLE crm_whatsapp_templates ADD KEY idx_aisensy_template_id (aisensy_template_id)');
       console.log('✅ Added idx_aisensy_template_id');
     } else {
       console.log('⚠️  idx_aisensy_template_id already exists');
     }
 
-    if (!await keyExists(conn, 'whatsapp_templates', 'idx_last_synced')) {
-      await conn.query('ALTER TABLE whatsapp_templates ADD KEY idx_last_synced (integration_id, last_synced_at)');
+    if (!await keyExists(conn, 'crm_whatsapp_templates', 'idx_last_synced')) {
+      await conn.query('ALTER TABLE crm_whatsapp_templates ADD KEY idx_last_synced (integration_id, last_synced_at)');
       console.log('✅ Added idx_last_synced');
     } else {
       console.log('⚠️  idx_last_synced already exists');
@@ -202,32 +202,32 @@ async function keyExists(conn, table, keyName) {
 
     const [[logsExists]] = await conn.query(`
       SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.TABLES
-      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'whatsapp_template_logs'
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'crm_whatsapp_template_logs'
     `);
 
     if (logsExists.count === 1) {
-      console.log('✅ whatsapp_template_logs table exists');
+      console.log('✅ crm_whatsapp_template_logs table exists');
 
-      const [logsColumns] = await conn.query('SHOW COLUMNS FROM whatsapp_template_logs');
+      const [logsColumns] = await conn.query('SHOW COLUMNS FROM crm_whatsapp_template_logs');
       console.log(`   Columns: ${logsColumns.length}\n`);
     } else {
-      console.log('❌ whatsapp_template_logs table NOT found\n');
+      console.log('❌ crm_whatsapp_template_logs table NOT found\n');
     }
 
     // Verify integrations columns
     console.log('✅ integrations table enhancements:');
-    console.log(`   - project_id: ${await columnExists(conn, 'integrations', 'project_id') ? 'EXISTS' : 'MISSING'}`);
-    console.log(`   - project_api_password: ${await columnExists(conn, 'integrations', 'project_api_password') ? 'EXISTS' : 'MISSING'}`);
-    console.log(`   - last_template_sync_at: ${await columnExists(conn, 'integrations', 'last_template_sync_at') ? 'EXISTS' : 'MISSING'}\n`);
+    console.log(`   - project_id: ${await columnExists(conn, 'crm_integrations', 'project_id') ? 'EXISTS' : 'MISSING'}`);
+    console.log(`   - project_api_password: ${await columnExists(conn, 'crm_integrations', 'project_api_password') ? 'EXISTS' : 'MISSING'}`);
+    console.log(`   - last_template_sync_at: ${await columnExists(conn, 'crm_integrations', 'last_template_sync_at') ? 'EXISTS' : 'MISSING'}\n`);
 
-    // Verify whatsapp_templates columns
-    console.log('✅ whatsapp_templates table enhancements:');
-    console.log(`   - aisensy_template_id: ${await columnExists(conn, 'whatsapp_templates', 'aisensy_template_id') ? 'EXISTS' : 'MISSING'}`);
-    console.log(`   - message_action_type: ${await columnExists(conn, 'whatsapp_templates', 'message_action_type') ? 'EXISTS' : 'MISSING'}`);
-    console.log(`   - total_parameters: ${await columnExists(conn, 'whatsapp_templates', 'total_parameters') ? 'EXISTS' : 'MISSING'}`);
-    console.log(`   - last_synced_at: ${await columnExists(conn, 'whatsapp_templates', 'last_synced_at') ? 'EXISTS' : 'MISSING'}`);
-    console.log(`   - call_to_action: ${await columnExists(conn, 'whatsapp_templates', 'call_to_action') ? 'EXISTS' : 'MISSING'}`);
-    console.log(`   - quick_replies: ${await columnExists(conn, 'whatsapp_templates', 'quick_replies') ? 'EXISTS' : 'MISSING'}\n`);
+    // Verify crm_whatsapp_templates columns
+    console.log('✅ crm_whatsapp_templates table enhancements:');
+    console.log(`   - aisensy_template_id: ${await columnExists(conn, 'crm_whatsapp_templates', 'aisensy_template_id') ? 'EXISTS' : 'MISSING'}`);
+    console.log(`   - message_action_type: ${await columnExists(conn, 'crm_whatsapp_templates', 'message_action_type') ? 'EXISTS' : 'MISSING'}`);
+    console.log(`   - total_parameters: ${await columnExists(conn, 'crm_whatsapp_templates', 'total_parameters') ? 'EXISTS' : 'MISSING'}`);
+    console.log(`   - last_synced_at: ${await columnExists(conn, 'crm_whatsapp_templates', 'last_synced_at') ? 'EXISTS' : 'MISSING'}`);
+    console.log(`   - call_to_action: ${await columnExists(conn, 'crm_whatsapp_templates', 'call_to_action') ? 'EXISTS' : 'MISSING'}`);
+    console.log(`   - quick_replies: ${await columnExists(conn, 'crm_whatsapp_templates', 'quick_replies') ? 'EXISTS' : 'MISSING'}\n`);
 
     console.log('========================================');
     console.log('✅ MIGRATION 003 COMPLETE');

@@ -1,11 +1,11 @@
 import mysql from 'mysql2/promise';
 
 const pool = mysql.createPool({
-  host: '43.205.46.211',
-  port: 3306,
-  user: 'sta_dc_user',
-  password: 'OZQQP@VgZM=+K^5',
-  database: 'attendance_biometric'
+  host: process.env.MYSQL_HOST,
+  port: Number(process.env.MYSQL_PORT || 3306),
+  user: process.env.MYSQL_USER,
+  password: process.env.MYSQL_PASSWORD,
+  database: process.env.MYSQL_DATABASE
 });
 
 const INTEGRATION_ID = 1;
@@ -55,7 +55,7 @@ async function testDatabase() {
     for (const template of templates) {
       try {
         await conn.query(
-          `INSERT INTO whatsapp_templates
+          `INSERT INTO crm_whatsapp_templates
            (template_name, category, language, template_type, header_type, body, sample_values_json,
             status, integration_id, organization_id, aisensy_template_id, quick_replies, call_to_action)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -76,12 +76,12 @@ async function testDatabase() {
 
     // Check template count
     console.log('\n2. Verifying test data...');
-    const [rows] = await conn.query('SELECT COUNT(*) as count FROM whatsapp_templates');
+    const [rows] = await conn.query('SELECT COUNT(*) as count FROM crm_whatsapp_templates');
     console.log(`   ✅ Total templates in database: ${rows[0].count}`);
 
     // Check status counts
     const [statuses] = await conn.query(
-      'SELECT status, COUNT(*) as count FROM whatsapp_templates GROUP BY status'
+      'SELECT status, COUNT(*) as count FROM crm_whatsapp_templates GROUP BY status'
     );
     console.log('   ✅ Status breakdown:');
     statuses.forEach(s => {
@@ -91,7 +91,7 @@ async function testDatabase() {
     // Show sample templates
     console.log('\n3. Sample templates:');
     const [templates_data] = await conn.query(
-      'SELECT template_name, status, category, aisensy_template_id FROM whatsapp_templates LIMIT 3'
+      'SELECT template_name, status, category, aisensy_template_id FROM crm_whatsapp_templates LIMIT 3'
     );
     templates_data.forEach(t => {
       console.log(`   - ${t.template_name} (${t.status}) - AiSensy ID: ${t.aisensy_template_id || 'pending'}`);

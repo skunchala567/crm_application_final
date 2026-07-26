@@ -16,12 +16,12 @@ async function audit() {
 
   try {
     console.log('\n=== 1. ORGANIZATIONS TABLE ===');
-    const [orgs] = await conn.query('SELECT id, name, status FROM organizations WHERE id = 1');
+    const [orgs] = await conn.query('SELECT id, name, status FROM crm_organizations WHERE id = 1');
     console.log('Org exists:', orgs.length > 0 ? '✅ YES' : '❌ NO');
     if (orgs.length > 0) console.log(orgs[0]);
 
     console.log('\n=== 2. INTEGRATIONS TABLE ===');
-    const [integ] = await conn.query('SELECT id, organization_id, name, type, status FROM integrations WHERE id = 1');
+    const [integ] = await conn.query('SELECT id, organization_id, name, type, status FROM crm_integrations WHERE id = 1');
     console.log('Integration exists:', integ.length > 0 ? '✅ YES' : '❌ NO');
     if (integ.length > 0) {
       console.log(integ[0]);
@@ -29,14 +29,14 @@ async function audit() {
     }
 
     console.log('\n=== 3. WHATSAPP_TEMPLATES TABLE ===');
-    const [templates] = await conn.query('SELECT COUNT(*) as count FROM whatsapp_templates WHERE deleted_at IS NULL');
+    const [templates] = await conn.query('SELECT COUNT(*) as count FROM crm_whatsapp_templates WHERE deleted_at IS NULL');
     console.log('Templates in DB:', templates[0].count);
 
     console.log('\n=== 4. FOREIGN KEY CONSTRAINTS ===');
     const [fks] = await conn.query(
       `SELECT CONSTRAINT_NAME, TABLE_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
        FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'whatsapp_templates' AND REFERENCED_TABLE_NAME IS NOT NULL`
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'crm_whatsapp_templates' AND REFERENCED_TABLE_NAME IS NOT NULL`
     );
     console.log('FK Constraints:', fks.length > 0 ? '✅ Found' : '❌ Missing');
     if (fks.length > 0) console.log(fks);
@@ -44,9 +44,9 @@ async function audit() {
     console.log('\n=== SUMMARY ===');
     const [check] = await conn.query(`
       SELECT
-        (SELECT COUNT(*) FROM organizations WHERE id = 1) as org_count,
-        (SELECT COUNT(*) FROM integrations WHERE id = 1) as integ_count,
-        (SELECT COUNT(*) FROM integrations WHERE id = 1 AND type = 'SMARTPING') as smartping_count
+        (SELECT COUNT(*) FROM crm_organizations WHERE id = 1) as org_count,
+        (SELECT COUNT(*) FROM crm_integrations WHERE id = 1) as integ_count,
+        (SELECT COUNT(*) FROM crm_integrations WHERE id = 1 AND type = 'SMARTPING') as smartping_count
     `);
     const [c] = check;
     console.log(`✅ Organization exists: ${c.org_count > 0 ? 'YES' : 'NO'}`);

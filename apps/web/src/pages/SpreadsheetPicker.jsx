@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, Loader, Check } from 'lucide-react';
 import { api } from '../api';
 
-export default function SpreadsheetPicker({ integrationId, onClose, onSelect }) {
+export default function SpreadsheetPicker({ integrationId, onClose, onSelect, persistSelection = true }) {
   const [spreadsheets, setSpreadsheets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -31,9 +31,11 @@ export default function SpreadsheetPicker({ integrationId, onClose, onSelect }) 
   const handleSelect = async (sheet) => {
     try {
       setSaving(true);
-      await api.post(`/hub/integrations/${integrationId}/spreadsheets/${sheet.id}/select`, {
-        sheetName: sheet.name
-      });
+      if (persistSelection) {
+        await api.post(`/hub/integrations/${integrationId}/spreadsheets/${sheet.id}/select`, {
+          sheetName: sheet.name
+        });
+      }
 
       // Call parent callback
       if (onSelect) {

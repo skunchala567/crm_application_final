@@ -5,10 +5,10 @@
 -- =====================================================
 
 -- Drop if exists (for fresh setup)
-DROP TABLE IF EXISTS whatsapp_template_logs;
+DROP TABLE IF EXISTS crm_whatsapp_template_logs;
 
 -- Create logs table
-CREATE TABLE whatsapp_template_logs (
+CREATE TABLE crm_whatsapp_template_logs (
   id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   template_id INT NOT NULL,
   integration_id INT NOT NULL,
@@ -29,12 +29,12 @@ CREATE TABLE whatsapp_template_logs (
   UNIQUE KEY unique_aisensy_template_id (aisensy_template_id),
   CONSTRAINT fk_template_logs_template
     FOREIGN KEY (template_id)
-    REFERENCES whatsapp_templates(id)
+    REFERENCES crm_whatsapp_templates(id)
     ON DELETE CASCADE,
 
   CONSTRAINT fk_template_logs_integration
     FOREIGN KEY (integration_id)
-    REFERENCES integrations(id)
+    REFERENCES crm_integrations(id)
     ON DELETE CASCADE,
 
   KEY idx_aisensy_template_id (aisensy_template_id),

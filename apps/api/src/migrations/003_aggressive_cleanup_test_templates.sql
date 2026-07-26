@@ -9,7 +9,7 @@ SELECT
   wt.status,
   wt.created_at,
   'WILL DELETE' as action
-FROM whatsapp_templates wt
+FROM crm_whatsapp_templates wt
 WHERE deleted_at IS NULL
 AND (
   -- Exact matches for known test names
@@ -36,9 +36,9 @@ ORDER BY wt.integration_id, wt.template_name;
 -- Uncomment to execute:
 
 /*
-DELETE FROM whatsapp_template_buttons
+DELETE FROM crm_whatsapp_template_buttons
 WHERE template_id IN (
-  SELECT wt.id FROM whatsapp_templates wt
+  SELECT wt.id FROM crm_whatsapp_templates wt
   WHERE deleted_at IS NULL
   AND (
     LOWER(wt.template_name) IN ('tesdsdfsd', 'hbgvfc', 'swerxdfcghvkhjhggsxdf', 'welcome', 'test', 'sample', 'demo')
@@ -49,9 +49,9 @@ WHERE template_id IN (
   )
 );
 
-DELETE FROM whatsapp_template_media
+DELETE FROM crm_whatsapp_template_media
 WHERE template_id IN (
-  SELECT wt.id FROM whatsapp_templates wt
+  SELECT wt.id FROM crm_whatsapp_templates wt
   WHERE deleted_at IS NULL
   AND (
     LOWER(wt.template_name) IN ('tesdsdfsd', 'hbgvfc', 'swerxdfcghvkhjhggsxdf', 'welcome', 'test', 'sample', 'demo')
@@ -62,9 +62,9 @@ WHERE template_id IN (
   )
 );
 
-DELETE FROM whatsapp_template_sync_logs
+DELETE FROM crm_whatsapp_template_sync_logs
 WHERE template_id IN (
-  SELECT wt.id FROM whatsapp_templates wt
+  SELECT wt.id FROM crm_whatsapp_templates wt
   WHERE deleted_at IS NULL
   AND (
     LOWER(wt.template_name) IN ('tesdsdfsd', 'hbgvfc', 'swerxdfcghvkhjhggsxdf', 'welcome', 'test', 'sample', 'demo')
@@ -75,7 +75,7 @@ WHERE template_id IN (
   )
 );
 
-DELETE FROM whatsapp_templates
+DELETE FROM crm_whatsapp_templates
 WHERE deleted_at IS NULL
 AND (
   LOWER(template_name) IN ('tesdsdfsd', 'hbgvfc', 'swerxdfcghvkhjhggsxdf', 'welcome', 'test', 'sample', 'demo')
@@ -90,7 +90,7 @@ AND (
 -- Uncomment to execute:
 
 /*
-UPDATE whatsapp_templates
+UPDATE crm_whatsapp_templates
 SET deleted_at = NOW()
 WHERE deleted_at IS NULL
 AND (

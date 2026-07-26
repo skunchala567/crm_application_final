@@ -6,15 +6,15 @@ SHOW TABLES;
 
 -- 2. INTEGRATIONS DATA
 SELECT '=== INTEGRATIONS TABLE ===' as step;
-SELECT * FROM integrations;
+SELECT * FROM crm_integrations;
 
 -- 3. ORGANIZATIONS DATA
 SELECT '=== ORGANIZATIONS TABLE ===' as step;
-SELECT * FROM organizations;
+SELECT * FROM crm_organizations;
 
 -- 4. WHATSAPP_TEMPLATES DATA
 SELECT '=== WHATSAPP_TEMPLATES TABLE ===' as step;
-SELECT id, integration_id, organization_id, template_name, status, deleted_at FROM whatsapp_templates;
+SELECT id, integration_id, organization_id, template_name, status, deleted_at FROM crm_whatsapp_templates;
 
 -- 5. FOREIGN KEYS
 SELECT '=== FOREIGN KEY CONSTRAINTS ===' as step;
@@ -30,23 +30,23 @@ SELECT '=== DOES INTEGRATION ID 3 EXIST? ===' as step;
 SELECT
   COUNT(*) as count,
   IF(COUNT(*) > 0, 'YES - EXISTS', 'NO - MISSING') as exists_status
-FROM integrations
+FROM crm_integrations
 WHERE id = 3;
 
 -- 7. WHATSAPP_TEMPLATES INTEGRATIONS SCHEMA
 SELECT '=== WHATSAPP_TEMPLATES.INTEGRATION_ID COLUMN TYPE ===' as step;
-SHOW COLUMNS FROM whatsapp_templates WHERE Field = 'integration_id';
+SHOW COLUMNS FROM crm_whatsapp_templates WHERE Field = 'integration_id';
 
 -- 8. INTEGRATIONS.ID COLUMN TYPEa
 SELECT '=== INTEGRATIONS.ID COLUMN TYPE ===' as step;
-SHOW COLUMNS FROM integrations WHERE Field = 'id';
+SHOW COLUMNS FROM crm_integrations WHERE Field = 'id';
 
 -- 9. ALL INTEGRATIONS
 SELECT '=== ALL INTEGRATIONS WITH FULL DETAILS ===' as step;
-SELECT * FROM integrations;
+SELECT * FROM crm_integrations;
 
 -- 10. CURRENT API REQUEST INTEGRATION_ID
 SELECT '=== DIAGNOSIS: TRYING TO CREATE WITH INTEGRATION_ID = 3 ===' as step;
 SELECT
   3 as requested_integration_id,
-  IF(EXISTS(SELECT 1 FROM integrations WHERE id = 3), 'WILL SUCCEED', 'WILL FAIL - FK ERROR') as result;
+  IF(EXISTS(SELECT 1 FROM crm_integrations WHERE id = 3), 'WILL SUCCEED', 'WILL FAIL - FK ERROR') as result;

@@ -1,17 +1,22 @@
 import { useState, useEffect } from 'react';
-import { AlertCircle, Loader } from 'lucide-react';
+import { AlertCircle, Loader, MessageCircle, X } from 'lucide-react';
 import { api } from './api';
 import SettingsWhatsAppTemplates from './pages/SettingsWhatsAppTemplates';
 import SettingsWhatsAppTemplatesCreate from './pages/SettingsWhatsAppTemplatesCreate';
 import SettingsWhatsAppTemplatesView from './pages/SettingsWhatsAppTemplatesView';
+import { WhatsAppMessageHistory, WhatsAppSendPanel } from './components/WhatsAppSendPanel';
 
 export default function WhatsAppTemplatesSettings({ onMessage }) {
-  const [integrationId, setIntegrationId] = useState(null);
+  const [integrationId, setIntegrationId] = useState('');
+  const [integrations, setIntegrations] = useState([]);
+  const [showAccountPicker, setShowAccountPicker] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [currentPage, setCurrentPage] = useState('list'); // 'list' | 'create' | 'view'
   const [viewingTemplateId, setViewingTemplateId] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [showSendMessage, setShowSendMessage] = useState(false);
+  const [showMessageHistory, setShowMessageHistory] = useState(false);
 
   useEffect(() => {
     fetchSmartpingIntegration();
@@ -21,15 +26,14 @@ export default function WhatsAppTemplatesSettings({ onMessage }) {
     try {
       const response = await api.get('/whatsapp/integrations?provider=SMARTPING');
       const integrations = Array.isArray(response.data) ? response.data : response.data?.data || [];
-      const smartpingIntegration = integrations[0];
-
-      if (!smartpingIntegration) {
+      if (!integrations.length) {
         setError('WhatsApp integration not configured. Please create a Smartping integration first.');
         setLoading(false);
         return;
       }
 
-      setIntegrationId(smartpingIntegration.id);
+      setIntegrations(integrations);
+      setIntegrationId('');
       setError(null);
     } catch (err) {
       setError(`Failed to load WhatsApp integration: ${err.message}`);
@@ -39,7 +43,12 @@ export default function WhatsAppTemplatesSettings({ onMessage }) {
     }
   };
 
-  const handleNavigate = (page, templateId = null) => {
+  const handleNavigate = (page, templateId = null, targetIntegrationId = null) => {
+    if (page === 'create' && !targetIntegrationId) {
+      setShowAccountPicker(true);
+      return;
+    }
+    if (targetIntegrationId) setIntegrationId(String(targetIntegrationId));
     setCurrentPage(page);
     if (templateId) {
       setViewingTemplateId(templateId);
@@ -97,10 +106,6 @@ export default function WhatsAppTemplatesSettings({ onMessage }) {
     );
   }
 
-  if (!integrationId) {
-    return <main style={{ padding: '30px' }}>No integration available</main>;
-  }
-
   // Render appropriate page based on current page state
   switch (currentPage) {
     case 'create':
@@ -122,12 +127,33 @@ export default function WhatsAppTemplatesSettings({ onMessage }) {
     case 'list':
     default:
       return (
-        <SettingsWhatsAppTemplates
-          key={refreshKey}
-          integrationId={integrationId}
-          onNavigate={handleNavigate}
-          onMessage={onMessage}
-        />
+        <>
+          <SettingsWhatsAppTemplates
+            key={refreshKey}
+            integrationId={integrationId}
+            integrations={integrations}
+            onIntegrationChange={setIntegrationId}
+            onNavigate={handleNavigate}
+            onMessage={onMessage}
+            onSendMessage={() => setShowSendMessage(true)}
+            onMessageHistory={() => setShowMessageHistory(true)}
+          />
+          {showAccountPicker && <div className="whatsapp-account-overlay" onClick={()=>setShowAccountPicker(false)}>
+            <section className="whatsapp-account-picker" onClick={event=>event.stopPropagation()}>
+              <header><div><MessageCircle size={20}/><span><h2>Select WhatsApp integration</h2><p>Choose the WhatsApp account where this template will be created.</p></span></div><button onClick={()=>setShowAccountPicker(false)}><X size={18}/></button></header>
+              <div>{integrations.map(item=><button key={item.id} disabled={!item.has_credentials} onClick={()=>{setShowAccountPicker(false);handleNavigate('create',null,item.id);}}><MessageCircle size={18}/><span><strong>{item.integration_name}</strong><small>{item.has_credentials?'Connected and ready':'Configuration required'}</small></span><b>{item.has_credentials?'Select':'Unavailable'}</b></button>)}</div>
+            </section>
+          </div>}
+          <WhatsAppSendPanel
+            open={showSendMessage}
+            initialMode="single"
+            onClose={() => setShowSendMessage(false)}
+            onSent={() => onMessage?.({ type: 'success', text: 'WhatsApp message request completed' })}
+          />
+          <WhatsAppMessageHistory open={showMessageHistory} onClose={() => setShowMessageHistory(false)} />
+        </>
       );
   }
+
+  return null;
 }

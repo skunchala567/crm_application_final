@@ -2,6 +2,8 @@ import 'dotenv/config';
 import cors from 'cors';
 import crypto from 'node:crypto';
 import express from 'express';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
 import jwt from 'jsonwebtoken';
 import mysql from 'mysql2/promise';
 import ExcelJS from 'exceljs';
@@ -14,6 +16,7 @@ const app = express();
 const port = Number(process.env.PORT || 3001);
 const jwtSecret = process.env.JWT_SECRET || 'local-development-secret-change-me';
 const allowedOrigin = process.env.WEB_ORIGIN || 'http://localhost:3000';
+const whatsappMediaDirectory = path.resolve('uploads/whatsapp');
 
 if (process.env.DEMO_MODE && process.env.DEMO_MODE.toLowerCase() !== 'false') {
   throw new Error('DEMO_MODE is disabled for this CRM. Set DEMO_MODE=false and configure MySQL.');
@@ -26,6 +29,11 @@ if (missingDatabaseSettings.length) {
 
 app.use(cors({ origin: allowedOrigin, credentials: true }));
 app.use(express.json({ limit: '1mb' }));
+app.use('/media/whatsapp', express.static(whatsappMediaDirectory, {
+  fallthrough: false,
+  maxAge: '1d',
+  immutable: false
+}));
 
 const pool = mysql.createPool({
     host: process.env.MYSQL_HOST,
@@ -46,7 +54,7 @@ async function checkIntegrationsMigration() {
   try {
     const [columns] = await pool.execute(`
       SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_NAME = 'integrations'
+      WHERE TABLE_NAME = 'crm_integrations'
       AND TABLE_SCHEMA = DATABASE()
     `);
 
@@ -87,6 +95,35 @@ try {
   console.warn('Warning: Could not load providers:', error.message);
 }
 
+let whatsAppStatusPollRunning = false;
+setInterval(async () => {
+  if (whatsAppStatusPollRunning) return;
+  whatsAppStatusPollRunning = true;
+  try {
+    await integrationHubService.pollPendingWhatsAppMessages();
+  } catch (error) {
+    console.error('WhatsApp status polling cycle failed:', error.message);
+  } finally {
+    whatsAppStatusPollRunning = false;
+  }
+}, 5000).unref();
+
+let googleSheetSyncRunning = false;
+const runGoogleSheetSync = async () => {
+  if (googleSheetSyncRunning) return;
+  googleSheetSyncRunning = true;
+  try {
+    await integrationHubService.syncActiveSheetSources();
+  } catch (error) {
+    console.error('Continuous Google Sheets sync cycle failed:', error.message);
+  } finally {
+    googleSheetSyncRunning = false;
+  }
+};
+const googleSheetSyncTimer = setInterval(runGoogleSheetSync, 60000);
+googleSheetSyncTimer.unref();
+setTimeout(runGoogleSheetSync, 10000).unref();
+
 function verifyAttendancePassword(password, encoded) {
   const [version, iterationsText, saltText, hashText] = String(encoded || '').split('.');
   const iterations = Number(iterationsText);
@@ -122,6 +159,89 @@ function authenticate(req, res, next) {
     res.status(401).json({ message: 'Session expired or invalid' });
   }
 }
+
+const whatsappMediaRules = {
+  IMAGE: { prefixes: ['image/'], maxBytes: 5 * 1024 * 1024, label: 'image' },
+  VIDEO: { prefixes: ['video/mp4'], maxBytes: 16 * 1024 * 1024, label: 'MP4 video' },
+  DOCUMENT: { prefixes: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument'], maxBytes: 20 * 1024 * 1024, label: 'PDF or document' },
+  FILE: { prefixes: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument'], maxBytes: 20 * 1024 * 1024, label: 'PDF or document' }
+};
+
+app.post(
+  '/api/whatsapp/media-upload',
+  authenticate,
+  express.raw({ type: () => true, limit: '20mb' }),
+  async (req, res, next) => {
+    try {
+      const templateType = String(req.headers['x-template-type'] || '').toUpperCase();
+      const integrationId = Number(req.headers['x-integration-id']);
+      if (!Number.isInteger(integrationId) || integrationId < 1) {
+        return res.status(400).json({ message: 'Select a WhatsApp account before uploading' });
+      }
+      const [integrationRows] = await pool.query(
+        `SELECT id, provider, config, media_public_base_url
+         FROM crm_integrations
+         WHERE id = ? AND deleted_at IS NULL
+         LIMIT 1`,
+        [integrationId]
+      );
+      const integration = integrationRows[0];
+      if (!integration || String(integration.provider).toLowerCase() !== 'smartping') {
+        return res.status(404).json({ message: 'WhatsApp integration not found' });
+      }
+      const integrationConfig = typeof integration.config === 'string'
+        ? JSON.parse(integration.config)
+        : integration.config || {};
+      const mediaPublicBaseUrl = String(
+        integration.media_public_base_url || integrationConfig.mediaPublicBaseUrl || ''
+      ).trim().replace(/\/+$/, '');
+      if (!/^https:\/\/[^/\s]+/i.test(mediaPublicBaseUrl)) {
+        return res.status(400).json({ message: 'Configure the Public Media Base URL for this WhatsApp integration first' });
+      }
+      const rule = whatsappMediaRules[templateType];
+      if (!rule) return res.status(400).json({ message: 'This template does not accept an attachment' });
+      if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ message: 'Choose a file to upload' });
+
+      const mimeType = String(req.headers['content-type'] || 'application/octet-stream').toLowerCase();
+      if (!rule.prefixes.some(prefix => mimeType.startsWith(prefix))) {
+        return res.status(400).json({ message: `Choose a valid ${rule.label} file` });
+      }
+      if (req.body.length > rule.maxBytes) {
+        return res.status(413).json({ message: `${rule.label} exceeds the allowed upload size` });
+      }
+
+      const requestedName = decodeURIComponent(String(req.headers['x-file-name'] || 'attachment'));
+      const safeExtensions = {
+        'image/jpeg': '.jpg',
+        'image/png': '.png',
+        'image/webp': '.webp',
+        'image/gif': '.gif',
+        'video/mp4': '.mp4',
+        'application/pdf': '.pdf',
+        'application/msword': '.doc',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx'
+      };
+      const extension = safeExtensions[mimeType] || '.bin';
+      const storedName = `${Date.now()}-${crypto.randomUUID()}${extension}`;
+      const integrationDirectory = path.join(whatsappMediaDirectory, String(integrationId));
+      await fs.mkdir(integrationDirectory, { recursive: true });
+      await fs.writeFile(path.join(integrationDirectory, storedName), req.body, { flag: 'wx' });
+
+      res.status(201).json({
+        success: true,
+        data: {
+          url: `${mediaPublicBaseUrl}/media/whatsapp/${integrationId}/${encodeURIComponent(storedName)}`,
+          filename: path.basename(requestedName),
+          mimeType,
+          size: req.body.length,
+          templateType
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
 const crmRoles = new Set(['ADMIN', 'CRM_ADMIN', 'ADMISSION_MANAGER', 'COUNSELLOR', 'CRM_VIEWER']);
 async function requireCrmAccess(req, res, next) {
@@ -285,7 +405,7 @@ app.get('/api/dashboard', authenticate, requireCrmAccess, async (req, res) => {
   });
 });
 
-async function queryLeads(user, search, limit = 100) {
+async function queryLeads(user, search, limit = null) {
   const scope = leadScopedWhere(user);
   search = String(search || '').trim();
   let whereClause = `(? = '' OR l.student_name LIKE ? OR l.phone LIKE ? OR l.lead_number LIKE ?)`;
@@ -303,6 +423,10 @@ async function queryLeads(user, search, limit = 100) {
     }
   }
 
+  const parsedLimit = Number(limit);
+  const limitClause = Number.isInteger(parsedLimit) && parsedLimit > 0
+    ? ` LIMIT ${parsedLimit}`
+    : '';
   const [rows] = await pool.execute(
     `SELECT l.id, l.lead_number AS leadId, l.branch_id AS branchId, b.branch_name AS branch,
             l.student_name AS studentName, l.phone, l.email,
@@ -320,7 +444,13 @@ async function queryLeads(user, search, limit = 100) {
             ((SELECT COUNT(*) FROM crm_lead_comments remark_count WHERE remark_count.lead_id=l.id)
               + CASE WHEN NULLIF(TRIM(l.remarks),'') IS NULL THEN 0 ELSE 1 END) AS remarksCount,
             l.referred_to_branch_id AS referredToBranchId,l.referred_to_branch_name AS referredToBranchName,l.referred_at_utc AS referredAt,
-            l.created_at_utc AS addedAt, l.updated_at_utc AS updatedAt, l.re_enquired_at_utc AS reEnquiredAt
+            l.created_at_utc AS addedAt, l.updated_at_utc AS updatedAt,
+            CASE
+              WHEN l.re_enquired_at_utc IS NOT NULL
+                OR (SELECT COUNT(*) FROM crm_lead_source_history re_enquiry_history WHERE re_enquiry_history.lead_id = l.id) > 1
+              THEN COALESCE(l.re_enquired_at_utc, l.updated_at_utc, l.created_at_utc)
+              ELSE NULL
+            END AS reEnquiredAt
      FROM crm_leads l JOIN crm_lead_stages s ON s.id = l.stage_id JOIN branches b ON b.id = l.branch_id
      LEFT JOIN crm_classes cls ON cls.id = l.class_id LEFT JOIN crm_curricula cur ON cur.id = l.curriculum_id
      LEFT JOIN crm_lead_sources src ON src.id = l.source_id
@@ -328,7 +458,7 @@ async function queryLeads(user, search, limit = 100) {
      LEFT JOIN employees e ON e.id = l.owner_employee_id
      WHERE l.deleted_at_utc IS NULL AND ${scope.sql}
        AND ${whereClause}
-     ORDER BY l.created_at_utc DESC LIMIT ${Number(limit)}`,
+     ORDER BY l.created_at_utc DESC${limitClause}`,
     [...scope.params, ...params],
   );
   return rows;
@@ -344,6 +474,32 @@ async function accessibleBranch(user, branchId) {
 function cleanOptional(value, maxLength = 500) {
   const text = String(value ?? '').trim();
   return text ? text.slice(0, maxLength) : null;
+}
+
+async function appendLeadSourceOrDetectDuplicate(connection, existingLead, record, intakeMethod, userId) {
+  const sourceId = Number(record.sourceId);
+  const [[sameSource]] = await connection.execute(
+    `SELECT id FROM crm_lead_source_history WHERE lead_id=? AND source_id=? LIMIT 1`,
+    [existingLead.id, sourceId]
+  );
+  if (sameSource) return { duplicate: true };
+  await connection.execute(
+    `INSERT INTO crm_lead_source_history
+      (lead_id,academic_year,source_id,channel_id,campaign_id,is_primary,intake_method,created_by_user_id)
+     VALUES(?,?,?,?,?,FALSE,?,?)`,
+    [existingLead.id, cleanOptional(record.academicYear, 20), sourceId, Number(record.channelId),
+      Number(record.campaignId), intakeMethod, Number(userId)]
+  );
+  await connection.execute(
+    `UPDATE crm_leads SET re_enquired_at_utc=CURRENT_TIMESTAMP(6),updated_at_utc=CURRENT_TIMESTAMP(6),updated_by_user_id=? WHERE id=?`,
+    [Number(userId), existingLead.id]
+  );
+  await connection.execute(
+    `INSERT INTO crm_lead_activities(lead_id,activity_type,summary,actor_user_id)
+     VALUES(?,'re_enquired','Re-enquiry received from a new source',?)`,
+    [existingLead.id, Number(userId)]
+  );
+  return { duplicate: false, reEnquired: true };
 }
 
 function validateLead(body) {
@@ -564,11 +720,10 @@ app.post('/api/leads', authenticate, requireCrmAccess, requireLeadWrite, async (
     await connection.beginTransaction();
     const [[existing]] = await connection.execute(`SELECT id,lead_number AS leadNumber FROM crm_leads WHERE branch_id=? AND normalized_phone=? AND deleted_at_utc IS NULL ORDER BY id LIMIT 1 FOR UPDATE`, [Number(req.body.branchId),normalizedPhone]);
     if (existing) {
-      await connection.execute(`INSERT INTO crm_lead_source_history(lead_id,academic_year,source_id,channel_id,campaign_id,is_primary,intake_method,created_by_user_id) VALUES(?,?,?,?,?,FALSE,?,?)`, [existing.id,cleanOptional(req.body.academicYear,20),Number(req.body.sourceId),Number(req.body.channelId),Number(req.body.campaignId),intakeMethod,Number(req.user.id)]);
-      await connection.execute(`UPDATE crm_leads SET updated_at_utc=CURRENT_TIMESTAMP(6),updated_by_user_id=? WHERE id=?`, [Number(req.user.id),existing.id]);
-      await connection.execute(`INSERT INTO crm_lead_activities(lead_id,activity_type,summary,actor_user_id) VALUES(?,'source_appended','Secondary source appended',?)`, [existing.id,Number(req.user.id)]);
+      const enquiry = await appendLeadSourceOrDetectDuplicate(connection, existing, req.body, intakeMethod, req.user.id);
       await connection.commit();
-      return res.status(200).json({ id:Number(existing.id),leadNumber:existing.leadNumber,duplicatePrevented:true,message:'Existing lead found; the new source details were appended' });
+      if (enquiry.duplicate) return res.status(409).json({ id:Number(existing.id),leadNumber:existing.leadNumber,message:'This mobile number is already recorded for the same branch and source' });
+      return res.status(200).json({ id:Number(existing.id),leadNumber:existing.leadNumber,reEnquired:true,message:'Existing lead updated with a secondary source and marked as re-enquired' });
     }
     const temporaryNumber = `PENDING-${crypto.randomUUID()}`;
     const [result] = await connection.execute(
@@ -1144,7 +1299,13 @@ app.delete('/api/automations/:id', authenticate, requireCrmAccess, requireLeadDe
 
 app.get('/api/leads', authenticate, requireCrmAccess, async (req, res) => {
   const search = String(req.query.search || '').trim();
-  const limit = Math.min(Number(req.query.limit) || 100, 200);
+  const requestedLimit = Number(req.query.limit);
+  const limit = Number.isInteger(requestedLimit) && requestedLimit > 0
+    ? Math.min(requestedLimit, 200)
+    : null;
+  // The current Leads UI applies stage and advanced filters client-side, so it
+  // needs the complete scoped result set. Explicit lightweight callers such as
+  // Global Search can still request a bounded result set.
   const rows = await queryLeads(req.user, search, limit);
   const scope=leadScopedWhere(req.user);
 
@@ -1156,21 +1317,16 @@ app.get('/api/leads', authenticate, requireCrmAccess, async (req, res) => {
   );
 
   // Get stage counts
-  const [[stageCounts]]=await pool.execute(
-    `SELECT
-       SUM(CASE WHEN s.display_name = 'New' THEN 1 ELSE 0 END) AS 'New',
-       SUM(CASE WHEN s.display_name = 'Contacted' THEN 1 ELSE 0 END) AS 'Contacted',
-       SUM(CASE WHEN s.display_name = 'Counselling' THEN 1 ELSE 0 END) AS 'Counselling',
-       SUM(CASE WHEN s.display_name = 'Applications' THEN 1 ELSE 0 END) AS 'Applications',
-       SUM(CASE WHEN s.display_name = 'Admissions' THEN 1 ELSE 0 END) AS 'Admissions',
-       SUM(CASE WHEN s.display_name = 'Campus Visit' THEN 1 ELSE 0 END) AS 'Campus Visit',
-       SUM(CASE WHEN s.display_name = 'Application' THEN 1 ELSE 0 END) AS 'Application',
-       SUM(CASE WHEN s.display_name = 'Admitted' THEN 1 ELSE 0 END) AS 'Admitted',
-       SUM(CASE WHEN s.display_name = 'Lost' THEN 1 ELSE 0 END) AS 'Lost'
+  const [stageCountRows]=await pool.execute(
+    `SELECT s.display_name AS stage, COUNT(l.id) AS count
      FROM crm_leads l
      JOIN crm_lead_stages s ON s.id = l.stage_id
-     WHERE l.deleted_at_utc IS NULL AND ${scope.sql}`,
+     WHERE l.deleted_at_utc IS NULL AND ${scope.sql}
+     GROUP BY s.id, s.display_name`,
     scope.params,
+  );
+  const stageCounts = Object.fromEntries(
+    stageCountRows.map(row => [row.stage, Number(row.count || 0)]),
   );
 
   // Get followups due
@@ -1184,10 +1340,14 @@ app.get('/api/leads', authenticate, requireCrmAccess, async (req, res) => {
 
   // Get re-enquired count
   const [[reEnquiredCount]]=await pool.execute(
-    `SELECT COUNT(DISTINCT l.id) AS count FROM crm_leads l
-     JOIN crm_lead_source_history h ON h.lead_id = l.id
-     WHERE l.deleted_at_utc IS NULL AND ${scope.sql}
-     GROUP BY l.id HAVING COUNT(h.id) > 1`,
+    `SELECT COUNT(*) AS count
+     FROM crm_leads l
+     WHERE l.deleted_at_utc IS NULL
+       AND (
+         l.re_enquired_at_utc IS NOT NULL
+         OR (SELECT COUNT(*) FROM crm_lead_source_history h WHERE h.lead_id = l.id) > 1
+       )
+       AND ${scope.sql}`,
     scope.params,
   );
 
@@ -1310,11 +1470,11 @@ app.get('/api/admission-class-configurations', authenticate, requireUserAdmin, a
         acc.updated_at AS updatedAt,
         GROUP_CONCAT(cl.display_name ORDER BY cl.display_name SEPARATOR ', ') AS classes,
         COUNT(DISTINCT accd.class_id) AS classCount
-      FROM mse_admission_class_configuration acc
+      FROM crm_admission_class_configurations acc
       LEFT JOIN branches b ON b.id = acc.branch_id
       LEFT JOIN crm_curricula c ON c.id = acc.curriculum_id
       LEFT JOIN crm_admission_types aat ON aat.id = acc.admission_type_id
-      LEFT JOIN mse_admission_class_configuration_details accd ON accd.configuration_id = acc.id AND accd.is_active = TRUE
+      LEFT JOIN crm_admission_class_configuration_details accd ON accd.configuration_id = acc.id AND accd.is_active = TRUE
       LEFT JOIN crm_classes cl ON cl.id = accd.class_id
       GROUP BY acc.id
       ORDER BY acc.academic_year DESC, b.branch_name, c.display_name
@@ -1336,14 +1496,14 @@ app.get('/api/admission-class-configurations/:id', authenticate, requireUserAdmi
         acc.curriculum_id AS curriculumId,
         acc.admission_type_id AS admissionTypeId,
         acc.is_active AS isActive
-      FROM mse_admission_class_configuration acc
+      FROM crm_admission_class_configurations acc
       WHERE acc.id = ?
     `, [configId]);
 
     if (!config) return res.status(404).json({ message: 'Configuration not found' });
 
     const [classes] = await pool.query(`
-      SELECT class_id AS classId FROM mse_admission_class_configuration_details
+      SELECT class_id AS classId FROM crm_admission_class_configuration_details
       WHERE configuration_id = ? AND is_active = TRUE
       ORDER BY class_id
     `, [configId]);
@@ -1371,7 +1531,7 @@ app.post('/api/admission-class-configurations', authenticate, requireUserAdmin, 
 
     // Check for duplicate configuration
     const [[existing]] = await pool.query(`
-      SELECT id FROM mse_admission_class_configuration
+      SELECT id FROM crm_admission_class_configurations
       WHERE academic_year = ? AND branch_id = ? AND curriculum_id = ? AND admission_type_id = ?
       LIMIT 1
     `, [String(academicYear), branchId, curriculumId, admissionTypeId]);
@@ -1385,7 +1545,7 @@ app.post('/api/admission-class-configurations', authenticate, requireUserAdmin, 
       await connection.beginTransaction();
 
       const [result] = await connection.execute(`
-        INSERT INTO mse_admission_class_configuration (academic_year, branch_id, curriculum_id, admission_type_id, is_active, created_by, updated_by)
+        INSERT INTO crm_admission_class_configurations (academic_year, branch_id, curriculum_id, admission_type_id, is_active, created_by, updated_by)
         VALUES (?, ?, ?, ?, 1, ?, ?)
       `, [String(academicYear), branchId, curriculumId, admissionTypeId, Number(req.user.id), Number(req.user.id)]);
 
@@ -1393,7 +1553,7 @@ app.post('/api/admission-class-configurations', authenticate, requireUserAdmin, 
 
       for (const classId of classIds) {
         await connection.execute(`
-          INSERT INTO mse_admission_class_configuration_details (configuration_id, class_id, is_active)
+          INSERT INTO crm_admission_class_configuration_details (configuration_id, class_id, is_active)
           VALUES (?, ?, 1)
         `, [configId, Number(classId)]);
       }
@@ -1421,17 +1581,17 @@ app.put('/api/admission-class-configurations/:id', authenticate, requireUserAdmi
       await connection.beginTransaction();
 
       await connection.execute(`
-        UPDATE mse_admission_class_configuration
+        UPDATE crm_admission_class_configurations
         SET academic_year = ?, branch_id = ?, curriculum_id = ?, admission_type_id = ?, is_active = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `, [String(academicYear), branchId, curriculumId, admissionTypeId, isActive ? 1 : 0, Number(req.user.id), configId]);
 
-      await connection.execute(`DELETE FROM mse_admission_class_configuration_details WHERE configuration_id = ?`, [configId]);
+      await connection.execute(`DELETE FROM crm_admission_class_configuration_details WHERE configuration_id = ?`, [configId]);
 
       if (Array.isArray(classIds) && classIds.length > 0) {
         for (const classId of classIds) {
           await connection.execute(`
-            INSERT INTO mse_admission_class_configuration_details (configuration_id, class_id, is_active)
+            INSERT INTO crm_admission_class_configuration_details (configuration_id, class_id, is_active)
             VALUES (?, ?, 1)
           `, [configId, Number(classId)]);
         }
@@ -1457,8 +1617,8 @@ app.delete('/api/admission-class-configurations/:id', authenticate, requireUserA
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-      await connection.execute(`DELETE FROM mse_admission_class_configuration_details WHERE configuration_id = ?`, [configId]);
-      await connection.execute(`DELETE FROM mse_admission_class_configuration WHERE id = ?`, [configId]);
+      await connection.execute(`DELETE FROM crm_admission_class_configuration_details WHERE configuration_id = ?`, [configId]);
+      await connection.execute(`DELETE FROM crm_admission_class_configurations WHERE id = ?`, [configId]);
       await connection.commit();
       res.json({ message: 'Configuration deleted successfully' });
     } catch (error) {
@@ -1482,8 +1642,8 @@ app.get('/api/available-classes', authenticate, requireCrmAccess, async (req, re
 
     const [classes] = await pool.query(`
       SELECT DISTINCT cl.id, cl.display_name AS displayName
-      FROM mse_admission_class_configuration_details accd
-      JOIN mse_admission_class_configuration acc ON acc.id = accd.configuration_id
+      FROM crm_admission_class_configuration_details accd
+      JOIN crm_admission_class_configurations acc ON acc.id = accd.configuration_id
       JOIN crm_classes cl ON cl.id = accd.class_id
       WHERE acc.academic_year = ?
         AND acc.branch_id = ?
@@ -1511,7 +1671,7 @@ app.get('/api/available-curricula', authenticate, requireCrmAccess, async (req, 
 
     const [curricula] = await pool.query(`
       SELECT DISTINCT cr.id, cr.display_name AS displayName
-      FROM mse_admission_class_configuration acc
+      FROM crm_admission_class_configurations acc
       JOIN crm_curricula cr ON cr.id = acc.curriculum_id
       WHERE acc.academic_year = ?
         AND acc.branch_id = ?
@@ -1537,7 +1697,7 @@ app.get('/api/available-admission-types', authenticate, requireCrmAccess, async 
 
     const [admissionTypes] = await pool.query(`
       SELECT DISTINCT at.id, at.display_name AS displayName
-      FROM mse_admission_class_configuration acc
+      FROM crm_admission_class_configurations acc
       JOIN crm_admission_types at ON at.id = acc.admission_type_id
       WHERE acc.academic_year = ?
         AND acc.branch_id = ?
@@ -1916,7 +2076,9 @@ async function processBulkUpload(uploadId, records, branchId, userId, pool) {
         );
 
         if (existing) {
-          duplicateCount++;
+          const enquiry = await appendLeadSourceOrDetectDuplicate(connection, existing, record, 'bulk', userId);
+          if (enquiry.duplicate) duplicateCount++;
+          else successCount++;
           await connection.execute(
             `UPDATE crm_bulk_upload_records SET lead_id=? WHERE bulk_upload_id=? AND \`row_number\`=?`,
             [existing.id, uploadId, rowNum]
@@ -2085,8 +2247,8 @@ app.post('/api/bulk-leads/validate', authenticate, requireCrmAccess, requireLead
         try {
           const [[accData]] = await pool.execute(
             `SELECT acc.id, acc.academic_year, acc.branch_id, acc.admission_type_id, c.id as curriculum_id
-             FROM mse_admission_class_configuration acc
-             JOIN mse_admission_class_configuration_details accd
+             FROM crm_admission_class_configurations acc
+             JOIN crm_admission_class_configuration_details accd
                ON accd.configuration_id = acc.id
              LEFT JOIN crm_curricula c ON c.id = acc.curriculum_id
              WHERE accd.class_id = ?
@@ -2211,8 +2373,9 @@ app.post('/api/bulk-leads/validate', authenticate, requireCrmAccess, requireLead
       if (errors.length === 0 && record.normalizedPhone && record.branchId) {
         try {
           const [[existing]] = await pool.execute(
-            `SELECT id FROM crm_leads WHERE branch_id = ? AND normalized_phone = ? AND deleted_at_utc IS NULL LIMIT 1`,
-            [record.branchId, record.normalizedPhone]
+            `SELECT l.id FROM crm_leads l JOIN crm_lead_source_history h ON h.lead_id=l.id
+             WHERE l.branch_id=? AND l.normalized_phone=? AND h.source_id=? AND l.deleted_at_utc IS NULL LIMIT 1`,
+            [record.branchId, record.normalizedPhone, Number(record.sourceId)]
           );
           if (existing) {
             errors.push('Duplicate: Phone number already exists in database');
@@ -2315,8 +2478,8 @@ app.post('/api/bulk-leads/import', authenticate, requireCrmAccess, requireLeadWr
         try {
           const [[accData]] = await connection.execute(
             `SELECT acc.id, acc.academic_year, acc.branch_id, acc.admission_type_id, c.id as curriculum_id
-             FROM mse_admission_class_configuration acc
-             JOIN mse_admission_class_configuration_details accd
+             FROM crm_admission_class_configurations acc
+             JOIN crm_admission_class_configuration_details accd
                ON accd.configuration_id = acc.id
              LEFT JOIN crm_curricula c ON c.id = acc.curriculum_id
              WHERE accd.class_id = ?
@@ -2465,8 +2628,9 @@ app.post('/api/bulk-leads/import', authenticate, requireCrmAccess, requireLeadWr
       if (errors.length === 0 && record.normalizedPhone && record.branchId) {
         try {
           const [[existing]] = await connection.execute(
-            `SELECT id FROM crm_leads WHERE branch_id = ? AND normalized_phone = ? AND deleted_at_utc IS NULL LIMIT 1`,
-            [record.branchId, record.normalizedPhone]
+            `SELECT l.id FROM crm_leads l JOIN crm_lead_source_history h ON h.lead_id=l.id
+             WHERE l.branch_id=? AND l.normalized_phone=? AND h.source_id=? AND l.deleted_at_utc IS NULL LIMIT 1`,
+            [record.branchId, record.normalizedPhone, Number(record.sourceId)]
           );
           if (existing) {
             errors.push('Duplicate: Phone number already exists in database');
@@ -2672,7 +2836,9 @@ async function processBulkUploadImport(uploadId, records, branchId, userId, pool
         );
 
         if (existing) {
-          duplicateCount++;
+          const enquiry = await appendLeadSourceOrDetectDuplicate(connection, existing, record, 'bulk', userId);
+          if (enquiry.duplicate) duplicateCount++;
+          else successCount++;
           await connection.execute(
             `UPDATE crm_bulk_upload_records SET lead_id=? WHERE bulk_upload_id=? AND \`row_number\`=?`,
             [existing.id, uploadId, rowNum]
@@ -2844,7 +3010,11 @@ app.use('/api/hub', createIntegrationHubRoutes(integrationHubService, authentica
 app.use('/api/whatsapp', createWhatsAppTemplateRoutes(pool, authenticate, console));
 
 // ============= Webhook Routes (for AiSensy updates) =============
-app.use('/api/webhooks', createWebhookRoutes(pool, console));
+const whatsappWebhookRoutes = createWebhookRoutes(pool, console);
+app.use('/api/webhooks', whatsappWebhookRoutes);
+// Backward-compatible URL used by existing Smartping/AiSensy integrations.
+app.use('/api/hub', whatsappWebhookRoutes);
+app.use('/hub', whatsappWebhookRoutes);
 
 app.use((error, _req, res, _next) => {
   console.error('[API Error]', error.message, error.stack);

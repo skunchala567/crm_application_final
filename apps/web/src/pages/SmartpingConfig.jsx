@@ -5,11 +5,15 @@ import { api } from '../api';
 export default function SmartpingConfig({ integrationId, onConfigSaved }) {
   const [projectId, setProjectId] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [aisensyBaseUrl, setAisensyBaseUrl] = useState('https://backend.aisensy.com');
+  const [aisensyApiKey, setAisensyApiKey] = useState('');
+  const [mediaPublicBaseUrl, setMediaPublicBaseUrl] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [showKey, setShowKey] = useState(false);
+  const [showAiSensyKey, setShowAiSensyKey] = useState(false);
 
   useEffect(() => {
     loadConfig();
@@ -22,6 +26,9 @@ export default function SmartpingConfig({ integrationId, onConfigSaved }) {
       const config = response.data?.config || {};
       setProjectId(config.projectId || '');
       setApiKey(config.projectApiPassword || '');
+      setAisensyBaseUrl(config.baseUrl || 'https://backend.aisensy.com');
+      setAisensyApiKey(config.apiKey || '');
+      setMediaPublicBaseUrl(config.mediaPublicBaseUrl || '');
       setError(null);
     } catch (err) {
       setError('Failed to load configuration: ' + err.message);
@@ -37,7 +44,17 @@ export default function SmartpingConfig({ integrationId, onConfigSaved }) {
     }
 
     if (!apiKey.trim()) {
-      setError('API Key is required');
+      setError('Project API Password is required');
+      return;
+    }
+
+    if (!/^https:\/\/[^/\s]+/i.test(aisensyBaseUrl.trim()) || !aisensyApiKey.trim()) {
+      setError('AiSensy Base URL and API Key are required');
+      return;
+    }
+
+    if (!/^https:\/\/[^/\s]+/i.test(mediaPublicBaseUrl.trim())) {
+      setError('Enter the public HTTPS address of this CRM API');
       return;
     }
 
@@ -49,7 +66,10 @@ export default function SmartpingConfig({ integrationId, onConfigSaved }) {
       await api.put(`/hub/integrations/${integrationId}`, {
         config: {
           projectId: projectId.trim(),
-          projectApiPassword: apiKey.trim()
+          projectApiPassword: apiKey.trim(),
+          baseUrl: aisensyBaseUrl.trim().replace(/\/+$/, ''),
+          apiKey: aisensyApiKey.trim(),
+          mediaPublicBaseUrl: mediaPublicBaseUrl.trim().replace(/\/+$/, '')
         }
       });
 
@@ -67,8 +87,8 @@ export default function SmartpingConfig({ integrationId, onConfigSaved }) {
   };
 
   const handleTestConnection = async () => {
-    if (!projectId.trim() || !apiKey.trim()) {
-      setError('Please enter Project ID and API Password first');
+    if (!projectId.trim() || !apiKey.trim() || !aisensyApiKey.trim() || !/^https:\/\/[^/\s]+/i.test(aisensyBaseUrl.trim()) || !/^https:\/\/[^/\s]+/i.test(mediaPublicBaseUrl.trim())) {
+      setError('Complete all AiSensy credentials and URL fields first');
       return;
     }
 
@@ -81,7 +101,10 @@ export default function SmartpingConfig({ integrationId, onConfigSaved }) {
       await api.put(`/hub/integrations/${integrationId}`, {
         config: {
           projectId: projectId.trim(),
-          projectApiPassword: apiKey.trim()
+          projectApiPassword: apiKey.trim(),
+          baseUrl: aisensyBaseUrl.trim().replace(/\/+$/, ''),
+          apiKey: aisensyApiKey.trim(),
+          mediaPublicBaseUrl: mediaPublicBaseUrl.trim().replace(/\/+$/, '')
         }
       });
 
@@ -153,6 +176,55 @@ export default function SmartpingConfig({ integrationId, onConfigSaved }) {
         <p style={styles.hint}>Your Smartping project API password. Keep this secret.</p>
       </div>
 
+      <div style={styles.formGroup}>
+        <label style={styles.label}>AiSensy Base URL *</label>
+        <input
+          type="url"
+          style={styles.input}
+          placeholder="https://backend.aisensy.com"
+          value={aisensyBaseUrl}
+          onChange={(e) => setAisensyBaseUrl(e.target.value)}
+          disabled={saving}
+        />
+        <p style={styles.hint}>Campaign API base address for this WhatsApp account.</p>
+      </div>
+
+      <div style={styles.formGroup}>
+        <label style={styles.label}>AiSensy API Key *</label>
+        <div style={styles.inputWrapper}>
+          <input
+            type={showAiSensyKey ? 'text' : 'password'}
+            style={styles.input}
+            placeholder="Enter this account's AiSensy API key"
+            value={aisensyApiKey}
+            onChange={(e) => setAisensyApiKey(e.target.value)}
+            disabled={saving}
+          />
+          <button
+            type="button"
+            style={styles.toggleBtn}
+            onClick={() => setShowAiSensyKey(!showAiSensyKey)}
+            disabled={saving}
+          >
+            {showAiSensyKey ? '👁️ Hide' : '👁️ Show'}
+          </button>
+        </div>
+        <p style={styles.hint}>Stored against this integration instead of numbered environment variables.</p>
+      </div>
+
+      <div style={styles.formGroup}>
+        <label style={styles.label}>Public Media Base URL *</label>
+        <input
+          type="url"
+          style={styles.input}
+          placeholder="https://crm-api.yourdomain.com"
+          value={mediaPublicBaseUrl}
+          onChange={(e) => setMediaPublicBaseUrl(e.target.value)}
+          disabled={saving}
+        />
+        <p style={styles.hint}>Public HTTPS address of this CRM API. AiSensy uses it to download media uploaded for this WhatsApp account.</p>
+      </div>
+
       {error && (
         <div style={styles.errorBox}>
           <AlertCircle size={18} style={{ marginRight: '8px' }} />
@@ -171,7 +243,7 @@ export default function SmartpingConfig({ integrationId, onConfigSaved }) {
         <button
           style={{ ...styles.btn, ...styles.btnSecondary }}
           onClick={handleTestConnection}
-          disabled={saving || !projectId.trim() || !apiKey.trim()}
+          disabled={saving || !projectId.trim() || !apiKey.trim() || !aisensyApiKey.trim() || !aisensyBaseUrl.trim() || !mediaPublicBaseUrl.trim()}
         >
           {saving ? (
             <>

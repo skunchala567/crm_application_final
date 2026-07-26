@@ -6,7 +6,7 @@
 // =====================================================
 // IntegrationRepository
 // CONSOLIDATED: Uses single 'integrations' table as source of truth
-// DO NOT use integration_configs - it has been deprecated
+// DO NOT use crm_integration_configs - it has been deprecated
 // =====================================================
 
 export class IntegrationRepository {
@@ -82,7 +82,7 @@ export class IntegrationRepository {
       params.push(filters.provider);
     }
 
-    let query = `SELECT * FROM integrations WHERE ${whereConditions.join(' AND ')} ORDER BY created_at DESC`;
+    let query = `SELECT * FROM crm_integrations WHERE ${whereConditions.join(' AND ')} ORDER BY created_at DESC`;
 
     if (filters.limit) {
       const offset = ((filters.page || 1) - 1) * filters.limit;
@@ -99,6 +99,24 @@ export class IntegrationRepository {
         configData = typeof row.config === 'string' ? JSON.parse(row.config) : row.config;
       } else if (row.config_json) {
         configData = typeof row.config_json === 'string' ? JSON.parse(row.config_json) : row.config_json;
+      }
+      if ((row.provider_name || row.provider)?.toLowerCase() === 'smartping') {
+        configData = {
+          ...configData,
+          projectId: row.project_id || configData.projectId,
+          projectApiPassword: row.project_api_password || configData.projectApiPassword,
+          baseUrl: row.aisensy_base_url || configData.baseUrl,
+          apiKey: row.aisensy_api_key || configData.apiKey,
+          mediaPublicBaseUrl: row.media_public_base_url || configData.mediaPublicBaseUrl
+        };
+      }
+      if ((row.provider_name || row.provider)?.toLowerCase() === 'google_sheets') {
+        configData = {
+          ...configData,
+          clientId: row.google_client_id || configData.clientId,
+          clientSecret: row.google_client_secret || configData.clientSecret,
+          redirectUrl: row.google_redirect_uri || configData.redirectUrl
+        };
       }
 
       // Normalize field names to support both old schema and migration 005 schema
@@ -137,7 +155,7 @@ export class IntegrationRepository {
 
   async getById(integrationId, organizationId) {
     const [rows] = await this.pool.execute(`
-      SELECT * FROM integrations
+      SELECT * FROM crm_integrations
       WHERE id = ? AND organization_id = ?
       LIMIT 1
     `, [integrationId, organizationId]);
@@ -152,6 +170,24 @@ export class IntegrationRepository {
       configData = typeof row.config === 'string' ? JSON.parse(row.config) : row.config;
     } else if (row.config_json) {
       configData = typeof row.config_json === 'string' ? JSON.parse(row.config_json) : row.config_json;
+    }
+    if ((row.provider_name || row.provider)?.toLowerCase() === 'smartping') {
+      configData = {
+        ...configData,
+        projectId: row.project_id || configData.projectId,
+        projectApiPassword: row.project_api_password || configData.projectApiPassword,
+        baseUrl: row.aisensy_base_url || configData.baseUrl,
+        apiKey: row.aisensy_api_key || configData.apiKey,
+        mediaPublicBaseUrl: row.media_public_base_url || configData.mediaPublicBaseUrl
+      };
+    }
+    if ((row.provider_name || row.provider)?.toLowerCase() === 'google_sheets') {
+      configData = {
+        ...configData,
+        clientId: row.google_client_id || configData.clientId,
+        clientSecret: row.google_client_secret || configData.clientSecret,
+        redirectUrl: row.google_redirect_uri || configData.redirectUrl
+      };
     }
 
     // Normalize field names to support both old schema and migration 005 schema
@@ -211,19 +247,50 @@ export class IntegrationRepository {
     };
     const mappedStatus = statusMap[status?.toLowerCase()] || 'INACTIVE';
     const mappedType = this.mapIntegrationType(integrationType);
+    const isSmartping = providerName?.toLowerCase() === 'smartping';
+    const projectId = isSmartping ? (config?.projectId || config?.project_id || null) : null;
+    const projectApiPassword = isSmartping
+      ? (config?.projectApiPassword || config?.project_api_password || null)
+      : null;
+    const aisensyBaseUrl = isSmartping ? (config?.baseUrl || config?.aisensyBaseUrl || null) : null;
+    const aisensyApiKey = isSmartping ? (config?.apiKey || config?.aisensyApiKey || null) : null;
+    const mediaPublicBaseUrl = isSmartping ? (config?.mediaPublicBaseUrl || null) : null;
+    const isGoogleSheets = providerName?.toLowerCase() === 'google_sheets';
+    const googleClientId = isGoogleSheets ? (config?.clientId || null) : null;
+    const googleClientSecret = isGoogleSheets ? (config?.clientSecret || null) : null;
+    const googleRedirectUri = isGoogleSheets ? (config?.redirectUrl || null) : null;
+    const storedConfig = { ...(config || {}) };
+    if (isSmartping) {
+      ['projectId', 'project_id', 'projectApiPassword', 'project_api_password', 'baseUrl', 'aisensyBaseUrl', 'apiKey', 'aisensyApiKey', 'mediaPublicBaseUrl']
+        .forEach(key => delete storedConfig[key]);
+    }
+    if (isGoogleSheets) {
+      ['clientId', 'clientSecret', 'redirectUrl'].forEach(key => delete storedConfig[key]);
+    }
 
     // Use old column names (type, provider, name) since they exist in current schema
     // Migration 005 will add new columns (integration_type, provider_name, integration_name)
     const [result] = await this.pool.execute(`
-      INSERT INTO integrations
-        (organization_id, name, type, provider, config, status, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      INSERT INTO crm_integrations
+        (organization_id, name, type, provider, config, project_id, project_api_password,
+         aisensy_base_url, aisensy_api_key, media_public_base_url,
+         google_client_id, google_client_secret, google_redirect_uri,
+         status, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `, [
       organizationId,
       integrationName,
       mappedType,  // Map new type to old ENUM value
       providerName,
-      JSON.stringify(config || {}),
+      JSON.stringify(storedConfig),
+      projectId,
+      projectApiPassword,
+      aisensyBaseUrl,
+      aisensyApiKey,
+      mediaPublicBaseUrl,
+      googleClientId,
+      googleClientSecret,
+      googleRedirectUri,
       mappedStatus,
       createdById || null
     ]);
@@ -242,8 +309,34 @@ export class IntegrationRepository {
       params.push(integrationName);
     }
     if (config !== undefined) {
+      const storedConfig = { ...(config || {}) };
+      ['projectId', 'project_id', 'projectApiPassword', 'project_api_password', 'baseUrl', 'aisensyBaseUrl', 'apiKey', 'aisensyApiKey', 'mediaPublicBaseUrl']
+        .forEach(key => delete storedConfig[key]);
+      ['clientId', 'clientSecret', 'redirectUrl'].forEach(key => delete storedConfig[key]);
       updates.push('config = ?');
-      params.push(JSON.stringify(config));
+      params.push(JSON.stringify(storedConfig));
+
+      const current = await this.getById(integrationId, organizationId);
+      if (current?.provider_name?.toLowerCase() === 'smartping') {
+        updates.push('project_id = ?');
+        params.push(config?.projectId || config?.project_id || null);
+        updates.push('project_api_password = ?');
+        params.push(config?.projectApiPassword || config?.project_api_password || null);
+        updates.push('aisensy_base_url = ?');
+        params.push(config?.baseUrl || config?.aisensyBaseUrl || null);
+        updates.push('aisensy_api_key = ?');
+        params.push(config?.apiKey || config?.aisensyApiKey || null);
+        updates.push('media_public_base_url = ?');
+        params.push(config?.mediaPublicBaseUrl || null);
+      }
+      if (current?.provider_name?.toLowerCase() === 'google_sheets') {
+        updates.push('google_client_id = ?');
+        params.push(config?.clientId || null);
+        updates.push('google_client_secret = ?');
+        params.push(config?.clientSecret || null);
+        updates.push('google_redirect_uri = ?');
+        params.push(config?.redirectUrl || null);
+      }
     }
     if (status !== undefined) {
       // Map new status values to old ENUM values
@@ -266,7 +359,7 @@ export class IntegrationRepository {
     params.push(organizationId);
 
     await this.pool.execute(`
-      UPDATE integrations
+      UPDATE crm_integrations
       SET ${updates.join(', ')}
       WHERE id = ? AND organization_id = ?
     `, params);
@@ -290,7 +383,7 @@ export class IntegrationRepository {
     // Use old column name (last_sync_at) since it exists in current schema
     // Migration 005 will add next_sync_at column
     await this.pool.execute(`
-      UPDATE integrations
+      UPDATE crm_integrations
       SET last_sync_at = ?, status = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ? AND organization_id = ?
     `, [lastSyncedAt, mappedStatus, integrationId, organizationId]);
@@ -308,7 +401,7 @@ export class IntegrationRepository {
 
   async delete(integrationId, organizationId) {
     const [result] = await this.pool.execute(`
-      UPDATE integrations
+      UPDATE crm_integrations
       SET status = 'inactive', updated_at = CURRENT_TIMESTAMP
       WHERE id = ? AND organization_id = ?
     `, [integrationId, organizationId]);
@@ -330,7 +423,7 @@ export class OAuthTokenRepository {
 
     // Check if integration_id column exists (new schema after migration 005)
     const [columns] = await this.pool.execute(
-      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'integration_oauth_tokens' AND TABLE_SCHEMA = DATABASE()"
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'crm_integration_oauth_tokens' AND TABLE_SCHEMA = DATABASE()"
     );
     const hasIntegrationIdColumn = columns.some(col => col.COLUMN_NAME === 'integration_id');
 
@@ -339,14 +432,14 @@ export class OAuthTokenRepository {
 
     // Check if exists
     const [existing] = await this.pool.execute(
-      `SELECT id FROM integration_oauth_tokens WHERE ${idColumnName} = ? LIMIT 1`,
+      `SELECT id FROM crm_integration_oauth_tokens WHERE ${idColumnName} = ? LIMIT 1`,
       [integrationConfigId]
     );
 
     if (existing.length > 0) {
       // Update
       await this.pool.execute(`
-        UPDATE integration_oauth_tokens
+        UPDATE crm_integration_oauth_tokens
         SET access_token = ?, refresh_token = ?, token_type = ?, expires_at = ?, scope = ?, updated_at = CURRENT_TIMESTAMP
         WHERE ${idColumnName} = ?
       `, [accessToken, refreshToken, tokenType, expiresAt, scope, integrationConfigId]);
@@ -354,7 +447,7 @@ export class OAuthTokenRepository {
       // Create - try new schema first (migration 005), fall back to old schema
       if (hasIntegrationIdColumn) {
         await this.pool.execute(`
-          INSERT INTO integration_oauth_tokens
+          INSERT INTO crm_integration_oauth_tokens
             (integration_id, provider_name, access_token, refresh_token, token_type, expires_at, scope, obtained_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         `, [integrationConfigId, providerName, accessToken, refreshToken, tokenType, expiresAt, scope]);
@@ -363,7 +456,7 @@ export class OAuthTokenRepository {
         await this.pool.execute('SET FOREIGN_KEY_CHECKS=0');
         try {
           await this.pool.execute(`
-            INSERT INTO integration_oauth_tokens
+            INSERT INTO crm_integration_oauth_tokens
               (integration_config_id, provider_name, access_token, refresh_token, token_type, expires_at, scope, obtained_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
           `, [integrationConfigId, providerName, accessToken, refreshToken, tokenType, expiresAt, scope]);
@@ -377,13 +470,13 @@ export class OAuthTokenRepository {
   async get(integrationConfigId) {
     // Check if integration_id column exists (new schema after migration 005)
     const [columns] = await this.pool.execute(
-      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'integration_oauth_tokens' AND TABLE_SCHEMA = DATABASE()"
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'crm_integration_oauth_tokens' AND TABLE_SCHEMA = DATABASE()"
     );
     const hasIntegrationIdColumn = columns.some(col => col.COLUMN_NAME === 'integration_id');
 
     const idColumnName = hasIntegrationIdColumn ? 'integration_id' : 'integration_config_id';
     const [rows] = await this.pool.execute(
-      `SELECT * FROM integration_oauth_tokens WHERE ${idColumnName} = ? LIMIT 1`,
+      `SELECT * FROM crm_integration_oauth_tokens WHERE ${idColumnName} = ? LIMIT 1`,
       [integrationConfigId]
     );
 
@@ -393,13 +486,13 @@ export class OAuthTokenRepository {
   async delete(integrationConfigId) {
     // Check if integration_id column exists (new schema after migration 005)
     const [columns] = await this.pool.execute(
-      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'integration_oauth_tokens' AND TABLE_SCHEMA = DATABASE()"
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'crm_integration_oauth_tokens' AND TABLE_SCHEMA = DATABASE()"
     );
     const hasIntegrationIdColumn = columns.some(col => col.COLUMN_NAME === 'integration_id');
 
     const idColumnName = hasIntegrationIdColumn ? 'integration_id' : 'integration_config_id';
     await this.pool.execute(
-      `DELETE FROM integration_oauth_tokens WHERE ${idColumnName} = ?`,
+      `DELETE FROM crm_integration_oauth_tokens WHERE ${idColumnName} = ?`,
       [integrationConfigId]
     );
   }
@@ -421,14 +514,14 @@ export class SyncJobRepository {
 
     // Check if integration_id column exists (new schema after migration 005)
     const [columns] = await this.pool.execute(
-      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'integration_sync_jobs' AND TABLE_SCHEMA = DATABASE()"
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'crm_integration_sync_jobs' AND TABLE_SCHEMA = DATABASE()"
     );
     const hasIntegrationIdColumn = columns.some(col => col.COLUMN_NAME === 'integration_id');
 
     // Use new schema if available, otherwise use old schema with FK check disabled
     if (hasIntegrationIdColumn) {
       const [result] = await this.pool.execute(`
-        INSERT INTO integration_sync_jobs
+        INSERT INTO crm_integration_sync_jobs
           (integration_id, sync_type, status, metadata, created_at, updated_at)
         VALUES (?, ?, 'pending', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       `, [integrationConfigId, syncType, JSON.stringify(metadata || {})]);
@@ -438,7 +531,7 @@ export class SyncJobRepository {
       await this.pool.execute('SET FOREIGN_KEY_CHECKS=0');
       try {
         const [result] = await this.pool.execute(`
-          INSERT INTO integration_sync_jobs
+          INSERT INTO crm_integration_sync_jobs
             (integration_config_id, sync_type, status, metadata, created_at, updated_at)
           VALUES (?, ?, 'pending', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         `, [integrationConfigId, syncType, JSON.stringify(metadata || {})]);
@@ -451,7 +544,7 @@ export class SyncJobRepository {
 
   async getById(jobId) {
     const [rows] = await this.pool.execute(
-      'SELECT * FROM integration_sync_jobs WHERE id = ? LIMIT 1',
+      'SELECT * FROM crm_integration_sync_jobs WHERE id = ? LIMIT 1',
       [jobId]
     );
 
@@ -465,7 +558,7 @@ export class SyncJobRepository {
 
   async updateStatus(jobId, status) {
     await this.pool.execute(`
-      UPDATE integration_sync_jobs
+      UPDATE crm_integration_sync_jobs
       SET status = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `, [status, jobId]);
@@ -473,14 +566,14 @@ export class SyncJobRepository {
 
   async markRunning(jobId) {
     await this.pool.execute(
-      'UPDATE integration_sync_jobs SET status = ?, started_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      'UPDATE crm_integration_sync_jobs SET status = ?, started_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
       ['running', jobId]
     );
   }
 
   async markCompleted(jobId, status, completedData) {
     await this.pool.execute(`
-      UPDATE integration_sync_jobs
+      UPDATE crm_integration_sync_jobs
       SET status = ?, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `, [status, jobId]);
@@ -488,7 +581,7 @@ export class SyncJobRepository {
 
   async scheduleRetry(jobId, nextRetryAt, retryCount) {
     await this.pool.execute(`
-      UPDATE integration_sync_jobs
+      UPDATE crm_integration_sync_jobs
       SET status = 'pending', updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `, [jobId]);
@@ -496,7 +589,7 @@ export class SyncJobRepository {
 
   async getPendingRetries(limit = 10) {
     const [rows] = await this.pool.execute(`
-      SELECT * FROM integration_sync_jobs
+      SELECT * FROM crm_integration_sync_jobs
       WHERE status = 'pending'
       ORDER BY created_at ASC
       LIMIT ?
@@ -518,15 +611,16 @@ export class SyncLogRepository {
 
     // Check if integration_id column exists (new schema after migration 005)
     const [columns] = await this.pool.execute(
-      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'integration_sync_logs' AND TABLE_SCHEMA = DATABASE()"
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'crm_integration_sync_logs' AND TABLE_SCHEMA = DATABASE()"
     );
     const hasIntegrationIdColumn = columns.some(col => col.COLUMN_NAME === 'integration_id');
 
-    const statsData = typeof stats === 'string' ? stats : JSON.stringify(stats || {});
+    const parsedStats = typeof stats === 'string' ? JSON.parse(stats || '{}') : (stats || {});
+    const statsData = JSON.stringify(parsedStats);
 
     if (hasIntegrationIdColumn) {
       const [result] = await this.pool.execute(`
-        INSERT INTO integration_sync_logs
+        INSERT INTO crm_integration_sync_logs
           (integration_id, sync_job_id, sync_type, status, records_processed, records_created, records_updated, records_failed, stats, error_summary, duration_seconds)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
       `, [
@@ -534,10 +628,10 @@ export class SyncLogRepository {
         syncJobId || null,
         syncType || null,
         status || null,
-        stats?.processed || 0,
-        stats?.created || 0,
-        stats?.updated || 0,
-        stats?.failed || 0,
+        parsedStats.processed || 0,
+        parsedStats.created || 0,
+        parsedStats.updated || 0,
+        parsedStats.failed || 0,
         statsData,
         errorSummary || null
       ]);
@@ -547,7 +641,7 @@ export class SyncLogRepository {
       await this.pool.execute('SET FOREIGN_KEY_CHECKS=0');
       try {
         const [result] = await this.pool.execute(`
-          INSERT INTO integration_sync_logs
+          INSERT INTO crm_integration_sync_logs
             (integration_config_id, sync_job_id, sync_type, status, records_processed, records_created, records_updated, records_failed, stats, error_summary, duration_seconds)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
         `, [
@@ -555,10 +649,10 @@ export class SyncLogRepository {
           syncJobId || null,
           syncType || null,
           status || null,
-          stats?.processed || 0,
-          stats?.created || 0,
-          stats?.updated || 0,
-          stats?.failed || 0,
+          parsedStats.processed || 0,
+          parsedStats.created || 0,
+          parsedStats.updated || 0,
+          parsedStats.failed || 0,
           statsData,
           errorSummary || null
         ]);
@@ -571,7 +665,7 @@ export class SyncLogRepository {
 
   async list(integrationConfigId, filters = {}) {
     let query = `
-      SELECT * FROM integration_sync_logs
+      SELECT * FROM crm_integration_sync_logs
       WHERE integration_config_id = ?
     `;
 
@@ -601,7 +695,7 @@ export class FieldMappingRepository {
 
   async list(integrationConfigId) {
     const [rows] = await this.pool.execute(`
-      SELECT * FROM integration_field_mappings
+      SELECT * FROM crm_integration_field_mappings
       WHERE integration_config_id = ? AND active = TRUE
       ORDER BY crm_field ASC
     `, [integrationConfigId]);
@@ -613,7 +707,7 @@ export class FieldMappingRepository {
     const { integrationConfigId, crmField, externalField, fieldType, isRequired, transformRule, direction } = mappingData;
 
     await this.pool.execute(`
-      INSERT INTO integration_field_mappings
+      INSERT INTO crm_integration_field_mappings
         (integration_config_id, crm_field, external_field, field_type, is_required, transform_rule, direction, active, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `, [
@@ -631,7 +725,7 @@ export class FieldMappingRepository {
     const { direction, transformRule, active } = updateData;
 
     await this.pool.execute(`
-      UPDATE integration_field_mappings
+      UPDATE crm_integration_field_mappings
       SET direction = ?, transform_rule = ?, active = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `, [direction, JSON.stringify(transformRule || {}), active ? 1 : 0, mappingId]);
@@ -639,7 +733,7 @@ export class FieldMappingRepository {
 
   async delete(mappingId) {
     await this.pool.execute(
-      'UPDATE integration_field_mappings SET active = FALSE, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      'UPDATE crm_integration_field_mappings SET active = FALSE, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
       [mappingId]
     );
   }
@@ -654,7 +748,7 @@ export class ErrorLogRepository {
     const { errorType, errorMessage, errorDetails, affectedRecords } = errorData;
 
     await this.pool.execute(`
-      INSERT INTO integration_error_logs
+      INSERT INTO crm_integration_error_logs
         (integration_config_id, error_type, error_message, error_details, affected_records, is_resolved, created_at)
       VALUES (?, ?, ?, ?, ?, FALSE, CURRENT_TIMESTAMP)
     `, [
@@ -667,7 +761,7 @@ export class ErrorLogRepository {
   }
 
   async list(integrationConfigId, filters = {}) {
-    let query = 'SELECT * FROM integration_error_logs WHERE integration_config_id = ?';
+    let query = 'SELECT * FROM crm_integration_error_logs WHERE integration_config_id = ?';
     const params = [integrationConfigId];
 
     if (filters.resolved === false) {
@@ -682,7 +776,7 @@ export class ErrorLogRepository {
 
   async resolve(errorId, resolutionNotes) {
     await this.pool.execute(`
-      UPDATE integration_error_logs
+      UPDATE crm_integration_error_logs
       SET is_resolved = TRUE, resolved_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `, [errorId]);
@@ -694,16 +788,16 @@ export class AuditLogRepository {
     this.pool = pool;
   }
 
-  async log(integrationConfigId, auditData) {
+  async log(integrationId, auditData) {
     try {
       const { action, notes, createdById } = auditData;
 
       await this.pool.execute(`
-        INSERT INTO integration_audit_logs
-          (integration_config_id, action, notes, created_by_id, created_at)
+        INSERT INTO crm_integration_audit_logs
+          (integration_id, action, notes, created_by_id, created_at)
         VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
       `, [
-        integrationConfigId || null,
+        integrationId || null,
         action || null,
         notes || null,
         createdById || null
@@ -716,13 +810,13 @@ export class AuditLogRepository {
     return true;
   }
 
-  async list(integrationConfigId) {
+  async list(integrationId) {
     const [rows] = await this.pool.execute(`
-      SELECT * FROM integration_audit_logs
-      WHERE integration_config_id = ?
+      SELECT * FROM crm_integration_audit_logs
+      WHERE integration_id = ?
       ORDER BY created_at DESC
       LIMIT 100
-    `, [integrationConfigId]);
+    `, [integrationId]);
 
     return rows || [];
   }

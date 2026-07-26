@@ -14,7 +14,7 @@ const pool = mysql.createPool({
     console.log('\n=== TEMPLATE CREATION VERIFICATION ===\n');
 
     const [templates] = await conn.query(
-      'SELECT id, integration_id, template_name, status, created_at FROM whatsapp_templates WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 5'
+      'SELECT id, integration_id, template_name, status, created_at FROM crm_whatsapp_templates WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 5'
     );
 
     console.log(`✅ Total templates in database: ${templates.length}`);

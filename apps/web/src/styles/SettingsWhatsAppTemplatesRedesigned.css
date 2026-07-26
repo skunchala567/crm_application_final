@@ -26,6 +26,7 @@
 }
 
 .template-page-header {
+  height: auto;
   min-height: 84px;
   padding: 14px clamp(18px, 3vw, 32px);
   display: flex;
@@ -37,7 +38,20 @@
   border-bottom: 1px solid var(--border);
 }
 
+/* Override the legacy `.workspace header` rule, which assigns every header a
+   fixed 68px height and causes wrapped controls to overflow into the tabs. */
+.workspace .template-page-header {
+  height: auto;
+  min-height: 84px;
+  position: relative;
+  inset: auto;
+  z-index: 4;
+  padding: 14px clamp(18px, 3vw, 32px);
+}
+
 .template-page-heading { min-width: 0; }
+.template-integration-filter{height:40px;min-width:190px;padding:0 30px 0 11px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink);font-size:11px;outline:0}.template-integration-filter:focus{border-color:var(--primary);box-shadow:0 0 0 3px #454aa219}
+.whatsapp-account-overlay{position:fixed;inset:0;z-index:1400;display:grid;place-items:center;padding:20px;background:#191b303d}.whatsapp-account-picker{width:min(600px,94vw);max-height:82vh;overflow:hidden;border:1px solid var(--border);border-radius:12px;background:var(--canvas);box-shadow:0 22px 60px #181a3530}.whatsapp-account-picker>header{padding:16px 18px;display:flex;align-items:flex-start;justify-content:space-between;border-bottom:1px solid var(--border);background:#fff}.whatsapp-account-picker>header>div{display:flex;align-items:center;gap:10px}.whatsapp-account-picker>header>div>svg{color:var(--primary)}.whatsapp-account-picker header span{display:grid;gap:3px}.whatsapp-account-picker h2,.whatsapp-account-picker p{margin:0}.whatsapp-account-picker h2{font:800 17px Manrope}.whatsapp-account-picker p{color:var(--text-secondary);font-size:10px}.whatsapp-account-picker>header>button{width:34px;height:34px;display:grid;place-items:center;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--text-secondary)}.whatsapp-account-picker>div{padding:14px;display:grid;gap:8px;max-height:60vh;overflow:auto}.whatsapp-account-picker>div>button{min-height:62px;padding:10px 12px;display:flex;align-items:center;gap:11px;text-align:left;border:1px solid var(--border);border-radius:9px;background:#fff;color:var(--ink)}.whatsapp-account-picker>div>button:hover:not(:disabled){border-color:var(--primary);background:var(--accent-softer)}.whatsapp-account-picker>div>button:disabled{opacity:.55}.whatsapp-account-picker>div>button>svg{color:var(--primary)}.whatsapp-account-picker>div>button>span{display:grid;gap:3px;flex:1}.whatsapp-account-picker strong{font-size:12px}.whatsapp-account-picker small{color:var(--text-secondary);font-size:9px}.whatsapp-account-picker b{padding:5px 8px;border-radius:12px;background:var(--primary-soft);color:var(--primary);font-size:9px}
 .template-page-heading h1 {
   margin: 0 0 3px;
   color: var(--ink);
@@ -877,6 +891,82 @@
   flex: 1;
   gap: 12px;
   color: var(--text-secondary);
+}
+
+.list-empty {
+  min-height: 300px;
+  padding: 40px 24px;
+  text-align: center;
+}
+
+.list-empty-icon {
+  width: 52px;
+  height: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 52px;
+  color: var(--primary);
+  background: rgba(var(--primary-rgb), 0.09);
+  border: 1px solid rgba(var(--primary-rgb), 0.14);
+  border-radius: 12px;
+}
+
+.list-empty-copy h3 {
+  margin: 0 0 5px;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.list-empty-copy p {
+  max-width: 390px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.list-empty .template-empty-action {
+  width: auto;
+  min-width: 0;
+  max-width: max-content;
+  height: 38px;
+  min-height: 38px;
+  max-height: 38px;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  flex: 0 0 38px;
+  gap: 7px;
+  border: 1px solid var(--primary);
+  border-radius: 6px;
+  background: var(--primary);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.list-empty .template-empty-action:hover {
+  background: var(--primary-dark);
+  box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.2);
+}
+
+.list-empty .template-empty-action-secondary {
+  background: var(--surface);
+  color: var(--primary);
+}
+
+.list-empty .template-empty-action-secondary:hover {
+  background: rgba(var(--primary-rgb), 0.06);
+  box-shadow: none;
 }
 
 .list-loading svg.spinning {
@@ -1917,5 +2007,163 @@
 
   .template-list-item .table-cell {
     display: none;
+  }
+}
+
+/* The application sidebar remains visible at these widths, so the templates
+   screen must respond to the smaller content area before the mobile breakpoint. */
+@media (max-width: 1180px) {
+  .workspace .template-page-header {
+    height: auto;
+    min-height: 0;
+    padding: 16px 20px;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .template-page-heading h1 {
+    font-size: 25px;
+  }
+
+  .template-header-controls {
+    width: 100%;
+    margin-left: 0;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .template-integration-filter,
+  .template-header-search {
+    width: 100%;
+    min-width: 0;
+    grid-column: span 2;
+  }
+
+  .template-header-button {
+    width: 100%;
+  }
+
+  .templates-list-nav {
+    padding: 9px 14px;
+    flex-wrap: nowrap;
+  }
+
+  .filter-tabs {
+    padding-bottom: 2px;
+  }
+
+  .template-table-header {
+    display: none;
+  }
+
+  .template-list-item {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 14px;
+    min-height: 72px;
+    padding: 11px 16px;
+  }
+
+  .template-list-item .table-cell {
+    display: none;
+  }
+
+  .template-list-item > .status-badge {
+    display: inline-flex;
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+  }
+
+  .template-list-item .item-preview {
+    max-width: 100%;
+  }
+
+  .list-scroll {
+    overflow-x: hidden;
+  }
+}
+
+@media (max-width: 760px) {
+  .templates-redesigned {
+    height: 100dvh;
+    max-height: 100dvh;
+  }
+
+  .workspace .template-page-header {
+    padding: 14px 16px;
+  }
+
+  .template-page-heading h1 {
+    font-size: 22px;
+  }
+
+  .template-header-controls {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .template-integration-filter,
+  .template-header-search {
+    grid-column: 1 / -1;
+  }
+
+  .template-header-button {
+    width: 100%;
+  }
+
+  .templates-list-nav {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .filter-tabs {
+    width: 100%;
+  }
+
+  .templates-list-nav-actions {
+    width: 100%;
+    padding: 8px 0 0;
+    justify-content: flex-end;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .advanced-filter-popover {
+    position: fixed;
+    inset: auto 12px 12px;
+    width: auto;
+    max-width: none;
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+  }
+
+  .pagination-controls {
+    align-items: stretch;
+  }
+
+  .pagination-buttons {
+    justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .template-page-heading p {
+    font-size: 11px;
+  }
+
+  .template-list-item {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .template-list-item > .status-badge {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .advanced-filter-grid {
+    grid-template-columns: 1fr;
   }
 }

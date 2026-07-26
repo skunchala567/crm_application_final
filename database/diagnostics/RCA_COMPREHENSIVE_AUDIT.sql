@@ -9,40 +9,40 @@
 SELECT '=============== TABLE EXISTENCE CHECK ===============' as audit_step;
 
 SELECT
-  'integrations' as table_name,
+  'crm_integrations' as table_name,
   IF(COUNT(*) > 0, 'EXISTS', 'MISSING') as status
 FROM INFORMATION_SCHEMA.TABLES
-WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'integrations'
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'crm_integrations'
 UNION ALL
 SELECT
-  'whatsapp_templates',
+  'crm_whatsapp_templates',
   IF(COUNT(*) > 0, 'EXISTS', 'MISSING')
 FROM INFORMATION_SCHEMA.TABLES
-WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'whatsapp_templates'
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'crm_whatsapp_templates'
 UNION ALL
 SELECT
-  'whatsapp_template_buttons',
+  'crm_whatsapp_template_buttons',
   IF(COUNT(*) > 0, 'EXISTS', 'MISSING')
 FROM INFORMATION_SCHEMA.TABLES
-WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'whatsapp_template_buttons'
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'crm_whatsapp_template_buttons'
 UNION ALL
 SELECT
-  'whatsapp_template_media',
+  'crm_whatsapp_template_media',
   IF(COUNT(*) > 0, 'EXISTS', 'MISSING')
 FROM INFORMATION_SCHEMA.TABLES
-WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'whatsapp_template_media'
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'crm_whatsapp_template_media'
 UNION ALL
 SELECT
-  'whatsapp_template_sync_logs',
+  'crm_whatsapp_template_sync_logs',
   IF(COUNT(*) > 0, 'EXISTS', 'MISSING')
 FROM INFORMATION_SCHEMA.TABLES
-WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'whatsapp_template_sync_logs'
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'crm_whatsapp_template_sync_logs'
 UNION ALL
 SELECT
-  'organizations',
+  'crm_organizations',
   IF(COUNT(*) > 0, 'EXISTS', 'MISSING')
 FROM INFORMATION_SCHEMA.TABLES
-WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'organizations';
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'crm_organizations';
 
 -- ====================================================================
 -- STEP 2: FOREIGN KEY VALIDATION
@@ -66,7 +66,7 @@ ORDER BY TABLE_NAME, CONSTRAINT_NAME;
 -- ====================================================================
 
 SELECT '=============== INTEGRATIONS TABLE SCHEMA ===============' as audit_step;
-SHOW COLUMNS FROM integrations;
+SHOW COLUMNS FROM crm_integrations;
 
 SELECT '=============== INTEGRATIONS TABLE DATA ===============' as audit_step;
 SELECT
@@ -77,7 +77,7 @@ SELECT
   status,
   created_at,
   deleted_at
-FROM integrations
+FROM crm_integrations
 ORDER BY id;
 
 -- ====================================================================
@@ -85,7 +85,7 @@ ORDER BY id;
 -- ====================================================================
 
 SELECT '=============== WHATSAPP_TEMPLATES TABLE SCHEMA ===============' as audit_step;
-SHOW COLUMNS FROM whatsapp_templates;
+SHOW COLUMNS FROM crm_whatsapp_templates;
 
 SELECT '=============== WHATSAPP_TEMPLATES TABLE DATA ===============' as audit_step;
 SELECT
@@ -97,7 +97,7 @@ SELECT
   created_by,
   created_at,
   deleted_at
-FROM whatsapp_templates
+FROM crm_whatsapp_templates
 ORDER BY id;
 
 -- ====================================================================
@@ -106,7 +106,7 @@ ORDER BY id;
 
 SELECT '=============== ORPHAN RECORDS IN WHATSAPP_TEMPLATES ===============' as audit_step;
 
--- Check if any templates reference non-existent integrations
+-- Check if any templates reference non-existent crm_integrations
 SELECT
   wt.id as template_id,
   wt.integration_id,
@@ -114,8 +114,8 @@ SELECT
   wt.status,
   i.id as integration_exists,
   IF(i.id IS NULL, 'ORPHAN - INTEGRATION MISSING', 'OK') as status_check
-FROM whatsapp_templates wt
-LEFT JOIN integrations i ON wt.integration_id = i.id
+FROM crm_whatsapp_templates wt
+LEFT JOIN crm_integrations i ON wt.integration_id = i.id
 WHERE wt.deleted_at IS NULL
 ORDER BY wt.integration_id;
 
@@ -132,8 +132,8 @@ SELECT
   i.status,
   i.deleted_at,
   COUNT(wt.id) as template_count
-FROM integrations i
-LEFT JOIN whatsapp_templates wt ON i.id = wt.integration_id AND wt.deleted_at IS NULL
+FROM crm_integrations i
+LEFT JOIN crm_whatsapp_templates wt ON i.id = wt.integration_id AND wt.deleted_at IS NULL
 GROUP BY i.id, i.name, i.type, i.status, i.deleted_at;
 
 -- ====================================================================
@@ -161,20 +161,20 @@ ORDER BY TABLE_NAME, CONSTRAINT_NAME;
 SELECT '=============== DATATYPE COMPARISON ===============' as audit_step;
 
 SELECT
-  'integrations.id' as field,
+  'crm_integrations.id' as field,
   COLUMN_TYPE as datatype,
   IS_NULLABLE as nullable,
   COLUMN_KEY as key_type
 FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'integrations' AND COLUMN_NAME = 'id'
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'crm_integrations' AND COLUMN_NAME = 'id'
 UNION ALL
 SELECT
-  'whatsapp_templates.integration_id',
+  'crm_whatsapp_templates.integration_id',
   COLUMN_TYPE,
   IS_NULLABLE,
   COLUMN_KEY
 FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'whatsapp_templates' AND COLUMN_NAME = 'integration_id';
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'crm_whatsapp_templates' AND COLUMN_NAME = 'integration_id';
 
 -- ====================================================================
 -- STEP 9: ORGANIZATIONS TABLE CHECK
@@ -187,7 +187,7 @@ SELECT
   name,
   status,
   created_at
-FROM organizations
+FROM crm_organizations
 ORDER BY id;
 
 -- ====================================================================
@@ -203,8 +203,8 @@ SELECT
   i.status,
   o.id as org_exists,
   IF(o.id IS NULL, 'ORPHAN - ORG MISSING', 'OK') as status_check
-FROM integrations i
-LEFT JOIN organizations o ON i.organization_id = o.id
+FROM crm_integrations i
+LEFT JOIN crm_organizations o ON i.organization_id = o.id
 ORDER BY i.id;
 
 -- ====================================================================
@@ -224,8 +224,8 @@ SELECT
 FROM (
   SELECT DISTINCT 3 as integration_id
 ) needed_integration
-LEFT JOIN integrations i ON needed_integration.integration_id = i.id
-LEFT JOIN organizations o ON i.organization_id = o.id;
+LEFT JOIN crm_integrations i ON needed_integration.integration_id = i.id
+LEFT JOIN crm_organizations o ON i.organization_id = o.id;
 
 -- ====================================================================
 -- STEP 12: EXACT ISSUE DIAGNOSIS
@@ -235,9 +235,9 @@ SELECT '=============== TRYING TO INSERT WITH ID 3 ===============' as audit_ste
 
 SELECT
   3 as attempting_integration_id,
-  EXISTS(SELECT 1 FROM integrations WHERE id = 3) as integration_exists,
+  EXISTS(SELECT 1 FROM crm_integrations WHERE id = 3) as integration_exists,
   CASE
-    WHEN EXISTS(SELECT 1 FROM integrations WHERE id = 3) THEN 'WILL SUCCEED'
+    WHEN EXISTS(SELECT 1 FROM crm_integrations WHERE id = 3) THEN 'WILL SUCCEED'
     ELSE 'WILL FAIL - FK CONSTRAINT'
   END as insert_result;
 
@@ -248,8 +248,8 @@ SELECT
 SELECT '=============== SUMMARY ===============' as audit_step;
 
 SELECT
-  (SELECT COUNT(*) FROM integrations) as total_integrations,
-  (SELECT COUNT(*) FROM organizations) as total_organizations,
-  (SELECT COUNT(*) FROM whatsapp_templates WHERE deleted_at IS NULL) as active_templates,
-  (SELECT COUNT(*) FROM integrations WHERE id = 3) as integration_3_exists,
-  (SELECT COUNT(*) FROM integrations WHERE id = 1) as integration_1_exists;
+  (SELECT COUNT(*) FROM crm_integrations) as total_integrations,
+  (SELECT COUNT(*) FROM crm_organizations) as total_organizations,
+  (SELECT COUNT(*) FROM crm_whatsapp_templates WHERE deleted_at IS NULL) as active_templates,
+  (SELECT COUNT(*) FROM crm_integrations WHERE id = 3) as integration_3_exists,
+  (SELECT COUNT(*) FROM crm_integrations WHERE id = 1) as integration_1_exists;

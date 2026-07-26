@@ -3,6 +3,6 @@ dist/
 .env
 .env.local
 *.log
+.logs/
 .runtime/
-*.md
-!README.md
+apps/api/uploads/

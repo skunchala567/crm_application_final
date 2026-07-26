@@ -11,7 +11,7 @@ SET SQL_MODE='NO_AUTO_VALUE_ON_ZERO';
 -- =====================================================
 
 -- Organizations (Multi-tenancy support)
-CREATE TABLE IF NOT EXISTS organizations (
+CREATE TABLE IF NOT EXISTS crm_organizations (
   id INT AUTO_INCREMENT PRIMARY KEY,
   uuid CHAR(36) UNIQUE NOT NULL DEFAULT (UUID()),
   name VARCHAR(255) NOT NULL,
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS branches (
   UNIQUE KEY uk_organization_branch_code (organization_id, branch_code),
   KEY idx_branches_organization_id (organization_id),
   KEY idx_branches_uuid (uuid),
-  CONSTRAINT fk_branches_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+  CONSTRAINT fk_branches_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Users (Staff members)
@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS users (
   KEY idx_users_uuid (uuid),
   KEY idx_users_email (email),
   KEY idx_users_is_active (is_active),
-  CONSTRAINT fk_users_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_users_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE,
   CONSTRAINT fk_users_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS roles (
   UNIQUE KEY uk_organization_role_name (organization_id, name),
   KEY idx_roles_organization_id (organization_id),
   KEY idx_roles_uuid (uuid),
-  CONSTRAINT fk_roles_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+  CONSTRAINT fk_roles_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Add role_id foreign key to users
@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS lead_stages (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uk_organization_stage_name (organization_id, name),
   KEY idx_lead_stages_organization_id (organization_id),
-  CONSTRAINT fk_lead_stages_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+  CONSTRAINT fk_lead_stages_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Lead Sub-Stages
@@ -150,7 +150,7 @@ CREATE TABLE IF NOT EXISTS lead_sub_stages (
   UNIQUE KEY uk_stage_substage_name (lead_stage_id, name),
   KEY idx_lead_sub_stages_lead_stage_id (lead_stage_id),
   CONSTRAINT fk_lead_sub_stages_stage FOREIGN KEY (lead_stage_id) REFERENCES lead_stages(id) ON DELETE CASCADE,
-  CONSTRAINT fk_lead_sub_stages_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+  CONSTRAINT fk_lead_sub_stages_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Lead Sources
@@ -166,7 +166,7 @@ CREATE TABLE IF NOT EXISTS lead_sources (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uk_organization_source_name (organization_id, name),
   KEY idx_lead_sources_organization_id (organization_id),
-  CONSTRAINT fk_lead_sources_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+  CONSTRAINT fk_lead_sources_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Leads (Main table)
@@ -262,7 +262,7 @@ CREATE TABLE IF NOT EXISTS leads (
   KEY idx_leads_next_followup_at (next_followup_at),
   KEY idx_leads_lead_score (lead_score),
 
-  CONSTRAINT fk_leads_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_leads_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE,
   CONSTRAINT fk_leads_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE RESTRICT,
   CONSTRAINT fk_leads_source FOREIGN KEY (source_id) REFERENCES lead_sources(id) ON DELETE SET NULL,
   CONSTRAINT fk_leads_lead_owner FOREIGN KEY (lead_owner_id) REFERENCES users(id) ON DELETE SET NULL,
@@ -293,7 +293,7 @@ CREATE TABLE IF NOT EXISTS lead_activities (
   KEY idx_lead_activities_created_at (created_at),
 
   CONSTRAINT fk_lead_activities_lead FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
-  CONSTRAINT fk_lead_activities_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_lead_activities_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE,
   CONSTRAINT fk_lead_activities_performed_by FOREIGN KEY (performed_by_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -312,7 +312,7 @@ CREATE TABLE IF NOT EXISTS lead_history (
   KEY idx_lead_history_changed_at (changed_at),
 
   CONSTRAINT fk_lead_history_lead FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
-  CONSTRAINT fk_lead_history_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_lead_history_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE,
   CONSTRAINT fk_lead_history_changed_by FOREIGN KEY (changed_by_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -334,7 +334,7 @@ CREATE TABLE IF NOT EXISTS lead_duplicates (
 
   CONSTRAINT fk_lead_duplicates_lead_1 FOREIGN KEY (lead_id_1) REFERENCES leads(id) ON DELETE CASCADE,
   CONSTRAINT fk_lead_duplicates_lead_2 FOREIGN KEY (lead_id_2) REFERENCES leads(id) ON DELETE CASCADE,
-  CONSTRAINT fk_lead_duplicates_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_lead_duplicates_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE,
   CONSTRAINT fk_lead_duplicates_resolved_by FOREIGN KEY (resolved_by_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -371,7 +371,7 @@ CREATE TABLE IF NOT EXISTS followups (
   KEY idx_followups_status (status),
 
   CONSTRAINT fk_followups_lead FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
-  CONSTRAINT fk_followups_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_followups_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE,
   CONSTRAINT fk_followups_assigned_to FOREIGN KEY (assigned_to_id) REFERENCES users(id) ON DELETE SET NULL,
   CONSTRAINT fk_followups_created_by FOREIGN KEY (created_by_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -402,7 +402,7 @@ CREATE TABLE IF NOT EXISTS communications (
   KEY idx_communications_created_at (created_at),
 
   CONSTRAINT fk_communications_lead FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
-  CONSTRAINT fk_communications_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_communications_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE,
   CONSTRAINT fk_communications_sender FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -424,7 +424,7 @@ CREATE TABLE IF NOT EXISTS communication_templates (
   UNIQUE KEY uk_organization_template_name (organization_id, template_type, name),
   KEY idx_communication_templates_organization_id (organization_id),
 
-  CONSTRAINT fk_communication_templates_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_communication_templates_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE,
   CONSTRAINT fk_communication_templates_created_by FOREIGN KEY (created_by_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -455,7 +455,7 @@ CREATE TABLE IF NOT EXISTS documents (
   KEY idx_documents_organization_id (organization_id),
 
   CONSTRAINT fk_documents_lead FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
-  CONSTRAINT fk_documents_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_documents_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE,
   CONSTRAINT fk_documents_verified_by FOREIGN KEY (verified_by_id) REFERENCES users(id) ON DELETE SET NULL,
   CONSTRAINT fk_documents_uploaded_by FOREIGN KEY (uploaded_by_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -492,7 +492,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   KEY idx_tasks_due_date (due_date),
 
   CONSTRAINT fk_tasks_lead FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
-  CONSTRAINT fk_tasks_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_tasks_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE,
   CONSTRAINT fk_tasks_assigned_to FOREIGN KEY (assigned_to_id) REFERENCES users(id) ON DELETE SET NULL,
   CONSTRAINT fk_tasks_created_by FOREIGN KEY (created_by_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -523,7 +523,7 @@ CREATE TABLE IF NOT EXISTS applications (
   KEY idx_applications_status (status),
 
   CONSTRAINT fk_applications_lead FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
-  CONSTRAINT fk_applications_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+  CONSTRAINT fk_applications_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Payments
@@ -551,7 +551,7 @@ CREATE TABLE IF NOT EXISTS payments (
 
   CONSTRAINT fk_payments_lead FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
   CONSTRAINT fk_payments_application FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE,
-  CONSTRAINT fk_payments_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_payments_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE,
   CONSTRAINT fk_payments_created_by FOREIGN KEY (created_by_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -579,7 +579,7 @@ CREATE TABLE IF NOT EXISTS workflows (
   KEY idx_workflows_organization_id (organization_id),
   KEY idx_workflows_is_active (is_active),
 
-  CONSTRAINT fk_workflows_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_workflows_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE,
   CONSTRAINT fk_workflows_created_by FOREIGN KEY (created_by_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -602,14 +602,14 @@ CREATE TABLE IF NOT EXISTS workflow_executions (
 
   CONSTRAINT fk_workflow_executions_workflow FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE,
   CONSTRAINT fk_workflow_executions_lead FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
-  CONSTRAINT fk_workflow_executions_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+  CONSTRAINT fk_workflow_executions_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =====================================================
 -- 8. INTEGRATIONS
 -- =====================================================
 
-CREATE TABLE IF NOT EXISTS integrations (
+CREATE TABLE IF NOT EXISTS crm_integrations (
   id INT AUTO_INCREMENT PRIMARY KEY,
   uuid CHAR(36) UNIQUE NOT NULL DEFAULT (UUID()),
   organization_id INT NOT NULL,
@@ -630,12 +630,12 @@ CREATE TABLE IF NOT EXISTS integrations (
   UNIQUE KEY uk_organization_integration_type (organization_id, integration_type),
   KEY idx_integrations_organization_id (organization_id),
 
-  CONSTRAINT fk_integrations_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_integrations_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE,
   CONSTRAINT fk_integrations_created_by FOREIGN KEY (created_by_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Integration Sync Logs
-CREATE TABLE IF NOT EXISTS integration_sync_logs (
+CREATE TABLE IF NOT EXISTS crm_integration_sync_logs (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   integration_id INT NOT NULL,
   organization_id INT NOT NULL,
@@ -652,8 +652,8 @@ CREATE TABLE IF NOT EXISTS integration_sync_logs (
   KEY idx_integration_sync_logs_integration_id (integration_id),
   KEY idx_integration_sync_logs_started_at (started_at),
 
-  CONSTRAINT fk_integration_sync_logs_integration FOREIGN KEY (integration_id) REFERENCES integrations(id) ON DELETE CASCADE,
-  CONSTRAINT fk_integration_sync_logs_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+  CONSTRAINT fk_integration_sync_logs_integration FOREIGN KEY (integration_id) REFERENCES crm_integrations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_integration_sync_logs_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Meta Leads
@@ -688,7 +688,7 @@ CREATE TABLE IF NOT EXISTS meta_leads (
   KEY idx_meta_leads_organization_id (organization_id),
   KEY idx_meta_leads_crm_lead_id (crm_lead_id),
 
-  CONSTRAINT fk_meta_leads_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_meta_leads_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE,
   CONSTRAINT fk_meta_leads_crm_lead FOREIGN KEY (crm_lead_id) REFERENCES leads(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -715,7 +715,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   KEY idx_audit_logs_action (action),
   KEY idx_audit_logs_created_at (created_at),
 
-  CONSTRAINT fk_audit_logs_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_audit_logs_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE,
   CONSTRAINT fk_audit_logs_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -734,7 +734,7 @@ CREATE TABLE IF NOT EXISTS login_history (
   KEY idx_login_history_created_at (created_at),
 
   CONSTRAINT fk_login_history_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  CONSTRAINT fk_login_history_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+  CONSTRAINT fk_login_history_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =====================================================
@@ -758,7 +758,7 @@ CREATE TABLE IF NOT EXISTS saved_reports (
   UNIQUE KEY uk_organization_report_name (organization_id, name),
   KEY idx_saved_reports_organization_id (organization_id),
 
-  CONSTRAINT fk_saved_reports_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_saved_reports_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE,
   CONSTRAINT fk_saved_reports_created_by FOREIGN KEY (created_by_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -773,7 +773,7 @@ CREATE TABLE IF NOT EXISTS report_snapshots (
   KEY idx_report_snapshots_saved_report_id (saved_report_id),
 
   CONSTRAINT fk_report_snapshots_saved_report FOREIGN KEY (saved_report_id) REFERENCES saved_reports(id) ON DELETE CASCADE,
-  CONSTRAINT fk_report_snapshots_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+  CONSTRAINT fk_report_snapshots_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =====================================================
@@ -793,7 +793,7 @@ CREATE TABLE IF NOT EXISTS system_settings (
   UNIQUE KEY uk_organization_setting_key (organization_id, setting_key),
   KEY idx_system_settings_organization_id (organization_id),
 
-  CONSTRAINT fk_system_settings_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+  CONSTRAINT fk_system_settings_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =====================================================
@@ -816,7 +816,7 @@ CREATE TABLE IF NOT EXISTS webhooks (
 
   KEY idx_webhooks_organization_id (organization_id),
 
-  CONSTRAINT fk_webhooks_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_webhooks_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE,
   CONSTRAINT fk_webhooks_created_by FOREIGN KEY (created_by_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -860,7 +860,7 @@ CREATE TABLE IF NOT EXISTS api_tokens (
   KEY idx_api_tokens_token_hash (token_hash),
 
   CONSTRAINT fk_api_tokens_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  CONSTRAINT fk_api_tokens_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+  CONSTRAINT fk_api_tokens_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =====================================================
@@ -886,7 +886,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   KEY idx_jobs_status (status),
   KEY idx_jobs_next_retry_at (next_retry_at),
 
-  CONSTRAINT fk_jobs_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+  CONSTRAINT fk_jobs_organization FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =====================================================
@@ -903,7 +903,7 @@ SELECT
   COUNT(DISTINCT CASE WHEN l.status = 'lost' THEN l.id END) as lost_leads,
   COUNT(DISTINCT CASE WHEN l.admission_status = 'approved' THEN l.id END) as admitted,
   COUNT(DISTINCT CASE WHEN l.next_followup_at IS NOT NULL AND l.next_followup_at <= CURDATE() THEN l.id END) as pending_followups
-FROM organizations org
+FROM crm_organizations org
 LEFT JOIN leads l ON org.id = l.organization_id AND l.deleted_at IS NULL
 WHERE org.deleted_at IS NULL
 GROUP BY org.id;
@@ -945,9 +945,9 @@ GROUP BY leads.organization_id, leads.lead_stage_id, ls.display_name;
 
 DELIMITER $$
 
--- Update timestamp trigger for organizations
+-- Update timestamp trigger for crm_organizations
 CREATE TRIGGER update_organizations_timestamp
-BEFORE UPDATE ON organizations
+BEFORE UPDATE ON crm_organizations
 FOR EACH ROW
 SET NEW.updated_at = CURRENT_TIMESTAMP;
 $$
@@ -1022,9 +1022,9 @@ FOR EACH ROW
 SET NEW.updated_at = CURRENT_TIMESTAMP;
 $$
 
--- Update timestamp trigger for integrations
+-- Update timestamp trigger for crm_integrations
 CREATE TRIGGER update_integrations_timestamp
-BEFORE UPDATE ON integrations
+BEFORE UPDATE ON crm_integrations
 FOR EACH ROW
 SET NEW.updated_at = CURRENT_TIMESTAMP;
 $$
@@ -1042,7 +1042,7 @@ SET FOREIGN_KEY_CHECKS=1;
 -- =====================================================
 
 -- Create comment documentation
-ALTER TABLE organizations COMMENT='Multi-tenant organizations';
+ALTER TABLE crm_organizations COMMENT='Multi-tenant crm_organizations';
 ALTER TABLE branches COMMENT='School branches/locations';
 ALTER TABLE users COMMENT='Staff members and users';
 ALTER TABLE roles COMMENT='User roles with permissions';
@@ -1051,7 +1051,7 @@ ALTER TABLE lead_stages COMMENT='Configurable workflow stages';
 ALTER TABLE followups COMMENT='Follow-up tracking';
 ALTER TABLE communications COMMENT='Communication history';
 ALTER TABLE workflows COMMENT='Automation workflows';
-ALTER TABLE integrations COMMENT='Third-party integrations';
+ALTER TABLE crm_integrations COMMENT='Third-party crm_integrations';
 ALTER TABLE audit_logs COMMENT='Complete audit trail';
 ALTER TABLE applications COMMENT='Application records';
 ALTER TABLE payments COMMENT='Payment tracking';

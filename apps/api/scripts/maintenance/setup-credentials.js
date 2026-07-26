@@ -1,11 +1,11 @@
 import mysql from 'mysql2/promise';
 
 const pool = mysql.createPool({
-  host: '43.205.46.211',
-  port: 3306,
-  user: 'sta_dc_user',
-  password: 'OZQQP@VgZM=+K^5',
-  database: 'attendance_biometric'
+  host: process.env.MYSQL_HOST,
+  port: Number(process.env.MYSQL_PORT || 3306),
+  user: process.env.MYSQL_USER,
+  password: process.env.MYSQL_PASSWORD,
+  database: process.env.MYSQL_DATABASE
 });
 
 (async () => {
@@ -16,14 +16,14 @@ const pool = mysql.createPool({
 
     // Check current integration
     const [current] = await conn.query(
-      'SELECT id, name, project_id, project_api_password FROM integrations WHERE type = "SMARTPING" LIMIT 1'
+      'SELECT id, name, project_id, project_api_password FROM crm_integrations WHERE type = "SMARTPING" LIMIT 1'
     );
 
     if (current.length === 0) {
       console.log('\n❌ No Smartping integration found!');
       console.log('Creating one...\n');
       const result = await conn.query(
-        `INSERT INTO integrations (name, type, status, organization_id)
+        `INSERT INTO crm_integrations (name, type, status, organization_id)
          VALUES ('Smartping WhatsApp', 'SMARTPING', 'ACTIVE', 1)`
       );
       console.log(`✅ Created integration ID: ${result[0].insertId}\n`);
@@ -46,7 +46,7 @@ const pool = mysql.createPool({
     const testApiPassword = 'demo_api_password_test_key';
 
     const [result] = await conn.query(
-      `UPDATE integrations
+      `UPDATE crm_integrations
        SET project_id = ?, project_api_password = ?
        WHERE id = ?`,
       [testProjectId, testApiPassword, integrationId]
@@ -65,7 +65,7 @@ const pool = mysql.createPool({
     console.log('  3. Update the integration record in the database');
     console.log('\nSQL to update real credentials:');
     console.log(`
-  UPDATE integrations
+  UPDATE crm_integrations
   SET
     project_id = 'YOUR_REAL_PROJECT_ID',
     project_api_password = 'YOUR_REAL_API_PASSWORD'

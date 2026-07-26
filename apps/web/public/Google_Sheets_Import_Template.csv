@@ -1,4 +1,4 @@
-Student Name *,Phone *,Class ID *,Campaign Name *,Sub-stage ID *,Assign To *,Remarks
+Student Name *,Phone *,Class ID *,Campaign Name *,Sub-stage ID *,Assign To *,Source ID *,Remarks
 Rahul Kumar,9876543210,1,Admissions 2026-27,1,counsellor1@school.com,Interested in admission
 Priya Singh,8765432109,2,Admissions 2026-27,2,counsellor2@school.com,Follow up needed
 Arjun Patel,7654321098,3,Admissions 2026-27,3,counsellor1@school.com,Active

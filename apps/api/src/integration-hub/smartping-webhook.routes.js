@@ -23,8 +23,19 @@ export function createSmartpingWebhookRoutes(messageService, authenticate, requi
         sender: event.sender
       });
 
-      // Only process message events
+      // Delivery lifecycle callbacks update the outbound history row created
+      // when CRM submitted the message.
       if (event.type !== 'message') {
+        const messageId = event.messageId || event.message_id || event.id;
+        const status = event.status || event.message_status;
+        if (messageId && status) {
+          await messageService.updateMessageStatus(
+            messageId,
+            status,
+            event.status_timestamp || event.timestamp || Date.now()
+          );
+          return res.json({ success: true, message: 'Message status updated' });
+        }
         return res.json({ success: true, message: 'Event type not processed' });
       }
 

@@ -182,6 +182,9 @@ function Shell({ user, onLogout }) {
   const navigate = useNavigate();
   const location = useLocation();
   useEffect(() => {
+    if (location.pathname.startsWith("/settings")) setSettingsExpanded(true);
+  }, [location.pathname]);
+  useEffect(() => {
     const timer = setInterval(() => setSessionSeconds((value) => value + 1), 1000);
     return () => clearInterval(timer);
   }, []);
@@ -223,9 +226,9 @@ function Shell({ user, onLogout }) {
           <div id="settings-submenu" className={`settings-submenu ${settingsExpanded ? "expanded" : ""}`}>
             <NavLink to="/settings/users" className="settings-submenu-item"><span className="submenu-indent">User Management</span></NavLink>
             <NavLink to="/settings/lead-config" className="settings-submenu-item"><span className="submenu-indent">Lead Configuration</span></NavLink>
-            <NavLink to="/settings/academic-years" className="settings-submenu-item"><span className="submenu-indent">Academic Years</span></NavLink>
-            <NavLink to="/settings/admission-classes" className="settings-submenu-item"><span className="submenu-indent">Admission Classes</span></NavLink>
+            <NavLink to="/settings/academic-config" className="settings-submenu-item"><span className="submenu-indent">Academic Configuration</span></NavLink>
             <NavLink to="/settings/integrations" className="settings-submenu-item"><span className="submenu-indent">Integrations</span></NavLink>
+            <NavLink to="/settings/google-sheets" className="settings-submenu-item"><span className="submenu-indent">Google Sheets</span></NavLink>
             <NavLink to="/settings/whatsapp-templates" className="settings-submenu-item"><span className="submenu-indent">WhatsApp Templates</span></NavLink>
           </div>
         </nav>
@@ -249,16 +252,18 @@ function Shell({ user, onLogout }) {
       <section className="workspace">
         <GlobalSearch />
         <button className="mobile-nav-trigger mobile-only" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu/></button>
-        <Routes>
+        <Routes location={location}>
           <Route path="/" element={<Dashboard user={user} />} />
           <Route path="/leads" element={<LeadsPage />} />
           <Route path="/bulk-actions" element={<BulkActionsPage />} />
           <Route path="/settings" element={<SettingsPage initialTab="users" />} />
           <Route path="/settings/users" element={<SettingsPage initialTab="users" />} />
           <Route path="/settings/lead-config" element={<SettingsPage initialTab="config" />} />
-          <Route path="/settings/academic-years" element={<SettingsPage initialTab="academic-years" />} />
-          <Route path="/settings/admission-classes" element={<SettingsPage initialTab="admission" />} />
+          <Route path="/settings/academic-config" element={<SettingsPage initialTab="academic" />} />
+          <Route path="/settings/academic-years" element={<Navigate to="/settings/academic-config" replace />} />
+          <Route path="/settings/admission-classes" element={<Navigate to="/settings/academic-config?section=classes" replace />} />
           <Route path="/settings/integrations" element={<SettingsPage initialTab="integrations" />} />
+          <Route path="/settings/google-sheets" element={<SettingsPage initialTab="google-sheets" />} />
           <Route path="/settings/whatsapp-templates" element={<SettingsPage initialTab="whatsapp-templates" />} />
           <Route path="/integrations" element={<Navigate to="/settings/integrations" replace />} />
           <Route path="/oauth-callback" element={<OAuthCallbackPage />} />

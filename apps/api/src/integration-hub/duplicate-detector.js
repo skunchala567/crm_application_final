@@ -23,7 +23,7 @@ export class DuplicateDetector {
         return null;
       }
 
-      let query = 'SELECT id FROM crm_leads WHERE (';
+      let query = 'SELECT id, lead_number, branch_id, phone, email, student_name FROM crm_leads WHERE deleted_at_utc IS NULL AND (';
       const params = [];
       const conditions = [];
 
@@ -51,9 +51,17 @@ export class DuplicateDetector {
       const [rows] = await this.pool.execute(query, params);
 
       if (rows && rows.length > 0) {
+        const duplicate = rows[0];
+        const normalizedPhone = this.normalizePhone(phone);
+        const matches = [];
+        if (normalizedPhone && this.normalizePhone(duplicate.phone) === normalizedPhone) matches.push('phone');
+        if (email && String(duplicate.email || '').toLowerCase() === String(email).toLowerCase()) matches.push('email');
+        if (student_name && duplicate.student_name === student_name) matches.push('student name');
         return {
-          id: rows[0].id,
-          matchType: strategy
+          id: duplicate.id,
+          leadNumber: duplicate.lead_number,
+          branchId: duplicate.branch_id,
+          matchType: matches.join(' and ') || strategy
         };
       }
 

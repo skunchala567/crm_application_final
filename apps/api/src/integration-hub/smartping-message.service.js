@@ -15,9 +15,14 @@ export class SmartpingMessageService {
     try {
       // CONSOLIDATED: Uses single 'integrations' table (migration 005)
       const query = `
-        SELECT id FROM integrations
-        WHERE provider_name = 'smartping'
-        AND JSON_EXTRACT(config, '$.projectId') = ?
+        SELECT id FROM crm_integrations
+        WHERE LOWER(COALESCE(provider, '')) = 'smartping'
+        AND COALESCE(
+          NULLIF(project_id, ''),
+          NULLIF(JSON_UNQUOTE(JSON_EXTRACT(config, '$.projectId')), ''),
+          NULLIF(JSON_UNQUOTE(JSON_EXTRACT(config, '$.project_id')), '')
+        ) = ?
+        AND deleted_at IS NULL
         LIMIT 1
       `;
 
@@ -61,7 +66,7 @@ export class SmartpingMessageService {
       };
 
       const query = `
-        INSERT INTO smartping_messages (
+        INSERT INTO crm_smartping_messages (
           id, project_id, phone_number, contact_id, sender, message_type,
           message_content, campaign_name, campaign_sent_at, status, is_hsm,
           chatbot_query_text, chatbot_intent, delivered_at, read_at, sent_at,
@@ -134,7 +139,7 @@ export class SmartpingMessageService {
       }
 
       const query = `
-        INSERT INTO smartping_conversations (
+        INSERT INTO crm_smartping_conversations (
           id, integration_id, phone_number, contact_id, last_message,
           last_message_sender, last_message_at, status, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, NOW(), 'ACTIVE', NOW(), NOW())
@@ -173,7 +178,7 @@ export class SmartpingMessageService {
           id, integration_id, phone_number, contact_id, contact_name,
           last_message, last_message_sender, last_message_at,
           status, unread_count, created_at, updated_at
-        FROM smartping_conversations
+        FROM crm_smartping_conversations
         WHERE integration_id = ? AND status = ?
         ORDER BY last_message_at DESC
         LIMIT ? OFFSET ?
@@ -202,7 +207,7 @@ export class SmartpingMessageService {
           id, integration_id, phone_number, contact_id, contact_name,
           last_message, last_message_sender, last_message_at,
           status, unread_count, created_at, updated_at
-        FROM smartping_conversations
+        FROM crm_smartping_conversations
         WHERE id = ?
       `;
 
@@ -224,13 +229,14 @@ export class SmartpingMessageService {
           status, sent_at, delivered_at, read_at, failed_at,
           agent_id, campaign_name, is_hsm, failure_code, failure_reason,
           created_at
-        FROM smartping_messages
-        WHERE phone_number = ?
+        FROM crm_smartping_messages
+        WHERE integration_id = ? AND phone_number = ?
         ORDER BY sent_at DESC
         LIMIT ? OFFSET ?
       `;
 
       const [messages] = await this.pool.execute(query, [
+        integrationId,
         phoneNumber,
         parseInt(limit),
         parseInt(offset)
@@ -256,7 +262,7 @@ export class SmartpingMessageService {
           read_at, failed_at, agent_id, campaign_name, is_hsm,
           chatbot_query_text, chatbot_intent, failure_code, failure_reason,
           created_at, updated_at
-        FROM smartping_messages
+        FROM crm_smartping_messages
         WHERE message_id = ?
       `;
 
@@ -278,16 +284,27 @@ export class SmartpingMessageService {
 
   async updateMessageStatus(messageId, status, statusTimestamp) {
     try {
-      const statusField = `${status.toLowerCase()}_at`;
-      const timestamp = new Date(parseInt(statusTimestamp)).toISOString().slice(0, 19).replace('T', ' ');
+      const normalizedStatus = String(status || '').toUpperCase();
+      const statusFields = {
+        SENT: 'sent_at',
+        DELIVERED: 'delivered_at',
+        READ: 'read_at',
+        FAILED: 'failed_at'
+      };
+      const statusField = statusFields[normalizedStatus];
+      if (!statusField) throw new Error(`Unsupported message status: ${status}`);
+      const numericTimestamp = Number(statusTimestamp);
+      const timestamp = Number.isFinite(numericTimestamp)
+        ? new Date(numericTimestamp).toISOString().slice(0, 19).replace('T', ' ')
+        : new Date().toISOString().slice(0, 19).replace('T', ' ');
 
       const query = `
-        UPDATE smartping_messages
+        UPDATE crm_smartping_messages
         SET status = ?, ${statusField} = ?, updated_at = NOW()
         WHERE message_id = ?
       `;
 
-      await this.pool.execute(query, [status, timestamp, messageId]);
+      await this.pool.execute(query, [normalizedStatus, timestamp, messageId]);
 
       this.logger.info('Message status updated', {
         messageId: messageId,
@@ -308,7 +325,7 @@ export class SmartpingMessageService {
       const conversationId = `conv_${integrationId}_${phoneNumber}`;
 
       const query = `
-        UPDATE smartping_conversations
+        UPDATE crm_smartping_conversations
         SET unread_count = 0, updated_at = NOW()
         WHERE id = ?
       `;
@@ -325,7 +342,7 @@ export class SmartpingMessageService {
   async getUnreadCount(integrationId) {
     try {
       const query = `
-        SELECT COUNT(*) as total FROM smartping_messages
+        SELECT COUNT(*) as total FROM crm_smartping_messages
         WHERE integration_id = ? AND sender = 'CONTACT' AND status != 'READ'
       `;
 
@@ -344,7 +361,7 @@ export class SmartpingMessageService {
       const conversationId = `conv_${integrationId}_${phoneNumber}`;
 
       const query = `
-        UPDATE smartping_conversations
+        UPDATE crm_smartping_conversations
         SET status = 'ARCHIVED', updated_at = NOW()
         WHERE id = ?
       `;
@@ -368,7 +385,7 @@ export class SmartpingMessageService {
         SELECT
           id, message_id, phone_number, sender, message_type, message_content,
           status, sent_at, created_at
-        FROM smartping_messages
+        FROM crm_smartping_messages
         WHERE integration_id = ? AND (
           phone_number LIKE ? OR
           message_content LIKE ? OR

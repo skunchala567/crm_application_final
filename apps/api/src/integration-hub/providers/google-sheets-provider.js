@@ -22,6 +22,8 @@ export class GoogleSheetsProvider extends BaseIntegrationProvider {
 
     // Required scopes for Sheets
     this.defaultScopes = [
+      'openid',
+      'email',
       'https://www.googleapis.com/auth/spreadsheets',
       'https://www.googleapis.com/auth/drive'
     ];
@@ -43,9 +45,10 @@ export class GoogleSheetsProvider extends BaseIntegrationProvider {
         response_type: 'code',
         scope: scopes.join(' '),
         access_type: 'offline', // Request refresh token
-        prompt: 'consent', // Force consent screen to get refresh token
+        prompt: 'select_account consent',
         state: state
       });
+      if (options.loginHint) params.set('login_hint', options.loginHint);
 
       const authUrl = `${this.authorizationEndpoint}?${params}`;
 

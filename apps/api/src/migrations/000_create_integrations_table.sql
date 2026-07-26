@@ -1,5 +1,5 @@
 -- Create Organizations Table (Minimal - if missing)
-CREATE TABLE IF NOT EXISTS organizations (
+CREATE TABLE IF NOT EXISTS crm_organizations (
   id INT PRIMARY KEY AUTO_INCREMENT,
   name VARCHAR(255) NOT NULL,
   email VARCHAR(255),
@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS organizations (
 );
 
 -- Create Integrations Table
-CREATE TABLE IF NOT EXISTS integrations (
+CREATE TABLE IF NOT EXISTS crm_integrations (
   id INT PRIMARY KEY AUTO_INCREMENT,
   organization_id INT NOT NULL,
   name VARCHAR(255) NOT NULL,
@@ -38,34 +38,34 @@ CREATE TABLE IF NOT EXISTS integrations (
   KEY idx_created (created_at)
 );
 
--- Add foreign key to organizations (with error handling)
+-- Add foreign key to crm_organizations (with error handling)
 SET @exists_fk = (
   SELECT COUNT(*) FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
-  WHERE TABLE_NAME = 'integrations'
+  WHERE TABLE_NAME = 'crm_integrations'
   AND COLUMN_NAME = 'organization_id'
   AND CONSTRAINT_NAME = 'fk_org'
 );
 
 -- Only add if not already exists
 SET @sql = IF(@exists_fk = 0,
-  'ALTER TABLE integrations ADD CONSTRAINT fk_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE',
+  'ALTER TABLE crm_integrations ADD CONSTRAINT fk_org FOREIGN KEY (organization_id) REFERENCES crm_organizations(id) ON DELETE CASCADE',
   'SELECT 1'
 );
 PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
--- Add foreign key from whatsapp_templates to integrations (if constraint doesn't exist)
+-- Add foreign key from crm_whatsapp_templates to crm_integrations (if constraint doesn't exist)
 SET @exists_wt_fk = (
   SELECT COUNT(*) FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
-  WHERE TABLE_NAME = 'whatsapp_templates'
+  WHERE TABLE_NAME = 'crm_whatsapp_templates'
   AND COLUMN_NAME = 'integration_id'
   AND CONSTRAINT_NAME = 'fk_integration'
 );
 
 -- Only add if not already exists
 SET @sql2 = IF(@exists_wt_fk = 0,
-  'ALTER TABLE whatsapp_templates ADD CONSTRAINT fk_integration FOREIGN KEY (integration_id) REFERENCES integrations(id) ON DELETE CASCADE',
+  'ALTER TABLE crm_whatsapp_templates ADD CONSTRAINT fk_integration FOREIGN KEY (integration_id) REFERENCES crm_integrations(id) ON DELETE CASCADE',
   'SELECT 1'
 );
 PREPARE stmt2 FROM @sql2;

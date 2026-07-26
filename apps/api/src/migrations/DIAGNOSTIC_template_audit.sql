@@ -5,13 +5,13 @@
 SELECT
   'TOTAL TEMPLATES' as metric,
   COUNT(*) as count
-FROM whatsapp_templates;
+FROM crm_whatsapp_templates;
 
 -- 2. Count non-deleted templates
 SELECT
   'NON-DELETED TEMPLATES' as metric,
   COUNT(*) as count
-FROM whatsapp_templates
+FROM crm_whatsapp_templates
 WHERE deleted_at IS NULL;
 
 -- 3. Show all templates by integration
@@ -20,8 +20,8 @@ SELECT
   i.name as integration_name,
   COUNT(wt.id) as template_count,
   GROUP_CONCAT(wt.template_name ORDER BY wt.template_name) as template_names
-FROM integrations i
-LEFT JOIN whatsapp_templates wt ON i.id = wt.integration_id AND wt.deleted_at IS NULL
+FROM crm_integrations i
+LEFT JOIN crm_whatsapp_templates wt ON i.id = wt.integration_id AND wt.deleted_at IS NULL
 GROUP BY i.id, i.name
 ORDER BY i.id;
 
@@ -32,7 +32,7 @@ SELECT
   COUNT(*) as duplicate_count,
   GROUP_CONCAT(id ORDER BY id) as template_ids,
   GROUP_CONCAT(template_name) as actual_names
-FROM whatsapp_templates
+FROM crm_whatsapp_templates
 WHERE deleted_at IS NULL
 GROUP BY integration_id, LOWER(template_name)
 HAVING COUNT(*) > 1
@@ -50,7 +50,7 @@ SELECT
   wt.created_at,
   wt.updated_at,
   wt.deleted_at
-FROM whatsapp_templates wt
+FROM crm_whatsapp_templates wt
 WHERE deleted_at IS NULL
 ORDER BY wt.integration_id, wt.template_name;
 
@@ -62,7 +62,7 @@ SELECT
   wt.status,
   wt.created_at,
   wt.deleted_at
-FROM whatsapp_templates wt
+FROM crm_whatsapp_templates wt
 WHERE deleted_at IS NULL
 AND LOWER(template_name) REGEXP '^(test|demo|sample|welcome|temp|tmp|abc|xyz|swerxdfcghvkhjhggsxdf|hbgvfc|tesdsdfsd)'
 ORDER BY wt.integration_id, wt.created_at;
@@ -71,7 +71,7 @@ ORDER BY wt.integration_id, wt.created_at;
 SELECT
   organization_id,
   COUNT(*) as template_count
-FROM whatsapp_templates
+FROM crm_whatsapp_templates
 WHERE deleted_at IS NULL
 GROUP BY organization_id
 ORDER BY template_count DESC;

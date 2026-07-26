@@ -22,7 +22,7 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
       const organizationId = req.user?.id || 1;
       const { provider } = req.query;
 
-      let query = 'SELECT id, name, type, status, project_id, created_at FROM integrations WHERE organization_id = ? AND deleted_at IS NULL';
+      let query = 'SELECT id, name, type, status, project_id, project_api_password, config, created_at FROM crm_integrations WHERE organization_id = ? AND deleted_at IS NULL';
       const params = [organizationId];
 
       if (provider) {
@@ -32,15 +32,29 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
 
       const [integrations] = await pool.query(query, params);
 
-      const formatted = integrations.map(i => ({
-        id: i.id,
-        name: i.name,
-        integration_name: i.name,
-        type: i.type,
-        status: i.status,
-        has_credentials: !!i.project_id,
-        created_at: i.created_at
-      }));
+      const formatted = integrations.map(i => {
+        let config = {};
+        try {
+          config = typeof i.config === 'string' ? JSON.parse(i.config) : (i.config || {});
+        } catch {
+          config = {};
+        }
+
+        const projectId = i.project_id || config.projectId || config.project_id;
+        const projectApiPassword = i.project_api_password
+          || config.projectApiPassword
+          || config.project_api_password;
+
+        return {
+          id: i.id,
+          name: i.name,
+          integration_name: i.name,
+          type: i.type,
+          status: i.status,
+          has_credentials: !!(projectId && projectApiPassword),
+          created_at: i.created_at
+        };
+      });
 
       res.json({ success: true, data: formatted });
     } catch (error) {
@@ -62,7 +76,7 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
       }
 
       const [integrations] = await pool.query(
-        'SELECT id, name, type, status, created_at FROM integrations WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
+        'SELECT id, name, type, status, created_at FROM crm_integrations WHERE id = ? AND organization_id = ? AND deleted_at IS NULL',
         [integrationId, organizationId]
       );
 

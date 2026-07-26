@@ -14,7 +14,7 @@ const pool = mysql.createPool({
     console.log('\n=== RAW QUERY: Check what is actually stored ===\n');
 
     const [rows] = await conn.query(
-      'SELECT id, template_name, CAST(buttons_json AS CHAR) as buttons_raw, CAST(sample_values_json AS CHAR) as sample_raw FROM whatsapp_templates WHERE id IN (3, 4)'
+      'SELECT id, template_name, CAST(buttons_json AS CHAR) as buttons_raw, CAST(sample_values_json AS CHAR) as sample_raw FROM crm_whatsapp_templates WHERE id IN (3, 4)'
     );
 
     rows.forEach(r => {

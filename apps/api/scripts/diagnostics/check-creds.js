@@ -1,18 +1,18 @@
 import mysql from 'mysql2/promise';
 
 const pool = mysql.createPool({
-  host: '43.205.46.211',
-  port: 3306,
-  user: 'sta_dc_user',
-  password: 'OZQQP@VgZM=+K^5',
-  database: 'attendance_biometric'
+  host: process.env.MYSQL_HOST,
+  port: Number(process.env.MYSQL_PORT || 3306),
+  user: process.env.MYSQL_USER,
+  password: process.env.MYSQL_PASSWORD,
+  database: process.env.MYSQL_DATABASE
 });
 
 (async () => {
   const conn = await pool.getConnection();
   try {
     const [integrations] = await conn.query(
-      'SELECT id, name, type, project_id, project_api_password FROM integrations WHERE id = 1'
+      'SELECT id, name, type, project_id, project_api_password FROM crm_integrations WHERE id = 1'
     );
 
     if (integrations.length > 0) {
@@ -27,7 +27,7 @@ const pool = mysql.createPool({
       if (int.project_id === 'demo_project_12345') {
         console.log('\n⚠️  STILL USING TEST CREDENTIALS!');
         console.log('\nTo fix, run:');
-        console.log(`   UPDATE integrations SET`);
+        console.log(`   UPDATE crm_integrations SET`);
         console.log(`   project_id = 'YOUR_REAL_AISENSY_PROJECT_ID',`);
         console.log(`   project_api_password = 'YOUR_REAL_AISENSY_API_PASSWORD'`);
         console.log(`   WHERE id = 1;`);

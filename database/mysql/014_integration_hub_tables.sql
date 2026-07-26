@@ -4,7 +4,7 @@
 -- =====================================================
 
 -- Integration Hub Configurations
-CREATE TABLE IF NOT EXISTS integration_configs (
+CREATE TABLE IF NOT EXISTS crm_integration_configs (
   id INT PRIMARY KEY AUTO_INCREMENT,
   organization_id INT NOT NULL,
   integration_type VARCHAR(50) NOT NULL COMMENT 'meta, google_sheets, whatsapp, sms, google_ads, email, erp',
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS integration_configs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- OAuth Token Storage
-CREATE TABLE IF NOT EXISTS integration_oauth_tokens (
+CREATE TABLE IF NOT EXISTS crm_integration_oauth_tokens (
   id INT PRIMARY KEY AUTO_INCREMENT,
   integration_config_id INT NOT NULL,
   provider_name VARCHAR(100),
@@ -45,11 +45,11 @@ CREATE TABLE IF NOT EXISTS integration_oauth_tokens (
 
   INDEX idx_config (integration_config_id),
   UNIQUE KEY unique_config_oauth (integration_config_id),
-  FOREIGN KEY (integration_config_id) REFERENCES integration_configs(id) ON DELETE CASCADE
+  FOREIGN KEY (integration_config_id) REFERENCES crm_integration_configs(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Sync Job Queue
-CREATE TABLE IF NOT EXISTS integration_sync_jobs (
+CREATE TABLE IF NOT EXISTS crm_integration_sync_jobs (
   id INT PRIMARY KEY AUTO_INCREMENT,
   integration_config_id INT NOT NULL,
   sync_type ENUM('manual', 'scheduled', 'webhook_triggered', 'retry') DEFAULT 'manual',
@@ -71,11 +71,11 @@ CREATE TABLE IF NOT EXISTS integration_sync_jobs (
   INDEX idx_config_status (integration_config_id, status),
   INDEX idx_sync_time (created_at),
   INDEX idx_retry_schedule (next_retry_at),
-  FOREIGN KEY (integration_config_id) REFERENCES integration_configs(id) ON DELETE CASCADE
+  FOREIGN KEY (integration_config_id) REFERENCES crm_integration_configs(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Sync History and Audit
-CREATE TABLE IF NOT EXISTS integration_sync_logs (
+CREATE TABLE IF NOT EXISTS crm_integration_sync_logs (
   id INT PRIMARY KEY AUTO_INCREMENT,
   integration_config_id INT NOT NULL,
   sync_job_id INT,
@@ -95,12 +95,12 @@ CREATE TABLE IF NOT EXISTS integration_sync_logs (
 
   INDEX idx_config (integration_config_id),
   INDEX idx_sync_time (created_at),
-  FOREIGN KEY (integration_config_id) REFERENCES integration_configs(id) ON DELETE CASCADE,
-  FOREIGN KEY (sync_job_id) REFERENCES integration_sync_jobs(id) ON DELETE SET NULL
+  FOREIGN KEY (integration_config_id) REFERENCES crm_integration_configs(id) ON DELETE CASCADE,
+  FOREIGN KEY (sync_job_id) REFERENCES crm_integration_sync_jobs(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Field Mapping Configuration
-CREATE TABLE IF NOT EXISTS integration_field_mappings (
+CREATE TABLE IF NOT EXISTS crm_integration_field_mappings (
   id INT PRIMARY KEY AUTO_INCREMENT,
   integration_config_id INT NOT NULL,
   crm_field VARCHAR(100) NOT NULL COMMENT 'CRM field name',
@@ -115,11 +115,11 @@ CREATE TABLE IF NOT EXISTS integration_field_mappings (
 
   INDEX idx_config (integration_config_id),
   UNIQUE KEY unique_mapping (integration_config_id, crm_field, external_field),
-  FOREIGN KEY (integration_config_id) REFERENCES integration_configs(id) ON DELETE CASCADE
+  FOREIGN KEY (integration_config_id) REFERENCES crm_integration_configs(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Webhook Subscriptions
-CREATE TABLE IF NOT EXISTS integration_webhooks (
+CREATE TABLE IF NOT EXISTS crm_integration_webhooks (
   id INT PRIMARY KEY AUTO_INCREMENT,
   integration_config_id INT NOT NULL,
   webhook_event VARCHAR(100) COMMENT 'lead_received, message_status_update, etc.',
@@ -131,11 +131,11 @@ CREATE TABLE IF NOT EXISTS integration_webhooks (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
   INDEX idx_config (integration_config_id),
-  FOREIGN KEY (integration_config_id) REFERENCES integration_configs(id) ON DELETE CASCADE
+  FOREIGN KEY (integration_config_id) REFERENCES crm_integration_configs(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Webhook Delivery Logs
-CREATE TABLE IF NOT EXISTS integration_webhook_logs (
+CREATE TABLE IF NOT EXISTS crm_integration_webhook_logs (
   id INT PRIMARY KEY AUTO_INCREMENT,
   webhook_id INT NOT NULL,
   event_id VARCHAR(255),
@@ -149,11 +149,11 @@ CREATE TABLE IF NOT EXISTS integration_webhook_logs (
 
   INDEX idx_webhook (webhook_id),
   INDEX idx_delivery_status (delivered_at),
-  FOREIGN KEY (webhook_id) REFERENCES integration_webhooks(id) ON DELETE CASCADE
+  FOREIGN KEY (webhook_id) REFERENCES crm_integration_webhooks(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Error Tracking
-CREATE TABLE IF NOT EXISTS integration_error_logs (
+CREATE TABLE IF NOT EXISTS crm_integration_error_logs (
   id INT PRIMARY KEY AUTO_INCREMENT,
   integration_config_id INT NOT NULL,
   error_type VARCHAR(100) COMMENT 'auth_failure, rate_limit, invalid_data, etc.',
@@ -167,11 +167,11 @@ CREATE TABLE IF NOT EXISTS integration_error_logs (
   INDEX idx_config (integration_config_id),
   INDEX idx_type (error_type),
   INDEX idx_created (created_at),
-  FOREIGN KEY (integration_config_id) REFERENCES integration_configs(id) ON DELETE CASCADE
+  FOREIGN KEY (integration_config_id) REFERENCES crm_integration_configs(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Audit Log for Integration Changes
-CREATE TABLE IF NOT EXISTS integration_audit_logs (
+CREATE TABLE IF NOT EXISTS crm_integration_audit_logs (
   id INT PRIMARY KEY AUTO_INCREMENT,
   integration_config_id INT NOT NULL,
   action VARCHAR(50) COMMENT 'created, connected, disconnected, config_updated, sync_started, etc.',
@@ -183,5 +183,5 @@ CREATE TABLE IF NOT EXISTS integration_audit_logs (
 
   INDEX idx_config (integration_config_id),
   INDEX idx_time (created_at),
-  FOREIGN KEY (integration_config_id) REFERENCES integration_configs(id) ON DELETE CASCADE
+  FOREIGN KEY (integration_config_id) REFERENCES crm_integration_configs(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

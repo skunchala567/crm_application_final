@@ -57,7 +57,7 @@ export class WhatsAppTemplateService {
       // ✅ FIX: Always return from local database to get all metadata fields
       // (template_type, created_at, updated_at, header_type, etc.)
       const [templates] = await this.pool.query(
-        'SELECT * FROM whatsapp_templates WHERE integration_id = ? AND deleted_at IS NULL ORDER BY created_at DESC',
+        'SELECT * FROM crm_whatsapp_templates WHERE integration_id = ? AND deleted_at IS NULL ORDER BY created_at DESC',
         [integrationId]
       );
 
@@ -137,7 +137,7 @@ export class WhatsAppTemplateService {
       // ✅ FIX: Always return from local database to get all metadata fields
       // (template_type, created_at, updated_at, header_type, etc.)
       const [templates] = await this.pool.query(
-        'SELECT * FROM whatsapp_templates WHERE integration_id = ? AND aisensy_template_id = ? AND deleted_at IS NULL LIMIT 1',
+        'SELECT * FROM crm_whatsapp_templates WHERE integration_id = ? AND aisensy_template_id = ? AND deleted_at IS NULL LIMIT 1',
         [integrationId, aisensy_template_id]
       );
 
@@ -239,7 +239,7 @@ export class WhatsAppTemplateService {
       }
 
       const [result] = await conn.query(
-        `INSERT INTO whatsapp_templates (
+        `INSERT INTO crm_whatsapp_templates (
           integration_id, organization_id, template_name, category, language,
           template_type, header_content, body, footer,
           buttons_json, sample_values_json, status, aisensy_template_id, created_by,
@@ -270,7 +270,7 @@ export class WhatsAppTemplateService {
 
       // Log in audit trail
       await conn.query(
-        `INSERT INTO whatsapp_template_logs (
+        `INSERT INTO crm_whatsapp_template_logs (
           template_id, integration_id, aisensy_template_id, action, status,
           api_request, api_response, created_at
         ) VALUES (?, ?, ?, 'CREATED', ?, ?, ?, NOW())`,
@@ -351,7 +351,7 @@ export class WhatsAppTemplateService {
 
       // Get template ID before soft deleting
       const [templates] = await conn.query(
-        'SELECT id FROM whatsapp_templates WHERE aisensy_template_id = ? AND deleted_at IS NULL',
+        'SELECT id FROM crm_whatsapp_templates WHERE aisensy_template_id = ? AND deleted_at IS NULL',
         [aisensy_template_id]
       );
 
@@ -359,14 +359,14 @@ export class WhatsAppTemplateService {
 
       // Soft delete locally
       await conn.query(
-        'UPDATE whatsapp_templates SET deleted_at = NOW() WHERE aisensy_template_id = ?',
+        'UPDATE crm_whatsapp_templates SET deleted_at = NOW() WHERE aisensy_template_id = ?',
         [aisensy_template_id]
       );
 
       // ✅ FIX: Log deletion only if we found a template to delete
       if (templateId) {
         await conn.query(
-          `INSERT INTO whatsapp_template_logs (
+          `INSERT INTO crm_whatsapp_template_logs (
             template_id, integration_id, aisensy_template_id, action, status, created_at
           ) VALUES (?, ?, ?, 'DELETED', 'DELETED', NOW())`,
           [templateId, integrationId, aisensy_template_id]
@@ -418,7 +418,7 @@ export class WhatsAppTemplateService {
 
       // Update last sync timestamp
       await conn.query(
-        'UPDATE integrations SET last_template_sync_at = NOW() WHERE id = ?',
+        'UPDATE crm_integrations SET last_template_sync_at = NOW() WHERE id = ?',
         [integrationId]
       );
 
@@ -459,7 +459,7 @@ export class WhatsAppTemplateService {
         `SELECT
           status,
           COUNT(*) as count
-        FROM whatsapp_templates
+        FROM crm_whatsapp_templates
         WHERE integration_id = ? AND deleted_at IS NULL
         GROUP BY status`,
         [integrationId]
@@ -494,8 +494,8 @@ export class WhatsAppTemplateService {
    */
   async _getIntegration(organizationId, integrationId) {
     const [integrations] = await this.pool.query(
-      `SELECT id, organization_id, name, type, project_id, project_api_password, status
-       FROM integrations
+      `SELECT id, organization_id, name, type, project_id, project_api_password, config, status
+       FROM crm_integrations
        WHERE id = ? AND organization_id = ? AND deleted_at IS NULL`,
       [integrationId, organizationId]
     );
@@ -505,6 +505,23 @@ export class WhatsAppTemplateService {
     }
 
     const integration = integrations[0];
+    let config = {};
+    try {
+      config = typeof integration.config === 'string'
+        ? JSON.parse(integration.config)
+        : (integration.config || {});
+    } catch {
+      config = {};
+    }
+
+    // Integration Hub stores current Smartping credentials in `config`; retain
+    // support for older integrations that use the dedicated legacy columns.
+    integration.project_id = integration.project_id
+      || config.projectId
+      || config.project_id;
+    integration.project_api_password = integration.project_api_password
+      || config.projectApiPassword
+      || config.project_api_password;
 
     // Validate required fields for AiSensy
     if (!integration.project_id || !integration.project_api_password) {
@@ -532,14 +549,14 @@ export class WhatsAppTemplateService {
 
         // Check if exists
         const [existing] = await conn.query(
-          'SELECT id FROM whatsapp_templates WHERE aisensy_template_id = ?',
+          'SELECT id FROM crm_whatsapp_templates WHERE aisensy_template_id = ?',
           [template.id]
         );
 
         if (existing.length > 0) {
           // Update existing - also update media URLs if present
           await conn.query(
-            `UPDATE whatsapp_templates
+            `UPDATE crm_whatsapp_templates
              SET status = ?, rejection_reason = ?, media_url = ?, video_url = ?, document_url = ?, last_synced_at = NOW()
              WHERE aisensy_template_id = ?`,
             [
@@ -555,7 +572,7 @@ export class WhatsAppTemplateService {
         } else {
           // Insert new template with media URLs
           await conn.query(
-            `INSERT INTO whatsapp_templates (
+            `INSERT INTO crm_whatsapp_templates (
               integration_id, organization_id, aisensy_template_id, template_name,
               category, language, template_type, body, status, media_url, video_url, document_url,
               last_synced_at, created_at

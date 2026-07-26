@@ -1,7 +1,7 @@
 -- WhatsApp Template Management Tables
 SET FOREIGN_KEY_CHECKS=0;
 
-CREATE TABLE IF NOT EXISTS whatsapp_templates (
+CREATE TABLE IF NOT EXISTS crm_whatsapp_templates (
   id INT PRIMARY KEY AUTO_INCREMENT,
   integration_id INT NOT NULL,
   organization_id INT NOT NULL,
@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS whatsapp_templates (
   KEY idx_created (created_at)
 );
 
-CREATE TABLE IF NOT EXISTS whatsapp_template_buttons (
+CREATE TABLE IF NOT EXISTS crm_whatsapp_template_buttons (
   id INT PRIMARY KEY AUTO_INCREMENT,
   template_id INT NOT NULL,
   button_type ENUM('CALL_TO_ACTION', 'QUICK_REPLY') NOT NULL,
@@ -46,10 +46,10 @@ CREATE TABLE IF NOT EXISTS whatsapp_template_buttons (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
   KEY idx_template (template_id),
-  CONSTRAINT fk_template FOREIGN KEY (template_id) REFERENCES whatsapp_templates(id) ON DELETE CASCADE
+  CONSTRAINT fk_template FOREIGN KEY (template_id) REFERENCES crm_whatsapp_templates(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS whatsapp_template_media (
+CREATE TABLE IF NOT EXISTS crm_whatsapp_template_media (
   id INT PRIMARY KEY AUTO_INCREMENT,
   template_id INT NOT NULL,
   media_type ENUM('HEADER', 'BODY') NOT NULL,
@@ -59,10 +59,10 @@ CREATE TABLE IF NOT EXISTS whatsapp_template_media (
   uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
   KEY idx_template (template_id),
-  CONSTRAINT fk_template_media FOREIGN KEY (template_id) REFERENCES whatsapp_templates(id) ON DELETE CASCADE
+  CONSTRAINT fk_template_media FOREIGN KEY (template_id) REFERENCES crm_whatsapp_templates(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS whatsapp_template_sync_logs (
+CREATE TABLE IF NOT EXISTS crm_whatsapp_template_sync_logs (
   id INT PRIMARY KEY AUTO_INCREMENT,
   template_id INT NOT NULL,
   sync_type ENUM('CREATE', 'UPDATE', 'DELETE', 'RESYNC') NOT NULL,
@@ -74,12 +74,12 @@ CREATE TABLE IF NOT EXISTS whatsapp_template_sync_logs (
 
   KEY idx_template (template_id),
   KEY idx_status (status),
-  CONSTRAINT fk_sync_log FOREIGN KEY (template_id) REFERENCES whatsapp_templates(id) ON DELETE CASCADE
+  CONSTRAINT fk_sync_log FOREIGN KEY (template_id) REFERENCES crm_whatsapp_templates(id) ON DELETE CASCADE
 );
 
--- Add foreign key constraint to integrations table if it exists
-ALTER TABLE whatsapp_templates
+-- Add foreign key constraint to crm_integrations table if it exists
+ALTER TABLE crm_whatsapp_templates
   ADD CONSTRAINT fk_integration FOREIGN KEY (integration_id)
-  REFERENCES integrations(id) ON DELETE CASCADE;
+  REFERENCES crm_integrations(id) ON DELETE CASCADE;
 
 SET FOREIGN_KEY_CHECKS=1;

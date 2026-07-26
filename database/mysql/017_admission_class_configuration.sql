@@ -1,5 +1,5 @@
 -- Admission Class Configuration Header Table
-CREATE TABLE IF NOT EXISTS mse_admission_class_configuration (
+CREATE TABLE IF NOT EXISTS crm_admission_class_configurations (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     academic_year VARCHAR(20) NOT NULL,
     branch_id BIGINT UNSIGNED NOT NULL,
@@ -27,13 +27,13 @@ CREATE TABLE IF NOT EXISTS mse_admission_class_configuration (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Admission Class Configuration Details Table
-CREATE TABLE IF NOT EXISTS mse_admission_class_configuration_details (
+CREATE TABLE IF NOT EXISTS crm_admission_class_configuration_details (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     configuration_id BIGINT UNSIGNED NOT NULL,
     class_id BIGINT UNSIGNED NOT NULL,
     is_active TINYINT DEFAULT 1,
 
-    FOREIGN KEY (configuration_id) REFERENCES mse_admission_class_configuration(id) ON DELETE CASCADE,
+    FOREIGN KEY (configuration_id) REFERENCES crm_admission_class_configurations(id) ON DELETE CASCADE,
     FOREIGN KEY (class_id) REFERENCES crm_classes(id) ON DELETE RESTRICT,
 
     UNIQUE KEY uk_configuration_class (configuration_id, class_id),

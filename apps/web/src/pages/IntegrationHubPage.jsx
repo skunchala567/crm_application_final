@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, RefreshCw, Settings, Trash2, Activity, AlertCircle, CheckCircle, Clock, Link as LinkIcon } from 'lucide-react';
 import { api } from '../api';
 import SpreadsheetPicker from './SpreadsheetPicker';
 import FieldMappingPanel from './FieldMappingPanel';
 import SmartpingConfig from './SmartpingConfig';
-import GoogleSheetsConfig from './GoogleSheetsConfig';
+import GoogleOAuthConfig from './GoogleOAuthConfig';
 import SyncDataPanel from './SyncDataPanel';
 import StatCard from './components/StatCard';
 import IntegrationTable from './components/IntegrationTable';
@@ -13,10 +14,11 @@ import PageHeader from './components/PageHeader';
 import './IntegrationHub.css';
 
 export default function IntegrationHubPage() {
+  const [searchParams] = useSearchParams();
   const [integrations, setIntegrations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [showWizard, setShowWizard] = useState(false);
+  const [showWizard, setShowWizard] = useState(searchParams.get('add') === '1');
   const [selectedIntegration, setSelectedIntegration] = useState(null);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('');
@@ -389,6 +391,7 @@ function ConnectionWizard({ onClose, onSuccess }) {
 function IntegrationDetails({ integration, onClose, onRefresh, onAuthorize }) {
   const [tab, setTab] = useState('settings');
   const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
   const isAuthorized = integration.status === 'active' || integration.status === 'connected';
 
@@ -407,7 +410,7 @@ function IntegrationDetails({ integration, onClose, onRefresh, onAuthorize }) {
           >
             Settings
           </button>
-          {isAuthorized && integration.provider_name !== 'smartping' && (
+          {isAuthorized && integration.provider_name !== 'smartping' && integration.provider_name !== 'google_sheets' && (
             <>
               <button
                 className={`tab ${tab === 'mapping' ? 'active' : ''}`}
@@ -441,6 +444,10 @@ function IntegrationDetails({ integration, onClose, onRefresh, onAuthorize }) {
                 <p><strong>Created:</strong> {new Date(integration.created_at).toLocaleString()}</p>
               </div>
 
+              {integration.provider_name === 'google_sheets' && (
+                <GoogleOAuthConfig integrationId={integration.id} onConfigSaved={onRefresh} />
+              )}
+
               {!isAuthorized && (
                 <div style={{ marginTop: '2rem', padding: '1rem', backgroundColor: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '0.5rem' }}>
                   <p style={{ color: '#92400e', marginBottom: '1rem' }}>
@@ -458,11 +465,14 @@ function IntegrationDetails({ integration, onClose, onRefresh, onAuthorize }) {
               )}
 
               {isAuthorized && integration.provider_name === 'google_sheets' && (
-                <div style={{ marginTop: '2rem' }}>
-                  <GoogleSheetsConfig
-                    integrationId={integration.id}
-                    onConfigSaved={onRefresh}
-                  />
+                <div className="google-sheets-handoff">
+                  <div>
+                    <strong>Google Sheets is authorized</strong>
+                    <p>Sheet selection, field mapping, data sync, and sync history are managed from the dedicated Google Sheets screen.</p>
+                  </div>
+                  <button className="btn btn-primary" onClick={() => { onClose(); navigate('/settings/google-sheets'); }}>
+                    Open Google Sheets
+                  </button>
                 </div>
               )}
 

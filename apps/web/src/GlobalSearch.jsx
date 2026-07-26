@@ -97,7 +97,12 @@ export default function GlobalSearch() {
   };
 
   const handleSelectResult = (result) => {
-    navigate(`/leads?openLead=${result.id}`);
+    const selectedSearch = result.phone || result.leadId || result.studentName || query.trim();
+    const params = new URLSearchParams({
+      q: selectedSearch,
+      openLead: String(result.id)
+    });
+    navigate(`/leads?${params.toString()}`);
     setExpanded(false);
     setQuery('');
   };

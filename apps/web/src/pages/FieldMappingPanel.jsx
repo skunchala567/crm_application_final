@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
-import { Trash2, Loader, Wand2, Info } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Info, Loader, TableProperties, Trash2, Wand2 } from 'lucide-react';
 import { api } from '../api';
 import './FieldMappingPanel.css';
 
-export default function FieldMappingPanel({ integrationId }) {
+export default function FieldMappingPanel({ integrationId, sheetId = null, sourceId = null, onSaved = null }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [sheetHeaders, setSheetHeaders] = useState([]);
@@ -15,225 +15,141 @@ export default function FieldMappingPanel({ integrationId }) {
 
   useEffect(() => {
     fetchMappingData();
-  }, [integrationId]);
+  }, [integrationId, sheetId, sourceId]);
+
+  const normalize = (value) => String(value || '').toLowerCase().replace(/\*/g, '').replace(/[^a-z0-9]/g, '');
+
+  const generateAutoMapSuggestions = (headers, fields) => {
+    const suggestions = {};
+    fields.forEach((field) => {
+      const names = [normalize(field.label), normalize(field.name)];
+      const match = headers.find((header) => names.includes(normalize(header.name)));
+      if (match) suggestions[field.name] = `sheet_${match.index}`;
+    });
+    setAutoMapSuggestions(suggestions);
+  };
 
   const fetchMappingData = async () => {
     try {
       setLoading(true);
       setError(null);
-
       const [headersRes, mappingRes] = await Promise.all([
-        api.get(`/hub/integrations/${integrationId}/field-mapping/headers`),
-        api.get(`/hub/integrations/${integrationId}/field-mapping`)
+        api.get(`/hub/integrations/${integrationId}/field-mapping/headers${sheetId ? `?sheetId=${encodeURIComponent(sheetId)}` : ''}`),
+        api.get(`/hub/integrations/${integrationId}/field-mapping${sourceId ? `?sourceId=${encodeURIComponent(sourceId)}` : ''}`)
       ]);
-
       const headers = headersRes.data.sheetHeaders || [];
       const fields = headersRes.data.crmFields || [];
-
       setSheetHeaders(headers);
       setCrmFields(fields);
       setMappings(mappingRes.data.mappings || {});
       setHasChanges(false);
-
-      // Generate auto-map suggestions
       generateAutoMapSuggestions(headers, fields);
     } catch (err) {
       setError(err.message || 'Failed to load mapping data');
-      console.error('Error fetching mapping data:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  const generateAutoMapSuggestions = (headers, fields) => {
-    const suggestions = {};
-
-    headers.forEach((header) => {
-      const headerLower = header.name.toLowerCase().trim();
-      const match = fields.find((field) => {
-        const fieldLower = field.label.toLowerCase();
-        return fieldLower === headerLower || fieldLower.includes(headerLower) || headerLower.includes(fieldLower);
-      });
-
-      if (match) {
-        suggestions[`sheet_${header.index}`] = match.name;
-      }
-    });
-
-    setAutoMapSuggestions(suggestions);
-  };
-
   const handleAutoMap = () => {
-    setMappings(autoMapSuggestions);
+    const nextMappings = {};
+    Object.entries(autoMapSuggestions).forEach(([crmFieldName, sheetColumnKey]) => {
+      nextMappings[sheetColumnKey] = crmFieldName;
+    });
+    setMappings(nextMappings);
     setHasChanges(true);
   };
 
-  const handleMapColumn = (sheetColumnIndex, crmFieldName) => {
-    const columnKey = `sheet_${sheetColumnIndex}`;
-    const newMappings = { ...mappings };
-
-    if (crmFieldName) {
-      newMappings[columnKey] = crmFieldName;
-    } else {
-      delete newMappings[columnKey];
-    }
-
-    setMappings(newMappings);
+  const handleMapField = (crmFieldName, sheetColumnKey) => {
+    const nextMappings = { ...mappings };
+    Object.keys(nextMappings).forEach((key) => {
+      if (nextMappings[key] === crmFieldName || key === sheetColumnKey) delete nextMappings[key];
+    });
+    if (sheetColumnKey) nextMappings[sheetColumnKey] = crmFieldName;
+    setMappings(nextMappings);
     setHasChanges(true);
   };
 
   const handleSave = async () => {
+    const mappedFields = Object.values(mappings);
+    const missingFields = crmFields.filter((field) => field.required && !mappedFields.includes(field.name));
+    if (missingFields.length) {
+      alert(`Map all required CRM fields before activating this source: ${missingFields.map((field) => field.label).join(', ')}.`);
+      return;
+    }
     try {
       setSaving(true);
-      await api.post(`/hub/integrations/${integrationId}/field-mapping`, {
-        mappings
-      });
-
+      await api.post(`/hub/integrations/${integrationId}/field-mapping`, { mappings, sourceId });
       setHasChanges(false);
-      alert('Field mappings saved successfully!');
+      alert(sourceId ? 'Field mappings saved. Continuous import is now active.' : 'Field mappings saved successfully!');
+      onSaved?.(mappings);
     } catch (err) {
-      alert('Failed to save mappings: ' + err.message);
+      alert(`Failed to save mappings: ${err.message}`);
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="loading-state">
-        <Loader size={40} style={{ animation: 'spin 1s linear infinite', color: '#667eea' }} />
-        <p>Loading field mapping...</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="error-state">
-        <p>❌ {error}</p>
-        <button className="retry-btn" onClick={fetchMappingData}>
-          Try Again
-        </button>
-      </div>
-    );
-  }
-
-  if (sheetHeaders.length === 0) {
-    return (
-      <div className="empty-state">
-        <p>📭 No columns found in spreadsheet</p>
-        <p>Make sure your spreadsheet has headers in the first row</p>
-      </div>
-    );
+  if (loading) return <div className="loading-state"><Loader size={32} className="mapping-spinner" /><p>Loading field mapping...</p></div>;
+  if (error) return <div className="error-state"><p>{error}</p><button className="retry-btn" onClick={fetchMappingData}>Try Again</button></div>;
+  if (!sheetHeaders.length) {
+    return <div className="empty-state"><TableProperties size={30} /><p>No columns found in spreadsheet</p><p>Make sure the first row contains column headings.</p></div>;
   }
 
   return (
     <div className="field-mapping-panel">
       <div className="mapping-header">
         <div>
-          <h3 className="mapping-title">📊 Map Sheet Columns to CRM Fields</h3>
-          <p className="mapping-subtitle">
-            Define how spreadsheet data maps to your CRM fields
-          </p>
+          <h3 className="mapping-title"><TableProperties size={20} /> Map CRM Fields to Sheet Columns</h3>
+          <p className="mapping-subtitle">Select the matching Google Sheet column for each CRM field.</p>
         </div>
-        <button
-          className="auto-map-btn"
-          onClick={handleAutoMap}
-          title="Automatically map matching columns"
-        >
-          <Wand2 size={18} />
-          Auto Map
+        <button className="auto-map-btn" onClick={handleAutoMap} title="Automatically map matching columns">
+          <Wand2 size={17} /> Auto Map
         </button>
       </div>
 
-      {Object.keys(autoMapSuggestions).length > 0 && (
+      {!!Object.keys(autoMapSuggestions).length && (
         <div className="suggestions-info">
           <Info size={16} />
-          <span>{Object.keys(autoMapSuggestions).length} auto-mapping suggestions available. Click "Auto Map" to apply them.</span>
+          <span>{Object.keys(autoMapSuggestions).length} matching columns found. Select Auto Map to apply them.</span>
         </div>
       )}
 
       <div className="mapping-container">
-        {sheetHeaders.map((header) => {
-          const columnKey = `sheet_${header.index}`;
-          const selectedCrmField = mappings[columnKey];
-          const suggestion = autoMapSuggestions[columnKey];
-          const hasSuggestion = suggestion && selectedCrmField !== suggestion;
-
+        {crmFields.map((field) => {
+          const selectedSheetColumn = Object.keys(mappings).find((key) => mappings[key] === field.name) || '';
+          const suggestion = autoMapSuggestions[field.name];
+          const hasSuggestion = suggestion && selectedSheetColumn !== suggestion;
           return (
-            <div key={header.index} className={`mapping-row ${hasSuggestion ? 'has-suggestion' : ''}`}>
-              <div className="sheet-column-section">
-                <label className="field-label">Sheet Column</label>
-                <div className="column-badge">{header.name}</div>
-              </div>
-
-              <div className="mapping-arrow">
-                <svg width="20" height="2" viewBox="0 0 20 2" fill="none">
-                  <line x1="0" y1="1" x2="20" y2="1" stroke="currentColor" strokeWidth="2" />
-                  <polygon points="18,0 20,1 18,2" fill="currentColor" />
-                </svg>
-              </div>
-
+            <div key={field.name} className={`mapping-row ${hasSuggestion ? 'has-suggestion' : ''}`}>
               <div className="crm-field-section">
                 <label className="field-label">CRM Field</label>
+                <div className="column-badge">{field.label}{field.required && <span aria-label="required"> *</span>}</div>
+              </div>
+              <div className="mapping-arrow" aria-hidden="true">→</div>
+              <div className="sheet-column-section">
+                <label className="field-label">Google Sheet Column</label>
                 <div className="select-wrapper">
-                  <select
-                    className="field-select"
-                    value={selectedCrmField || ''}
-                    onChange={(e) => handleMapColumn(header.index, e.target.value)}
-                  >
-                    <option value="">-- Don't Import --</option>
-                    {crmFields.map((field) => (
-                      <option key={field.name} value={field.name}>
-                        {field.label}
-                      </option>
-                    ))}
+                  <select className="field-select" value={selectedSheetColumn} onChange={(event) => handleMapField(field.name, event.target.value)}>
+                    <option value="">-- Select Google Sheet Column --</option>
+                    {sheetHeaders.map((header) => <option key={header.index} value={`sheet_${header.index}`}>{header.name}</option>)}
                   </select>
-                  {hasSuggestion && (
-                    <div className="suggestion-hint">
-                      💡 Suggested: {crmFields.find(f => f.name === suggestion)?.label}
-                    </div>
-                  )}
+                  {hasSuggestion && <div className="suggestion-hint">Suggested: {sheetHeaders.find((header) => `sheet_${header.index}` === suggestion)?.name}</div>}
                 </div>
               </div>
-
-              {selectedCrmField && (
-                <button
-                  className="clear-mapping-btn"
-                  onClick={() => handleMapColumn(header.index, null)}
-                  title="Clear this mapping"
-                >
-                  <Trash2 size={16} />
-                </button>
-              )}
+              {selectedSheetColumn && <button className="clear-mapping-btn" onClick={() => handleMapField(field.name, '')} title="Clear this mapping"><Trash2 size={15} /></button>}
             </div>
           );
         })}
       </div>
 
       <div className="mapping-footer">
-        <button
-          className="save-mapping-btn"
-          onClick={handleSave}
-          disabled={!hasChanges || saving}
-        >
-          {saving ? '💾 Saving...' : '💾 Save Mappings'}
-        </button>
+        <button className="save-mapping-btn" onClick={handleSave} disabled={!hasChanges || saving}>{saving ? 'Saving...' : 'Save Mappings'}</button>
         <div className="mapping-stats">
-          <span className="mapped-count">
-            {Object.keys(mappings).length} field{Object.keys(mappings).length !== 1 ? 's' : ''} mapped
-          </span>
+          <span className="mapped-count">{Object.keys(mappings).length} field{Object.keys(mappings).length === 1 ? '' : 's'} mapped</span>
           {hasChanges && <span className="unsaved-badge">Unsaved changes</span>}
         </div>
       </div>
-
-      <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
     </div>
   );
 }
-

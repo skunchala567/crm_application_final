@@ -1,19 +1,19 @@
 import mysql from 'mysql2/promise';
 
 const pool = mysql.createPool({
-  host: '43.205.46.211',
-  port: 3306,
-  user: 'sta_dc_user',
-  password: 'OZQQP@VgZM=+K^5',
-  database: 'attendance_biometric'
+  host: process.env.MYSQL_HOST,
+  port: Number(process.env.MYSQL_PORT || 3306),
+  user: process.env.MYSQL_USER,
+  password: process.env.MYSQL_PASSWORD,
+  database: process.env.MYSQL_DATABASE
 });
 
 (async () => {
   const conn = await pool.getConnection();
   try {
-    // Check integration_configs table structure
+    // Check crm_integration_configs table structure
     const [configs] = await conn.query(
-      'SELECT * FROM integration_configs LIMIT 5'
+      'SELECT * FROM crm_integration_configs LIMIT 5'
     );
 
     console.log('\n📋 Integration Configs Table Structure:\n');
@@ -40,7 +40,7 @@ const pool = mysql.createPool({
     // Also check if there's a Smartping config
     console.log('\n\n🔍 Looking for Smartping/AiSensy config:\n');
     const [smartping] = await conn.query(
-      `SELECT id, integration_id, config_key, config_json FROM integration_configs
+      `SELECT id, integration_id, config_key, config_json FROM crm_integration_configs
        WHERE config_json LIKE '%aisensy%' OR config_json LIKE '%smartping%' OR config_json LIKE '%project_id%'`
     );
 

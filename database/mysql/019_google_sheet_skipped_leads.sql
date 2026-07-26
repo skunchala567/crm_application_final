@@ -1,0 +1,22 @@
+CREATE TABLE IF NOT EXISTS crm_integration_skipped_leads (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  integration_id BIGINT UNSIGNED NOT NULL,
+  source_id VARCHAR(80) NOT NULL,
+  sheet_name VARCHAR(255) NULL,
+  branch_id BIGINT UNSIGNED NULL,
+  branch_name VARCHAR(255) NULL,
+  sheet_row_number INT UNSIGNED NOT NULL,
+  student_name VARCHAR(255) NULL,
+  phone VARCHAR(50) NULL,
+  reason VARCHAR(500) NOT NULL,
+  existing_lead_id BIGINT UNSIGNED NULL,
+  existing_lead_number VARCHAR(80) NULL,
+  row_fingerprint CHAR(64) NOT NULL,
+  occurrence_count INT UNSIGNED NOT NULL DEFAULT 1,
+  first_seen_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  last_seen_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_sheet_skipped_source_row (integration_id, source_id, row_fingerprint),
+  KEY ix_sheet_skipped_recent (integration_id, last_seen_at),
+  KEY ix_sheet_skipped_branch (branch_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

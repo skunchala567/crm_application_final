@@ -45,29 +45,29 @@ const pool = mysql.createPool({
     console.log('========================================\n');
 
     // Verify tables
-    const [[tables]] = await conn.query('SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ("whatsapp_template_logs", "whatsapp_templates", "integrations")');
+    const [[tables]] = await conn.query('SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ("crm_whatsapp_template_logs", "crm_whatsapp_templates", "crm_integrations")');
     console.log(`✅ Found ${tables.count} required tables\n`);
 
-    // Verify whatsapp_template_logs
-    const [logsColumns] = await conn.query('DESCRIBE whatsapp_template_logs');
-    console.log('✅ whatsapp_template_logs columns:');
+    // Verify crm_whatsapp_template_logs
+    const [logsColumns] = await conn.query('DESCRIBE crm_whatsapp_template_logs');
+    console.log('✅ crm_whatsapp_template_logs columns:');
     logsColumns.forEach(c => {
       console.log(`   - ${c.Field} (${c.Type})`);
     });
 
     // Verify integrations new columns
-    const [intColumns] = await conn.query('DESCRIBE integrations');
+    const [intColumns] = await conn.query('DESCRIBE crm_integrations');
     const hasProjectId = intColumns.some(c => c.Field === 'project_id');
     const hasProjectPassword = intColumns.some(c => c.Field === 'project_api_password');
     console.log(`\n✅ integrations.project_id: ${hasProjectId ? 'EXISTS' : 'MISSING'}`);
     console.log(`✅ integrations.project_api_password: ${hasProjectPassword ? 'EXISTS' : 'MISSING'}`);
 
-    // Verify whatsapp_templates new columns
-    const [tplColumns] = await conn.query('DESCRIBE whatsapp_templates');
+    // Verify crm_whatsapp_templates new columns
+    const [tplColumns] = await conn.query('DESCRIBE crm_whatsapp_templates');
     const hasAiSensyId = tplColumns.some(c => c.Field === 'aisensy_template_id');
     const hasLastSynced = tplColumns.some(c => c.Field === 'last_synced_at');
-    console.log(`\n✅ whatsapp_templates.aisensy_template_id: ${hasAiSensyId ? 'EXISTS' : 'MISSING'}`);
-    console.log(`✅ whatsapp_templates.last_synced_at: ${hasLastSynced ? 'EXISTS' : 'MISSING'}`);
+    console.log(`\n✅ crm_whatsapp_templates.aisensy_template_id: ${hasAiSensyId ? 'EXISTS' : 'MISSING'}`);
+    console.log(`✅ crm_whatsapp_templates.last_synced_at: ${hasLastSynced ? 'EXISTS' : 'MISSING'}`);
 
     console.log('\n========================================');
     console.log('✅ MIGRATION 003 COMPLETE');

@@ -14,6 +14,7 @@ import {
 } from './repositories.js';
 
 import axios from 'axios';
+import crypto from 'node:crypto';
 import { BaseIntegrationProvider, IntegrationError } from './base-provider.js';
 import { encryptToken, decryptToken, getMasterKey } from './crypto-utils.js';
 import { stateManager, flowDataManager } from './oauth-state-manager.js';
@@ -216,12 +217,7 @@ export class IntegrationHubService {
         providerConfig = config.config;
       } else {
         // Google Sheets and other OAuth providers
-        providerConfig = {
-          ...config.config,
-          clientId: process.env.GOOGLE_CLIENT_ID,
-          clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-          redirectUrl: process.env.GOOGLE_REDIRECT_URI
-        };
+        providerConfig = { ...config.config };
       }
 
       // Initialize provider with appropriate parameters
@@ -292,7 +288,7 @@ export class IntegrationHubService {
 
   // ============= OAuth Management =============
 
-  async startOAuthFlow(integrationId, organizationId, callbackUrl) {
+  async startOAuthFlow(integrationId, organizationId, callbackUrl, options = {}) {
     try {
       this.logger.log('Starting OAuth flow', { integrationId, organizationId });
 
@@ -316,25 +312,45 @@ export class IntegrationHubService {
       if (!provider) throw new Error(`Provider ${config.provider_name} not registered. Available: ${Array.from(this.providers.keys()).join(', ')}`);
 
       // Build provider config with OAuth credentials from environment
-      const providerConfig = {
-        ...config.config,
-        clientId: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        redirectUrl: process.env.GOOGLE_REDIRECT_URI
-      };
+      const providerConfig = { ...config.config };
 
       const providerInstance = new provider(providerConfig, null, this.logger);
+      let expectedAccountEmail = config.config?.googleAccountEmail || null;
+      if (options.confirmAccount && !expectedAccountEmail) {
+        try {
+          const currentAccessToken = await this.getValidAccessToken(integrationId, organizationId);
+          const profile = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
+            headers: { Authorization: `Bearer ${currentAccessToken}` }
+          });
+          expectedAccountEmail = String(profile.data?.email || '').trim().toLowerCase() || null;
+          if (expectedAccountEmail) {
+            await this.configs.update(integrationId, organizationId, {
+              integrationName: config.integration_name,
+              config: { ...config.config, googleAccountEmail: expectedAccountEmail },
+              status: config.status
+            });
+          }
+        } catch (profileError) {
+          // Older grants do not include identity scopes. Re-consent below upgrades
+          // the grant and stores the selected account after the callback.
+          this.logger.warn('Existing Google grant has no identity scope; requesting re-consent');
+        }
+      }
 
       // Generate state token
       const stateToken = stateManager.createState({
         integrationId,
         organizationId,
+        returnTo: options.returnTo || '/settings/google-sheets',
+        confirmAccount: Boolean(options.confirmAccount),
+        expectedAccountEmail: options.confirmAccount ? expectedAccountEmail : null,
         createdAt: new Date().toISOString()
       });
 
       // Generate OAuth URL
       const { authUrl } = await providerInstance.startOAuthFlow(callbackUrl, {
-        state: stateToken.state
+        state: stateToken.state,
+        loginHint: expectedAccountEmail
       });
 
       // Audit log
@@ -351,12 +367,12 @@ export class IntegrationHubService {
     }
   }
 
-  async completeOAuthFlow(integrationId, organizationId, code, state) {
+  async completeOAuthFlow(integrationId, organizationId, code, state, validatedState = null) {
     let actualIntegrationId = integrationId; // Define at function level for catch block access
     try {
       // Validate state token (prevents CSRF) - attempt to get integrationId from state
       try {
-        const stateData = stateManager.validateState(state);
+        const stateData = validatedState || stateManager.validateState(state);
         if (stateData?.integrationId) {
           actualIntegrationId = stateData.integrationId;
         }
@@ -381,16 +397,19 @@ export class IntegrationHubService {
       if (!provider) throw new Error(`Provider ${config.provider_name} not registered. Available: ${Array.from(this.providers.keys()).join(', ')}`);
 
       // Build provider config with OAuth credentials from environment
-      const providerConfig = {
-        ...config.config,
-        clientId: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        redirectUrl: process.env.GOOGLE_REDIRECT_URI
-      };
+      const providerConfig = { ...config.config };
 
       // Get access token via provider
       const providerInstance = new provider(providerConfig, null, this.logger);
       const tokenData = await providerInstance.exchangeCodeForToken(code, state);
+      const profileResponse = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
+        headers: { Authorization: `Bearer ${tokenData.access_token}` }
+      });
+      const googleAccountEmail = String(profileResponse.data?.email || '').trim().toLowerCase();
+      const expectedAccountEmail = String(validatedState?.expectedAccountEmail || config.config?.googleAccountEmail || '').trim().toLowerCase();
+      if (validatedState?.confirmAccount && expectedAccountEmail && googleAccountEmail !== expectedAccountEmail) {
+        throw new Error(`You do not have authorization to this Google account. Please sign in as ${expectedAccountEmail}.`);
+      }
 
       // Log the token data for debugging
       this.logger.log('Token data received:', {
@@ -439,6 +458,11 @@ export class IntegrationHubService {
       // Store encrypted token
       this.logger.log('Saving OAuth token for integration:', { actualIntegrationId, organizationId });
       await this.oauthTokens.save(actualIntegrationId, encryptedTokenData);
+      await this.configs.update(actualIntegrationId, organizationId, {
+        integrationName: config.integration_name,
+        config: { ...config.config, googleAccountEmail },
+        status: config.status
+      });
       this.logger.log('OAuth token saved successfully');
 
       // Update integration status
@@ -460,7 +484,7 @@ export class IntegrationHubService {
       });
       this.logger.log('Audit log created successfully');
 
-      return { success: true, message: 'Authorization successful', integrationConfigId: actualIntegrationId };
+      return { success: true, message: 'Authorization successful', integrationConfigId: actualIntegrationId, googleAccountEmail };
     } catch (error) {
       this.logger.error('OAuth flow completion failed', error);
 
@@ -501,12 +525,7 @@ export class IntegrationHubService {
       const decryptedAccessToken = decryptToken(oauthToken.access_token, masterKey);
 
       // Build provider config with OAuth credentials from environment
-      const providerConfig = {
-        ...config.config,
-        clientId: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        redirectUrl: process.env.GOOGLE_REDIRECT_URI
-      };
+      const providerConfig = { ...config.config };
 
       const providerInstance = new provider(providerConfig, decryptedAccessToken, this.logger);
 
@@ -514,10 +533,17 @@ export class IntegrationHubService {
       const newTokenData = await providerInstance.refreshToken(decryptedRefreshToken);
 
       // Encrypt new tokens
+      const expiresAt = new Date(Date.now() + Number(newTokenData.expires_in || 3600) * 1000)
+        .toISOString().replace('T', ' ').replace('Z', '').split('.')[0];
       const encryptedTokenData = {
-        ...newTokenData,
-        access_token: encryptToken(newTokenData.access_token, masterKey),
-        refresh_token: newTokenData.refresh_token ? encryptToken(newTokenData.refresh_token, masterKey) : oauthToken.refresh_token
+        providerName: config.provider_name,
+        accessToken: encryptToken(newTokenData.access_token, masterKey),
+        refreshToken: newTokenData.refresh_token
+          ? encryptToken(newTokenData.refresh_token, masterKey)
+          : oauthToken.refresh_token,
+        tokenType: newTokenData.token_type || oauthToken.token_type || 'Bearer',
+        expiresAt,
+        scope: newTokenData.scope || oauthToken.scope || null
       };
 
       // Update stored token
@@ -543,6 +569,54 @@ export class IntegrationHubService {
 
       throw error;
     }
+  }
+
+  async getValidAccessToken(integrationId, organizationId, forceRefresh = false) {
+    let oauthToken = await this.oauthTokens.get(integrationId);
+    if (!oauthToken?.access_token) throw new Error('No OAuth token available. Please authorize first.');
+    const expiresAt = oauthToken.expires_at ? new Date(oauthToken.expires_at).getTime() : 0;
+    if (forceRefresh || (expiresAt && expiresAt <= Date.now() + 60000)) {
+      await this.refreshOAuthToken(integrationId, organizationId);
+      oauthToken = await this.oauthTokens.get(integrationId);
+    }
+    const masterKey = getMasterKey();
+    try {
+      return decryptToken(oauthToken.access_token, masterKey);
+    } catch {
+      return oauthToken.access_token;
+    }
+  }
+
+  async syncActiveSheetSources() {
+    const [rows] = await this.pool.execute(
+      `SELECT id, organization_id, config
+       FROM crm_integrations
+       WHERE provider='google_sheets' AND status IN ('CONNECTED','ACTIVE') AND deleted_at IS NULL`
+    );
+    const results = [];
+    for (const row of rows) {
+      const config = typeof row.config === 'string' ? JSON.parse(row.config || '{}') : (row.config || {});
+      for (const source of (config.sheetSources || []).filter(item => item.status === 'active')) {
+        try {
+          const result = await this.importData(row.id, row.organization_id, {
+            spreadsheetId: source.sheetId,
+            branchId: source.branchId,
+            fieldMappings: source.fieldMappings,
+            sourceId: source.id,
+            sourceName: source.sheetName,
+            branchName: source.branchName,
+            continuous: true
+          });
+          results.push({ integrationId: row.id, sourceId: source.id, success: true, result });
+        } catch (error) {
+          this.logger.error('Continuous Google Sheet import failed', {
+            integrationId: row.id, sourceId: source.id, message: error.message
+          });
+          results.push({ integrationId: row.id, sourceId: source.id, success: false, error: error.message });
+        }
+      }
+    }
+    return results;
   }
 
   async disconnectOAuth(integrationId, organizationId, userId) {
@@ -583,28 +657,16 @@ export class IntegrationHubService {
       if (!provider) throw new Error(`Provider ${config.provider_name} not registered`);
 
       // Build provider config with OAuth credentials from environment
-      const providerConfig = {
-        ...config.config,
-        clientId: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        redirectUrl: process.env.GOOGLE_REDIRECT_URI
-      };
+      const providerConfig = { ...config.config };
 
-      // Get OAuth token
-      const oauthToken = await this.oauthTokens.get(integrationId);
-      if (!oauthToken?.access_token) {
-        throw new Error('No OAuth token available. Please authorize first.');
+      let accessToken = await this.getValidAccessToken(integrationId, organizationId);
+      try {
+        return await new provider(providerConfig, accessToken, this.logger).listSpreadsheets();
+      } catch (error) {
+        if (!/Invalid or expired access token|401|auth/i.test(error.message || '')) throw error;
+        accessToken = await this.getValidAccessToken(integrationId, organizationId, true);
+        return new provider(providerConfig, accessToken, this.logger).listSpreadsheets();
       }
-
-      // Decrypt access token
-      const masterKey = getMasterKey();
-      const decryptedAccessToken = decryptToken(oauthToken.access_token, masterKey);
-
-      // Initialize provider and list spreadsheets
-      const providerInstance = new provider(providerConfig, decryptedAccessToken, this.logger);
-      const spreadsheets = await providerInstance.listSpreadsheets();
-
-      return spreadsheets;
     } catch (error) {
       this.logger.error('Failed to list spreadsheets', error);
       throw error;
@@ -648,6 +710,99 @@ export class IntegrationHubService {
     }
   }
 
+  async listSheetSources(integrationId, organizationId) {
+    const integration = await this.configs.getById(integrationId, organizationId);
+    if (!integration) throw new Error('Integration not found');
+    return integration.config?.sheetSources || [];
+  }
+
+  async addSheetSource(integrationId, organizationId, source) {
+    const integration = await this.configs.getById(integrationId, organizationId);
+    if (!integration) throw new Error('Integration not found');
+    const branchId = Number(source.branchId);
+    if (!source.sheetId || !source.sheetName || !Number.isInteger(branchId) || branchId <= 0) {
+      throw new Error('Spreadsheet and branch are required');
+    }
+    const [[branch]] = await this.pool.execute(
+      'SELECT id, branch_name AS name FROM branches WHERE id=? AND is_active=TRUE LIMIT 1',
+      [branchId]
+    );
+    if (!branch) throw new Error('Selected branch is not available');
+    const sources = [...(integration.config?.sheetSources || [])];
+    if (sources.some(item => item.sheetId === source.sheetId && Number(item.branchId) === branchId)) {
+      throw new Error('This spreadsheet is already configured for the selected branch');
+    }
+    const item = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      sheetId: source.sheetId,
+      sheetName: source.sheetName,
+      branchId,
+      branchName: branch.name,
+      status: 'mapping_required',
+      fieldMappings: {},
+      createdAt: new Date().toISOString()
+    };
+    sources.push(item);
+    await this.configs.update(integrationId, organizationId, {
+      integrationName: integration.integration_name,
+      config: {
+        ...integration.config,
+        sheetSources: sources,
+        spreadsheetId: source.sheetId,
+        spreadsheetName: source.sheetName
+      },
+      status: integration.status
+    });
+    return item;
+  }
+
+  async removeSheetSource(integrationId, organizationId, sourceId) {
+    const integration = await this.configs.getById(integrationId, organizationId);
+    if (!integration) throw new Error('Integration not found');
+    const sources = (integration.config?.sheetSources || []).filter(item => item.id !== sourceId);
+    await this.configs.update(integrationId, organizationId, {
+      integrationName: integration.integration_name,
+      config: { ...integration.config, sheetSources: sources },
+      status: integration.status
+    });
+    return sources;
+  }
+
+  async getSheetSourceHistory(integrationId, organizationId, sourceId) {
+    const integration = await this.configs.getById(integrationId, organizationId);
+    if (!integration) throw new Error('Integration not found');
+    const [rows] = await this.pool.execute(
+      `SELECT l.id, l.sync_type, l.status, j.metadata,
+              l.records_processed, l.records_created, l.records_updated, l.records_failed,
+              j.started_at, j.completed_at, l.created_at, l.error_summary AS error_message
+       FROM crm_integration_sync_logs l
+       JOIN crm_integration_sync_jobs j ON j.id=l.sync_job_id
+       WHERE l.integration_config_id=?
+         AND l.records_created > 0
+         AND JSON_UNQUOTE(JSON_EXTRACT(j.metadata, '$.sourceId'))=?
+       ORDER BY l.created_at DESC LIMIT 50`,
+      [integrationId, sourceId]
+    );
+    return rows;
+  }
+
+  async getSkippedSheetLeads(integrationId, organizationId) {
+    const integration = await this.configs.getById(integrationId, organizationId);
+    if (!integration) throw new Error('Integration not found');
+    const [rows] = await this.pool.execute(
+      `SELECT id, source_id AS sourceId, sheet_name AS sheetName, branch_id AS branchId,
+              branch_name AS branchName, sheet_row_number AS rowNumber,
+              student_name AS studentName, phone, reason,
+              existing_lead_id AS existingLeadId, existing_lead_number AS existingLeadNumber,
+              occurrence_count AS occurrenceCount, first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt
+       FROM crm_integration_skipped_leads
+       WHERE integration_id=?
+       ORDER BY last_seen_at DESC LIMIT 500`,
+      [integrationId]
+    );
+    return rows;
+  }
+
   async getSpreadsheetPreview(integrationId, organizationId, sheetId) {
     try {
       const config = await this.configs.getById(integrationId, organizationId);
@@ -657,8 +812,7 @@ export class IntegrationHubService {
       const oauthToken = await this.oauthTokens.get(integrationId);
       if (!oauthToken?.access_token) throw new Error('No OAuth token found');
 
-      const masterKey = getMasterKey();
-      const decryptedAccessToken = decryptToken(oauthToken.access_token, masterKey);
+      const decryptedAccessToken = await this.getValidAccessToken(integrationId, organizationId);
 
       try {
         // Fetch first 11 rows (header + 10 data rows) - use A:Z range to get all columns
@@ -707,11 +861,12 @@ export class IntegrationHubService {
 
   // ============= Field Mapping =============
 
-  async getSheetHeaders(integrationId, organizationId) {
+  async getSheetHeaders(integrationId, organizationId, sheetId = null) {
     try {
       const config = await this.configs.getById(integrationId, organizationId);
       if (!config) throw new Error('Integration not found');
-      if (!config.config?.spreadsheetId) throw new Error('No spreadsheet selected');
+      const activeSheetId = sheetId || config.config?.spreadsheetId;
+      if (!activeSheetId) throw new Error('No spreadsheet selected');
 
       // Normalize provider name
       const providerName = this.getNormalizedProviderName(config);
@@ -721,12 +876,11 @@ export class IntegrationHubService {
       const oauthToken = await this.oauthTokens.get(integrationId);
       if (!oauthToken?.access_token) throw new Error('No OAuth token found');
 
-      const masterKey = getMasterKey();
-      const decryptedAccessToken = decryptToken(oauthToken.access_token, masterKey);
+      const decryptedAccessToken = await this.getValidAccessToken(integrationId, organizationId);
 
       // Fetch first row to get headers
       const response = await axios.get(
-        `https://sheets.googleapis.com/v4/spreadsheets/${config.config.spreadsheetId}/values/A1:Z1`,
+        `https://sheets.googleapis.com/v4/spreadsheets/${activeSheetId}/values/A1:Z1`,
         {
           headers: { Authorization: `Bearer ${decryptedAccessToken}` }
         }
@@ -744,15 +898,24 @@ export class IntegrationHubService {
     }
   }
 
-  async saveFieldMapping(integrationId, organizationId, mappings) {
+  async saveFieldMapping(integrationId, organizationId, mappings, sourceId = null) {
     try {
       const config = await this.configs.getById(integrationId, organizationId);
       if (!config) throw new Error('Integration not found');
 
-      const updatedConfig = {
-        ...config.config,
-        fieldMappings: mappings
-      };
+      let updatedConfig;
+      if (sourceId) {
+        let found = false;
+        const sheetSources = (config.config?.sheetSources || []).map(source => {
+          if (source.id !== sourceId) return source;
+          found = true;
+          return { ...source, fieldMappings: mappings, status: 'active', activatedAt: new Date().toISOString() };
+        });
+        if (!found) throw new Error('Sheet source not found');
+        updatedConfig = { ...config.config, sheetSources };
+      } else {
+        updatedConfig = { ...config.config, fieldMappings: mappings };
+      }
 
       await this.configs.update(integrationId, organizationId, {
         integrationName: config.integration_name,
@@ -773,11 +936,14 @@ export class IntegrationHubService {
     }
   }
 
-  async getFieldMapping(integrationId, organizationId) {
+  async getFieldMapping(integrationId, organizationId, sourceId = null) {
     try {
       const config = await this.configs.getById(integrationId, organizationId);
       if (!config) throw new Error('Integration not found');
 
+      if (sourceId) {
+        return (config.config?.sheetSources || []).find(source => source.id === sourceId)?.fieldMappings || {};
+      }
       return config.config?.fieldMappings || {};
     } catch (error) {
       this.logger.error('Failed to get field mapping', error);
@@ -1057,13 +1223,15 @@ export class IntegrationHubService {
       if (!provider) throw new Error(`Provider ${config.provider_name} not registered`);
 
       // Get OAuth token
+      await this.getValidAccessToken(integrationId, organizationId);
       const oauthToken = await this.oauthTokens.get(integrationId);
       if (!oauthToken) throw new Error('No OAuth token available');
 
       // Create sync job
+      const syncType = syncOptions.continuous ? 'continuous' : 'manual';
       const jobId = await this.syncJobs.create({
         integrationConfigId: integrationId,
-        syncType: 'manual',
+        syncType,
         metadata: syncOptions
       });
 
@@ -1077,7 +1245,7 @@ export class IntegrationHubService {
 
         // Mark completed
         await this.syncJobs.markCompleted(jobId, 'success', {
-          recordsProcessed: result.imported + result.skipped + result.failed,
+          recordsProcessed: result.imported + (result.updated || 0) + result.skipped + result.failed,
           recordsCreated: result.imported,
           recordsUpdated: result.updated || 0,
           recordsFailed: result.failed,
@@ -1086,25 +1254,27 @@ export class IntegrationHubService {
 
         // Log sync (ensure all values are defined)
         const stats = {
-          processed: (result.imported || 0) + (result.skipped || 0) + (result.failed || 0),
+          processed: (result.imported || 0) + (result.updated || 0) + (result.skipped || 0) + (result.failed || 0),
           created: result.imported || 0,
           updated: result.updated || 0,
           failed: result.failed || 0,
           skipped: result.skipped || 0
         };
 
-        try {
-          await this.syncLogs.create({
-            integrationConfigId: integrationId,
-            syncJobId: jobId,
-            syncType: 'manual',
-            status: 'success',
-            stats: JSON.stringify(stats),
-            errorSummary: null
-          });
-        } catch (logError) {
-          this.logger.warn('Failed to create sync log', logError.message);
-          // Don't fail the entire import just because logging failed
+        if (result.imported > 0) {
+          try {
+            await this.syncLogs.create({
+              integrationConfigId: integrationId,
+              syncJobId: jobId,
+              syncType,
+              status: 'success',
+              stats,
+              errorSummary: result.errors?.length ? JSON.stringify(result.errors.slice(0, 20)) : null
+            });
+          } catch (logError) {
+            this.logger.warn('Failed to create sync log', logError.message);
+            // Don't fail the entire import just because logging failed
+          }
         }
 
         return { jobId, status: 'success', result };
@@ -1213,6 +1383,11 @@ export class IntegrationHubService {
   // ============= Smartping Messaging =============
 
   async sendSmartpingMessage(integrationId, organizationId, phoneNumber, message, options = {}) {
+    let localMessageId = null;
+    const clientRequestId = options.clientRequestId || crypto.randomUUID();
+    const phoneDigits = String(phoneNumber || '').replace(/\D/g, '');
+    const normalizedPhone = /^91[6-9]\d{9}$/.test(phoneDigits) ? phoneDigits.slice(2) : phoneDigits;
+    const startedAt = Date.now();
     try {
       const config = await this.configs.getById(integrationId, organizationId);
       if (!config) throw new Error('Integration not found');
@@ -1229,8 +1404,127 @@ export class IntegrationHubService {
       const provider = this.getProvider(config.provider_name);
       if (!provider) throw new Error('Smartping provider not registered');
 
-      const providerInstance = new provider(config.config, this.logger);
-      const result = await providerInstance.sendMessage(phoneNumber, message, options);
+      const [existing] = await this.pool.query(
+        `SELECT id, message_id, status FROM crm_whatsapp_messages
+         WHERE client_request_id = ? LIMIT 1`,
+        [clientRequestId]
+      );
+      if (existing.length) {
+        return {
+          success: !['FAILED', 'REJECTED'].includes(existing[0].status),
+          duplicate: true,
+          localMessageId: existing[0].id,
+          messageId: existing[0].message_id,
+          status: existing[0].status
+        };
+      }
+
+      const [conversationResult] = await this.pool.query(
+        `INSERT INTO crm_whatsapp_conversations
+          (organization_id, integration_id, mobile, contact_name, lead_id,
+           last_message, last_message_time, status)
+         VALUES (?, ?, ?, ?, ?, ?, NOW(), 'ACTIVE')
+         ON DUPLICATE KEY UPDATE
+           id = LAST_INSERT_ID(id),
+           contact_name = COALESCE(VALUES(contact_name), contact_name),
+           lead_id = COALESCE(VALUES(lead_id), lead_id),
+           last_message = VALUES(last_message),
+           last_message_time = NOW(),
+           updated_at = NOW()`,
+        [
+          organizationId,
+          integrationId,
+          normalizedPhone,
+          options.userName || null,
+          options.leadId || null,
+          message
+        ]
+      );
+      const conversationId = conversationResult.insertId;
+      const [messageResult] = await this.pool.query(
+        `INSERT INTO crm_whatsapp_messages
+          (conversation_id, integration_id, lead_id, client_request_id,
+           template_name, campaign_name, direction, type, message, media_url, caption, status)
+         VALUES (?, ?, ?, ?, ?, ?, 'outgoing', ?, ?, ?, ?, 'PENDING')`,
+        [
+          conversationId,
+          integrationId,
+          options.leadId || null,
+          clientRequestId,
+          options.templateName || null,
+          options.campaignName || null,
+          options.media?.url ? 'media' : 'text',
+          message,
+          options.media?.url || null,
+          options.caption || null
+        ]
+      );
+      localMessageId = messageResult.insertId;
+
+      const providerInstance = new provider({ ...config.config, integrationId }, this.logger);
+      const result = await providerInstance.sendMessage(phoneNumber, message, {
+        ...options,
+        clientRequestId
+      });
+      const normalizedStatus = String(result.status || 'QUEUED').toUpperCase();
+      await this.pool.query(
+        `UPDATE crm_whatsapp_messages
+         SET message_id = ?, status = ?, api_response = ?, http_status = ?,
+             retry_count = ?, sent_at = NOW(), updated_at = NOW()
+         WHERE id = ?`,
+        [
+          result.messageId,
+          normalizedStatus,
+          JSON.stringify(result.response || {}),
+          result.httpStatus || 200,
+          result.retryCount || 0,
+          localMessageId
+        ]
+      );
+      await this.pool.query(
+        `INSERT INTO crm_whatsapp_api_logs
+          (integration_id, message_id, operation, request_url, request_headers,
+           request_payload, response_status, response_body, response_time_ms,
+           retry_count, created_at)
+         VALUES (?, ?, 'send', ?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [
+          integrationId,
+          localMessageId,
+          '/messages',
+          JSON.stringify({ 'Content-Type': 'application/json', authorization: '[REDACTED]' }),
+          JSON.stringify({
+            destination: normalizedPhone,
+            templateName: options.templateName || null,
+            templateParams: options.templateParams || [],
+            media: options.media || null,
+            clientRequestId
+          }),
+          result.httpStatus || 200,
+          JSON.stringify(result.response || {}),
+          result.responseTimeMs || Date.now() - startedAt,
+          result.retryCount || 0
+        ]
+      );
+      await this.pool.execute(
+        `INSERT INTO crm_smartping_messages
+          (id, message_id, project_id, integration_id, phone_number, contact_id,
+           sender, message_type, message_content, campaign_name, status, is_hsm,
+           sent_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'AGENT', 'TEXT', ?, ?, ?, ?, NOW(), NOW())
+         ON DUPLICATE KEY UPDATE status = VALUES(status), updated_at = NOW()`,
+        [
+          `out_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          result.messageId,
+          config.config?.projectId || config.config?.project_id,
+          integrationId,
+          phoneNumber.replace(/\D/g, ''),
+          options.leadId ? String(options.leadId) : null,
+          JSON.stringify({ body: message, templateName: options.templateName || null }),
+          options.templateName || null,
+          String(result.status || 'SENT').toUpperCase(),
+          !!options.templateName
+        ]
+      );
 
       await this.audit.log(integrationId, {
         action: 'message_sent',
@@ -1240,6 +1534,46 @@ export class IntegrationHubService {
 
       return result;
     } catch (error) {
+      if (localMessageId) {
+        const status = [400, 401, 403, 404].includes(error.response?.status) ? 'REJECTED' : 'FAILED';
+        await this.pool.query(
+          `UPDATE crm_whatsapp_messages
+           SET status = ?, http_status = ?, failed_reason = ?, failed_at = NOW(),
+               api_response = ?, updated_at = NOW()
+           WHERE id = ?`,
+          [
+            status,
+            error.response?.status || null,
+            error.response?.data?.message || error.message,
+            JSON.stringify(error.response?.data || {}),
+            localMessageId
+          ]
+        ).catch(() => {});
+        await this.pool.query(
+          `INSERT INTO crm_whatsapp_api_logs
+            (integration_id, message_id, operation, request_url, request_headers,
+             request_payload, response_status, response_body, response_time_ms,
+             retry_count, error_message, exception_stack, created_at)
+           VALUES (?, ?, 'send', ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+          [
+            integrationId,
+            localMessageId,
+            '/messages',
+            JSON.stringify({ authorization: '[REDACTED]' }),
+            JSON.stringify({
+              destination: normalizedPhone,
+              templateName: options.templateName || null,
+              clientRequestId
+            }),
+            error.response?.status || null,
+            JSON.stringify(error.response?.data || {}),
+            Date.now() - startedAt,
+            error.retryCount || 0,
+            error.response?.data?.message || error.message,
+            error.stack || null
+          ]
+        ).catch(() => {});
+      }
       this.safeLogError('Failed to send Smartping message', error);
       throw error;
     }
@@ -1259,11 +1593,39 @@ export class IntegrationHubService {
         throw new Error('Message is required');
       }
 
-      const provider = this.getProvider(config.provider_name);
-      if (!provider) throw new Error('Smartping provider not registered');
-
-      const providerInstance = new provider(config.config, this.logger);
-      const result = await providerInstance.sendBulkMessages(phoneNumbers, message, options);
+      const result = { sent: 0, failed: 0, errors: [] };
+      for (const recipient of phoneNumbers) {
+        const phoneNumber = typeof recipient === 'object' ? recipient.phoneNumber : recipient;
+        const leadId = typeof recipient === 'object' ? recipient.leadId : null;
+        try {
+          await this.sendSmartpingMessage(
+            integrationId,
+            organizationId,
+            phoneNumber,
+            message,
+            {
+              ...options,
+              leadId,
+              userName: typeof recipient === 'object' ? recipient.name : undefined,
+              source: typeof recipient === 'object' ? (recipient.source || options.source) : options.source,
+              attributes: typeof recipient === 'object'
+                ? {
+                    ...(options.attributes || {}),
+                    ...(recipient.branch ? { Branch: String(recipient.branch) } : {}),
+                    ...(recipient.className ? { Class: String(recipient.className) } : {})
+                  }
+                : options.attributes,
+              clientRequestId: typeof recipient === 'object' && recipient.clientRequestId
+                ? recipient.clientRequestId
+                : crypto.randomUUID()
+            }
+          );
+          result.sent += 1;
+        } catch (error) {
+          result.failed += 1;
+          result.errors.push({ phoneNumber, message: error.message });
+        }
+      }
 
       await this.audit.log(integrationId, {
         action: 'bulk_messages_sent',
@@ -1276,6 +1638,196 @@ export class IntegrationHubService {
       this.safeLogError('Failed to send bulk Smartping messages', error);
       throw error;
     }
+  }
+
+  async getSmartpingMessageHistory(organizationId, filters = {}) {
+    const conditions = [
+      'i.organization_id = ?',
+      'i.deleted_at IS NULL',
+      "m.direction = 'outgoing'"
+    ];
+    const params = [organizationId];
+    if (filters.integrationId) {
+      conditions.push('m.integration_id = ?');
+      params.push(Number(filters.integrationId));
+    }
+    if (filters.status) {
+      conditions.push('m.status = ?');
+      params.push(String(filters.status).toUpperCase());
+    }
+    if (filters.search) {
+      conditions.push('(c.mobile LIKE ? OR m.template_name LIKE ?)');
+      params.push(`%${filters.search}%`, `%${filters.search}%`);
+    }
+    const limit = Math.min(Math.max(Number(filters.limit) || 100, 1), 500);
+    const [rows] = await this.pool.query(
+      `SELECT m.id, m.message_id, m.integration_id, i.name AS integration_name,
+              c.mobile AS phone_number, m.lead_id, m.template_name,
+              JSON_OBJECT('body', m.message) AS message_content,
+              m.status, m.sent_at, m.delivered_at, m.read_at,
+              m.failed_at, m.failed_reason AS failure_reason, m.created_at
+       FROM crm_whatsapp_messages m
+       JOIN crm_whatsapp_conversations c ON c.id = m.conversation_id
+       JOIN crm_integrations i ON i.id = m.integration_id
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY m.created_at DESC
+       LIMIT ${limit}`,
+      params
+    );
+    return rows.map(row => ({
+      ...row,
+      message_content: typeof row.message_content === 'string'
+        ? JSON.parse(row.message_content)
+        : row.message_content
+    }));
+  }
+
+  async getWhatsAppConversations(organizationId, filters = {}) {
+    const limit = Math.min(Math.max(Number(filters.limit) || 50, 1), 100);
+    const offset = Math.max(Number(filters.offset) || 0, 0);
+    const params = [organizationId];
+    let searchSql = '';
+    if (filters.search) {
+      searchSql = ' AND (mobile LIKE ? OR contact_name LIKE ? OR last_message LIKE ?)';
+      const pattern = `%${filters.search}%`;
+      params.push(pattern, pattern, pattern);
+    }
+    const [rows] = await this.pool.query(
+      `SELECT id, integration_id, mobile, contact_name, lead_id, last_message,
+              last_message_time, unread_count, status, created_at, updated_at
+       FROM crm_whatsapp_conversations
+       WHERE organization_id = ? ${searchSql}
+       ORDER BY last_message_time DESC
+       LIMIT ${limit} OFFSET ${offset}`,
+      params
+    );
+    return rows;
+  }
+
+  async getWhatsAppConversationMessages(organizationId, conversationId, filters = {}) {
+    const limit = Math.min(Math.max(Number(filters.limit) || 50, 1), 100);
+    const beforeId = Number(filters.beforeId) || null;
+    const params = [conversationId, organizationId];
+    let beforeSql = '';
+    if (beforeId) {
+      beforeSql = ' AND m.id < ?';
+      params.push(beforeId);
+    }
+    const [rows] = await this.pool.query(
+      `SELECT m.*
+       FROM crm_whatsapp_messages m
+       JOIN crm_whatsapp_conversations c ON c.id = m.conversation_id
+       WHERE m.conversation_id = ? AND c.organization_id = ? ${beforeSql}
+       ORDER BY m.id DESC
+       LIMIT ${limit}`,
+      params
+    );
+    return rows.reverse();
+  }
+
+  async refreshWhatsAppMessage(integrationId, organizationId, localMessageId) {
+    const [rows] = await this.pool.query(
+      `SELECT m.id, m.message_id
+       FROM crm_whatsapp_messages m
+       JOIN crm_whatsapp_conversations c ON c.id = m.conversation_id
+       WHERE m.id = ? AND m.integration_id = ? AND c.organization_id = ?
+       LIMIT 1`,
+      [localMessageId, integrationId, organizationId]
+    );
+    if (!rows.length) throw new Error('Message not found');
+    if (!rows[0].message_id || rows[0].message_id.startsWith('pending_')) {
+      return rows[0];
+    }
+    const config = await this.configs.getById(integrationId, organizationId);
+    const Provider = this.getProvider(config.provider_name);
+    const provider = new Provider({ ...config.config, integrationId }, this.logger);
+    const response = await provider.getMessageDetails(rows[0].message_id);
+    const details = response.data || {};
+    const status = String(details.status || 'PENDING').toUpperCase();
+    await this.pool.query(
+      `UPDATE crm_whatsapp_messages
+       SET status = ?,
+           delivered_at = COALESCE(?, delivered_at),
+           read_at = COALESCE(?, read_at),
+           failed_reason = COALESCE(?, failed_reason),
+           provider_timestamp = COALESCE(?, provider_timestamp),
+           api_response = ?, updated_at = NOW()
+       WHERE id = ?`,
+      [
+        status,
+        details.deliveredAt ? new Date(details.deliveredAt) : null,
+        details.readAt ? new Date(details.readAt) : null,
+        details.failedReason || details.failureReason || null,
+        details.timestamp ? new Date(details.timestamp) : null,
+        JSON.stringify(details),
+        localMessageId
+      ]
+    );
+    return { ...details, id: localMessageId, status };
+  }
+
+  async retryWhatsAppMessage(organizationId, localMessageId) {
+    const [rows] = await this.pool.query(
+      `SELECT m.*, c.mobile, c.contact_name
+       FROM crm_whatsapp_messages m
+       JOIN crm_whatsapp_conversations c ON c.id = m.conversation_id
+       WHERE m.id = ? AND c.organization_id = ?
+         AND m.status IN ('FAILED', 'REJECTED')
+       LIMIT 1`,
+      [localMessageId, organizationId]
+    );
+    if (!rows.length) throw new Error('Failed message not found');
+    const message = rows[0];
+    return this.sendSmartpingMessage(
+      message.integration_id,
+      organizationId,
+      message.mobile,
+      message.message,
+      {
+        templateName: message.template_name,
+        leadId: message.lead_id,
+        userName: message.contact_name,
+        clientRequestId: crypto.randomUUID()
+      }
+    );
+  }
+
+  async markWhatsAppConversationRead(organizationId, conversationId) {
+    await this.pool.query(
+      `UPDATE crm_whatsapp_conversations
+       SET unread_count = 0, updated_at = NOW()
+       WHERE id = ? AND organization_id = ?`,
+      [conversationId, organizationId]
+    );
+    return { success: true };
+  }
+
+  async pollPendingWhatsAppMessages() {
+    const [rows] = await this.pool.query(
+      `SELECT m.id, m.integration_id, c.organization_id
+       FROM crm_whatsapp_messages m
+       JOIN crm_whatsapp_conversations c ON c.id = m.conversation_id
+       WHERE m.direction = 'outgoing'
+         AND m.status IN ('PENDING', 'QUEUED', 'ACCEPTED', 'SENT')
+         AND m.message_id IS NOT NULL
+         AND m.message_id NOT LIKE 'pending_%'
+         AND m.updated_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+       ORDER BY m.updated_at ASC
+       LIMIT 50`
+    );
+    let updated = 0;
+    for (const row of rows) {
+      try {
+        await this.refreshWhatsAppMessage(row.integration_id, row.organization_id, row.id);
+        updated += 1;
+      } catch (error) {
+        this.logger.warn?.('AiSensy message status polling failed', {
+          messageId: row.id,
+          error: error.message
+        });
+      }
+    }
+    return updated;
   }
 
   async createSmartpingTemplate(integrationId, organizationId, templateData) {

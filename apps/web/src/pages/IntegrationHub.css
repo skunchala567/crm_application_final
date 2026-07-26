@@ -211,6 +211,35 @@
   .settings-integration-page .search-box { max-width: none; min-width: 0; }
 }
 
+.google-sheets-handoff {
+  margin-top: 18px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  background: var(--primary-soft, rgba(var(--primary-rgb), .06));
+  border: 1px solid rgba(var(--primary-rgb), .16);
+  border-radius: 9px;
+}
+
+.google-sheets-handoff strong {
+  color: var(--ink);
+  font: 700 13px Manrope, sans-serif;
+}
+
+.google-sheets-handoff p {
+  max-width: 520px;
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+@media (max-width: 600px) {
+  .google-sheets-handoff { align-items: stretch; flex-direction: column; }
+}
+
 /* ============================================
    Page Header
    ============================================ */

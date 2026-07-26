@@ -1,7 +1,7 @@
 -- Smartping Messages Table
 -- Stores all incoming and outgoing WhatsApp messages from Smartping
 
-CREATE TABLE IF NOT EXISTS smartping_messages (
+CREATE TABLE IF NOT EXISTS crm_smartping_messages (
   id VARCHAR(36) PRIMARY KEY,
   project_id VARCHAR(100) NOT NULL,
   phone_number VARCHAR(20) NOT NULL,
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS smartping_messages (
 );
 
 -- Conversation threads (for grouping related messages)
-CREATE TABLE IF NOT EXISTS smartping_conversations (
+CREATE TABLE IF NOT EXISTS crm_smartping_conversations (
   id VARCHAR(36) PRIMARY KEY,
   integration_id INT NOT NULL,
   phone_number VARCHAR(20) NOT NULL,
@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS smartping_conversations (
 );
 
 -- Message attachments (for images, documents, etc)
-CREATE TABLE IF NOT EXISTS smartping_attachments (
+CREATE TABLE IF NOT EXISTS crm_smartping_attachments (
   id VARCHAR(36) PRIMARY KEY,
   message_id VARCHAR(100) NOT NULL,
   file_url VARCHAR(500),
@@ -95,5 +95,5 @@ CREATE TABLE IF NOT EXISTS smartping_attachments (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
   KEY idx_message_id (message_id),
-  FOREIGN KEY (message_id) REFERENCES smartping_messages(message_id) ON DELETE CASCADE
+  FOREIGN KEY (message_id) REFERENCES crm_smartping_messages(message_id) ON DELETE CASCADE
 );

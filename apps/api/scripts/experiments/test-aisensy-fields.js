@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-const projectId = '6923f6a78e77a6798e5b9f23';
-const apiPassword = '3adb6e0aee99ed7881743';
+const projectId = process.env.AISENSY_TEST_PROJECT_ID;
+const apiPassword = process.env.AISENSY_TEST_API_PASSWORD;
 
 const baseUrl = 'https://apis.aisensy.com/project-apis/v1';
 
@@ -16,54 +16,55 @@ const client = axios.create({
 });
 
 (async () => {
-  console.log('\n🔬 Testing AiSensy sample_text format\n');
+  console.log('\n🔬 Testing AiSensy field names for template sample\n');
 
   const testCases = [
     {
-      name: 'sample_text = same as body',
+      name: 'sample_text (underscore)',
       payload: {
-        name: 'test_sample_same_body',
-        label: 'Test Sample Same Body',
+        name: 'test_field_sample_text',
+        label: 'Test Field sample_text',
         category: 'MARKETING',
         type: 'TEXT',
         language: 'English',
-        text: 'Hello, this is a test message',
-        sample_text: 'Hello, this is a test message'
+        text: 'Test message',
+        sample_text: 'test value'
       }
     },
     {
-      name: 'sample_text = empty string',
+      name: 'sample (no underscore)',
       payload: {
-        name: 'test_sample_empty',
-        label: 'Test Sample Empty',
+        name: 'test_field_sample',
+        label: 'Test Field sample',
         category: 'MARKETING',
         type: 'TEXT',
         language: 'English',
-        text: 'Hello, this is a test message',
-        sample_text: ''
+        text: 'Test message',
+        sample: 'test value'
       }
     },
     {
-      name: 'sample_text = simple text',
+      name: 'example_text',
       payload: {
-        name: 'test_sample_simple',
-        label: 'Test Sample Simple',
+        name: 'test_field_example',
+        label: 'Test Field example',
         category: 'MARKETING',
         type: 'TEXT',
         language: 'English',
-        text: 'Hello, this is a test message',
-        sample_text: 'sample'
+        text: 'Test message',
+        example_text: 'test value'
       }
     },
     {
-      name: 'no sample_text (omitted)',
+      name: 'template_sample',
       payload: {
-        name: 'test_no_sample',
-        label: 'Test No Sample',
+        name: 'test_field_template_sample',
+        label: 'Test Field template_sample',
         category: 'MARKETING',
         type: 'TEXT',
         language: 'English',
-        text: 'Hello, this is a test message'
+        text: 'Test message',
+        template_sample: 'test value'
       }
     }
   ];

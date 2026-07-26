@@ -1,11 +1,11 @@
 import mysql from 'mysql2/promise';
 
 const pool = mysql.createPool({
-  host: '43.205.46.211',
-  port: 3306,
-  user: 'sta_dc_user',
-  password: 'OZQQP@VgZM=+K^5',
-  database: 'attendance_biometric'
+  host: process.env.MYSQL_HOST,
+  port: Number(process.env.MYSQL_PORT || 3306),
+  user: process.env.MYSQL_USER,
+  password: process.env.MYSQL_PASSWORD,
+  database: process.env.MYSQL_DATABASE
 });
 
 (async () => {
@@ -17,7 +17,7 @@ const pool = mysql.createPool({
     // Check if Smartping integration exists
     console.log('\n1️⃣  Checking Smartping Integration:');
     const [integrations] = await conn.query(
-      'SELECT id, name, type, status, project_id FROM integrations WHERE type = "SMARTPING" LIMIT 1'
+      'SELECT id, name, type, status, project_id FROM crm_integrations WHERE type = "SMARTPING" LIMIT 1'
     );
 
     let integrationId;
@@ -30,7 +30,7 @@ const pool = mysql.createPool({
     } else {
       console.log('   ✅ Creating Smartping integration...');
       const result = await conn.query(
-        `INSERT INTO integrations (name, type, status, organization_id, deleted_at)
+        `INSERT INTO crm_integrations (name, type, status, organization_id, deleted_at)
          VALUES ('Smartping WhatsApp', 'SMARTPING', 'active', 1, NULL)`
       );
       integrationId = result[0].insertId;
@@ -42,7 +42,7 @@ const pool = mysql.createPool({
       `SELECT TABLE_NAME, TABLE_ROWS
        FROM INFORMATION_SCHEMA.TABLES
        WHERE TABLE_SCHEMA = 'attendance_biometric'
-       AND TABLE_NAME IN ('whatsapp_templates', 'whatsapp_template_logs', 'integrations')`
+       AND TABLE_NAME IN ('crm_whatsapp_templates', 'crm_whatsapp_template_logs', 'crm_integrations')`
     );
 
     if (tables.length > 0) {
@@ -57,13 +57,13 @@ const pool = mysql.createPool({
     const [columns] = await conn.query(
       `SELECT COLUMN_NAME, DATA_TYPE
        FROM INFORMATION_SCHEMA.COLUMNS
-       WHERE TABLE_NAME = 'whatsapp_templates'
+       WHERE TABLE_NAME = 'crm_whatsapp_templates'
        AND COLUMN_NAME IN ('aisensy_template_id', 'quick_replies', 'call_to_action', 'status')`
     );
 
     if (columns.length > 0) {
       columns.forEach(c => {
-        console.log(`   ✅ whatsapp_templates.${c.COLUMN_NAME}: ${c.DATA_TYPE}`);
+        console.log(`   ✅ crm_whatsapp_templates.${c.COLUMN_NAME}: ${c.DATA_TYPE}`);
       });
     } else {
       console.log('   ❌ Required columns not found!');

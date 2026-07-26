@@ -1,11 +1,11 @@
 import mysql from 'mysql2/promise';
 
 const pool = mysql.createPool({
-  host: '43.205.46.211',
-  port: 3306,
-  user: 'sta_dc_user',
-  password: 'OZQQP@VgZM=+K^5',
-  database: 'attendance_biometric'
+  host: process.env.MYSQL_HOST,
+  port: Number(process.env.MYSQL_PORT || 3306),
+  user: process.env.MYSQL_USER,
+  password: process.env.MYSQL_PASSWORD,
+  database: process.env.MYSQL_DATABASE
 });
 
 (async () => {
@@ -16,7 +16,7 @@ const pool = mysql.createPool({
     // Simulate what _getIntegration now does
     const [configs] = await conn.query(
       `SELECT id, organization_id, config_json, provider_name
-       FROM integration_configs
+       FROM crm_integration_configs
        WHERE id = ? AND organization_id = ? AND deleted_at IS NULL
        LIMIT 1`,
       [3, 1]  // Using config record 3 which has AiSensy credentials

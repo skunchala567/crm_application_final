@@ -14,7 +14,7 @@ const pool = mysql.createPool({
     console.log('\n=== DIRECT DB TEST: Get templates ===\n');
 
     const [templates] = await conn.query(
-      'SELECT * FROM whatsapp_templates WHERE organization_id = 1 AND integration_id = 1 AND deleted_at IS NULL'
+      'SELECT * FROM crm_whatsapp_templates WHERE organization_id = 1 AND integration_id = 1 AND deleted_at IS NULL'
     );
 
     console.log(`Found ${templates.length} templates\n`);

@@ -9,29 +9,29 @@ FROM INFORMATION_SCHEMA.TABLES
 WHERE TABLE_SCHEMA = DATABASE()
 ORDER BY TABLE_NAME;
 
--- Check if integrations table exists
+-- Check if crm_integrations table exists
 SELECT '=== DOES INTEGRATIONS TABLE EXIST? ===' as check_label;
 SELECT
   IF(COUNT(*) > 0, 'YES - Table exists', 'NO - Table missing') as status
 FROM INFORMATION_SCHEMA.TABLES
 WHERE TABLE_SCHEMA = DATABASE()
-  AND TABLE_NAME = 'integrations';
+  AND TABLE_NAME = 'crm_integrations';
 
--- Check if whatsapp_templates exists
+-- Check if crm_whatsapp_templates exists
 SELECT '=== DOES WHATSAPP_TEMPLATES TABLE EXIST? ===' as check_label;
 SELECT
   IF(COUNT(*) > 0, 'YES - Table exists', 'NO - Table missing') as status
 FROM INFORMATION_SCHEMA.TABLES
 WHERE TABLE_SCHEMA = DATABASE()
-  AND TABLE_NAME = 'whatsapp_templates';
+  AND TABLE_NAME = 'crm_whatsapp_templates';
 
--- If whatsapp_templates exists, show its structure
+-- If crm_whatsapp_templates exists, show its structure
 SELECT '=== WHATSAPP_TEMPLATES STRUCTURE ===' as check_label;
-SHOW CREATE TABLE whatsapp_templates \G
+SHOW CREATE TABLE crm_whatsapp_templates \G
 
 -- Count templates
 SELECT '=== TEMPLATE COUNT ===' as check_label;
-SELECT COUNT(*) as total_templates FROM whatsapp_templates;
+SELECT COUNT(*) as total_templates FROM crm_whatsapp_templates;
 
 SELECT '=== TEMPLATE NAMES ===' as check_label;
-SELECT id, integration_id, template_name, status FROM whatsapp_templates LIMIT 10;
+SELECT id, integration_id, template_name, status FROM crm_whatsapp_templates LIMIT 10;

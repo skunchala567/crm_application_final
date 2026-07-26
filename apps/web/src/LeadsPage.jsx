@@ -32,6 +32,7 @@ import { BulkUploadButton } from "./BulkUpload.jsx";
 import { StageChangeDialog } from "./StageChangeDialog.jsx";
 import { BulkStageChangeConfirm } from "./BulkStageChangeConfirm.jsx";
 import Toast from "./Toast.jsx";
+import { WhatsAppSendPanel } from "./components/WhatsAppSendPanel.jsx";
 
 const emptyForm = {
   studentName: "",
@@ -389,6 +390,7 @@ export default function LeadsPage() {
   const [availableClasses, setAvailableClasses] = useState([]);
   const [pageSize, setPageSize] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
+  const [whatsAppRecipients, setWhatsAppRecipients] = useState(null);
   const studentNameInputRef = useRef(null);
   function toggleQuickActions(){setQuickActionsExpanded(current=>!current)}
 
@@ -461,7 +463,11 @@ export default function LeadsPage() {
   useEffect(() => {
     if (searchParams.get("new") === "1" && meta.stages.length) {
       openCreate();
-      setSearchParams({}, { replace: true });
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.delete("new");
+        return next;
+      }, { replace: true });
     }
   }, [searchParams, meta.stages.length]);
 
@@ -538,7 +544,11 @@ export default function LeadsPage() {
     const id = searchParams.get("openLead");
     if (id && meta.stages.length) {
       openLead(Number(id), "view");
-      setSearchParams({}, { replace: true });
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.delete("openLead");
+        return next;
+      }, { replace: true });
     }
   }, [searchParams, meta.stages.length]);
 
@@ -547,7 +557,7 @@ export default function LeadsPage() {
       leads.filter(
         (lead) =>
           (!stageFilter || stageFilter === "Re-enquired" || lead.stage === stageFilter) &&
-          (stageFilter !== "Re-enquired" || (lead.sourceHistory && lead.sourceHistory.length > 1)) &&
+          (stageFilter !== "Re-enquired" || Boolean(lead.reEnquiredAt)) &&
           (!branchFilter.length || branchFilter.includes(String(lead.branchId))) &&
           (!advancedFilters.sourceId.length || advancedFilters.sourceId.includes(String(lead.sourceId))) &&
           (!advancedFilters.ownerEmployeeId.length || advancedFilters.ownerEmployeeId.includes(String(lead.ownerEmployeeId))) &&
@@ -636,6 +646,36 @@ export default function LeadsPage() {
 
   function bulkNotice(action) {
     setMessage({ type: selectedIds.length ? "success" : "error", text: selectedIds.length ? `${action} prepared for ${selectedIds.length} selected lead${selectedIds.length === 1 ? "" : "s"}` : "Select at least one lead first" });
+  }
+
+  function openLeadMessage(lead) {
+    setOpenActionId(null);
+    setWhatsAppRecipients([{
+      leadId: lead.id,
+      phoneNumber: lead.phone,
+      name: lead.studentName,
+      branch: lead.branch,
+      className: lead.applyingClass,
+      source: lead.source
+    }]);
+  }
+
+  function openSelectedMessages() {
+    const recipients = filtered
+      .filter(lead => selectedIds.includes(lead.id))
+      .map(lead => ({
+        leadId: lead.id,
+        phoneNumber: lead.phone,
+        name: lead.studentName,
+        branch: lead.branch,
+        className: lead.applyingClass,
+        source: lead.source
+      }));
+    if (!recipients.length) {
+      setMessage({ type: "error", text: "Select at least one lead from the current filtered view" });
+      return;
+    }
+    setWhatsAppRecipients(recipients);
   }
 
   function openCreate() {
@@ -840,7 +880,7 @@ export default function LeadsPage() {
             <button title={`Change stage for ${selectedIds.length || "selected"} leads`} aria-label={`Change stage for selected leads`} onClick={openBulkStageChange} disabled={!selectedIds.length}><GitBranch/></button>
             <button title={`Refer all ${filtered.length} visible leads`} aria-label={`Refer all ${filtered.length} visible leads`} onClick={openBulkRefer}><UserRoundPlus/></button>
             <button title="Campaign for selected" onClick={() => bulkNotice("Campaign")}><Megaphone/></button>
-            <button title="Message selected" onClick={() => bulkNotice("Message")}><MessageSquare/></button>
+            <button title={`Send WhatsApp to ${selectedIds.length || "selected"} leads in this view`} onClick={openSelectedMessages} disabled={!selectedIds.length}><MessageCircle/></button>
             <button title="Email selected" onClick={() => bulkNotice("Email")}><Mail/></button>
             <button title="Export visible leads" onClick={exportLeads}><Download/></button>
             </>}
@@ -908,6 +948,7 @@ export default function LeadsPage() {
                   <td>{lead.recentModified ? new Date(lead.recentModified).toLocaleString("en-IN", {timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}) : "—"}</td>
                   <td>
                     <div className="row-action-group">
+                    <button className="row-followup-trigger" title="Send WhatsApp message" aria-label={`Send WhatsApp message to ${lead.studentName}`} onClick={()=>openLeadMessage(lead)}><MessageCircle size={17}/></button>
                     <button className="row-followup-trigger remarks-count-trigger" title={`${Number(lead.remarksCount||0)} remarks · Lead history`} aria-label={`${Number(lead.remarksCount||0)} remarks for ${lead.studentName}. Open lead history`} onClick={()=>openHistory(lead)}><History size={17}/><span className="remarks-count-badge">{Number(lead.remarksCount||0)>99?"99+":Number(lead.remarksCount||0)}</span></button>
                     <button className="row-followup-trigger" title="Follow-up and notes" aria-label={`Follow-up and notes for ${lead.studentName}`} onClick={()=>openFollowup(lead)}><NotebookPen size={17}/></button>
                     <div className="row-more-actions">
@@ -1404,6 +1445,14 @@ export default function LeadsPage() {
           }}
         />
       )}
+      <WhatsAppSendPanel
+        open={Boolean(whatsAppRecipients)}
+        initialRecipients={whatsAppRecipients || []}
+        initialMode="selected"
+        presentation="drawer"
+        onClose={() => setWhatsAppRecipients(null)}
+        onSent={() => setMessage({ type: "success", text: "WhatsApp message request completed" })}
+      />
     </main>
   );
 }

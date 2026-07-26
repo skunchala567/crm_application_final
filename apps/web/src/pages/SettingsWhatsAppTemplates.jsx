@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Search, Trash2, Edit2, Copy, RefreshCw, Loader, AlertCircle, Funnel, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Search, Trash2, Edit2, Copy, RefreshCw, Loader, AlertCircle, Funnel, X, ChevronLeft, ChevronRight, MessageSquarePlus, Send, History } from 'lucide-react';
 import { api } from '../api';
 import WhatsAppPreview from '../components/WhatsAppPreview';
 import '../styles/SettingsWhatsAppTemplatesRedesigned.css';
 
-export default function SettingsWhatsAppTemplates({ integrationId, onNavigate, onMessage }) {
+export default function SettingsWhatsAppTemplates({ integrationId, integrations, onIntegrationChange, onNavigate, onMessage, onSendMessage, onMessageHistory }) {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -25,7 +25,7 @@ export default function SettingsWhatsAppTemplates({ integrationId, onNavigate, o
   // Load templates once on mount
   useEffect(() => {
     loadTemplates();
-  }, [integrationId]);
+  }, [integrationId, integrations]);
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -38,8 +38,14 @@ export default function SettingsWhatsAppTemplates({ integrationId, onNavigate, o
       setError(null);
 
       // ✅ Fetch all templates (backend now handles fetching all pages from AiSensy)
-      const response = await api.get(`/whatsapp/integrations/${integrationId}/templates?limit=1000&offset=0`);
-      const data = response.data?.data || response.data || [];
+      const eligible = integrations.filter(item => item.has_credentials && (!integrationId || String(item.id) === String(integrationId)));
+      const responses = await Promise.all(eligible.map(item =>
+        api.get(`/whatsapp/integrations/${item.id}/templates?limit=1000&offset=0`).then(response => {
+          const rows = response.data?.data || response.data || [];
+          return rows.map(template => ({ ...template, integrationId: item.id, integrationName: item.integration_name }));
+        })
+      ));
+      const data = responses.flat();
 
       // ✅ FIX 5: Sort by newest first (created_at DESC)
       const sorted = [...data].sort((a, b) => {
@@ -67,7 +73,7 @@ export default function SettingsWhatsAppTemplates({ integrationId, onNavigate, o
     } finally {
       setLoading(false);
     }
-  }, [integrationId]);
+  }, [integrationId, integrations]);
 
   // ✅ FIX 7: Proper sync function that actually syncs with AiSensy
   const handleSync = async () => {
@@ -77,14 +83,15 @@ export default function SettingsWhatsAppTemplates({ integrationId, onNavigate, o
       setSyncMessage('');
 
       // Sync with AiSensy to get latest statuses
-      const response = await api.post(`/whatsapp/integrations/${integrationId}/sync`);
+      const eligible = integrations.filter(item => item.has_credentials && (!integrationId || String(item.id) === String(integrationId)));
+      const responses = await Promise.all(eligible.map(item => api.post(`/whatsapp/integrations/${item.id}/sync`)));
 
       // Reload templates to reflect updated statuses
       await loadTemplates();
 
       // Show sync summary
-      const synced = response.data?.data?.synced || 0;
-      const updated = response.data?.data?.updated || 0;
+      const synced = responses.reduce((sum,response)=>sum+(response.data?.data?.synced||0),0);
+      const updated = responses.reduce((sum,response)=>sum+(response.data?.data?.updated||0),0);
       const total = synced + updated;
 
       if (total === 0) {
@@ -109,7 +116,7 @@ export default function SettingsWhatsAppTemplates({ integrationId, onNavigate, o
       setError(null);
       // ✅ FIX: Use aisensy_template_id for delete endpoint (not local id)
       const aisensy_id = selectedTemplate?.aisensy_template_id || templateId;
-      await api.delete(`/whatsapp/integrations/${integrationId}/templates/${aisensy_id}`);
+      await api.delete(`/whatsapp/integrations/${selectedTemplate?.integrationId || integrationId}/templates/${aisensy_id}`);
 
       if (selectedTemplate) {
         setSelectedTemplate(null);
@@ -146,7 +153,7 @@ export default function SettingsWhatsAppTemplates({ integrationId, onNavigate, o
         quick_replies: template.quick_replies || [],
         call_to_action: template.call_to_action || []
       };
-      await api.post(`/whatsapp/integrations/${integrationId}/templates`, newTemplate);
+      await api.post(`/whatsapp/integrations/${template.integrationId || integrationId}/templates`, newTemplate);
       await loadTemplates();
     } catch (err) {
       setError(`Failed to duplicate: ${err.message}`);
@@ -233,6 +240,10 @@ export default function SettingsWhatsAppTemplates({ integrationId, onNavigate, o
           <p>Create and manage WhatsApp Business message templates</p>
         </div>
         <div className="template-header-controls">
+          <select className="template-integration-filter" value={integrationId} onChange={event=>onIntegrationChange(event.target.value)} aria-label="WhatsApp integration">
+            <option value="">All integrations</option>
+            {integrations.map(item=><option key={item.id} value={item.id}>{item.integration_name}</option>)}
+          </select>
           <label className="template-header-search">
             <Search size={18} aria-hidden="true" />
             <input
@@ -246,6 +257,14 @@ export default function SettingsWhatsAppTemplates({ integrationId, onNavigate, o
           <button className="template-header-button secondary" onClick={handleSync} disabled={syncing}>
             <RefreshCw size={17} className={syncing ? 'spinning' : ''} />
             <span>Sync</span>
+          </button>
+          <button className="template-header-button secondary" onClick={onMessageHistory}>
+            <History size={17} />
+            <span>History</span>
+          </button>
+          <button className="template-header-button secondary" onClick={onSendMessage}>
+            <Send size={17} />
+            <span>Send message</span>
           </button>
           <button className="template-header-button primary" onClick={() => onNavigate('create')}>
             <Plus size={18} />
@@ -378,14 +397,25 @@ export default function SettingsWhatsAppTemplates({ integrationId, onNavigate, o
             </div>
           ) : filtered.length === 0 ? (
             <div className="list-empty">
-              <p>No templates found</p>
-              {search || selectedStatus ? (
-                <button className="btn btn-sm" onClick={() => { setSearch(''); clearAdvancedFilters(); }}>
+              <span className="list-empty-icon" aria-hidden="true">
+                <MessageSquarePlus size={26} strokeWidth={1.8} />
+              </span>
+              <div className="list-empty-copy">
+                <h3>No templates found</h3>
+                <p>
+                  {search || selectedStatus || dateFrom || dateTo || templateType || category || language
+                    ? 'Try clearing the active filters to see more templates.'
+                    : 'Create a template for the selected WhatsApp Business account.'}
+                </p>
+              </div>
+              {search || selectedStatus || dateFrom || dateTo || templateType || category || language ? (
+                <button className="template-empty-action template-empty-action-secondary" onClick={() => { setSearch(''); clearAdvancedFilters(); }}>
                   Clear filters
                 </button>
               ) : (
-                <button className="btn btn-primary btn-sm" onClick={() => onNavigate('create')}>
-                  Create your first template
+                <button className="template-empty-action" onClick={() => onNavigate('create')}>
+                  <Plus size={16} />
+                  Create template
                 </button>
               )}
             </div>
@@ -616,7 +646,7 @@ export default function SettingsWhatsAppTemplates({ integrationId, onNavigate, o
             <div className="detail-actions-bottom">
               <button
                 className="btn btn-sm btn-primary"
-                onClick={() => onNavigate('view', selectedTemplate.id || selectedTemplate.aisensy_template_id)}
+                onClick={() => onNavigate('view', selectedTemplate.id || selectedTemplate.aisensy_template_id, selectedTemplate.integrationId || integrationId)}
               >
                 <Edit2 size={16} />
                 Edit
