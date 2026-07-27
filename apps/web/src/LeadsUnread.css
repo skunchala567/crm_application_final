@@ -1,0 +1,26 @@
+.lead-message-unread {
+  position: absolute;
+  right: -5px;
+  top: -6px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  display: grid;
+  place-items: center;
+  border: 2px solid #fff;
+  border-radius: 10px;
+  background: #16866a;
+  color: #fff;
+  font: 800 8px Manrope;
+}
+
+.row-followup-trigger.has-unread {
+  border-color: #7bc9b5;
+  background: #eef9f5;
+  color: #16866a;
+}
+
+.header-action-icon i.has-count {
+  min-width: 18px;
+  padding: 0 3px;
+}

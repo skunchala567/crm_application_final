@@ -1,0 +1,181 @@
+.workspace .templates-redesigned .template-page-header {
+  min-height: 60px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.templates-redesigned .template-page-heading h1 {
+  margin: 0;
+}
+
+.templates-redesigned .templates-list-nav {
+  min-width: 0;
+}
+
+.templates-redesigned .filter-tabs {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.templates-redesigned .templates-list-nav-actions {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.templates-redesigned .template-list-integration-filter {
+  width: 190px;
+  min-width: 160px;
+  height: 36px;
+  flex: 0 0 auto;
+}
+
+.templates-redesigned .template-table-header,
+.templates-redesigned .template-list-item {
+  width: 100%;
+  min-width: 0;
+  grid-template-columns:
+    minmax(240px, 3fr)
+    minmax(90px, 0.9fr)
+    minmax(72px, 0.7fr)
+    minmax(130px, 1.1fr)
+    minmax(130px, 1.1fr)
+    minmax(100px, 0.8fr);
+  gap: 14px;
+}
+
+.templates-redesigned .template-table-header {
+  height: 36px;
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 9px;
+}
+
+.templates-redesigned .template-list-item {
+  height: 50px;
+  min-height: 50px;
+  padding: 5px 12px;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.templates-redesigned .template-table-header > *,
+.templates-redesigned .template-list-item > * {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.templates-redesigned .template-list-item .item-name-section {
+  min-width: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+.templates-redesigned .template-list-item .item-name-section h4 {
+  font-size: 11px;
+  line-height: 1.15;
+}
+
+.templates-redesigned .template-list-item .item-preview {
+  font-size: 9px;
+  line-height: 1.15;
+}
+
+.templates-redesigned .template-list-item .table-cell {
+  display: block;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.templates-redesigned .template-list-item > .status-badge {
+  min-width: 0;
+  max-width: 100%;
+  grid-column: auto;
+  grid-row: auto;
+  justify-self: start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+}
+
+@media (max-width: 1280px) {
+  .templates-redesigned .template-table-header,
+  .templates-redesigned .template-list-item {
+    display: grid;
+    grid-template-columns:
+      minmax(220px, 2.6fr)
+      minmax(90px, 0.9fr)
+      minmax(125px, 1.15fr)
+      minmax(100px, 0.85fr);
+  }
+
+  .templates-redesigned .template-table-header > :nth-child(3),
+  .templates-redesigned .template-list-item > :nth-child(3),
+  .templates-redesigned .template-table-header > :nth-child(4),
+  .templates-redesigned .template-list-item > :nth-child(4) {
+    display: none;
+  }
+
+  .templates-redesigned .template-list-item > :nth-child(2),
+  .templates-redesigned .template-list-item > :nth-child(5) {
+    display: block;
+  }
+}
+
+@media (max-width: 900px) {
+  .templates-redesigned .template-list-integration-filter {
+    width: 160px;
+  }
+
+  .templates-redesigned .template-table-header,
+  .templates-redesigned .template-list-item {
+    display: grid;
+    grid-template-columns: minmax(200px, 2.5fr) minmax(90px, 1fr) minmax(95px, 0.9fr);
+  }
+
+  .templates-redesigned .template-table-header > :nth-child(5),
+  .templates-redesigned .template-list-item > :nth-child(5) {
+    display: none;
+  }
+}
+
+@media (max-width: 650px) {
+  .templates-redesigned .templates-list-nav {
+    gap: 7px;
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .templates-redesigned .template-list-integration-filter {
+    width: 140px;
+    min-width: 140px;
+  }
+
+  .templates-redesigned .template-table-header,
+  .templates-redesigned .template-list-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(90px, auto);
+    gap: 9px;
+  }
+
+  .templates-redesigned .template-table-header > :nth-child(2),
+  .templates-redesigned .template-list-item > :nth-child(2) {
+    display: none;
+  }
+
+  .templates-redesigned .template-table-header {
+    min-height: 36px;
+    padding: 0 12px;
+  }
+
+  .templates-redesigned .template-list-item {
+    height: 50px;
+    min-height: 50px;
+    padding: 5px 12px;
+  }
+}

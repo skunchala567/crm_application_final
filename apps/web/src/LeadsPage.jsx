@@ -25,7 +25,8 @@ import {
   X,
   GitBranch,
 } from "lucide-react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { createPortal } from "react-dom";
 import { api } from "./api";
 import FilterWorkspace, { emptyAdvancedFilters, MultiSearchSelect, normalizeFilters } from "./FilterWorkspace.jsx";
 import { BulkUploadButton } from "./BulkUpload.jsx";
@@ -33,6 +34,10 @@ import { StageChangeDialog } from "./StageChangeDialog.jsx";
 import { BulkStageChangeConfirm } from "./BulkStageChangeConfirm.jsx";
 import Toast from "./Toast.jsx";
 import { WhatsAppSendPanel } from "./components/WhatsAppSendPanel.jsx";
+import { MarketingCampaignBuilder } from "./MarketingCampaigns.jsx";
+import "./LeadsUnread.css";
+import "./LeadsStickyLayout.css";
+import "./ProjectPagination.css";
 
 const emptyForm = {
   studentName: "",
@@ -58,6 +63,8 @@ const emptyForm = {
   remarks: "",
   sourceHistory: [],
 };
+
+const cleanPhone = (value) => String(value || "").replace(/\D/g, "").slice(-10);
 
 function toLocalInput(value) {
   if (!value) return "";
@@ -233,6 +240,8 @@ function FunnelStrip({
   onCreate,
   onAddLead,
   onSearch,
+  onMessages,
+  unreadCount = 0,
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const searchInputRef = useRef(null);
@@ -310,9 +319,9 @@ function FunnelStrip({
           Add lead
         </button>
 
-        <button className="header-action-icon" title="Messages">
+        <button className="header-action-icon" title={`${unreadCount} unread WhatsApp messages`} onClick={onMessages}>
           <MessageCircle size={18} />
-          <i className="green">0</i>
+          <i className={unreadCount ? "green has-count" : "green"}>{unreadCount > 99 ? "99+" : unreadCount}</i>
         </button>
 
         <button className="header-action-icon" title="Notifications">
@@ -339,6 +348,7 @@ function getDateFieldValue(lead, dateType) {
 
 export default function LeadsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [leads, setLeads] = useState([]);
   const [totalLeads, setTotalLeads] = useState(0);
   const [stageCounts, setStageCounts] = useState({});
@@ -357,6 +367,7 @@ export default function LeadsPage() {
     branches: [],
     employees: [],
     academicYears: [],
+    marketingCampaigns: [],
   });
   const [search, setSearch] = useState("");
   const [stageFilter, setStageFilter] = useState("");
@@ -370,6 +381,31 @@ export default function LeadsPage() {
   const [message, setMessage] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
   const [openActionId,setOpenActionId]=useState(null);
+  useEffect(() => {
+    if (!openActionId) return undefined;
+    const closeOnOutsideInteraction = (event) => {
+      if (
+        event.target.closest?.("[data-lead-action-trigger]") ||
+        event.target.closest?.("[data-lead-action-menu]")
+      )
+        return;
+      setOpenActionId(null);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setOpenActionId(null);
+    };
+    const closeMenu = () => setOpenActionId(null);
+    document.addEventListener("pointerdown", closeOnOutsideInteraction);
+    document.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("scroll", closeMenu, true);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideInteraction);
+      document.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("scroll", closeMenu, true);
+    };
+  }, [openActionId]);
   const [referLead,setReferLead]=useState(null);
   const [followupModal,setFollowupModal]=useState(null);
   const [historyModal,setHistoryModal]=useState(null);
@@ -391,6 +427,8 @@ export default function LeadsPage() {
   const [pageSize, setPageSize] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
   const [whatsAppRecipients, setWhatsAppRecipients] = useState(null);
+  const [marketingLeadIds, setMarketingLeadIds] = useState(null);
+  const [whatsAppConversations, setWhatsAppConversations] = useState([]);
   const studentNameInputRef = useRef(null);
   function toggleQuickActions(){setQuickActionsExpanded(current=>!current)}
 
@@ -404,9 +442,16 @@ export default function LeadsPage() {
   }
 
   async function loadMeta() {
-    const result = await api("/leads/meta");
-    setMeta(result);
-    return result;
+    const [result, marketingResult] = await Promise.all([
+      api("/leads/meta"),
+      api("/marketing-campaigns"),
+    ]);
+    const combined = {
+      ...result,
+      marketingCampaigns: marketingResult.data || [],
+    };
+    setMeta(combined);
+    return combined;
   }
 
   async function loadLeads(term = search) {
@@ -424,10 +469,28 @@ export default function LeadsPage() {
     }
   }
 
+  async function loadWhatsAppUnread() {
+    try {
+      const result = await api("/hub/smartping/conversations?limit=100&incomingOnly=1");
+      setWhatsAppConversations(result.data || []);
+    } catch {
+      setWhatsAppConversations([]);
+    }
+  }
+
   useEffect(() => {
-    Promise.all([loadMeta(), loadLeads(""), loadFunnels()]).catch((error) =>
+    Promise.all([loadMeta(), loadLeads(""), loadFunnels(), loadWhatsAppUnread()]).catch((error) =>
       setMessage({ type: "error", text: error.message }),
     );
+  }, []);
+  useEffect(() => {
+    const refresh = () => loadWhatsAppUnread();
+    const timer = window.setInterval(refresh, 10000);
+    window.addEventListener("crm:whatsapp-read", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("crm:whatsapp-read", refresh);
+    };
   }, []);
 
   useEffect(() => {
@@ -570,11 +633,16 @@ export default function LeadsPage() {
           (!advancedFilters.campaignCategory.length || advancedFilters.campaignCategory.includes(String(lead.campaignCategory))) &&
           (!advancedFilters.admissionTypeId.length || advancedFilters.admissionTypeId.includes(String(lead.admissionTypeId))) &&
           (!advancedFilters.referredByEmployeeId.length || advancedFilters.referredByEmployeeId.includes(String(lead.referredByEmployeeId))) &&
-          (!advancedFilters.touchStatus.length || advancedFilters.touchStatus.some(value => value === "touched" ? Boolean(lead.touchedAt) : !lead.touchedAt)) &&
+          (!advancedFilters.touchStatus.length || advancedFilters.touchStatus.includes(String(lead.touchStatus))) &&
           (!advancedFilters.isParent.length || advancedFilters.isParent.some(value => value === "yes" ? Boolean(lead.isParent) : !lead.isParent)) &&
           (!advancedFilters.lookingForAdmission.length || advancedFilters.lookingForAdmission.some(value => value === "yes" ? Boolean(lead.lookingForAdmission) : !lead.lookingForAdmission)) &&
           (!advancedFilters.whatsappResponse.length || advancedFilters.whatsappResponse.includes(String(lead.whatsappResponse))) &&
           (!advancedFilters.contactAvailability.length || advancedFilters.contactAvailability.some(value => value === "email" ? Boolean(lead.email) : Boolean(lead.phone))) &&
+          (!advancedFilters.marketingCampaignId.length && !advancedFilters.marketingDeliveryStatus.length ||
+            (lead.marketingDeliveries || []).some(delivery =>
+              (!advancedFilters.marketingCampaignId.length || advancedFilters.marketingCampaignId.includes(String(delivery.campaignId))) &&
+              (!advancedFilters.marketingDeliveryStatus.length || advancedFilters.marketingDeliveryStatus.includes(String(delivery.status)))
+            )) &&
           (!advancedFilters.scoreMin || Number(lead.score) >= Number(advancedFilters.scoreMin)) &&
           (!advancedFilters.scoreMax || Number(lead.score) <= Number(advancedFilters.scoreMax)) &&
           (!advancedFilters.followupFrom || (getDateFieldValue(lead, followupDateType) && istDateKey(getDateFieldValue(lead, followupDateType)) >= advancedFilters.followupFrom)) &&
@@ -676,6 +744,17 @@ export default function LeadsPage() {
       return;
     }
     setWhatsAppRecipients(recipients);
+  }
+
+  function openFilteredMarketingCampaign() {
+    if (!filtered.length) {
+      setMessage({
+        type: "error",
+        text: "No leads match the currently applied filters",
+      });
+      return;
+    }
+    setMarketingLeadIds(filtered.map((lead) => lead.id));
   }
 
   function openCreate() {
@@ -857,11 +936,25 @@ export default function LeadsPage() {
     }
   }
 
+  if (marketingLeadIds) {
+    return (
+      <MarketingCampaignBuilder
+        meta={meta}
+        leadIds={marketingLeadIds}
+        onClose={() => setMarketingLeadIds(null)}
+        onCreated={(text) => {
+          setMarketingLeadIds(null);
+          setMessage({ type: "success", text });
+        }}
+      />
+    );
+  }
+
   return (
     <main className="page leads-page">
       <section className="lead-command-center">
         <div className="funnel-callout">
-          <FunnelStrip funnels={funnels} onApply={applyFunnel} onDelete={deleteFunnel} onCreate={createFunnel} onAddLead={openCreate} onSearch={(query) => setSearch(query)}/>
+          <FunnelStrip funnels={funnels} onApply={applyFunnel} onDelete={deleteFunnel} onCreate={createFunnel} onAddLead={openCreate} onSearch={(query) => setSearch(query)} onMessages={() => navigate("/whatsapp-inbox")} unreadCount={whatsAppConversations.reduce((sum,item)=>sum+Number(item.unread_count||0),0)}/>
         </div>
         <div className="stage-tabs" role="tablist">
           <button className={`stage-tab ${!stageFilter ? "active" : ""}`} onClick={() => setStageFilter("")}><span className="stage-name">All</span> <span className="stage-count">{totalLeads}</span></button>
@@ -879,7 +972,7 @@ export default function LeadsPage() {
             <BulkUploadButton/>
             <button title={`Change stage for ${selectedIds.length || "selected"} leads`} aria-label={`Change stage for selected leads`} onClick={openBulkStageChange} disabled={!selectedIds.length}><GitBranch/></button>
             <button title={`Refer all ${filtered.length} visible leads`} aria-label={`Refer all ${filtered.length} visible leads`} onClick={openBulkRefer}><UserRoundPlus/></button>
-            <button title="Campaign for selected" onClick={() => bulkNotice("Campaign")}><Megaphone/></button>
+            <button title={`Add marketing campaign for ${filtered.length} filtered leads`} onClick={openFilteredMarketingCampaign} disabled={!filtered.length}><Megaphone/></button>
             <button title={`Send WhatsApp to ${selectedIds.length || "selected"} leads in this view`} onClick={openSelectedMessages} disabled={!selectedIds.length}><MessageCircle/></button>
             <button title="Email selected" onClick={() => bulkNotice("Email")}><Mail/></button>
             <button title="Export visible leads" onClick={exportLeads}><Download/></button>
@@ -921,7 +1014,14 @@ export default function LeadsPage() {
                           .join("")}
                       </button>
                       <span>
-                        <button type="button" className="lead-view-name" onClick={()=>openLead(lead.id,"view")}>{lead.studentName}</button>
+                        <span className="lead-name-line">
+                          <strong className="lead-view-name">{lead.studentName}</strong>
+                          {lead.touchStatus !== "unassigned" && (
+                            <em className={`lead-touch-badge ${lead.touchStatus}`}>
+                              {lead.touchStatus === "touched" ? "Touched" : "Untouched"}
+                            </em>
+                          )}
+                        </span>
                         <small>{lead.phone}</small>
                       </span>
                     </div>
@@ -948,17 +1048,17 @@ export default function LeadsPage() {
                   <td>{lead.recentModified ? new Date(lead.recentModified).toLocaleString("en-IN", {timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}) : "—"}</td>
                   <td>
                     <div className="row-action-group">
-                    <button className="row-followup-trigger" title="Send WhatsApp message" aria-label={`Send WhatsApp message to ${lead.studentName}`} onClick={()=>openLeadMessage(lead)}><MessageCircle size={17}/></button>
+                    <button className={`row-followup-trigger ${whatsAppConversations.some(item=>cleanPhone(item.mobile)===cleanPhone(lead.phone)&&Number(item.unread_count)>0)?"has-unread":""}`} title="Send WhatsApp message" aria-label={`Send WhatsApp message to ${lead.studentName}`} onClick={()=>openLeadMessage(lead)}><MessageCircle size={17}/>{(()=>{const count=whatsAppConversations.filter(item=>cleanPhone(item.mobile)===cleanPhone(lead.phone)).reduce((sum,item)=>sum+Number(item.unread_count||0),0);return count>0?<span className="lead-message-unread">{count>99?"99+":count}</span>:null})()}</button>
                     <button className="row-followup-trigger remarks-count-trigger" title={`${Number(lead.remarksCount||0)} remarks · Lead history`} aria-label={`${Number(lead.remarksCount||0)} remarks for ${lead.studentName}. Open lead history`} onClick={()=>openHistory(lead)}><History size={17}/><span className="remarks-count-badge">{Number(lead.remarksCount||0)>99?"99+":Number(lead.remarksCount||0)}</span></button>
                     <button className="row-followup-trigger" title="Follow-up and notes" aria-label={`Follow-up and notes for ${lead.studentName}`} onClick={()=>openFollowup(lead)}><NotebookPen size={17}/></button>
                     <div className="row-more-actions">
-                      <button className="row-more-trigger" title="More actions" aria-label={`More actions for ${lead.studentName}`} aria-expanded={openActionId?.id===lead.id} onClick={(event)=>{const rect=event.currentTarget.getBoundingClientRect();setOpenActionId(current=>current?.id===lead.id?null:{id:lead.id,top:rect.bottom+5,left:Math.max(8,rect.right-145)})}}><MoreVertical size={17}/></button>
-                      {openActionId?.id===lead.id&&<div className="row-more-menu" style={{top:openActionId.top,left:openActionId.left}}>
+                      <button data-lead-action-trigger className="row-more-trigger" title="More actions" aria-label={`More actions for ${lead.studentName}`} aria-expanded={openActionId?.id===lead.id} onClick={(event)=>{const rect=event.currentTarget.getBoundingClientRect();const menuHeight=151;const openAbove=rect.bottom+menuHeight+8>window.innerHeight;setOpenActionId(current=>current?.id===lead.id?null:{id:lead.id,top:openAbove?Math.max(8,rect.top-menuHeight-5):rect.bottom+5,left:Math.min(window.innerWidth-153,Math.max(8,rect.right-145))})}}><MoreVertical size={17}/></button>
+                      {openActionId?.id===lead.id&&createPortal(<div data-lead-action-menu className="row-more-menu" style={{top:openActionId.top,left:openActionId.left}}>
                         <button onClick={()=>{setOpenActionId(null);openLead(lead.id,"edit")}}><Pencil size={15}/> Edit</button>
                         <button onClick={()=>{setOpenActionId(null);openStageChange(lead)}}><GitBranch size={15}/> Change Stage</button>
-                        <button onClick={()=>openRefer(lead)}><UserRoundPlus size={15}/> Refer</button>
+                        <button onClick={()=>{setOpenActionId(null);openRefer(lead)}}><UserRoundPlus size={15}/> Refer</button>
                         <button className="danger" onClick={()=>{setOpenActionId(null);remove(lead)}}><Trash2 size={15}/> Remove</button>
-                      </div>}
+                      </div>,document.body)}
                     </div>
                     </div>
                   </td>
@@ -1003,8 +1103,7 @@ export default function LeadsPage() {
                 disabled={currentPage === 1}
                 title="First page"
               >
-                <ChevronLeft size={16} />
-                <ChevronLeft size={16} style={{marginLeft: '-8px'}} />
+                &lsaquo;&lsaquo;
               </button>
               <button
                 className="pagination-btn"
@@ -1031,8 +1130,7 @@ export default function LeadsPage() {
                 disabled={currentPage === totalPages || totalPages === 0}
                 title="Last page"
               >
-                <ChevronRight size={16} />
-                <ChevronRight size={16} style={{marginRight: '-8px'}} />
+                &rsaquo;&rsaquo;
               </button>
             </div>
           </div>

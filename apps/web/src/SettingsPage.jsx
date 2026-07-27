@@ -42,7 +42,7 @@ export default function SettingsPage(){
   const ActiveComponent = activeTabConfig?.component;
 
   return (
-    <>
+    <div className="settings-page-content">
       {message && (
         <div className={`notice ${message.type}`} style={{ margin: '20px 30px 16px' }}>
           <span>{message.text}</span>
@@ -52,6 +52,6 @@ export default function SettingsPage(){
         </div>
       )}
       {ActiveComponent && <ActiveComponent key={activeTabId} onMessage={setMessage} />}
-    </>
+    </div>
   );
 }

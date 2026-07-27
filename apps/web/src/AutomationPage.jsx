@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
-  ChevronRight,
   Filter,
-  MoreVertical,
+  Pencil,
+  Play,
+  Megaphone,
   Plus,
   Save,
   Trash2,
@@ -12,6 +13,9 @@ import {
 } from "lucide-react";
 import { api } from "./api";
 import { MultiSearchSelect, SearchSelect } from "./FilterWorkspace.jsx";
+import {
+  MarketingCampaignList,
+} from "./MarketingCampaigns.jsx";
 
 const categories = [
   {
@@ -64,14 +68,38 @@ const blankAction = () => ({
   field: "stage",
   value: "",
   delay: "immediate",
+  integrationId: "",
+  templateId: "",
+  templateName: "",
+  templateBody: "",
+  templateLanguage: "en",
+  templateParams: [],
 });
+function currentIndiaSchedule() {
+  const value = new Date()
+    .toLocaleString("sv-SE", {
+      timeZone: "Asia/Kolkata",
+      hour12: false,
+    })
+    .replace(" ", "T");
+  return {
+    startDate: value.slice(0, 10),
+    startTime: value.slice(11, 16),
+  };
+}
 
 export default function AutomationPage() {
   const [view, setView] = useState("list"),
     [items, setItems] = useState([]),
+    [campaigns, setCampaigns] = useState([]),
     [meta, setMeta] = useState(null),
+    [whatsappIntegrations, setWhatsappIntegrations] = useState([]),
+    [whatsappTemplates, setWhatsappTemplates] = useState({}),
+    [loadingTemplates, setLoadingTemplates] = useState(""),
     [query, setQuery] = useState(""),
-    [notice, setNotice] = useState("");
+    [notice, setNotice] = useState(""),
+    [editingId, setEditingId] = useState(null);
+  const [automationTab, setAutomationTab] = useState("workflows");
   const [activeStep, setActiveStep] = useState("if");
   const [form, setForm] = useState({
     name: "",
@@ -84,12 +112,25 @@ export default function AutomationPage() {
     noRecheckAfterDelay: false,
   });
   async function load() {
-    const [workflows, leadMeta] = await Promise.all([
+    const [workflows, leadMeta, integrations, campaignResult] =
+      await Promise.all([
       api("/automations"),
       api("/leads/meta"),
+      api("/whatsapp/integrations?provider=SMARTPING"),
+      api("/marketing-campaigns"),
     ]);
     setItems(workflows.data);
     setMeta(leadMeta);
+    setCampaigns(campaignResult.data || []);
+    setWhatsappIntegrations(
+      (integrations.data || []).filter(
+        (item) =>
+          item.has_credentials &&
+          !["INACTIVE", "FAILED", "DISCONNECTED"].includes(
+            String(item.status || "").toUpperCase(),
+          ),
+      ),
+    );
   }
   useEffect(() => {
     load().catch((error) => setNotice(error.message));
@@ -127,17 +168,66 @@ export default function AutomationPage() {
     })),
   ];
   function begin(category) {
+    const schedule = currentIndiaSchedule();
+    setEditingId(null);
     setActiveStep("if");
     setForm({
       name: "",
       category,
-      startDate: "",
-      startTime: "",
+      startDate: schedule.startDate,
+      startTime: schedule.startTime,
       conditions: [blankCondition()],
       logic: "and",
       actions: [blankAction()],
       noRecheckAfterDelay: false,
     });
+    setView("builder");
+  }
+  function editWorkflow(item) {
+    const definition = item.definition || {};
+    const scheduled = item.startAt ? new Date(item.startAt) : null;
+    const localSchedule = scheduled
+      ? scheduled
+          .toLocaleString("sv-SE", {
+            timeZone: "Asia/Kolkata",
+            hour12: false,
+          })
+          .replace(" ", "T")
+      : "";
+    const actions = (definition.actions || [blankAction()]).map((action) => ({
+      ...blankAction(),
+      ...action,
+      integrationId: action.integrationId
+        ? String(action.integrationId)
+        : "",
+      templateId: action.templateId ? String(action.templateId) : "",
+      templateParams: Array.isArray(action.templateParams)
+        ? action.templateParams
+        : [],
+    }));
+    setEditingId(item.id);
+    setActiveStep("if");
+    setForm({
+      name: item.name,
+      category: item.category,
+      startDate: localSchedule.slice(0, 10),
+      startTime: localSchedule.slice(11, 16),
+      conditions:
+        definition.conditions?.length > 0
+          ? definition.conditions
+          : [blankCondition()],
+      logic: definition.logic || "and",
+      actions,
+      noRecheckAfterDelay: Boolean(definition.noRecheckAfterDelay),
+    });
+    actions
+      .filter((action) => action.type === "whatsapp" && action.integrationId)
+      .forEach((action) => {
+        loadWhatsappTemplates(action.integrationId).catch((error) =>
+          setNotice(error.message),
+        );
+      });
+    setNotice("");
     setView("builder");
   }
   function changeCondition(index, key, value) {
@@ -341,13 +431,115 @@ export default function AutomationPage() {
       ),
     }));
   }
+  function changeActionType(index, type) {
+    setForm((current) => ({
+      ...current,
+      actions: current.actions.map((item, i) =>
+        i === index ? { ...blankAction(), type, delay: item.delay } : item,
+      ),
+    }));
+  }
+  async function loadWhatsappTemplates(integrationId) {
+    if (!integrationId || whatsappTemplates[integrationId]) return;
+    setLoadingTemplates(String(integrationId));
+    try {
+      const result = await api(
+        `/whatsapp/integrations/${integrationId}/templates?limit=1000`,
+      );
+      setWhatsappTemplates((current) => ({
+        ...current,
+        [integrationId]: (result.data || []).filter(
+          (item) => String(item.status).toUpperCase() === "APPROVED",
+        ),
+      }));
+    } finally {
+      setLoadingTemplates("");
+    }
+  }
+  function chooseWhatsappAccount(index, integrationId) {
+    setForm((current) => ({
+      ...current,
+      actions: current.actions.map((item, i) =>
+        i === index
+          ? {
+              ...item,
+              integrationId,
+              templateId: "",
+              templateName: "",
+              templateBody: "",
+              templateLanguage: "en",
+              templateParams: [],
+            }
+          : item,
+      ),
+    }));
+    loadWhatsappTemplates(integrationId).catch((error) =>
+      setNotice(error.message),
+    );
+  }
+  function chooseWhatsappTemplate(index, templateId) {
+    setForm((current) => ({
+      ...current,
+      actions: current.actions.map((item, i) => {
+        if (i !== index) return item;
+        const template = (whatsappTemplates[item.integrationId] || []).find(
+          (candidate) => String(candidate.id) === String(templateId),
+        );
+        const body = template?.body || "";
+        const parameterCount = Math.max(
+          Number(template?.total_parameters || 0),
+          ...[...body.matchAll(/\{\{\s*(\d+)\s*\}\}/g)].map((match) =>
+            Number(match[1]),
+          ),
+          0,
+        );
+        return {
+          ...item,
+          templateId,
+          templateName: template?.template_name || "",
+          templateBody: body,
+          templateLanguage: template?.language || "en",
+          templateParams: Array.from({ length: parameterCount }, () => ""),
+        };
+      }),
+    }));
+  }
+  function changeTemplateParameter(actionIndex, parameterIndex, value) {
+    setForm((current) => ({
+      ...current,
+      actions: current.actions.map((item, index) => {
+        if (index !== actionIndex) return item;
+        const templateParams = [...item.templateParams];
+        templateParams[parameterIndex] = value;
+        return { ...item, templateParams };
+      }),
+    }));
+  }
   async function save() {
     if (!form.name.trim() || !form.startDate || !form.startTime) {
       setNotice("Enter the automation name, start date and start time");
       return;
     }
-    await api("/automations", {
-      method: "POST",
+    const incompleteAction = form.actions.find((action) => {
+      if (action.type === "update") return !action.field || action.value === "";
+      if (action.type === "whatsapp")
+        return (
+          !action.integrationId ||
+          !action.templateId ||
+          action.templateParams.some((value) => !String(value).trim())
+        );
+      return true;
+    });
+    if (incompleteAction) {
+      setNotice(
+        incompleteAction.type === "whatsapp"
+          ? "Select a WhatsApp account, approved template, and all fixed parameter values"
+          : "Complete every THEN action before saving",
+      );
+      return;
+    }
+    await api(editingId ? `/automations/${editingId}` : "/automations", {
+      method: editingId ? "PUT" : "POST",
       body: JSON.stringify({
         name: form.name,
         category: form.category,
@@ -360,8 +552,13 @@ export default function AutomationPage() {
         },
       }),
     });
-    setNotice("Automation workflow saved");
+    setNotice(
+      editingId
+        ? "Automation workflow updated"
+        : "Automation workflow saved",
+    );
     await load();
+    setEditingId(null);
     setView("list");
   }
   async function status(item) {
@@ -371,81 +568,39 @@ export default function AutomationPage() {
     });
     await load();
   }
+  async function runNow(item) {
+    const result = await api(`/automations/${item.id}/run`, {
+      method: "POST",
+    });
+    setNotice(result.message);
+    await load();
+  }
   async function remove(item) {
     if (!confirm(`Delete automation “${item.name}”?`)) return;
     await api(`/automations/${item.id}`, { method: "DELETE" });
     await load();
   }
-  if (view === "categories")
-    return (
-      <main className="page automation-page">
-        <button className="automation-back" onClick={() => setView("list")}>
-          <ArrowLeft /> Create a new automation workflow
-        </button>
-        <p className="automation-intro">
-          Select the category best suited to create your workflow:
-        </p>
-        <div className="automation-categories">
-          {categories.map((category) => (
-            <button
-              key={category.id}
-              className="automation-category"
-              onClick={() => begin(category.id)}
-            >
-              <span className="workflow-mini">
-                <Filter />
-                <i>IF</i>
-                <ChevronRight />
-                <Zap />
-                <i>THEN</i>
-              </span>
-              <span>
-                <strong>{category.title}</strong>
-                {category.lines.map((line) => (
-                  <small key={line}>• {line}</small>
-                ))}
-              </span>
-            </button>
-          ))}
-        </div>
-      </main>
-    );
+  async function updateCampaignStatus(campaign, statusValue) {
+    const result = await api(`/marketing-campaigns/${campaign.id}/status`, {
+      method: "PUT",
+      body: JSON.stringify({ status: statusValue }),
+    });
+    setNotice(result.message);
+    await load();
+  }
   if (view === "builder")
     return (
       <main className="page automation-page">
         <button
           className="automation-back"
-          onClick={() => setView("categories")}
+          onClick={() => {
+            setEditingId(null);
+            setView("list");
+          }}
         >
           <ArrowLeft />{" "}
-          {categories.find((item) => item.id === form.category)?.title}
+          {editingId ? "Edit automation workflow" : "Add automation workflow"}
         </button>
-        <div className="automation-basics">
-          <label>
-            Automation name *
-            <input
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="Automation name"
-            />
-          </label>
-          <label>
-            Start date *
-            <input
-              type="date"
-              value={form.startDate}
-              onChange={(e) => setForm({ ...form, startDate: e.target.value })}
-            />
-          </label>
-          <label>
-            Start time *
-            <input
-              type="time"
-              value={form.startTime}
-              onChange={(e) => setForm({ ...form, startTime: e.target.value })}
-            />
-          </label>
-        </div>
         <div className="automation-builder">
           <aside>
             <div
@@ -543,7 +698,7 @@ export default function AutomationPage() {
                     <select
                       value={action.type}
                       onChange={(e) =>
-                        changeAction(index, "type", e.target.value)
+                        changeActionType(index, e.target.value)
                       }
                     >
                       <option value="update">Update attribute</option>
@@ -552,37 +707,91 @@ export default function AutomationPage() {
                       <option value="whatsapp">Send WhatsApp</option>
                       <option value="task">Create task</option>
                     </select>
-                    <select
-                      value={action.field}
-                      onChange={(e) =>
-                        changeAction(index, "field", e.target.value)
-                      }
-                    >
-                      <option value="stage">Stage</option>
-                      <option value="substage">Sub-stage</option>
-                      <option value="owner">Owner</option>
-                      <option value="score">Lead score</option>
-                    </select>
-                    {action.type === "update" && fieldOptions[action.field] ? (
-                      <SearchSelect
-                        label={`${action.field} value`}
-                        value={action.value}
-                        onChange={(value) =>
-                          changeAction(index, "value", value)
-                        }
-                        options={searchOptions(
-                          fieldOptions[action.field],
-                          `Select ${action.field}`,
+                    {action.type === "update" ? (
+                      <>
+                        <select
+                          value={action.field}
+                          onChange={(e) =>
+                            changeAction(index, "field", e.target.value)
+                          }
+                        >
+                          <option value="stage">Stage</option>
+                          <option value="substage">Sub-stage</option>
+                          <option value="owner">Owner</option>
+                          <option value="score">Lead score</option>
+                        </select>
+                        {fieldOptions[action.field] ? (
+                          <SearchSelect
+                            label={`${action.field} value`}
+                            value={action.value}
+                            onChange={(value) =>
+                              changeAction(index, "value", value)
+                            }
+                            options={searchOptions(
+                              fieldOptions[action.field],
+                              `Select ${action.field}`,
+                            )}
+                          />
+                        ) : (
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={action.value}
+                            onChange={(e) =>
+                              changeAction(index, "value", e.target.value)
+                            }
+                            placeholder="Lead score"
+                          />
                         )}
-                      />
+                      </>
+                    ) : action.type === "whatsapp" ? (
+                      <>
+                        <select
+                          value={action.integrationId}
+                          onChange={(event) =>
+                            chooseWhatsappAccount(index, event.target.value)
+                          }
+                        >
+                          <option value="">Select WhatsApp account</option>
+                          {whatsappIntegrations.map((integration) => (
+                            <option key={integration.id} value={integration.id}>
+                              {integration.integration_name ||
+                                integration.name}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={action.templateId}
+                          disabled={
+                            !action.integrationId ||
+                            loadingTemplates === String(action.integrationId)
+                          }
+                          onChange={(event) =>
+                            chooseWhatsappTemplate(index, event.target.value)
+                          }
+                        >
+                          <option value="">
+                            {loadingTemplates === String(action.integrationId)
+                              ? "Loading templates..."
+                              : "Select approved template"}
+                          </option>
+                          {(whatsappTemplates[action.integrationId] || []).map(
+                            (template) => (
+                              <option key={template.id} value={template.id}>
+                                {template.template_name}
+                              </option>
+                            ),
+                          )}
+                        </select>
+                      </>
                     ) : (
-                      <input
-                        value={action.value}
-                        onChange={(e) =>
-                          changeAction(index, "value", e.target.value)
-                        }
-                        placeholder="Value or template"
-                      />
+                      <>
+                        <div className="condition-value-disabled">
+                          Configuration for this action is not available yet
+                        </div>
+                        <div />
+                      </>
                     )}
                     <select
                       value={action.delay}
@@ -605,6 +814,33 @@ export default function AutomationPage() {
                     >
                       <Trash2 />
                     </button>
+                    {action.type === "whatsapp" &&
+                      action.templateId && (
+                        <div className="automation-whatsapp-template">
+                          <span>Approved template content</span>
+                          <p>{action.templateBody}</p>
+                          {action.templateParams.length > 0 && (
+                            <div className="automation-template-params">
+                              {action.templateParams.map((value, paramIndex) => (
+                                <label key={paramIndex}>
+                                  {`{{${paramIndex + 1}}}`} fixed value *
+                                  <input
+                                    value={value}
+                                    onChange={(event) =>
+                                      changeTemplateParameter(
+                                        index,
+                                        paramIndex,
+                                        event.target.value,
+                                      )
+                                    }
+                                    placeholder={`Value for {{${paramIndex + 1}}}`}
+                                  />
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                   </div>
                 ))}
                 <button
@@ -622,23 +858,61 @@ export default function AutomationPage() {
             )}
           </section>
         </div>
-        <footer className="automation-footer">
-          <button className="secondary" onClick={() => setView("list")}>
-            Cancel
-          </button>
-          <button
-            className="primary"
-            onClick={() => save().catch((error) => setNotice(error.message))}
-          >
-            <Save /> Save workflow
-          </button>
-        </footer>
+        <div className="automation-submit-bar">
+          <div className="automation-basics">
+            <label>
+              Automation name *
+              <input
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="Automation name"
+              />
+            </label>
+            <label>
+              Start date *
+              <input
+                type="date"
+                value={form.startDate}
+                onChange={(e) =>
+                  setForm({ ...form, startDate: e.target.value })
+                }
+              />
+            </label>
+            <label>
+              Start time *
+              <input
+                type="time"
+                value={form.startTime}
+                onChange={(e) =>
+                  setForm({ ...form, startTime: e.target.value })
+                }
+              />
+            </label>
+          </div>
+          <footer className="automation-footer">
+            <button
+              className="secondary"
+              onClick={() => {
+                setEditingId(null);
+                setView("list");
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              className="primary"
+              onClick={() => save().catch((error) => setNotice(error.message))}
+            >
+              <Save /> {editingId ? "Update workflow" : "Save workflow"}
+            </button>
+          </footer>
+        </div>
         {notice && <div className="notice error">{notice}</div>}
       </main>
     );
   return (
     <main className="page automation-page">
-      <div className="automation-heading">
+      <div className="page-heading">
         <div>
           <span className="eyebrow">Engagement automation</span>
           <h1>Automation workflows</h1>
@@ -647,23 +921,50 @@ export default function AutomationPage() {
             moving.
           </p>
         </div>
-        <button className="primary" onClick={() => setView("categories")}>
-          <Plus /> New workflow
-        </button>
-      </div>
-      <div className="automation-toolbar">
-        <div className="local-search">
-          <Filter />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filter workflows"
-          />
+        <div className="automation-heading-actions">
+          <button className="primary" onClick={() => begin("attribute")}>
+            <Plus size={18} /> Add workflow
+          </button>
         </div>
-        <span>{visible.length} workflows</span>
       </div>
+      <nav className="automation-module-tabs" aria-label="Automation sections">
+        <button
+          className={automationTab === "workflows" ? "active" : ""}
+          onClick={() => setAutomationTab("workflows")}
+        >
+          <Workflow /> Workflows <span>{items.length}</span>
+        </button>
+        <button
+          className={automationTab === "campaigns" ? "active" : ""}
+          onClick={() => setAutomationTab("campaigns")}
+        >
+          <Megaphone /> Bulk campaigns <span>{campaigns.length}</span>
+        </button>
+      </nav>
       {notice && <div className="notice success">{notice}</div>}
+      {automationTab === "campaigns" ? (
+        <MarketingCampaignList
+          campaigns={campaigns}
+          onStatus={(campaign, statusValue) =>
+            updateCampaignStatus(campaign, statusValue).catch((error) =>
+              setNotice(error.message),
+            )
+          }
+        />
+      ) : (
+      <>
       <article className="panel">
+        <div className="table-tools">
+          <div className="local-search">
+            <Filter />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search workflows"
+            />
+          </div>
+          <span>{visible.length} workflows</span>
+        </div>
         <div className="table-wrap">
           <table>
             <thead>
@@ -673,6 +974,7 @@ export default function AutomationPage() {
                 <th>Created by</th>
                 <th>Created on</th>
                 <th>Start time</th>
+                <th>Execution</th>
                 <th>Active</th>
                 <th />
               </tr>
@@ -702,6 +1004,25 @@ export default function AutomationPage() {
                       : "Not scheduled"}
                   </td>
                   <td>
+                    <div className="automation-run-status">
+                      <strong>
+                        {item.lastStatus
+                          ? item.lastStatus[0].toUpperCase() +
+                            item.lastStatus.slice(1)
+                          : "Not run"}
+                      </strong>
+                      <small>
+                        {item.completedCount} completed
+                        {item.failedCount
+                          ? ` · ${item.failedCount} failed`
+                          : ""}
+                        {item.pendingCount
+                          ? ` · ${item.pendingCount} pending`
+                          : ""}
+                      </small>
+                    </div>
+                  </td>
+                  <td>
                     <button
                       className={`automation-toggle ${item.isActive ? "active" : ""}`}
                       onClick={() =>
@@ -712,15 +1033,38 @@ export default function AutomationPage() {
                     </button>
                   </td>
                   <td>
-                    <button
-                      className="icon-btn"
-                      onClick={() =>
-                        remove(item).catch((error) => setNotice(error.message))
-                      }
-                      title="Delete workflow"
-                    >
-                      <MoreVertical />
-                    </button>
+                    <div className="automation-row-actions">
+                      <button
+                        className="icon-btn"
+                        onClick={() =>
+                          runNow(item).catch((error) =>
+                            setNotice(error.message),
+                          )
+                        }
+                        title="Run workflow now"
+                        disabled={!item.isActive}
+                      >
+                        <Play />
+                      </button>
+                      <button
+                        className="icon-btn"
+                        onClick={() => editWorkflow(item)}
+                        title="Edit workflow"
+                      >
+                        <Pencil />
+                      </button>
+                      <button
+                        className="icon-btn danger"
+                        onClick={() =>
+                          remove(item).catch((error) =>
+                            setNotice(error.message),
+                          )
+                        }
+                        title="Delete workflow"
+                      >
+                        <Trash2 />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -735,6 +1079,8 @@ export default function AutomationPage() {
           )}
         </div>
       </article>
+      </>
+      )}
     </main>
   );
 }

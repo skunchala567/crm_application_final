@@ -1,13 +1,15 @@
 import { Children, isValidElement, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Filter, ListFilter, RotateCcw, Save, Search, X } from "lucide-react";
 import { api } from "./api";
+import "./FilterWorkspaceCampaign.css";
 
-const multiKeys = ["branchId","stage","substageId","sourceId","channelId","channelCategory","campaignId","campaignCategory","ownerEmployeeId","classId","curriculumId","admissionTypeId","referredByEmployeeId","touchStatus","isParent","lookingForAdmission","whatsappResponse","contactAvailability"];
+const multiKeys = ["branchId","stage","substageId","sourceId","channelId","channelCategory","campaignId","campaignCategory","marketingCampaignId","marketingDeliveryStatus","ownerEmployeeId","classId","curriculumId","admissionTypeId","referredByEmployeeId","touchStatus","isParent","lookingForAdmission","whatsappResponse","contactAvailability"];
 export const emptyAdvancedFilters = Object.fromEntries([...multiKeys.map(key => [key,[]]),...["followupFrom","followupTo","scoreMin","scoreMax"].map(key => [key,""])]);
 export function normalizeFilters(filters={}) { return { ...emptyAdvancedFilters, ...filters, ...Object.fromEntries(multiKeys.map(key => [key, Array.isArray(filters[key]) ? filters[key].map(String) : filters[key] ? [String(filters[key])] : []])) }; }
 
 const sections = [
   ["lead", "Lead details"], ["academic", "Academic details"], ["communication", "Communication details"],
+  ["marketing", "Marketing campaigns"],
   ["date", "Date filters"], ["range", "Range filters"],
 ];
 
@@ -54,11 +56,17 @@ export function MultiSearchSelect({ label, value=[], options, onChange, disabled
   const choices=options.filter(option=>option.value!=="");
   const selected=choices.filter(option=>values.includes(String(option.value)));
   const suggestions=choices.filter(option=>option.label.toLowerCase().includes(query.toLowerCase().trim()));
+  const allSelected=choices.length>0&&choices.every(option=>values.includes(String(option.value)));
   useEffect(()=>{function close(event){if(!root.current?.contains(event.target))setOpen(false)}document.addEventListener("mousedown",close);return()=>document.removeEventListener("mousedown",close)},[]);
   function toggle(option){const id=String(option.value);onChange(values.includes(id)?values.filter(item=>item!==id):[...values,id]);setQuery("");}
   return <div className="search-select multi-search-select" ref={root}>
     <Search size={15}/><div className="multi-select-input" onClick={()=>setOpen(true)}><input role="combobox" aria-label={label} aria-expanded={open} aria-autocomplete="list" disabled={disabled} value={query} placeholder={selected.length?(selected.length===1?selected[0].label:`${selected.length} selected`):(options[0]?.label||`Select ${label}`)} onFocus={()=>setOpen(true)} onChange={event=>{setQuery(event.target.value);setOpen(true)}}/></div>{selected.length>0&&<button type="button" className="multi-clear" aria-label={`Clear ${label}`} onClick={()=>onChange([])}><X size={13}/></button>}<ChevronDown size={15}/>
-    {open&&<div className="search-select-menu" role="listbox" aria-multiselectable="true">{suggestions.length?suggestions.map(option=><button type="button" role="option" aria-selected={values.includes(String(option.value))} className={values.includes(String(option.value))?"selected":""} key={`${option.value}-${option.label}`} onMouseDown={event=>event.preventDefault()} onClick={()=>toggle(option)}><span className="multi-check">{values.includes(String(option.value))?"✓":""}</span>{option.label}</button>):<p>No suggestions found</p>}</div>}
+    {open&&<div className="search-select-menu multi-search-menu" role="listbox" aria-multiselectable="true">
+      <div className="multi-select-actions">
+        <button type="button" onMouseDown={event=>event.preventDefault()} onClick={()=>onChange(allSelected?[]:choices.map(option=>String(option.value)))}>{allSelected?"Clear all":"Select all"}<span>{allSelected?selected.length:choices.length}</span></button>
+      </div>
+      <div className="multi-select-options">{suggestions.length?suggestions.map(option=><button type="button" role="option" aria-selected={values.includes(String(option.value))} className={values.includes(String(option.value))?"selected":""} key={`${option.value}-${option.label}`} onMouseDown={event=>event.preventDefault()} onClick={()=>toggle(option)}><span className="multi-check">{values.includes(String(option.value))?"✓":""}</span>{option.label}</button>):<p>No suggestions found</p>}</div>
+    </div>}
   </div>;
 }
 
@@ -120,6 +128,11 @@ export default function FilterWorkspace({ mode="filter", meta, initialFilters, o
           <Field label="Referred from" searchText={fieldSearch}><select value={filters.referredByEmployeeId} onChange={event => set("referredByEmployeeId",event.target.value)}><option value="">Anyone</option>{meta.employees.map(item => <option key={`${item.id}-${item.branchId}`} value={item.id}>{item.name} · {item.branchName}</option>)}</select></Field>
         </div>}
         {activeSection === "communication" && <div className="filter-grid"><Field label="Contact availability" searchText={fieldSearch}><select value={filters.contactAvailability} onChange={event => set("contactAvailability",event.target.value)}><option value="">Any contact details</option><option value="email">Has email address</option><option value="phone">Has phone number</option></select></Field></div>}
+        {activeSection === "marketing" && <div className="filter-grid marketing-filter-grid">
+          <div className="marketing-filter-intro"><span>WhatsApp campaigns</span><strong>Find leads by bulk campaign and delivery outcome</strong><small>Campaign filters work together with all lead, academic and date filters.</small></div>
+          <Field label="Bulk marketing campaign" searchText={fieldSearch}><select value={filters.marketingCampaignId} onChange={event => set("marketingCampaignId",event.target.value)}><option value="">All bulk campaigns</option>{(meta.marketingCampaigns||[]).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
+          <Field label="WhatsApp delivery status" searchText={fieldSearch}><select value={filters.marketingDeliveryStatus} onChange={event => set("marketingDeliveryStatus",event.target.value)}><option value="">Any delivery status</option>{["PENDING","RUNNING","QUEUED","SENT","DELIVERED","READ","FAILED","CANCELLED"].map(status => <option key={status} value={status}>{status.charAt(0)+status.slice(1).toLowerCase()}</option>)}</select></Field>
+        </div>}
         {activeSection === "date" && <div className="filter-grid"><Field label="Follow-up from" searchText={fieldSearch}><input type="date" value={filters.followupFrom} onChange={event => set("followupFrom",event.target.value)}/></Field><Field label="Follow-up to" searchText={fieldSearch}><input type="date" value={filters.followupTo} onChange={event => set("followupTo",event.target.value)}/></Field></div>}
         {activeSection === "range" && <div className="filter-grid"><Field label="Minimum lead score" searchText={fieldSearch}><input type="number" min="0" max="100" value={filters.scoreMin} onChange={event => set("scoreMin",event.target.value)}/></Field><Field label="Maximum lead score" searchText={fieldSearch}><input type="number" min="0" max="100" value={filters.scoreMax} onChange={event => set("scoreMax",event.target.value)}/></Field></div>}
       </main>

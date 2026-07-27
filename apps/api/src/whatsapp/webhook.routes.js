@@ -107,14 +107,22 @@ export function createWebhookRoutes(pool, logger = console) {
         || messageContent.image?.url || messageContent.image?.link
         || messageContent.document?.url || messageContent.document?.link
         || messageContent.video?.url || messageContent.video?.link || null;
+      const normalizedMobile = String(mobile || '').replace(/\D/g, '').slice(-10);
+      const [[linkedLead]] = await pool.query(
+        `SELECT id FROM crm_leads
+         WHERE normalized_phone=? AND deleted_at_utc IS NULL
+         ORDER BY updated_at_utc DESC LIMIT 1`,
+        [normalizedMobile]
+      );
       const [conversationResult] = await pool.query(
         `INSERT INTO crm_whatsapp_conversations
-          (organization_id, integration_id, mobile, contact_name, last_message,
+          (organization_id, integration_id, mobile, contact_name, lead_id, last_message,
            last_message_time, unread_count, status)
-         VALUES (?, ?, ?, ?, ?, NOW(), ?, 'ACTIVE')
+         VALUES (?, ?, ?, ?, ?, ?, NOW(), ?, 'ACTIVE')
          ON DUPLICATE KEY UPDATE
            id = LAST_INSERT_ID(id),
            contact_name = COALESCE(VALUES(contact_name), contact_name),
+           lead_id = COALESCE(lead_id, VALUES(lead_id)),
            last_message = VALUES(last_message),
            last_message_time = NOW(),
            unread_count = unread_count + VALUES(unread_count),
@@ -124,6 +132,7 @@ export function createWebhookRoutes(pool, logger = console) {
           integration.id,
           mobile,
           payload.contact_name || payload.userName || null,
+          linkedLead?.id || null,
           text || `[${payload.type || 'message'}]`,
           direction === 'incoming' ? 1 : 0
         ]
@@ -131,13 +140,14 @@ export function createWebhookRoutes(pool, logger = console) {
       const conversationId = conversationResult.insertId;
       const [messageResult] = await pool.query(
         `INSERT INTO crm_whatsapp_messages
-          (conversation_id, integration_id, message_id, client_request_id,
+          (conversation_id, integration_id, lead_id, message_id, client_request_id,
            direction, type, message, media_url, caption, status, api_response,
            provider_timestamp, sent_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
         [
           conversationId,
           integration.id,
+          linkedLead?.id || null,
           messageId,
           `webhook:${messageId}`,
           direction,

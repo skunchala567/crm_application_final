@@ -3,6 +3,8 @@ import { Plus, Search, Trash2, Edit2, Copy, RefreshCw, Loader, AlertCircle, Funn
 import { api } from '../api';
 import WhatsAppPreview from '../components/WhatsAppPreview';
 import '../styles/SettingsWhatsAppTemplatesRedesigned.css';
+import '../ProjectPagination.css';
+import '../styles/WhatsAppTemplateTableAlignment.css';
 
 export default function SettingsWhatsAppTemplates({ integrationId, integrations, onIntegrationChange, onNavigate, onMessage, onSendMessage, onMessageHistory }) {
   const [templates, setTemplates] = useState([]);
@@ -237,13 +239,8 @@ export default function SettingsWhatsAppTemplates({ integrationId, integrations,
       <header className="template-page-header">
         <div className="template-page-heading">
           <h1>WhatsApp Templates</h1>
-          <p>Create and manage WhatsApp Business message templates</p>
         </div>
         <div className="template-header-controls">
-          <select className="template-integration-filter" value={integrationId} onChange={event=>onIntegrationChange(event.target.value)} aria-label="WhatsApp integration">
-            <option value="">All integrations</option>
-            {integrations.map(item=><option key={item.id} value={item.id}>{item.integration_name}</option>)}
-          </select>
           <label className="template-header-search">
             <Search size={18} aria-hidden="true" />
             <input
@@ -314,6 +311,10 @@ export default function SettingsWhatsAppTemplates({ integrationId, integrations,
               ))}
             </div>
             <div className="templates-list-nav-actions">
+              <select className="template-integration-filter template-list-integration-filter" value={integrationId} onChange={event=>onIntegrationChange(event.target.value)} aria-label="WhatsApp integration">
+                <option value="">All integrations</option>
+                {integrations.map(item=><option key={item.id} value={item.id}>{item.integration_name}</option>)}
+              </select>
               <div className="advanced-filter">
                 <button
                   className={`list-nav-icon-button ${showFilters || activeAdvancedFilterCount ? 'active' : ''}`}

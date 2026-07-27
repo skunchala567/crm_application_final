@@ -1,0 +1,244 @@
+.leads-page {
+  width: 100%;
+  max-width: none;
+  height: 100vh;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.workspace > .leads-page:first-of-type {
+  padding-top: 0;
+}
+
+.leads-page .lead-command-center {
+  position: relative;
+  z-index: 12;
+  flex: 0 0 auto;
+  margin: 0;
+  overflow: visible;
+  border-right: 0;
+  border-left: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.leads-page .leads-panel {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.leads-page .leads-panel > .table-wrap {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.leads-page .leads-panel thead {
+  position: sticky;
+  z-index: 7;
+  top: 0;
+}
+
+.leads-page .leads-panel th {
+  height: 36px;
+  padding: 6px 12px;
+}
+
+.leads-page .leads-panel tbody tr {
+  height: 50px;
+}
+
+.leads-page .leads-panel td {
+  height: 50px;
+  padding: 5px 12px;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.leads-page .student {
+  gap: 7px;
+}
+
+.leads-page .student > span:last-child,
+.leads-page .lead-academic {
+  gap: 0;
+  align-content: center;
+}
+
+.leads-page .lead-view-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  font-size: 10px;
+  color: #fff;
+}
+
+.leads-page tbody tr:nth-child(4n + 1) .lead-view-avatar {
+  background: #555ab1;
+}
+
+.leads-page tbody tr:nth-child(4n + 2) .lead-view-avatar {
+  background: #2f8b78;
+}
+
+.leads-page tbody tr:nth-child(4n + 3) .lead-view-avatar {
+  background: #b36b42;
+}
+
+.leads-page tbody tr:nth-child(4n + 4) .lead-view-avatar {
+  background: #7560b5;
+}
+
+.leads-page .lead-view-name {
+  font-size: 11px;
+  line-height: 1.15;
+}
+
+.leads-page .lead-academic strong {
+  font-size: 11px;
+  line-height: 1.15;
+}
+
+.leads-page .lead-view-name {
+  color: var(--ink);
+  text-decoration: none;
+  cursor: default;
+}
+
+.leads-page .lead-name-line {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.leads-page .lead-name-line .lead-view-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leads-page .lead-touch-badge {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+  border-radius: 9px;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.leads-page .lead-touch-badge.touched {
+  background: #e7f6ef;
+  color: #18745b;
+}
+
+.leads-page .lead-touch-badge.untouched {
+  background: #fff1e7;
+  color: #b45f2d;
+}
+
+.leads-page .lead-view-name:hover {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.leads-page .student small {
+  font-size: 9px;
+  line-height: 1.15;
+}
+
+.leads-page .lead-academic small {
+  font-size: 9px;
+  line-height: 1.15;
+}
+
+.leads-page .stage {
+  padding: 3px 6px;
+  font-size: 9px;
+}
+
+.leads-page .row-action-group {
+  gap: 4px;
+}
+
+.leads-page .row-followup-trigger,
+.leads-page .row-more-trigger {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+}
+
+.leads-page .row-followup-trigger svg,
+.leads-page .row-more-trigger svg {
+  width: 15px;
+  height: 15px;
+}
+
+.leads-page .stage-tabs {
+  padding: 8px 10px 9px;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: var(--surface);
+  scrollbar-width: thin;
+}
+
+.leads-page .stage-tab {
+  min-height: 34px;
+  padding: 7px 12px;
+  border: 1px solid transparent;
+  border-radius: 18px;
+  background: transparent;
+}
+
+.leads-page .stage-tab:hover {
+  border-color: #d9dbeb;
+  background: var(--accent-softer);
+}
+
+.leads-page .stage-tab.active {
+  border-color: #c9cbea;
+  border-bottom-color: #c9cbea;
+  border-radius: 18px;
+  background: var(--accent-soft);
+  box-shadow: inset 0 -2px 0 var(--primary);
+}
+
+.leads-page .stage-count {
+  min-width: 20px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  text-align: center;
+}
+
+@media (max-width: 760px) {
+  .leads-page {
+    height: 100dvh;
+    padding: 0;
+  }
+
+  .leads-page .stage-tabs {
+    padding: 7px;
+  }
+
+  .leads-page .stage-tab {
+    min-height: 32px;
+    padding: 6px 10px;
+  }
+
+}

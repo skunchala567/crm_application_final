@@ -11,6 +11,8 @@ import { demoLeads, demoUser } from './data.js';
 import { IntegrationHubService, createIntegrationHubRoutes } from './integration-hub/index.js';
 import { createWhatsAppTemplateRoutes } from './whatsapp/whatsapp-template.routes.js';
 import { createWebhookRoutes } from './whatsapp/webhook.routes.js';
+import { createAutomationEngine, ensureAutomationRuntimeSchema } from './automation-engine.js';
+import { createMarketingCampaignEngine, ensureMarketingCampaignSchema } from './marketing-campaign-engine.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -76,6 +78,26 @@ async function checkIntegrationsMigration() {
 await checkIntegrationsMigration();
 
 const integrationHubService = new IntegrationHubService(pool);
+const automationEngine = createAutomationEngine(pool, {
+  logger: console,
+  sendWhatsApp: (request) => integrationHubService.sendSmartpingMessage(
+    request.integrationId,
+    request.organizationId,
+    request.phoneNumber,
+    request.message,
+    request.options,
+  ),
+});
+const marketingCampaignEngine = createMarketingCampaignEngine(pool, {
+  logger: console,
+  sendWhatsApp: (request) => integrationHubService.sendSmartpingMessage(
+    request.integrationId,
+    request.organizationId,
+    request.phoneNumber,
+    request.message,
+    request.options,
+  ),
+});
 
 // Register providers
 try {
@@ -436,7 +458,25 @@ async function queryLeads(user, search, limit = null) {
             l.substage_id AS substageId, l.channel_id AS channelId,
             l.campaign_id AS campaignId, l.admission_type_id AS admissionTypeId,
             ch.category AS channelCategory, camp.category AS campaignCategory,
-            l.referred_by_employee_id AS referredByEmployeeId, l.touched_at_utc AS touchedAt,
+            l.referred_by_employee_id AS referredByEmployeeId,
+            (SELECT MAX(touch_comment.created_at_utc)
+             FROM crm_lead_comments touch_comment
+             JOIN app_users touch_user ON touch_user.id=touch_comment.created_by_user_id
+             WHERE touch_comment.lead_id=l.id
+               AND touch_user.employee_id=l.owner_employee_id
+               AND touch_comment.created_at_utc >= COALESCE(l.owner_assigned_at_utc,l.referred_at_utc,l.created_at_utc)) AS touchedAt,
+            CASE
+              WHEN l.owner_employee_id IS NULL THEN 'unassigned'
+              WHEN EXISTS (
+                SELECT 1
+                FROM crm_lead_comments touch_comment
+                JOIN app_users touch_user ON touch_user.id=touch_comment.created_by_user_id
+                WHERE touch_comment.lead_id=l.id
+                  AND touch_user.employee_id=l.owner_employee_id
+                  AND touch_comment.created_at_utc >= COALESCE(l.owner_assigned_at_utc,l.referred_at_utc,l.created_at_utc)
+              ) THEN 'touched'
+              ELSE 'untouched'
+            END AS touchStatus,
             l.is_parent AS isParent, l.looking_for_admission AS lookingForAdmission, l.whatsapp_response AS whatsappResponse,
             l.lead_score AS score, l.owner_employee_id AS ownerEmployeeId,
             COALESCE(e.employee_name, 'Unassigned') AS owner, l.next_followup_at_utc AS nextFollowup,
@@ -445,12 +485,16 @@ async function queryLeads(user, search, limit = null) {
               + CASE WHEN NULLIF(TRIM(l.remarks),'') IS NULL THEN 0 ELSE 1 END) AS remarksCount,
             l.referred_to_branch_id AS referredToBranchId,l.referred_to_branch_name AS referredToBranchName,l.referred_at_utc AS referredAt,
             l.created_at_utc AS addedAt, l.updated_at_utc AS updatedAt,
-            CASE
+             CASE
               WHEN l.re_enquired_at_utc IS NOT NULL
                 OR (SELECT COUNT(*) FROM crm_lead_source_history re_enquiry_history WHERE re_enquiry_history.lead_id = l.id) > 1
               THEN COALESCE(l.re_enquired_at_utc, l.updated_at_utc, l.created_at_utc)
               ELSE NULL
-            END AS reEnquiredAt
+            END AS reEnquiredAt,
+            (SELECT GROUP_CONCAT(DISTINCT CONCAT(mr.campaign_id, ':', md.status))
+             FROM crm_marketing_campaign_recipients mr
+             JOIN crm_marketing_campaign_deliveries md ON md.recipient_id=mr.id
+             WHERE mr.lead_id=l.id) AS marketingDeliveryPairs
      FROM crm_leads l JOIN crm_lead_stages s ON s.id = l.stage_id JOIN branches b ON b.id = l.branch_id
      LEFT JOIN crm_classes cls ON cls.id = l.class_id LEFT JOIN crm_curricula cur ON cur.id = l.curriculum_id
      LEFT JOIN crm_lead_sources src ON src.id = l.source_id
@@ -461,7 +505,17 @@ async function queryLeads(user, search, limit = null) {
      ORDER BY l.created_at_utc DESC${limitClause}`,
     [...scope.params, ...params],
   );
-  return rows;
+  return rows.map((row) => ({
+    ...row,
+    marketingDeliveries: String(row.marketingDeliveryPairs || '')
+      .split(',')
+      .filter(Boolean)
+      .map((pair) => {
+        const [campaignId, status] = pair.split(':');
+        return { campaignId: String(campaignId), status: String(status).toUpperCase() };
+      }),
+    marketingDeliveryPairs: undefined,
+  }));
 }
 
 async function accessibleBranch(user, branchId) {
@@ -641,11 +695,13 @@ app.get('/api/leads/:id', authenticate, requireCrmAccess, async (req, res) => {
       l.admission_type_id AS admissionTypeId, l.substage_id AS substageId,
       l.referred_to_branch_id AS referredToBranchId,l.referred_to_branch_name AS referredToBranchName,
       l.remarks, l.next_followup_at_utc AS nextFollowupAt, s.display_name AS stage,
+      ss.display_name AS substage,
       src.display_name AS source, b.branch_name AS branch, COALESCE(e.employee_name, 'Unassigned') AS owner,
       l.updated_at_utc AS remarksUpdatedAt,
       COALESCE(editor_employee.employee_name,editor_email_employee.employee_name,e.employee_name,'Previous counsellor') AS remarksAuthor,
       l.created_at_utc AS addedAt, l.updated_at_utc AS updatedAt, l.referred_at_utc AS referredAt, l.re_enquired_at_utc AS reEnquiredAt
      FROM crm_leads l JOIN crm_lead_stages s ON s.id = l.stage_id
+     LEFT JOIN crm_lead_substages ss ON ss.id=l.substage_id
      JOIN branches b ON b.id = l.branch_id LEFT JOIN crm_lead_sources src ON src.id = l.source_id
      LEFT JOIN crm_classes cls ON cls.id = l.class_id LEFT JOIN crm_curricula cur ON cur.id = l.curriculum_id
      LEFT JOIN employees e ON e.id = l.owner_employee_id
@@ -773,12 +829,14 @@ app.put('/api/leads/:id', authenticate, requireCrmAccess, requireLeadWrite, asyn
   const [result] = await pool.execute(
     `UPDATE crm_leads l SET student_name = ?,
       applying_class = ?, class_id = ?, curriculum_id = ?, parent_name = ?, city = ?, stage_id = ?,
+      owner_assigned_at_utc = IF(NOT (owner_employee_id <=> ?), CURRENT_TIMESTAMP(6), owner_assigned_at_utc),
       owner_employee_id = ?, admission_type_id = ?, substage_id = ?,
       lead_score = ?, remarks = ?, next_followup_at_utc = ?, updated_by_user_id = ?
      WHERE l.id = ? AND l.deleted_at_utc IS NULL AND ${scope.sql}`,
     [cleanOptional(req.body.studentName, 200), cleanOptional(req.body.applyingClass, 50),
      Number(req.body.classId), Number(req.body.curriculumId), cleanOptional(req.body.parentName, 200), cleanOptional(req.body.city, 100),
      Number(req.body.stageId),
+     req.body.ownerEmployeeId ? Number(req.body.ownerEmployeeId) : null,
      req.body.ownerEmployeeId ? Number(req.body.ownerEmployeeId) : null,
      req.body.admissionTypeId ? Number(req.body.admissionTypeId) : null,
      req.body.substageId ? Number(req.body.substageId) : null, Number(req.body.leadScore || 0),
@@ -833,7 +891,7 @@ app.put('/api/leads/:id/followup-notes', authenticate, requireCrmAccess, require
     );
     if (!counsellor) { await connection.rollback(); return res.status(400).json({ message: 'The selected counsellor does not have active CRM access to the selected branch' }); }
     const [result] = await connection.execute(
-      `UPDATE crm_leads SET stage_id=?,substage_id=?,next_followup_at_utc=?,owner_employee_id=?,referred_to_branch_id=?,referred_to_branch_name=?,referred_at_utc=CURRENT_TIMESTAMP(6),updated_by_user_id=? WHERE id=? AND deleted_at_utc IS NULL`,
+      `UPDATE crm_leads SET stage_id=?,substage_id=?,next_followup_at_utc=?,owner_employee_id=?,owner_assigned_at_utc=CURRENT_TIMESTAMP(6),referred_to_branch_id=?,referred_to_branch_name=?,referred_at_utc=CURRENT_TIMESTAMP(6),updated_by_user_id=? WHERE id=? AND deleted_at_utc IS NULL`,
       [stageId, substageId, followup.nextFollowupAt, referralEmployeeId, referralBranchId, counsellor.branchName, Number(req.user.id), leadId],
     );
     await connection.execute(`INSERT INTO crm_lead_comments (lead_id,comment_text,created_by_user_id) VALUES (?,?,?)`, [leadId, comment, Number(req.user.id)]);
@@ -898,7 +956,7 @@ app.put('/api/leads/actions/bulk-refer', authenticate, requireCrmAccess, require
   const connection=await pool.getConnection();
   try{
     await connection.beginTransaction();
-    await connection.execute(`UPDATE crm_leads SET owner_employee_id=?,referred_to_branch_id=?,referred_to_branch_name=?,referred_at_utc=CURRENT_TIMESTAMP(6),updated_by_user_id=? WHERE id IN (${placeholders}) AND deleted_at_utc IS NULL`,[employeeId,branchId,counsellor.branchName,Number(req.user.id),...leadIds]);
+    await connection.execute(`UPDATE crm_leads SET owner_employee_id=?,owner_assigned_at_utc=CURRENT_TIMESTAMP(6),referred_to_branch_id=?,referred_to_branch_name=?,referred_at_utc=CURRENT_TIMESTAMP(6),updated_by_user_id=? WHERE id IN (${placeholders}) AND deleted_at_utc IS NULL`,[employeeId,branchId,counsellor.branchName,Number(req.user.id),...leadIds]);
     await connection.execute(`UPDATE crm_followups SET assigned_employee_id=? WHERE lead_id IN (${placeholders}) AND status='P'`,[employeeId,...leadIds]);
     for(const leadId of leadIds)await connection.execute(`INSERT INTO crm_lead_activities(lead_id,activity_type,summary,actor_user_id) VALUES(?,'referred',?,?)`,[leadId,`Lead referred to ${counsellor.name} · ${counsellor.branchName}`,Number(req.user.id)]);
     await connection.commit();
@@ -928,7 +986,7 @@ app.put('/api/leads/:id/refer', authenticate, requireCrmAccess, requireLeadWrite
     [employeeId, branchId, leadId, ...scope.params],
   );
   if (!counsellor) return res.status(400).json({ message: 'The selected counsellor does not have active CRM access to the selected branch' });
-  const [result] = await pool.execute(`UPDATE crm_leads SET owner_employee_id=?,referred_to_branch_id=?,referred_to_branch_name=?,referred_at_utc=CURRENT_TIMESTAMP(6),updated_by_user_id=? WHERE id=? AND deleted_at_utc IS NULL`, [employeeId, branchId, counsellor.branchName, Number(req.user.id), leadId]);
+  const [result] = await pool.execute(`UPDATE crm_leads SET owner_employee_id=?,owner_assigned_at_utc=CURRENT_TIMESTAMP(6),referred_to_branch_id=?,referred_to_branch_name=?,referred_at_utc=CURRENT_TIMESTAMP(6),updated_by_user_id=? WHERE id=? AND deleted_at_utc IS NULL`, [employeeId, branchId, counsellor.branchName, Number(req.user.id), leadId]);
   if (!result.affectedRows) return res.status(404).json({ message: 'Lead not found' });
   await pool.execute(`UPDATE crm_followups SET assigned_employee_id=? WHERE lead_id=? AND status='P'`, [employeeId, leadId]);
   await pool.execute(`INSERT INTO crm_lead_activities (lead_id,activity_type,summary,actor_user_id) VALUES (?,'referred',?,?)`, [leadId, `Lead referred to ${counsellor.name} · ${counsellor.branchName}`, Number(req.user.id)]);
@@ -1272,29 +1330,369 @@ app.delete('/api/saved-filters/:id', authenticate, requireCrmAccess, async (req,
 });
 
 app.get('/api/automations', authenticate, requireCrmAccess, async (req,res)=>{
-  const [rows]=await pool.execute(`SELECT w.id,w.name,w.category,w.start_at AS startAt,w.definition_json AS definition,w.is_active AS isActive,w.created_at_utc AS createdAt,COALESCE(e.employee_name,u.email) AS createdBy FROM crm_automation_workflows w JOIN app_users u ON u.id=w.created_by LEFT JOIN employees e ON e.id=u.employee_id ORDER BY w.created_at_utc DESC`);
-  res.json({data:rows.map(row=>({...row,id:Number(row.id),isActive:Boolean(row.isActive),definition:typeof row.definition==='string'?JSON.parse(row.definition):row.definition}))});
+  const [rows]=await pool.execute(`
+    SELECT w.id,w.name,w.category,w.start_at AS startAt,
+           w.definition_json AS definition,w.is_active AS isActive,
+           w.created_at_utc AS createdAt,COALESCE(e.employee_name,u.email) AS createdBy,
+           x.lastRunAt,x.lastStatus,x.completedCount,x.failedCount,x.pendingCount
+    FROM crm_automation_workflows w
+    JOIN app_users u ON u.id=w.created_by
+    LEFT JOIN employees e ON e.id=u.employee_id
+    LEFT JOIN (
+      SELECT workflow_id,MAX(COALESCE(executed_at_utc,created_at_utc)) AS lastRunAt,
+             SUBSTRING_INDEX(GROUP_CONCAT(status ORDER BY COALESCE(executed_at_utc,created_at_utc) DESC, id DESC), ',', 1) AS lastStatus,
+             SUM(status='completed') AS completedCount,
+             SUM(status='failed') AS failedCount,
+             SUM(status IN ('pending','running')) AS pendingCount
+      FROM crm_automation_executions GROUP BY workflow_id
+    ) x ON x.workflow_id=w.id
+    ORDER BY w.created_at_utc DESC`);
+  res.json({data:rows.map(row=>({...row,id:Number(row.id),isActive:Boolean(row.isActive),completedCount:Number(row.completedCount||0),failedCount:Number(row.failedCount||0),pendingCount:Number(row.pendingCount||0),definition:typeof row.definition==='string'?JSON.parse(row.definition):row.definition}))});
 });
+
+async function validateAutomationDefinition(definition, organizationId) {
+  const actions = Array.isArray(definition?.actions) ? definition.actions : [];
+  if (!actions.length) throw Object.assign(new Error('Add at least one THEN action'), { status: 400 });
+  for (const action of actions) {
+    if (action.type === 'update') {
+      if (!['stage', 'substage', 'owner', 'score'].includes(action.field) || action.value === '' || action.value === null || action.value === undefined) {
+        throw Object.assign(new Error('Select a field and value for every update action'), { status: 400 });
+      }
+      continue;
+    }
+    if (action.type === 'whatsapp') {
+      const integrationId = Number(action.integrationId);
+      const templateId = Number(action.templateId);
+      if (!integrationId || !templateId) {
+        throw Object.assign(new Error('Select a WhatsApp account and approved template'), { status: 400 });
+      }
+      const [[template]] = await pool.execute(
+        `SELECT t.id,t.template_name,t.body,t.language,t.status
+         FROM crm_whatsapp_templates t
+         JOIN crm_integrations i ON i.id=t.integration_id
+         WHERE t.id=? AND t.integration_id=? AND t.organization_id=?
+           AND i.organization_id=? AND i.deleted_at IS NULL
+           AND t.deleted_at IS NULL AND UPPER(t.status)='APPROVED'
+         LIMIT 1`,
+        [templateId, integrationId, organizationId, organizationId],
+      );
+      if (!template) {
+        throw Object.assign(new Error('The selected WhatsApp template is unavailable for this account'), { status: 400 });
+      }
+      action.templateName = template.template_name;
+      action.templateBody = template.body;
+      action.templateLanguage = template.language || 'en';
+      const parameterCount = Math.max(
+        0,
+        ...[...String(template.body || '').matchAll(/\{\{\s*(\d+)\s*\}\}/g)].map((match) => Number(match[1])),
+      );
+      const parameters = Array.isArray(action.templateParams) ? action.templateParams : [];
+      if (parameters.length < parameterCount || parameters.slice(0, parameterCount).some((value) => !String(value || '').trim())) {
+        throw Object.assign(new Error(`Enter all ${parameterCount} fixed template parameter value(s)`), { status: 400 });
+      }
+      action.templateParams = parameters.slice(0, parameterCount).map((value) => String(value).trim());
+      continue;
+    }
+    throw Object.assign(new Error(`${action.type || 'Selected'} automation actions are not configured`), { status: 400 });
+  }
+  return definition;
+}
+
+function stableAutomationJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableAutomationJson(item)).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) =>
+      `${JSON.stringify(key)}:${stableAutomationJson(value[key])}`
+    ).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
 
 app.post('/api/automations', authenticate, requireCrmAccess, requireLeadWrite, async (req,res)=>{
   const name=cleanOptional(req.body.name,180); const category=cleanOptional(req.body.category,40); const definition=req.body.definition&&typeof req.body.definition==='object'?req.body.definition:{};
   if(!name||!category)return res.status(400).json({message:'Automation name and category are required'});
+  await validateAutomationDefinition(definition, Number(req.user.id));
   const [result]=await pool.execute(`INSERT INTO crm_automation_workflows(name,category,start_at,definition_json,is_active,created_by) VALUES(?,?,?,?,?,?)`,[name,category,req.body.startAt||null,JSON.stringify(definition),req.body.isActive?1:0,Number(req.user.id)]);
   res.status(201).json({message:'Automation workflow created',id:Number(result.insertId)});
 });
 
 app.put('/api/automations/:id', authenticate, requireCrmAccess, requireLeadWrite, async (req,res)=>{
   const name=cleanOptional(req.body.name,180); const category=cleanOptional(req.body.category,40); if(!name||!category)return res.status(400).json({message:'Automation name and category are required'});
-  const [result]=await pool.execute(`UPDATE crm_automation_workflows SET name=?,category=?,start_at=?,definition_json=? WHERE id=?`,[name,category,req.body.startAt||null,JSON.stringify(req.body.definition||{}),Number(req.params.id)]);
-  if(!result.affectedRows)return res.status(404).json({message:'Automation workflow not found'}); res.json({message:'Automation workflow updated'});
+  const definition=req.body.definition&&typeof req.body.definition==='object'?req.body.definition:{};
+  await validateAutomationDefinition(definition, Number(req.user.id));
+  const workflowId=Number(req.params.id);
+  const connection=await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [[existing]]=await connection.execute(
+      `SELECT start_at,definition_json FROM crm_automation_workflows WHERE id=? FOR UPDATE`,
+      [workflowId],
+    );
+    if(!existing){
+      await connection.rollback();
+      return res.status(404).json({message:'Automation workflow not found'});
+    }
+    const nextDefinition=stableAutomationJson(definition);
+    const existingDefinition=stableAutomationJson(
+      typeof existing.definition_json==='string'
+        ? JSON.parse(existing.definition_json)
+        : existing.definition_json,
+    );
+    const existingStart=existing.start_at ? new Date(existing.start_at).getTime() : null;
+    const nextStart=req.body.startAt ? new Date(req.body.startAt).getTime() : null;
+    const executionRuleChanged=
+      existingDefinition!==nextDefinition || existingStart!==nextStart;
+    await connection.execute(
+      `UPDATE crm_automation_workflows
+       SET name=?,category=?,start_at=?,definition_json=? WHERE id=?`,
+      [name,category,req.body.startAt||null,nextDefinition,workflowId],
+    );
+    if(executionRuleChanged){
+      await connection.execute(
+        `DELETE FROM crm_automation_executions WHERE workflow_id=?`,
+        [workflowId],
+      );
+    }
+    await connection.commit();
+    res.json({
+      message:'Automation workflow updated',
+      executionRuleChanged,
+    });
+  } catch(error){
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 });
 
 app.put('/api/automations/:id/status', authenticate, requireCrmAccess, requireLeadWrite, async (req,res)=>{
   const [result]=await pool.execute(`UPDATE crm_automation_workflows SET is_active=? WHERE id=?`,[req.body.isActive?1:0,Number(req.params.id)]); if(!result.affectedRows)return res.status(404).json({message:'Automation workflow not found'}); res.json({message:`Automation ${req.body.isActive?'activated':'paused'}`});
 });
 
+app.post('/api/automations/:id/run', authenticate, requireCrmAccess, requireLeadWrite, async (req,res)=>{
+  const id=Number(req.params.id);
+  const [[workflow]]=await pool.execute(`SELECT id,is_active AS isActive FROM crm_automation_workflows WHERE id=? LIMIT 1`,[id]);
+  if(!workflow)return res.status(404).json({message:'Automation workflow not found'});
+  if(!workflow.isActive)return res.status(409).json({message:'Activate the workflow before running it'});
+  const result=await automationEngine.run({workflowId:id});
+  res.json({message:result.skipped?result.reason:`Workflow evaluated successfully; ${result.scheduled} action(s) scheduled`,...result});
+});
+
 app.delete('/api/automations/:id', authenticate, requireCrmAccess, requireLeadDelete, async (req,res)=>{
   const [result]=await pool.execute(`DELETE FROM crm_automation_workflows WHERE id=?`,[Number(req.params.id)]); if(!result.affectedRows)return res.status(404).json({message:'Automation workflow not found'}); res.json({message:'Automation workflow deleted'});
+});
+
+function campaignScheduleDates(body) {
+  const count = Math.max(1, Math.min(10, Number(body.communicationCount || 1)));
+  const first = new Date(body.firstCommunicationAt);
+  if (Number.isNaN(first.getTime())) throw Object.assign(new Error('Select the first communication date and time'), { status: 400 });
+  if (body.ruleType === 'calendar_dates') {
+    const dates = Array.isArray(body.calendarDates) ? body.calendarDates.slice(0, count).map(value => new Date(value)) : [];
+    if (dates.length !== count || dates.some(date => Number.isNaN(date.getTime()))) {
+      throw Object.assign(new Error(`Select all ${count} communication dates`), { status: 400 });
+    }
+    return dates;
+  }
+  if (body.ruleType === 'weekdays') {
+    const weekdays = new Set((Array.isArray(body.weekdays) ? body.weekdays : []).map(Number));
+    if (!weekdays.size) throw Object.assign(new Error('Select at least one communication weekday'), { status: 400 });
+    const dates = [];
+    const cursor = new Date(first);
+    while (dates.length < count) {
+      if (weekdays.has(cursor.getDay())) dates.push(new Date(cursor));
+      cursor.setDate(cursor.getDate() + 1);
+      if (cursor.getTime() - first.getTime() > 366 * 86_400_000) break;
+    }
+    return dates;
+  }
+  const gapDays = Math.max(1, Math.min(365, Number(body.gapDays || 1)));
+  return Array.from({ length: count }, (_, index) => new Date(first.getTime() + index * gapDays * 86_400_000));
+}
+
+app.get('/api/marketing-campaigns', authenticate, requireCrmAccess, async (req,res)=>{
+  const [rows]=await pool.execute(`
+    SELECT c.id,c.name,c.rule_type AS ruleType,c.communication_count AS communicationCount,
+           c.first_communication_at AS firstCommunicationAt,c.gap_days AS gapDays,
+           c.weekdays_json AS weekdays,c.calendar_dates_json AS calendarDates,
+           c.status,c.retry_attempts AS retryAttempts,
+           c.created_at_utc AS createdAt,COALESCE(c.updated_at_utc,c.created_at_utc) AS updatedAt,
+           COALESCE(e.employee_name,u.email) AS createdBy,i.name AS integrationName,
+           COALESCE(r.recipientCount,0) AS recipientCount,
+           COALESCE(r.primaryCount,0) AS primaryCount,
+           COALESCE(r.alternateCount,0) AS alternateCount,
+           COALESCE(d.totalDeliveries,0) AS totalDeliveries,
+           COALESCE(d.completedDeliveries,0) AS completedDeliveries,
+           COALESCE(d.failedDeliveries,0) AS failedDeliveries,
+           COALESCE(d.pendingDeliveries,0) AS pendingDeliveries,
+           COALESCE(d.queuedDeliveries,0) AS queuedDeliveries,
+           COALESCE(d.sentDeliveries,0) AS sentDeliveries,
+           COALESCE(d.deliveredDeliveries,0) AS deliveredDeliveries,
+           COALESCE(d.readDeliveries,0) AS readDeliveries
+    FROM crm_marketing_campaigns c
+    JOIN crm_integrations i ON i.id=c.integration_id
+    JOIN app_users u ON u.id=c.created_by
+    LEFT JOIN employees e ON e.id=u.employee_id
+    LEFT JOIN (
+      SELECT campaign_id,COUNT(*) recipientCount,
+             SUM(phone_type='primary') primaryCount,
+             SUM(phone_type='alternate') alternateCount
+      FROM crm_marketing_campaign_recipients GROUP BY campaign_id
+    ) r ON r.campaign_id=c.id
+    LEFT JOIN (
+      SELECT campaign_id,COUNT(*) totalDeliveries,
+             SUM(status IN ('QUEUED','SENT','DELIVERED','READ')) completedDeliveries,
+             SUM(status='FAILED') failedDeliveries,
+             SUM(status IN ('PENDING','RUNNING')) pendingDeliveries,
+             SUM(status='QUEUED') queuedDeliveries,
+             SUM(status='SENT') sentDeliveries,
+             SUM(status='DELIVERED') deliveredDeliveries,
+             SUM(status='READ') readDeliveries
+      FROM crm_marketing_campaign_deliveries GROUP BY campaign_id
+    ) d ON d.campaign_id=c.id
+    WHERE c.organization_id=?
+    ORDER BY c.created_at_utc DESC`,
+    [Number(req.user.id)],
+  );
+  res.json({data:rows.map(row=>({
+    ...row,id:Number(row.id),recipientCount:Number(row.recipientCount),
+    primaryCount:Number(row.primaryCount),alternateCount:Number(row.alternateCount),
+    totalDeliveries:Number(row.totalDeliveries),completedDeliveries:Number(row.completedDeliveries),
+    failedDeliveries:Number(row.failedDeliveries),pendingDeliveries:Number(row.pendingDeliveries),
+    queuedDeliveries:Number(row.queuedDeliveries),sentDeliveries:Number(row.sentDeliveries),
+    deliveredDeliveries:Number(row.deliveredDeliveries),readDeliveries:Number(row.readDeliveries),
+  }))});
+});
+
+app.post('/api/marketing-campaigns', authenticate, requireCrmAccess, requireLeadWrite, async (req,res)=>{
+  const name=cleanOptional(req.body.name,180);
+  const integrationId=Number(req.body.integrationId);
+  const communicationCount=Math.max(1,Math.min(10,Number(req.body.communicationCount||1)));
+  const ruleType=['days_gap','calendar_dates','weekdays'].includes(req.body.ruleType)?req.body.ruleType:'days_gap';
+  if(!name||!integrationId)return res.status(400).json({message:'Campaign name and WhatsApp account are required'});
+  const scheduleDates=campaignScheduleDates({...req.body,ruleType,communicationCount});
+  const touches=Array.isArray(req.body.touches)?req.body.touches.slice(0,communicationCount):[];
+  if(touches.length!==communicationCount)return res.status(400).json({message:`Select ${communicationCount} approved WhatsApp templates`});
+  const [[integration]]=await pool.execute(
+    `SELECT id FROM crm_integrations WHERE id=? AND organization_id=? AND deleted_at IS NULL
+       AND UPPER(type)='SMARTPING' LIMIT 1`,
+    [integrationId,Number(req.user.id)],
+  );
+  if(!integration)return res.status(400).json({message:'Selected WhatsApp account is unavailable'});
+  const canonicalTouches=[];
+  for(let index=0;index<touches.length;index+=1){
+    const touch=touches[index];const templateId=Number(touch.templateId);
+    const [[template]]=await pool.execute(
+      `SELECT id,template_name,body,language,total_parameters,template_type,header_type
+       FROM crm_whatsapp_templates
+       WHERE id=? AND integration_id=? AND organization_id=?
+         AND deleted_at IS NULL AND UPPER(status)='APPROVED' LIMIT 1`,
+      [templateId,integrationId,Number(req.user.id)],
+    );
+    if(!template)return res.status(400).json({message:`Communication ${index+1} template is unavailable`});
+    const count=Math.max(Number(template.total_parameters||0),...[...String(template.body||'').matchAll(/\{\{\s*(\d+)\s*\}\}/g)].map(match=>Number(match[1])),0);
+    const params=Array.isArray(touch.templateParams)?touch.templateParams.slice(0,count).map(value=>String(value||'').trim()):[];
+    if(params.length<count||params.some(value=>!value))return res.status(400).json({message:`Enter all fixed values for communication ${index+1}`});
+    const templateType=String(template.template_type||template.header_type||'TEXT').toUpperCase();
+    const requiresMedia=['IMAGE','VIDEO','DOCUMENT','FILE'].includes(templateType);
+    const mediaUrl=cleanOptional(touch.mediaUrl,1000);
+    const mediaFilename=cleanOptional(touch.mediaFilename,255);
+    if(requiresMedia&&!mediaUrl)return res.status(400).json({message:`Upload the required ${templateType.toLowerCase()} for communication ${index+1}`});
+    canonicalTouches.push({...template,templateParams:params,scheduledAt:scheduleDates[index],
+      mediaUrl:requiresMedia?mediaUrl:null,mediaFilename:requiresMedia?mediaFilename:null});
+  }
+  const filters=req.body.audienceFilters&&typeof req.body.audienceFilters==='object'?req.body.audienceFilters:{};
+  const scope=leadScopedWhere(req.user);const clauses=[`l.deleted_at_utc IS NULL`,scope.sql];const params=[...scope.params];
+  const requestedLeadIds=(Array.isArray(req.body.leadIds)?req.body.leadIds:[])
+    .map(Number).filter(value=>Number.isInteger(value)&&value>0);
+  if(Array.isArray(req.body.leadIds)&&!requestedLeadIds.length){
+    return res.status(400).json({message:'No filtered leads were provided for this campaign'});
+  }
+  if(requestedLeadIds.length){
+    clauses.push(`l.id IN (${requestedLeadIds.map(()=>'?').join(',')})`);
+    params.push(...requestedLeadIds);
+  }
+  for(const [field,column] of [['branchIds','l.branch_id'],['stageIds','l.stage_id'],['sourceIds','l.source_id']]){
+    const values=(Array.isArray(filters[field])?filters[field]:[]).map(Number).filter(Number.isFinite);
+    if(values.length){clauses.push(`${column} IN (${values.map(()=>'?').join(',')})`);params.push(...values);}
+  }
+  const [leads]=await pool.execute(
+    `SELECT l.id,l.phone,l.alternate_phone FROM crm_leads l WHERE ${clauses.join(' AND ')}`,
+    params,
+  );
+  const phoneTypes=Array.isArray(req.body.phoneTypes)&&req.body.phoneTypes.length?req.body.phoneTypes:['primary'];
+  const recipients=[];
+  for(const lead of leads){
+    if(phoneTypes.includes('primary')&&/^(?:91)?[6-9]\d{9}$/.test(String(lead.phone||'').replace(/\D/g,'')))recipients.push({leadId:lead.id,phone:lead.phone,type:'primary'});
+    if(phoneTypes.includes('alternate')&&/^(?:91)?[6-9]\d{9}$/.test(String(lead.alternate_phone||'').replace(/\D/g,'')))recipients.push({leadId:lead.id,phone:lead.alternate_phone,type:'alternate'});
+  }
+  if(!recipients.length)return res.status(400).json({message:'No leads with valid selected mobile numbers match this audience'});
+  const connection=await pool.getConnection();
+  try{
+    await connection.beginTransaction();
+    const [campaignResult]=await connection.execute(
+      `INSERT INTO crm_marketing_campaigns
+       (organization_id,name,rule_type,communication_count,first_communication_at,gap_days,
+        weekdays_json,calendar_dates_json,audience_filters_json,integration_id,response_owner,
+        retry_attempts,status,created_by)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'ACTIVE',?)`,
+      [Number(req.user.id),name,ruleType,communicationCount,scheduleDates[0],
+       ruleType==='days_gap'?Math.max(1,Number(req.body.gapDays||1)):null,
+       ruleType==='weekdays'?JSON.stringify(req.body.weekdays||[]):null,
+       ruleType==='calendar_dates'?JSON.stringify(req.body.calendarDates||[]):null,
+       JSON.stringify(filters),integrationId,req.body.responseOwner==='lead_owner'?'lead_owner':'sender',
+       Math.max(0,Math.min(5,Number(req.body.retryAttempts||0))),Number(req.user.id)],
+    );
+    const campaignId=Number(campaignResult.insertId);const touchIds=[];
+    for(let index=0;index<canonicalTouches.length;index+=1){
+      const touch=canonicalTouches[index];
+      const [touchResult]=await connection.execute(
+        `INSERT INTO crm_marketing_campaign_touches
+         (campaign_id,sequence_number,template_id,template_name,template_body,
+          template_language,template_params_json,media_url,media_filename,scheduled_at)
+         VALUES(?,?,?,?,?,?,?,?,?,?)`,
+        [campaignId,index+1,touch.id,touch.template_name,touch.body,touch.language,
+         JSON.stringify(touch.templateParams),touch.mediaUrl,touch.mediaFilename,touch.scheduledAt],
+      );
+      touchIds.push(Number(touchResult.insertId));
+    }
+    for(const recipient of recipients){
+      const [recipientResult]=await connection.execute(
+        `INSERT IGNORE INTO crm_marketing_campaign_recipients
+         (campaign_id,lead_id,phone,phone_type) VALUES(?,?,?,?)`,
+        [campaignId,recipient.leadId,recipient.phone,recipient.type],
+      );
+      if(!recipientResult.insertId)continue;
+      for(let index=0;index<touchIds.length;index+=1){
+        await connection.execute(
+          `INSERT INTO crm_marketing_campaign_deliveries
+           (campaign_id,recipient_id,touch_id,sequence_number,scheduled_for)
+           VALUES(?,?,?,?,?)`,
+          [campaignId,recipientResult.insertId,touchIds[index],index+1,scheduleDates[index]],
+        );
+      }
+    }
+    await connection.commit();
+    res.status(201).json({message:`Campaign scheduled for ${recipients.length} recipient(s)`,id:campaignId,recipientCount:recipients.length});
+  }catch(error){await connection.rollback();throw error;}finally{connection.release();}
+});
+
+app.put('/api/marketing-campaigns/:id/status', authenticate, requireCrmAccess, requireLeadWrite, async (req,res)=>{
+  const status=String(req.body.status||'').toUpperCase();
+  if(!['ACTIVE','PAUSED','CANCELLED'].includes(status))return res.status(400).json({message:'Invalid campaign status'});
+  const [result]=await pool.execute(
+    `UPDATE crm_marketing_campaigns SET status=? WHERE id=? AND organization_id=?`,
+    [status,Number(req.params.id),Number(req.user.id)],
+  );
+  if(!result.affectedRows)return res.status(404).json({message:'Campaign not found'});
+  if(status==='CANCELLED')await pool.execute(
+    `UPDATE crm_marketing_campaign_deliveries SET status='CANCELLED'
+     WHERE campaign_id=? AND status='PENDING'`,
+    [Number(req.params.id)],
+  );
+  res.json({message:`Campaign ${status.toLowerCase()}`});
 });
 
 app.get('/api/leads', authenticate, requireCrmAccess, async (req, res) => {
@@ -3042,10 +3440,42 @@ try {
   await pool.query('SELECT 1');
   const [[schema]] = await pool.query(`SELECT COUNT(*) AS count FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='crm_leads'`);
   if (Number(schema.count) !== 1) throw new Error('CRM database schema is not ready. Run the MySQL migrations.');
+  await ensureAutomationRuntimeSchema(pool);
+  await ensureMarketingCampaignSchema(pool);
 } catch (error) {
   console.error(`CRM API startup failed: ${error.message}`);
   process.exit(1);
 }
+
+let automationCycleRunning = false;
+const runAutomationCycle = async () => {
+  if (automationCycleRunning) return;
+  automationCycleRunning = true;
+  try {
+    await automationEngine.run();
+  } catch (error) {
+    console.error('Automation workflow cycle failed:', error.message);
+  } finally {
+    automationCycleRunning = false;
+  }
+};
+setInterval(runAutomationCycle, 30_000).unref();
+runAutomationCycle();
+
+let marketingCampaignCycleRunning = false;
+const runMarketingCampaignCycle = async () => {
+  if (marketingCampaignCycleRunning) return;
+  marketingCampaignCycleRunning = true;
+  try {
+    await marketingCampaignEngine.run();
+  } catch (error) {
+    console.error('Bulk marketing campaign cycle failed:', error.message);
+  } finally {
+    marketingCampaignCycleRunning = false;
+  }
+};
+setInterval(runMarketingCampaignCycle, 30_000).unref();
+runMarketingCampaignCycle();
 
 app.listen(port, async () => {
   console.log(`Admissions CRM API running at http://localhost:${port}`);

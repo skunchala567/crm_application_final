@@ -1687,17 +1687,29 @@ export class IntegrationHubService {
     const offset = Math.max(Number(filters.offset) || 0, 0);
     const params = [organizationId];
     let searchSql = '';
+    const incomingSql = String(filters.incomingOnly || '') === '1'
+      ? ` AND EXISTS (
+          SELECT 1 FROM crm_whatsapp_messages incoming
+          WHERE incoming.conversation_id=c.id AND incoming.direction='incoming'
+        )`
+      : '';
     if (filters.search) {
-      searchSql = ' AND (mobile LIKE ? OR contact_name LIKE ? OR last_message LIKE ?)';
+      searchSql = ' AND (c.mobile LIKE ? OR c.contact_name LIKE ? OR c.last_message LIKE ?)';
       const pattern = `%${filters.search}%`;
       params.push(pattern, pattern, pattern);
     }
     const [rows] = await this.pool.query(
-      `SELECT id, integration_id, mobile, contact_name, lead_id, last_message,
-              last_message_time, unread_count, status, created_at, updated_at
-       FROM crm_whatsapp_conversations
-       WHERE organization_id = ? ${searchSql}
-       ORDER BY last_message_time DESC
+      `SELECT c.id, c.integration_id, c.mobile, c.contact_name, c.lead_id, c.last_message,
+              c.last_message_time, c.unread_count, c.status, c.created_at, c.updated_at,
+              i.name AS integration_name,l.student_name,l.lead_number,b.branch_name,
+              s.display_name AS stage_name
+       FROM crm_whatsapp_conversations c
+       JOIN crm_integrations i ON i.id=c.integration_id
+       LEFT JOIN crm_leads l ON l.id=c.lead_id AND l.deleted_at_utc IS NULL
+       LEFT JOIN branches b ON b.id=l.branch_id
+       LEFT JOIN crm_lead_stages s ON s.id=l.stage_id
+       WHERE c.organization_id = ? ${searchSql} ${incomingSql}
+       ORDER BY c.last_message_time DESC
        LIMIT ${limit} OFFSET ${offset}`,
       params
     );

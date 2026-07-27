@@ -136,7 +136,11 @@ export class SmartpingProvider extends BaseIntegrationProvider {
 
       const result = {
         success: response.data?.success !== false,
-        messageId: response.data?.messageId || response.data?.message_id || response.data?.id || `pending_${options.clientRequestId || Date.now()}`,
+        messageId: response.data?.messageId
+          || response.data?.message_id
+          || response.data?.messages?.[0]?.id
+          || response.data?.id
+          || `pending_${options.clientRequestId || Date.now()}`,
         to: formattedPhone,
         timestamp: new Date().toISOString(),
         status: response.data?.status || (response.data?.success === false ? 'FAILED' : 'QUEUED'),

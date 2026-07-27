@@ -11,9 +11,11 @@ import { api } from "./api";
 import LeadsPage from "./LeadsPage.jsx";
 import SettingsPage from "./SettingsPage.jsx";
 import AutomationPage from "./AutomationPage.jsx";
+import WhatsAppInbox from "./WhatsAppInbox.jsx";
 import BulkActionsPage from "./BulkActionsPage.jsx";
 import OAuthCallbackPage from "./pages/OAuthCallbackPage.jsx";
 import GlobalSearch from "./GlobalSearch.jsx";
+import "./SidebarTogglePosition.css";
 import {
   BarChart3,
   Bell,
@@ -255,6 +257,7 @@ function Shell({ user, onLogout }) {
         <Routes location={location}>
           <Route path="/" element={<Dashboard user={user} />} />
           <Route path="/leads" element={<LeadsPage />} />
+          <Route path="/whatsapp-inbox" element={<WhatsAppInbox />} />
           <Route path="/bulk-actions" element={<BulkActionsPage />} />
           <Route path="/settings" element={<SettingsPage initialTab="users" />} />
           <Route path="/settings/users" element={<SettingsPage initialTab="users" />} />

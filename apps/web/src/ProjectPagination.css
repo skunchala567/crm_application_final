@@ -1,0 +1,134 @@
+.workspace .pagination-controls {
+  min-height: 44px;
+  padding: 5px 12px;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: nowrap;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.workspace .pagination-buttons {
+  width: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  order: 1;
+}
+
+.workspace .pagination-btn {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text-secondary, #666875);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.workspace .pagination-btn:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--accent-soft);
+  color: var(--primary);
+}
+
+.workspace .pagination-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.workspace .page-indicator {
+  padding: 0 7px;
+  color: var(--text-secondary, #55576d);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 32px;
+  white-space: nowrap;
+}
+
+.workspace .page-size-selector {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  order: 2;
+  color: var(--text-secondary, #55576d);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.workspace .page-size-selector select {
+  width: auto;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: inherit;
+  font-size: 11px;
+}
+
+.workspace .pagination-info {
+  padding: 0;
+  order: 3;
+  color: var(--text-secondary, #8a8c9b);
+  font-size: 11px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .workspace .pagination-controls {
+    gap: 7px;
+  }
+
+  .workspace .pagination-info {
+    display: none;
+  }
+}
+
+@media (max-width: 620px) {
+  .workspace .pagination-controls {
+    min-height: 40px;
+    padding: 4px 7px;
+    gap: 5px;
+  }
+
+  .workspace .pagination-btn {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+    min-height: 28px;
+  }
+
+  .workspace .page-indicator {
+    padding: 0 4px;
+    font-size: 10px;
+    line-height: 28px;
+  }
+
+  .workspace .page-size-selector {
+    margin-left: auto;
+    font-size: 10px;
+  }
+
+  .workspace .page-size-selector label,
+  .workspace .page-size-selector span {
+    display: none;
+  }
+
+  .workspace .page-size-selector select {
+    height: 28px;
+    padding: 0 5px;
+    font-size: 10px;
+  }
+}

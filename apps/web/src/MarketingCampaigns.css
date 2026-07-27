@@ -1,0 +1,214 @@
+.marketing-media-upload > span {
+  position: relative;
+  min-height: 54px;
+  padding: 10px 13px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px dashed var(--primary);
+  border-radius: 8px;
+  background: #f8f8ff;
+  color: var(--primary);
+  cursor: pointer;
+}
+
+.marketing-media-upload svg {
+  width: 20px;
+  height: 20px;
+}
+
+.marketing-media-upload b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marketing-media-upload input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.marketing-selected-audience {
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border: 1px solid #b9e3d2;
+  border-radius: 10px;
+  background: #effaf5;
+  color: #18745b;
+}
+
+.marketing-selected-audience > svg {
+  width: 22px;
+  flex: none;
+}
+
+.marketing-selected-audience > div {
+  display: grid;
+  gap: 2px;
+}
+
+.marketing-selected-audience strong {
+  font-size: 13px;
+}
+
+.marketing-selected-audience span {
+  font-size: 10px;
+  color: #4c7569;
+}
+
+.campaign-record-list {
+  display: grid;
+  gap: 12px;
+}
+
+.campaign-record {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.campaign-record-summary {
+  position: relative;
+  width: 100%;
+  min-height: 88px;
+  padding: 14px 48px 14px 16px;
+  display: grid;
+  grid-template-columns: 1.25fr 0.9fr 1.1fr 1fr 1.1fr 1fr 0.8fr;
+  align-items: center;
+  gap: 16px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.campaign-record-summary > span,
+.campaign-detail-grid > span,
+.campaign-status-grid > span {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.campaign-record-summary small,
+.campaign-record-details small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.campaign-record-summary strong,
+.campaign-record-summary b {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.campaign-summary-actions .automation-row-actions {
+  justify-content: flex-start;
+}
+
+.campaign-expand-icon {
+  position: absolute;
+  right: 15px;
+  width: 18px;
+  transition: transform 0.2s ease;
+}
+
+.campaign-record.expanded .campaign-expand-icon {
+  transform: rotate(180deg);
+}
+
+.campaign-record-details {
+  border-top: 1px solid var(--border);
+  background: #fcfcff;
+}
+
+.campaign-detail-grid {
+  padding: 16px;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  gap: 18px;
+}
+
+.campaign-detail-grid strong,
+.campaign-status-grid strong {
+  font-size: 13px;
+}
+
+.campaign-processing-head {
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 30px;
+  border-top: 1px solid var(--border);
+}
+
+.campaign-processing-head > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.campaign-processing-head .campaign-progress {
+  width: min(320px, 35%);
+}
+
+.campaign-status-grid {
+  padding: 16px;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(90px, 1fr));
+  gap: 12px;
+  border-top: 1px dashed var(--border);
+}
+
+.campaign-status-grid > span {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.campaign-status-grid > span.failed strong {
+  color: var(--danger);
+}
+
+@media (max-width: 1150px) {
+  .campaign-record-summary {
+    grid-template-columns: repeat(4, minmax(130px, 1fr));
+  }
+
+  .campaign-detail-grid {
+    grid-template-columns: repeat(3, minmax(140px, 1fr));
+  }
+
+  .campaign-status-grid {
+    grid-template-columns: repeat(4, minmax(100px, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .campaign-record-summary,
+  .campaign-detail-grid,
+  .campaign-status-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .campaign-processing-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .campaign-processing-head .campaign-progress {
+    width: 100%;
+  }
+}
