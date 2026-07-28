@@ -8,7 +8,6 @@ import {
   Download,
   Filter,
   History,
-  Mail,
   Megaphone,
   NotebookPen,
   MessageSquare,
@@ -702,14 +701,20 @@ export default function LeadsPage() {
     }
   }
 
-  function exportLeads() {
+  async function exportLeads() {
     const header = ["Lead ID", "Student", "Phone", "Branch", "Class", "Curriculum", "Stage", "Counsellor"];
     const rows = filtered.map(lead => [lead.leadId, lead.studentName, lead.phone, lead.branch, lead.applyingClass, lead.curriculum, lead.stage, lead.owner]);
     const csv = [header, ...rows].map(row => row.map(value => `"${String(value || "").replaceAll('"', '""')}"`).join(",")).join("\n");
+    const fileName = `crm-leads-${new Date().toISOString().slice(0, 10)}.csv`;
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-    link.download = `crm-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = fileName;
     link.click(); URL.revokeObjectURL(link.href);
+    try {
+      await api('/bulk-operations/data-export',{method:'POST',body:JSON.stringify({totalRecords:rows.length,fileName,leadIds:filtered.map(lead=>lead.id)})});
+    } catch (error) {
+      setMessage({type:'error',text:`Export downloaded, but its audit entry could not be saved: ${error.message}`});
+    }
   }
 
   function bulkNotice(action) {
@@ -905,12 +910,19 @@ export default function LeadsPage() {
   }
 
   async function openBulkRefer() {
-    if (!filtered.length) return setMessage({type:"error",text:"No visible leads to refer"});
+    const selectedVisibleIds=selectedIds.filter(id=>filtered.some(lead=>lead.id===id));
+    if (!selectedVisibleIds.length) return setMessage({type:"error",text:"Select at least one lead to refer"});
     try {
       const options=await api('/leads/referral-options/all');
       setReferralOptions(options);
       const selfOption=options.employees.find(employee=>String(employee.id)===String(options.currentEmployeeId)&&String(employee.branchId)===String(options.currentBranchId))||options.employees.find(employee=>String(employee.id)===String(options.currentEmployeeId));
-      setReferLead({bulk:true,ids:filtered.map(lead=>lead.id),studentName:`${filtered.length} visible lead${filtered.length===1?"":"s"}`,leadId:"Current filtered view",branch:""});
+      setReferLead({
+        bulk:true,
+        ids:selectedVisibleIds,
+        studentName:`${selectedVisibleIds.length} selected lead${selectedVisibleIds.length===1?"":"s"}`,
+        leadId:selectedVisibleIds.length===filtered.length?"All leads in current filtered view":"Selected leads",
+        branch:"",
+      });
       setReferBranchId(selfOption?String(selfOption.branchId):"");
       setReferEmployeeId(selfOption?String(selfOption.id):"");
     } catch(error) { setMessage({type:"error",text:error.message}); }
@@ -971,10 +983,9 @@ export default function LeadsPage() {
             {quickActionsExpanded&&<>
             <BulkUploadButton/>
             <button title={`Change stage for ${selectedIds.length || "selected"} leads`} aria-label={`Change stage for selected leads`} onClick={openBulkStageChange} disabled={!selectedIds.length}><GitBranch/></button>
-            <button title={`Refer all ${filtered.length} visible leads`} aria-label={`Refer all ${filtered.length} visible leads`} onClick={openBulkRefer}><UserRoundPlus/></button>
+            <button title={`Refer ${selectedIds.length || "selected"} leads`} aria-label="Refer selected leads" onClick={openBulkRefer} disabled={!selectedIds.length}><UserRoundPlus/></button>
             <button title={`Add marketing campaign for ${filtered.length} filtered leads`} onClick={openFilteredMarketingCampaign} disabled={!filtered.length}><Megaphone/></button>
             <button title={`Send WhatsApp to ${selectedIds.length || "selected"} leads in this view`} onClick={openSelectedMessages} disabled={!selectedIds.length}><MessageCircle/></button>
-            <button title="Email selected" onClick={() => bulkNotice("Email")}><Mail/></button>
             <button title="Export visible leads" onClick={exportLeads}><Download/></button>
             </>}
             <button className="quick-actions-toggle" title={quickActionsExpanded?"Collapse lead actions":"Expand lead actions"} aria-label={quickActionsExpanded?"Collapse lead actions":"Expand lead actions"} onClick={toggleQuickActions}>{quickActionsExpanded?<PanelRightClose/>:<PanelRightOpen/>}</button>
@@ -1154,7 +1165,7 @@ export default function LeadsPage() {
         />
       )}
       {referLead&&<><div className="drawer-backdrop" onClick={()=>setReferLead(null)}/><section className="refer-dialog" role="dialog" aria-modal="true" aria-labelledby="refer-title">
-        <div className="refer-dialog-head"><div><span className="eyebrow">{referLead.bulk?"Bulk lead referral":"Lead referral"}</span><h2 id="refer-title">Refer {referLead.studentName}</h2><p>{referLead.bulk?"Every lead currently appearing in the filtered list will be reassigned.":`${referLead.leadId} · ${referLead.branch}`}</p></div><button className="icon-btn" onClick={()=>setReferLead(null)}><X/></button></div>
+        <div className="refer-dialog-head"><div><span className="eyebrow">{referLead.bulk?"Bulk lead referral":"Lead referral"}</span><h2 id="refer-title">Refer {referLead.studentName}</h2><p>{referLead.bulk?`${referLead.leadId} will be reassigned.`:`${referLead.leadId} · ${referLead.branch}`}</p></div><button className="icon-btn" onClick={()=>setReferLead(null)}><X/></button></div>
         <form onSubmit={submitReferral}>
           <SearchSuggestion label="Referral branch" required options={referralOptions.branches.map(branch=>({id:branch.id,label:branch.name}))} value={referBranchId} onChange={(branchId)=>{setReferBranchId(String(branchId||""));setReferEmployeeId("")}} placeholder="Search and select branch…"/>
           <SearchSuggestion label="Counsellor" required options={referralOptions.employees.filter(employee=>String(employee.branchId)===String(referBranchId)).map(employee=>({id:employee.id,label:`${employee.name} · ${employee.branchName}`}))} value={referEmployeeId} onChange={setReferEmployeeId} placeholder={referBranchId?"Search counsellor…":"Select a branch first"}/>

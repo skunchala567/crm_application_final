@@ -951,17 +951,45 @@ app.put('/api/leads/actions/bulk-refer', authenticate, requireCrmAccess, require
   if(!counsellor)return res.status(400).json({message:'The selected counsellor does not have active CRM access to the selected branch'});
   const placeholders=leadIds.map(()=>'?').join(',');
   const scope=leadScopedWhere(req.user);
-  const [accessible]=await pool.execute(`SELECT l.id FROM crm_leads l WHERE l.id IN (${placeholders}) AND l.deleted_at_utc IS NULL AND ${scope.sql}`,[...leadIds,...scope.params]);
+  const [accessible]=await pool.execute(
+    `SELECT l.id,COALESCE(previous_owner.employee_name,'Unassigned') AS previousOwner,
+            current_branch.branch_name AS previousBranch
+     FROM crm_leads l
+     JOIN branches current_branch ON current_branch.id=l.branch_id
+     LEFT JOIN employees previous_owner ON previous_owner.id=l.owner_employee_id
+     WHERE l.id IN (${placeholders}) AND l.deleted_at_utc IS NULL AND ${scope.sql}`,
+    [...leadIds,...scope.params],
+  );
   if(accessible.length!==leadIds.length)return res.status(403).json({message:'One or more visible leads are outside your current access'});
   const connection=await pool.getConnection();
   try{
     await connection.beginTransaction();
     await connection.execute(`UPDATE crm_leads SET owner_employee_id=?,owner_assigned_at_utc=CURRENT_TIMESTAMP(6),referred_to_branch_id=?,referred_to_branch_name=?,referred_at_utc=CURRENT_TIMESTAMP(6),updated_by_user_id=? WHERE id IN (${placeholders}) AND deleted_at_utc IS NULL`,[employeeId,branchId,counsellor.branchName,Number(req.user.id),...leadIds]);
     await connection.execute(`UPDATE crm_followups SET assigned_employee_id=? WHERE lead_id IN (${placeholders}) AND status='P'`,[employeeId,...leadIds]);
+    await connection.execute(
+      `INSERT INTO crm_bulk_operations
+       (operation_type,status,created_by_user_id,total_records,successful_records,summary,details_json,completed_at_utc)
+       VALUES ('referral','completed',?,?,?,?,?,CURRENT_TIMESTAMP(6))`,
+      [Number(req.user.id),leadIds.length,leadIds.length,`Referred to ${counsellor.name}`,JSON.stringify({
+        branchId,branchName:counsellor.branchName,employeeId,employeeName:counsellor.name,leadIds,
+        referrals:accessible.map(lead=>({leadId:Number(lead.id),fromOwner:lead.previousOwner,fromBranch:lead.previousBranch,toOwner:counsellor.name,toBranch:counsellor.branchName})),
+      })],
+    );
     for(const leadId of leadIds)await connection.execute(`INSERT INTO crm_lead_activities(lead_id,activity_type,summary,actor_user_id) VALUES(?,'referred',?,?)`,[leadId,`Lead referred to ${counsellor.name} · ${counsellor.branchName}`,Number(req.user.id)]);
     await connection.commit();
     res.json({message:`${leadIds.length} visible lead${leadIds.length===1?'':'s'} referred to ${counsellor.name} · ${counsellor.branchName}`});
-  }catch(error){await connection.rollback();throw error}finally{connection.release()}
+  }catch(error){
+    await connection.rollback();
+    try {
+      await pool.execute(
+        `INSERT INTO crm_bulk_operations
+         (operation_type,status,created_by_user_id,total_records,failed_records,summary,details_json,error_message,completed_at_utc)
+         VALUES ('referral','failed',?,?,?,?,?,?,CURRENT_TIMESTAMP(6))`,
+        [Number(req.user.id),leadIds.length,leadIds.length,'Bulk referral failed',JSON.stringify({branchId,employeeId,leadIds}),String(error.message||error).slice(0,1000)],
+      );
+    } catch (auditError) { console.warn('Bulk referral audit failed:',auditError.message); }
+    throw error;
+  }finally{connection.release()}
 });
 
 app.put('/api/leads/:id/refer', authenticate, requireCrmAccess, requireLeadWrite, async (req, res) => {
@@ -1045,7 +1073,15 @@ app.put('/api/leads/actions/bulk-change-stage', authenticate, requireCrmAccess, 
   if (!stage || !substage) return res.status(400).json({ message: 'Invalid stage or sub-stage' });
   const placeholders = leadIds.map(() => '?').join(',');
   const scope = leadScopedWhere(req.user);
-  const [accessible] = await pool.execute(`SELECT l.id, l.stage_id, l.substage_id FROM crm_leads l WHERE l.id IN (${placeholders}) AND l.deleted_at_utc IS NULL AND ${scope.sql}`, [...leadIds, ...scope.params]);
+  const [accessible] = await pool.execute(
+    `SELECT l.id,l.stage_id,l.substage_id,old_stage.display_name AS previousStage,
+            old_substage.display_name AS previousSubstage
+     FROM crm_leads l
+     LEFT JOIN crm_lead_stages old_stage ON old_stage.id=l.stage_id
+     LEFT JOIN crm_lead_substages old_substage ON old_substage.id=l.substage_id
+     WHERE l.id IN (${placeholders}) AND l.deleted_at_utc IS NULL AND ${scope.sql}`,
+    [...leadIds,...scope.params],
+  );
   if (accessible.length !== leadIds.length) return res.status(403).json({ message: 'One or more leads are outside your current access' });
   const connection = await pool.getConnection();
   let successCount = 0;
@@ -1064,6 +1100,20 @@ app.put('/api/leads/actions/bulk-change-stage', authenticate, requireCrmAccess, 
         failures.push({ leadId: lead.id, error: error.message });
       }
     }
+    await connection.execute(
+      `INSERT INTO crm_bulk_operations
+       (operation_type,status,created_by_user_id,total_records,successful_records,failed_records,summary,details_json,completed_at_utc)
+       VALUES ('stage_change',?,?,?,?,?,?,?,CURRENT_TIMESTAMP(6))`,
+      [failures.length?'partial':'completed',Number(req.user.id),leadIds.length,successCount,failures.length,
+       `Changed to ${stage.display_name} / ${substage.display_name}`,
+       JSON.stringify({
+         stageId,stageName:stage.display_name,substageId,substageName:substage.display_name,leadIds,failures,
+         transitions:accessible.map(lead=>({
+           leadId:Number(lead.id),fromStage:lead.previousStage||'Unknown',fromSubstage:lead.previousSubstage||'—',
+           toStage:stage.display_name,toSubstage:substage.display_name,
+         })),
+       })],
+    );
     await connection.commit();
     res.json({
       message: `${successCount} lead${successCount === 1 ? '' : 's'} updated${failures.length ? ` (${failures.length} failed)` : ''}`,
@@ -1073,6 +1123,14 @@ app.put('/api/leads/actions/bulk-change-stage', authenticate, requireCrmAccess, 
     });
   } catch (error) {
     await connection.rollback();
+    try {
+      await pool.execute(
+        `INSERT INTO crm_bulk_operations
+         (operation_type,status,created_by_user_id,total_records,failed_records,summary,details_json,error_message,completed_at_utc)
+         VALUES ('stage_change','failed',?,?,?,?,?,?,CURRENT_TIMESTAMP(6))`,
+        [Number(req.user.id),leadIds.length,leadIds.length,'Bulk stage change failed',JSON.stringify({stageId,substageId,leadIds}),String(error.message||error).slice(0,1000)],
+      );
+    } catch (auditError) { console.warn('Bulk stage change audit failed:',auditError.message); }
     throw error;
   } finally {
     connection.release();
@@ -2206,6 +2264,98 @@ app.delete('/api/academic-years/:id', authenticate, requireUserAdmin, async (req
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
+});
+
+app.get('/api/bulk-operations', authenticate, requireCrmAccess, requireLeadWrite, async (req, res) => {
+  const type = cleanOptional(req.query.type, 30);
+  const status = cleanOptional(req.query.status, 20);
+  const from = cleanOptional(req.query.from, 10);
+  const to = cleanOptional(req.query.to, 10);
+  const values = [];
+  const where = ['1=1'];
+  if (type) { where.push('bo.operation_type=?'); values.push(type); }
+  if (status) { where.push('bo.status=?'); values.push(status); }
+  if (from) { where.push('DATE(bo.created_at_utc)>=?'); values.push(from); }
+  if (to) { where.push('DATE(bo.created_at_utc)<=?'); values.push(to); }
+  const [rows] = await pool.execute(
+    `SELECT bo.id,bo.operation_type AS operationType,bo.status,bo.total_records AS totalRecords,
+            bo.successful_records AS successfulRecords,bo.failed_records AS failedRecords,
+            bo.summary,bo.details_json AS details,bo.error_message AS errorMessage,
+            bo.created_at_utc AS createdAt,bo.completed_at_utc AS completedAt,
+            COALESCE(e.employee_name,u.email) AS createdBy
+     FROM crm_bulk_operations bo
+     JOIN app_users u ON u.id=bo.created_by_user_id
+     LEFT JOIN employees e ON e.id=u.employee_id
+     WHERE ${where.join(' AND ')}
+     ORDER BY bo.created_at_utc DESC LIMIT 250`,
+    values,
+  );
+  res.json({ data: rows.map(row => ({ ...row, id:Number(row.id), details:typeof row.details==='string' ? JSON.parse(row.details) : row.details })) });
+});
+
+app.post('/api/bulk-operations/data-export', authenticate, requireCrmAccess, requireLeadWrite, async (req, res) => {
+  const totalRecords = Math.max(0, Number(req.body.totalRecords) || 0);
+  const fileName = cleanOptional(req.body.fileName, 255) || `crm-leads-${new Date().toISOString().slice(0,10)}.csv`;
+  const leadIds = [...new Set((Array.isArray(req.body.leadIds)?req.body.leadIds:[]).map(Number).filter(id=>Number.isInteger(id)&&id>0))];
+  const [result] = await pool.execute(
+    `INSERT INTO crm_bulk_operations
+     (operation_type,status,created_by_user_id,total_records,successful_records,summary,details_json,completed_at_utc)
+     VALUES ('data_export','completed',?,?,?,?,?,CURRENT_TIMESTAMP(6))`,
+    [Number(req.user.id),totalRecords,totalRecords,`Exported ${totalRecords} lead${totalRecords===1?'':'s'}`,JSON.stringify({fileName,leadIds})],
+  );
+  res.status(201).json({ id:Number(result.insertId), message:'Export recorded' });
+});
+
+app.get('/api/bulk-operations/:id/export', authenticate, requireCrmAccess, requireLeadWrite, async (req,res)=>{
+  const operationId=Number(req.params.id);
+  if(!Number.isInteger(operationId)||operationId<=0)return res.status(400).json({message:'Invalid bulk operation'});
+  const [[operation]]=await pool.execute(
+    `SELECT id,operation_type AS operationType,details_json AS details FROM crm_bulk_operations WHERE id=? LIMIT 1`,
+    [operationId],
+  );
+  if(!operation)return res.status(404).json({message:'Bulk operation not found'});
+  const details=typeof operation.details==='string'?JSON.parse(operation.details):operation.details||{};
+  const leadIds=[...new Set((Array.isArray(details.leadIds)?details.leadIds:[]).map(Number).filter(id=>Number.isInteger(id)&&id>0))];
+  if(!leadIds.length)return res.status(409).json({message:'Lead-level history is not available for this older operation'});
+  const placeholders=leadIds.map(()=>'?').join(',');
+  const scope=leadScopedWhere(req.user);
+  const [rows]=await pool.execute(
+    `SELECT l.id,l.lead_number AS leadNumber,l.student_name AS studentName,l.phone,
+            b.branch_name AS branch,COALESCE(c.display_name,l.applying_class) AS className,
+            s.display_name AS stage,COALESCE(e.employee_name,'Unassigned') AS owner
+     FROM crm_leads l
+     JOIN branches b ON b.id=l.branch_id
+     LEFT JOIN crm_classes c ON c.id=l.class_id
+     LEFT JOIN crm_lead_stages s ON s.id=l.stage_id
+     LEFT JOIN employees e ON e.id=l.owner_employee_id
+     WHERE l.id IN (${placeholders}) AND l.deleted_at_utc IS NULL AND ${scope.sql}
+     ORDER BY FIELD(l.id,${placeholders})`,
+    [...leadIds,...scope.params,...leadIds],
+  );
+  const escapeCsv=value=>`"${String(value??'').replaceAll('"','""')}"`;
+  const referralByLead=new Map((details.referrals||[]).map(item=>[Number(item.leadId),item]));
+  const transitionByLead=new Map((details.transitions||[]).map(item=>[Number(item.leadId),item]));
+  const baseHeader=['Lead ID','Student','Phone','Current Branch','Class'];
+  let header=[...baseHeader,'Current Stage','Current Owner'];
+  let exportRows=rows.map(row=>[row.leadNumber,row.studentName,row.phone,row.branch,row.className,row.stage,row.owner]);
+  if(operation.operationType==='referral'){
+    header=[...baseHeader,'Referred From Owner','Referred From Branch','Referred To Owner','Referred To Branch'];
+    exportRows=rows.map(row=>{
+      const audit=referralByLead.get(Number(row.id))||{};
+      return [row.leadNumber,row.studentName,row.phone,row.branch,row.className,audit.fromOwner||'—',audit.fromBranch||'—',audit.toOwner||details.employeeName||'—',audit.toBranch||details.branchName||'—'];
+    });
+  }else if(operation.operationType==='stage_change'){
+    header=[...baseHeader,'Previous Stage','Previous Sub-stage','Changed To Stage','Changed To Sub-stage'];
+    exportRows=rows.map(row=>{
+      const audit=transitionByLead.get(Number(row.id))||{};
+      return [row.leadNumber,row.studentName,row.phone,row.branch,row.className,audit.fromStage||'—',audit.fromSubstage||'—',audit.toStage||details.stageName||'—',audit.toSubstage||details.substageName||'—'];
+    });
+  }
+  const csv=[header,...exportRows]
+    .map(row=>row.map(escapeCsv).join(',')).join('\r\n');
+  res.setHeader('Content-Type','text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition',`attachment; filename="bulk-${operation.operationType}-${operationId}.csv"`);
+  res.send(`\uFEFF${csv}`);
 });
 
 app.get('/api/bulk-uploads', authenticate, requireCrmAccess, requireLeadWrite, async (req, res) => {
