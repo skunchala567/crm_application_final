@@ -13,6 +13,7 @@ import { createWhatsAppTemplateRoutes } from './whatsapp/whatsapp-template.route
 import { createWebhookRoutes } from './whatsapp/webhook.routes.js';
 import { createAutomationEngine, ensureAutomationRuntimeSchema } from './automation-engine.js';
 import { createMarketingCampaignEngine, ensureMarketingCampaignSchema } from './marketing-campaign-engine.js';
+import { createBusinessPlatformRoutes } from './business-platform.routes.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -270,6 +271,27 @@ async function requireCrmAccess(req, res, next) {
   if (!req.user.roles?.some((role) => crmRoles.has(role))) return res.status(403).json({ success: false, error: 'Your account does not have Admissions CRM access', details: `Required roles: ${Array.from(crmRoles).join(', ')}. Your roles: ${req.user.roles?.join(', ') || 'none'}` });
   const [rows]=await pool.execute(`SELECT COALESCE((SELECT is_active FROM crm_user_access_status WHERE user_id=?),1) AS crmActive`,[Number(req.user.id)]);
   if (!Boolean(rows[0]?.crmActive)) return res.status(403).json({ success: false, error: 'Your CRM access is inactive', details: 'Contact a CRM administrator to reactivate your access' });
+  const requestedUnitId=Number(req.headers['x-business-unit-id']);
+  const isAdmin=req.user.roles?.some(role=>['ADMIN','CRM_ADMIN'].includes(String(role).toUpperCase()));
+  const params=isAdmin
+    ? (Number.isInteger(requestedUnitId)&&requestedUnitId>0?[requestedUnitId]:[])
+    : [Number(req.user.id),...(Number.isInteger(requestedUnitId)&&requestedUnitId>0?[requestedUnitId]:[])];
+  const requestedClause=Number.isInteger(requestedUnitId)&&requestedUnitId>0?'AND bu.id=?':'';
+  const [[businessUnit]]=await pool.execute(
+    isAdmin
+      ? `SELECT bu.id,bu.unit_code AS unitCode,bu.display_name AS displayName,bu.compatibility_mode AS compatibilityMode
+         FROM crm_business_units bu WHERE bu.is_active=TRUE ${requestedClause}
+         ORDER BY bu.is_default DESC,bu.id LIMIT 1`
+      : `SELECT bu.id,bu.unit_code AS unitCode,bu.display_name AS displayName,bu.compatibility_mode AS compatibilityMode
+         FROM crm_business_units bu
+         JOIN crm_user_business_units ubu ON ubu.business_unit_id=bu.id AND ubu.user_id=?
+         WHERE bu.is_active=TRUE ${requestedClause}
+         ORDER BY ubu.is_default DESC,bu.is_default DESC,bu.id LIMIT 1`,
+    params,
+  );
+  if(!businessUnit)return res.status(403).json({message:'You do not have access to the selected Business Unit'});
+  req.businessUnit={...businessUnit,id:Number(businessUnit.id)};
+  req.user.businessUnitId=Number(businessUnit.id);
   return next();
 }
 
@@ -299,12 +321,15 @@ function scopedWhere(user, column = 'l.branch_id') {
 
 function leadScopedWhere(user) {
   const branchIds = Array.isArray(user.branchIds) ? user.branchIds.map(Number).filter(Number.isFinite) : [];
-  if (user.roles?.includes('ADMIN') && branchIds.length === 0) return { sql: '1=1', params: [] };
+  const unitId=Number(user.businessUnitId);
+  const unitSql=Number.isInteger(unitId)&&unitId>0?'l.business_unit_id=?':'1=1';
+  const unitParams=Number.isInteger(unitId)&&unitId>0?[unitId]:[];
+  if (user.roles?.includes('ADMIN') && branchIds.length === 0) return { sql: unitSql, params: unitParams };
   if (branchIds.length === 0) return { sql: '1=0', params: [] };
   const placeholders = branchIds.map(() => '?').join(',');
   return {
-    sql: `(l.branch_id IN (${placeholders}) OR l.referred_to_branch_id IN (${placeholders}))`,
-    params: [...branchIds, ...branchIds],
+    sql: `${unitSql} AND (l.branch_id IN (${placeholders}) OR l.referred_to_branch_id IN (${placeholders}))`,
+    params: [...unitParams, ...branchIds, ...branchIds],
   };
 }
 
@@ -313,10 +338,11 @@ async function loadDatabaseUser(email) {
     `SELECT u.id, u.employee_id AS employeeId, u.email, u.password_hash AS passwordHash,
             u.is_active AS isActive, COALESCE(cuas.is_active,1) AS crmActive, u.failed_login_count AS failedLoginCount,
             u.lockout_end_utc AS lockoutEndUtc,
-            COALESCE(e.employee_name, u.email) AS name
+            COALESCE(e.employee_name,CONCAT_WS(' ',p.first_name,p.last_name),u.email) AS name
      FROM app_users u
      LEFT JOIN crm_user_access_status cuas ON cuas.user_id=u.id
      LEFT JOIN employees e ON e.id = u.employee_id
+     LEFT JOIN crm_user_profiles p ON p.user_id=u.id
      WHERE u.normalized_email = ? LIMIT 1`,
     [email.trim().toUpperCase()],
   );
@@ -403,6 +429,41 @@ app.get('/api/employees', authenticate, requireCrmAccess, async (req, res) => {
 });
 
 app.get('/api/dashboard', authenticate, requireCrmAccess, async (req, res) => {
+  if(false&&req.businessUnit.compatibilityMode==='metadata'){
+    const unitId=Number(req.businessUnit.id);
+    const [statsResult,funnelResult,recentResult]=await Promise.all([
+      pool.execute(
+        `SELECT COUNT(*) AS totalLeads,
+                SUM(created_at_utc>=DATE_SUB(CURRENT_TIMESTAMP(),INTERVAL 7 DAY)) AS newThisWeek,
+                SUM(status_key IN ('won','converted','completed')) AS admissions,
+                SUM(next_followup_at_utc IS NOT NULL AND next_followup_at_utc<=CURRENT_TIMESTAMP()) AS followupsDue
+         FROM crm_dynamic_leads WHERE business_unit_id=? AND deleted_at_utc IS NULL`,[unitId]),
+      pool.execute(
+        `SELECT ps.display_name AS label,ps.color_code AS color,COUNT(dl.id) AS value
+         FROM crm_metadata_pipeline_stages ps
+         JOIN crm_metadata_pipelines p ON p.id=ps.pipeline_id
+         LEFT JOIN crm_dynamic_leads dl ON dl.stage_id=ps.id AND dl.business_unit_id=p.business_unit_id AND dl.deleted_at_utc IS NULL
+         WHERE p.business_unit_id=? AND p.is_active=TRUE AND ps.is_active=TRUE
+         GROUP BY ps.id,ps.display_name,ps.color_code,ps.position ORDER BY ps.position`,[unitId]),
+      pool.execute(
+        `SELECT dl.id,dl.lead_number AS leadId,dl.display_name AS studentName,dl.primary_phone AS phone,
+                COALESCE(JSON_UNQUOTE(JSON_EXTRACT(dl.custom_values_json,'$.applying_class')),'—') AS applyingClass,
+                ps.display_name AS stage,0 AS score,COALESCE(e.employee_name,'Unassigned') AS owner,
+                dl.next_followup_at_utc AS nextFollowup
+         FROM crm_dynamic_leads dl
+         JOIN crm_metadata_pipeline_stages ps ON ps.id=dl.stage_id
+         LEFT JOIN employees e ON e.id=dl.owner_employee_id
+         WHERE dl.business_unit_id=? AND dl.deleted_at_utc IS NULL
+         ORDER BY dl.created_at_utc DESC LIMIT 4`,[unitId]),
+    ]);
+    const stats=statsResult[0][0]||{},funnelRows=funnelResult[0],recentRows=recentResult[0];
+    return res.json({
+      businessUnit:{id:unitId,name:req.businessUnit.displayName},
+      stats:{totalLeads:Number(stats.totalLeads||0),newThisWeek:Number(stats.newThisWeek||0),followupsDue:Number(stats.followupsDue||0),admissions:Number(stats.admissions||0)},
+      funnel:funnelRows.map(row=>({...row,value:Number(row.value||0)})),
+      recentLeads:recentRows,
+    });
+  }
   const scope = leadScopedWhere(req.user);
   const [[stats]] = await pool.execute(
     `SELECT COUNT(*) AS totalLeads,
@@ -418,10 +479,11 @@ app.get('/api/dashboard', authenticate, requireCrmAccess, async (req, res) => {
   const [funnelRows] = await pool.execute(
     `SELECT s.display_name AS label, s.color_code AS color, COUNT(l.id) AS value
      FROM crm_lead_stages s LEFT JOIN crm_leads l ON l.stage_id = s.id AND l.deleted_at_utc IS NULL AND ${scope.sql}
-     WHERE s.is_active = TRUE GROUP BY s.id, s.display_name, s.color_code, s.position ORDER BY s.position`, scope.params,
+     WHERE s.is_active = TRUE AND s.business_unit_id=? GROUP BY s.id, s.display_name, s.color_code, s.position ORDER BY s.position`, [...scope.params,Number(req.businessUnit.id)],
   );
   const recentLeads = await queryLeads(req.user, '', 4);
   res.json({
+    businessUnit:{id:Number(req.businessUnit.id),name:req.businessUnit.displayName},
     stats: { totalLeads: Number(stats.totalLeads || 0), newThisWeek: Number(stats.newThisWeek || 0), followupsDue: Number(followups.followupsDue || 0), admissions: Number(stats.admissions || 0) },
     funnel: funnelRows.map((row) => ({ ...row, value: Number(row.value) })), recentLeads,
   });
@@ -530,6 +592,12 @@ function cleanOptional(value, maxLength = 500) {
   return text ? text.slice(0, maxLength) : null;
 }
 
+function parseJsonValue(value, fallback = {}) {
+  if (value == null) return fallback;
+  if (typeof value === 'object') return value;
+  try { return JSON.parse(value); } catch { return fallback; }
+}
+
 async function appendLeadSourceOrDetectDuplicate(connection, existingLead, record, intakeMethod, userId) {
   const sourceId = Number(record.sourceId);
   const [[sameSource]] = await connection.execute(
@@ -556,13 +624,14 @@ async function appendLeadSourceOrDetectDuplicate(connection, existingLead, recor
   return { duplicate: false, reEnquired: true };
 }
 
-function validateLead(body) {
+function validateLead(body, options = {}) {
   const studentName = cleanOptional(body.studentName, 200);
   const phone = cleanOptional(body.phone, 30);
   const classId = Number(body.classId);
   if (!studentName) return 'Student name is required';
-  if (!phone || !/^[0-9+()\-\s]{7,30}$/.test(phone)) return 'Enter a valid phone number';
-  if (!Number.isInteger(classId) || classId <= 0) return 'Select a valid Class ID';
+  if (options.requirePhone !== false && !phone) return 'Phone is required';
+  if (phone && !/^[0-9+()\-\s]{7,30}$/.test(phone)) return 'Enter a valid phone number';
+  if (options.requireClass !== false && (!Number.isInteger(classId) || classId <= 0)) return 'Select a valid Class ID';
   const score = Number(body.leadScore ?? 0);
   if (!Number.isFinite(score) || score < 0 || score > 100) return 'Lead score must be between 0 and 100';
   return null;
@@ -650,7 +719,7 @@ async function validateSourceDetails(body) {
 
 app.get('/api/leads/meta', authenticate, requireCrmAccess, async (req, res) => {
   const scope = scopedWhere(req.user, 'b.id');
-  const [stages] = await pool.query(`SELECT id, name, display_name AS displayName, color_code AS color, requires_followup AS requiresFollowup FROM crm_lead_stages WHERE is_active = TRUE ORDER BY position`);
+  const [stages] = await pool.execute(`SELECT id, name, display_name AS displayName, color_code AS color, requires_followup AS requiresFollowup FROM crm_lead_stages WHERE business_unit_id=? AND is_active = TRUE ORDER BY position`,[Number(req.businessUnit.id)]);
   const [sources] = await pool.query(`SELECT id, name, display_name AS displayName FROM crm_lead_sources WHERE is_active = TRUE ORDER BY display_name`);
   const [classes] = await pool.query(`SELECT id, class_code AS code, display_name AS displayName FROM crm_classes WHERE is_active = TRUE ORDER BY position`);
   const [curricula] = await pool.query(`SELECT id, curriculum_code AS code, display_name AS displayName FROM crm_curricula WHERE is_active = TRUE ORDER BY position`);
@@ -659,9 +728,24 @@ app.get('/api/leads/meta', authenticate, requireCrmAccess, async (req, res) => {
   const [sourceLinks]=await pool.query(`SELECT DISTINCT channel_id AS channelId,source_id AS sourceId FROM crm_lead_source_history WHERE channel_id IS NOT NULL AND source_id IS NOT NULL`);
   const [campaignLinks]=await pool.query(`SELECT DISTINCT source_id AS sourceId,campaign_id AS campaignId FROM crm_lead_source_history WHERE source_id IS NOT NULL AND campaign_id IS NOT NULL`);
   const [admissionTypes] = await pool.query(`SELECT id, type_code AS code, display_name AS displayName FROM crm_admission_types WHERE is_active = TRUE ORDER BY display_name`);
-  const [substages] = await pool.query(`SELECT id, stage_id AS stageId, substage_code AS code, display_name AS displayName FROM crm_lead_substages WHERE is_active = TRUE ORDER BY stage_id, position`);
+  const [substages] = await pool.execute(`SELECT ss.id, ss.stage_id AS stageId, ss.substage_code AS code, ss.display_name AS displayName FROM crm_lead_substages ss JOIN crm_lead_stages s ON s.id=ss.stage_id WHERE s.business_unit_id=? AND ss.is_active = TRUE ORDER BY s.position, ss.position`,[Number(req.businessUnit.id)]);
   const [branches] = await pool.execute(`SELECT b.id, b.branch_name AS name, b.short_name AS shortName FROM branches b WHERE b.is_active = TRUE AND ${scope.sql} ORDER BY b.branch_name`, scope.params);
   const [academicYears] = await pool.query(`SELECT id, academic_year AS academicYear, display_name AS displayName FROM crm_academic_years WHERE is_active = TRUE ORDER BY academic_year DESC`);
+  const [leadFields] = await pool.execute(
+    `SELECT id,field_key AS fieldKey,display_name AS displayName,field_type AS fieldType,placeholder,
+            options_json AS options,is_system AS isSystem,is_required AS isRequired,position
+     FROM crm_metadata_fields
+     WHERE business_unit_id=? AND module_key='leads' AND is_active=TRUE
+     ORDER BY position,display_name`,
+    [Number(req.businessUnit.id)],
+  );
+  const [businessSources] = await pool.execute(
+    `SELECT display_name AS displayName
+     FROM crm_business_sources
+     WHERE business_unit_id=? AND is_active=TRUE
+     ORDER BY display_name`,
+    [Number(req.businessUnit.id)],
+  );
   const employeeScope = scopedWhere(req.user, 'assigned_branch.id');
   const [employees] = await pool.execute(
     `SELECT DISTINCT e.id, e.employee_name AS name,
@@ -679,7 +763,13 @@ app.get('/api/leads/meta', authenticate, requireCrmAccess, async (req, res) => {
      ORDER BY e.employee_name LIMIT 1000`,
     employeeScope.params,
   );
-  res.json({ stages, sources, classes, curricula, channels, campaigns, sourceLinks, campaignLinks, admissionTypes, substages, branches, academicYears, employees });
+  res.json({ stages, sources, classes, curricula, channels, campaigns, sourceLinks, campaignLinks, admissionTypes, substages, branches, academicYears, employees,
+    leadFields:leadFields.map(field=>({
+      ...field,
+      options:field.fieldKey==='source'
+        ? businessSources.map(source=>source.displayName)
+        : parseJsonValue(field.options,[]),
+    })) });
 });
 
 app.get('/api/leads/:id', authenticate, requireCrmAccess, async (req, res) => {
@@ -694,7 +784,7 @@ app.get('/api/leads/:id', authenticate, requireCrmAccess, async (req, res) => {
       l.channel_id AS channelId, l.campaign_id AS campaignId,
       l.admission_type_id AS admissionTypeId, l.substage_id AS substageId,
       l.referred_to_branch_id AS referredToBranchId,l.referred_to_branch_name AS referredToBranchName,
-      l.remarks, l.next_followup_at_utc AS nextFollowupAt, s.display_name AS stage,
+      l.remarks, l.custom_values_json AS customValues, l.next_followup_at_utc AS nextFollowupAt, s.display_name AS stage,
       ss.display_name AS substage,
       src.display_name AS source, b.branch_name AS branch, COALESCE(e.employee_name, 'Unassigned') AS owner,
       l.updated_at_utc AS remarksUpdatedAt,
@@ -748,12 +838,37 @@ app.get('/api/leads/:id', authenticate, requireCrmAccess, async (req, res) => {
   );
   const [[latestFollowup]] = await pool.execute(`SELECT followup_type AS followupType FROM crm_followups WHERE lead_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1`, [Number(req.params.id)]);
   const legacyComment = rows[0].remarks ? [{ id:'legacy',commentText:rows[0].remarks,createdAt:rows[0].remarksUpdatedAt || null,counsellorName:rows[0].remarksAuthor }] : [];
-  res.json({ data: { ...rows[0], followupType: latestFollowup?.followupType || '', activities, comments:[...comments,...legacyComment], sourceHistory } });
+  res.json({ data: { ...rows[0], customValues:parseJsonValue(rows[0].customValues,{}), followupType: latestFollowup?.followupType || '', activities, comments:[...comments,...legacyComment], sourceHistory } });
 });
 
 app.post('/api/leads', authenticate, requireCrmAccess, requireLeadWrite, async (req, res) => {
-  const validationError = validateLead(req.body);
+  const [configuredFields]=await pool.execute(
+    `SELECT field_key AS fieldKey,display_name AS displayName,is_required AS isRequired
+     FROM crm_metadata_fields WHERE business_unit_id=? AND module_key='leads' AND is_active=TRUE`,
+    [Number(req.businessUnit.id)],
+  );
+  const configuredKeys=new Set(configuredFields.map(field=>field.fieldKey));
+  const requiredKeys=new Set(configuredFields.filter(field=>field.isRequired).map(field=>field.fieldKey));
+  const validationError = validateLead(req.body,{
+    requireClass:configuredKeys.has('class_id'),
+    requirePhone:requiredKeys.has('phone')||requiredKeys.has('primary_phone'),
+  });
   if (validationError) return res.status(400).json({ message: validationError });
+  const standardValues={
+    name:req.body.studentName,student_name:req.body.studentName,phone:req.body.phone,primary_phone:req.body.phone,
+    alternate_phone:req.body.alternatePhone,email:req.body.email,parent_name:req.body.parentName,city:req.body.city,
+    academic_year:req.body.academicYear,branch_id:req.body.branchId,admission_type_id:req.body.admissionTypeId,
+    curriculum_id:req.body.curriculumId,class_id:req.body.classId,channel_id:req.body.channelId,source_id:req.body.sourceId,
+    campaign_id:req.body.campaignId,stage_id:req.body.stageId,substage_id:req.body.substageId,
+    owner_employee_id:req.body.ownerEmployeeId,next_followup_at_utc:req.body.nextFollowupAt,
+    followup_type:req.body.followupType,remarks:req.body.remarks,lead_score:req.body.leadScore,
+    status:req.body.status,
+  };
+  for(const field of configuredFields){
+    if(!field.isRequired)continue;
+    const value=Object.prototype.hasOwnProperty.call(standardValues,field.fieldKey)?standardValues[field.fieldKey]:req.body.customValues?.[field.fieldKey];
+    if(value==null||String(value).trim()==='')return res.status(400).json({message:`${field.displayName} is required`});
+  }
   let followup = { required: false, nextFollowupAt: null, followupType: null };
   const sourceId = Number(req.body.sourceId);
   const substageId = Number(req.body.substageId);
@@ -767,15 +882,26 @@ app.post('/api/leads', authenticate, requireCrmAccess, requireLeadWrite, async (
   }
   if (!(await accessibleBranch(req.user, req.body.branchId))) return res.status(403).json({ message: 'You do not have access to the selected branch' });
   const connection = await pool.getConnection();
-  const normalizedPhone = String(req.body.phone).replace(/[^0-9]/g, '');
+  const submittedPhone = cleanOptional(req.body.phone,30);
+  const normalizedPhone = submittedPhone
+    ? String(submittedPhone).replace(/[^0-9]/g, '')
+    : `no-phone-${crypto.randomUUID()}`;
   const intakeMethod = ['manual','bulk','integration'].includes(req.body.intakeMethod) ? req.body.intakeMethod : 'manual';
-  const lockName = `crm-lead:${Number(req.body.branchId)}:${normalizedPhone}`;
+  const lockName = `crm-lead:${Number(req.businessUnit.id)}:${Number(req.body.branchId)}:${normalizedPhone}`;
   try {
     const [[lock]] = await connection.execute(`SELECT GET_LOCK(?,10) AS acquired`, [lockName]);
     if (!Number(lock.acquired)) return res.status(409).json({ message: 'This lead is being processed. Please retry.' });
     await connection.beginTransaction();
-    const [[existing]] = await connection.execute(`SELECT id,lead_number AS leadNumber FROM crm_leads WHERE branch_id=? AND normalized_phone=? AND deleted_at_utc IS NULL ORDER BY id LIMIT 1 FOR UPDATE`, [Number(req.body.branchId),normalizedPhone]);
+    const [[existing]] = await connection.execute(`SELECT id,lead_number AS leadNumber FROM crm_leads WHERE business_unit_id=? AND branch_id=? AND normalized_phone=? AND deleted_at_utc IS NULL ORDER BY id LIMIT 1 FOR UPDATE`, [Number(req.businessUnit.id),Number(req.body.branchId),normalizedPhone]);
     if (existing) {
+      if (!req.body.sourceId || !req.body.channelId || !req.body.campaignId) {
+        await connection.commit();
+        return res.status(409).json({
+          id:Number(existing.id),
+          leadNumber:existing.leadNumber,
+          message:'This mobile number is already recorded in this Business Unit and branch',
+        });
+      }
       const enquiry = await appendLeadSourceOrDetectDuplicate(connection, existing, req.body, intakeMethod, req.user.id);
       await connection.commit();
       if (enquiry.duplicate) return res.status(409).json({ id:Number(existing.id),leadNumber:existing.leadNumber,message:'This mobile number is already recorded for the same branch and source' });
@@ -783,24 +909,26 @@ app.post('/api/leads', authenticate, requireCrmAccess, requireLeadWrite, async (
     }
     const temporaryNumber = `PENDING-${crypto.randomUUID()}`;
     const [result] = await connection.execute(
-      `INSERT INTO crm_leads (lead_number, branch_id, student_name, phone, normalized_phone, alternate_phone, email,
+      `INSERT INTO crm_leads (business_unit_id,lead_number, branch_id, student_name, phone, normalized_phone, alternate_phone, email,
        applying_class, class_id, curriculum_id, academic_year, parent_name, city, stage_id, source_id,
        owner_employee_id, channel_id, campaign_id, admission_type_id, substage_id,
-       lead_score, remarks, next_followup_at_utc, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [temporaryNumber, Number(req.body.branchId), cleanOptional(req.body.studentName, 200), cleanOptional(req.body.phone, 30),
+       lead_score, remarks, custom_values_json, next_followup_at_utc, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [Number(req.businessUnit.id),temporaryNumber, Number(req.body.branchId), cleanOptional(req.body.studentName, 200), submittedPhone || '',
        normalizedPhone, cleanOptional(req.body.alternatePhone, 30), cleanOptional(req.body.email, 254), cleanOptional(req.body.applyingClass, 50),
-       Number(req.body.classId), Number(req.body.curriculumId), cleanOptional(req.body.academicYear, 20),
+       req.body.classId ? Number(req.body.classId) : null, req.body.curriculumId ? Number(req.body.curriculumId) : null, cleanOptional(req.body.academicYear, 20),
        cleanOptional(req.body.parentName, 200), cleanOptional(req.body.city, 100),
        Number(req.body.stageId), req.body.sourceId ? Number(req.body.sourceId) : null,
        req.body.ownerEmployeeId ? Number(req.body.ownerEmployeeId) : null,
        req.body.channelId ? Number(req.body.channelId) : null, req.body.campaignId ? Number(req.body.campaignId) : null, req.body.admissionTypeId ? Number(req.body.admissionTypeId) : null,
        req.body.substageId ? Number(req.body.substageId) : null, Number(req.body.leadScore || 0),
-       cleanOptional(req.body.remarks, 10000), followup.nextFollowupAt, Number(req.user.id)],
+       cleanOptional(req.body.remarks, 10000), JSON.stringify(req.body.customValues||{}), followup.nextFollowupAt, Number(req.user.id)],
     );
     const leadNumber = `ADM-${new Date().getFullYear()}-${String(result.insertId).padStart(6, '0')}`;
     await connection.execute(`UPDATE crm_leads SET lead_number = ? WHERE id = ?`, [leadNumber, result.insertId]);
-    await connection.execute(`INSERT INTO crm_lead_source_history(lead_id,academic_year,source_id,channel_id,campaign_id,is_primary,intake_method,created_by_user_id) VALUES(?,?,?,?,?,TRUE,?,?)`, [result.insertId,cleanOptional(req.body.academicYear,20),Number(req.body.sourceId),Number(req.body.channelId),Number(req.body.campaignId),intakeMethod,Number(req.user.id)]);
+    if(req.body.sourceId&&req.body.channelId&&req.body.campaignId){
+      await connection.execute(`INSERT INTO crm_lead_source_history(lead_id,academic_year,source_id,channel_id,campaign_id,is_primary,intake_method,created_by_user_id) VALUES(?,?,?,?,?,TRUE,?,?)`, [result.insertId,cleanOptional(req.body.academicYear,20),Number(req.body.sourceId),Number(req.body.channelId),Number(req.body.campaignId),intakeMethod,Number(req.user.id)]);
+    }
     await connection.execute(`INSERT INTO crm_lead_activities (lead_id, activity_type, summary, actor_user_id) VALUES (?, 'created', 'Lead created', ?)`, [result.insertId, Number(req.user.id)]);
     if (followup.required) {
       await connection.execute(`INSERT INTO crm_followups (lead_id, assigned_employee_id, followup_type, due_at_utc, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, [result.insertId, req.body.ownerEmployeeId ? Number(req.body.ownerEmployeeId) : null, followup.followupType, followup.nextFollowupAt, Number(req.user.id)]);
@@ -817,7 +945,12 @@ app.post('/api/leads', authenticate, requireCrmAccess, requireLeadWrite, async (
 });
 
 app.put('/api/leads/:id', authenticate, requireCrmAccess, requireLeadWrite, async (req, res) => {
-  const validationError = validateLead(req.body);
+  const [configuredFields]=await pool.execute(
+    `SELECT field_key AS fieldKey FROM crm_metadata_fields
+     WHERE business_unit_id=? AND module_key='leads' AND is_active=TRUE`,
+    [Number(req.businessUnit.id)],
+  );
+  const validationError = validateLead(req.body,{requireClass:configuredFields.some(field=>field.fieldKey==='class_id')});
   if (validationError) return res.status(400).json({ message: validationError });
   let followup = { required: false, nextFollowupAt: null, followupType: null };
   const substageId = Number(req.body.substageId);
@@ -831,16 +964,16 @@ app.put('/api/leads/:id', authenticate, requireCrmAccess, requireLeadWrite, asyn
       applying_class = ?, class_id = ?, curriculum_id = ?, parent_name = ?, city = ?, stage_id = ?,
       owner_assigned_at_utc = IF(NOT (owner_employee_id <=> ?), CURRENT_TIMESTAMP(6), owner_assigned_at_utc),
       owner_employee_id = ?, admission_type_id = ?, substage_id = ?,
-      lead_score = ?, remarks = ?, next_followup_at_utc = ?, updated_by_user_id = ?
+      lead_score = ?, remarks = ?, custom_values_json = ?, next_followup_at_utc = ?, updated_by_user_id = ?
      WHERE l.id = ? AND l.deleted_at_utc IS NULL AND ${scope.sql}`,
     [cleanOptional(req.body.studentName, 200), cleanOptional(req.body.applyingClass, 50),
-     Number(req.body.classId), Number(req.body.curriculumId), cleanOptional(req.body.parentName, 200), cleanOptional(req.body.city, 100),
+     req.body.classId ? Number(req.body.classId) : null, req.body.curriculumId ? Number(req.body.curriculumId) : null, cleanOptional(req.body.parentName, 200), cleanOptional(req.body.city, 100),
      Number(req.body.stageId),
      req.body.ownerEmployeeId ? Number(req.body.ownerEmployeeId) : null,
      req.body.ownerEmployeeId ? Number(req.body.ownerEmployeeId) : null,
      req.body.admissionTypeId ? Number(req.body.admissionTypeId) : null,
      req.body.substageId ? Number(req.body.substageId) : null, Number(req.body.leadScore || 0),
-     cleanOptional(req.body.remarks, 10000), followup.nextFollowupAt, Number(req.user.id), Number(req.params.id), ...scope.params],
+     cleanOptional(req.body.remarks, 10000), JSON.stringify(req.body.customValues||{}), followup.nextFollowupAt, Number(req.user.id), Number(req.params.id), ...scope.params],
   );
   if (!result.affectedRows) return res.status(404).json({ message: 'Lead not found' });
   const [[pendingFollowup]] = await pool.execute(`SELECT id FROM crm_followups WHERE lead_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1`, [Number(req.params.id)]);
@@ -968,9 +1101,9 @@ app.put('/api/leads/actions/bulk-refer', authenticate, requireCrmAccess, require
     await connection.execute(`UPDATE crm_followups SET assigned_employee_id=? WHERE lead_id IN (${placeholders}) AND status='P'`,[employeeId,...leadIds]);
     await connection.execute(
       `INSERT INTO crm_bulk_operations
-       (operation_type,status,created_by_user_id,total_records,successful_records,summary,details_json,completed_at_utc)
-       VALUES ('referral','completed',?,?,?,?,?,CURRENT_TIMESTAMP(6))`,
-      [Number(req.user.id),leadIds.length,leadIds.length,`Referred to ${counsellor.name}`,JSON.stringify({
+       (business_unit_id,operation_type,status,created_by_user_id,total_records,successful_records,summary,details_json,completed_at_utc)
+       VALUES (?,'referral','completed',?,?,?,?,?,CURRENT_TIMESTAMP(6))`,
+      [Number(req.businessUnit.id),Number(req.user.id),leadIds.length,leadIds.length,`Referred to ${counsellor.name}`,JSON.stringify({
         branchId,branchName:counsellor.branchName,employeeId,employeeName:counsellor.name,leadIds,
         referrals:accessible.map(lead=>({leadId:Number(lead.id),fromOwner:lead.previousOwner,fromBranch:lead.previousBranch,toOwner:counsellor.name,toBranch:counsellor.branchName})),
       })],
@@ -983,9 +1116,9 @@ app.put('/api/leads/actions/bulk-refer', authenticate, requireCrmAccess, require
     try {
       await pool.execute(
         `INSERT INTO crm_bulk_operations
-         (operation_type,status,created_by_user_id,total_records,failed_records,summary,details_json,error_message,completed_at_utc)
-         VALUES ('referral','failed',?,?,?,?,?,?,CURRENT_TIMESTAMP(6))`,
-        [Number(req.user.id),leadIds.length,leadIds.length,'Bulk referral failed',JSON.stringify({branchId,employeeId,leadIds}),String(error.message||error).slice(0,1000)],
+         (business_unit_id,operation_type,status,created_by_user_id,total_records,failed_records,summary,details_json,error_message,completed_at_utc)
+         VALUES (?,'referral','failed',?,?,?,?,?,?,CURRENT_TIMESTAMP(6))`,
+        [Number(req.businessUnit.id),Number(req.user.id),leadIds.length,leadIds.length,'Bulk referral failed',JSON.stringify({branchId,employeeId,leadIds}),String(error.message||error).slice(0,1000)],
       );
     } catch (auditError) { console.warn('Bulk referral audit failed:',auditError.message); }
     throw error;
@@ -1039,8 +1172,8 @@ app.put('/api/leads/:id/change-stage', authenticate, requireCrmAccess, requireLe
   const scope = leadScopedWhere(req.user);
   const [[lead]] = await pool.execute(`SELECT stage_id, substage_id FROM crm_leads WHERE id=? AND deleted_at_utc IS NULL AND ${scope.sql} LIMIT 1`, [leadId, ...scope.params]);
   if (!lead) return res.status(404).json({ message: 'Lead not found' });
-  const [[stage]] = await pool.execute(`SELECT id, display_name FROM crm_lead_stages WHERE id=? LIMIT 1`, [stageId]);
-  const [[substage]] = await pool.execute(`SELECT id, display_name FROM crm_lead_substages WHERE id=? LIMIT 1`, [substageId]);
+  const [[stage]] = await pool.execute(`SELECT id, display_name FROM crm_lead_stages WHERE id=? AND business_unit_id=? LIMIT 1`, [stageId,Number(req.businessUnit.id)]);
+  const [[substage]] = await pool.execute(`SELECT id, display_name FROM crm_lead_substages WHERE id=? AND stage_id=? LIMIT 1`, [substageId,stageId]);
   if (!stage || !substage) return res.status(400).json({ message: 'Invalid stage or sub-stage' });
   const [[oldStage]] = await pool.execute(`SELECT display_name FROM crm_lead_stages WHERE id=? LIMIT 1`, [lead.stage_id]);
   const oldStageName = oldStage?.display_name || 'Unknown';
@@ -1068,8 +1201,8 @@ app.put('/api/leads/actions/bulk-change-stage', authenticate, requireCrmAccess, 
   if (leadIds.length > 500) return res.status(400).json({ message: 'A maximum of 500 leads can be updated at once' });
   if (!Number.isInteger(stageId) || stageId <= 0) return res.status(400).json({ message: 'Select a stage' });
   if (!Number.isInteger(substageId) || substageId <= 0) return res.status(400).json({ message: 'Select a sub-stage' });
-  const [[stage]] = await pool.execute(`SELECT id, display_name FROM crm_lead_stages WHERE id=? LIMIT 1`, [stageId]);
-  const [[substage]] = await pool.execute(`SELECT id, display_name FROM crm_lead_substages WHERE id=? LIMIT 1`, [substageId]);
+  const [[stage]] = await pool.execute(`SELECT id, display_name FROM crm_lead_stages WHERE id=? AND business_unit_id=? LIMIT 1`, [stageId,Number(req.businessUnit.id)]);
+  const [[substage]] = await pool.execute(`SELECT id, display_name FROM crm_lead_substages WHERE id=? AND stage_id=? LIMIT 1`, [substageId,stageId]);
   if (!stage || !substage) return res.status(400).json({ message: 'Invalid stage or sub-stage' });
   const placeholders = leadIds.map(() => '?').join(',');
   const scope = leadScopedWhere(req.user);
@@ -1102,9 +1235,9 @@ app.put('/api/leads/actions/bulk-change-stage', authenticate, requireCrmAccess, 
     }
     await connection.execute(
       `INSERT INTO crm_bulk_operations
-       (operation_type,status,created_by_user_id,total_records,successful_records,failed_records,summary,details_json,completed_at_utc)
-       VALUES ('stage_change',?,?,?,?,?,?,?,CURRENT_TIMESTAMP(6))`,
-      [failures.length?'partial':'completed',Number(req.user.id),leadIds.length,successCount,failures.length,
+       (business_unit_id,operation_type,status,created_by_user_id,total_records,successful_records,failed_records,summary,details_json,completed_at_utc)
+       VALUES (?,'stage_change',?,?,?,?,?,?,?,CURRENT_TIMESTAMP(6))`,
+      [Number(req.businessUnit.id),failures.length?'partial':'completed',Number(req.user.id),leadIds.length,successCount,failures.length,
        `Changed to ${stage.display_name} / ${substage.display_name}`,
        JSON.stringify({
          stageId,stageName:stage.display_name,substageId,substageName:substage.display_name,leadIds,failures,
@@ -1126,9 +1259,9 @@ app.put('/api/leads/actions/bulk-change-stage', authenticate, requireCrmAccess, 
     try {
       await pool.execute(
         `INSERT INTO crm_bulk_operations
-         (operation_type,status,created_by_user_id,total_records,failed_records,summary,details_json,error_message,completed_at_utc)
-         VALUES ('stage_change','failed',?,?,?,?,?,?,CURRENT_TIMESTAMP(6))`,
-        [Number(req.user.id),leadIds.length,leadIds.length,'Bulk stage change failed',JSON.stringify({stageId,substageId,leadIds}),String(error.message||error).slice(0,1000)],
+         (business_unit_id,operation_type,status,created_by_user_id,total_records,failed_records,summary,details_json,error_message,completed_at_utc)
+         VALUES (?,'stage_change','failed',?,?,?,?,?,?,CURRENT_TIMESTAMP(6))`,
+        [Number(req.businessUnit.id),Number(req.user.id),leadIds.length,leadIds.length,'Bulk stage change failed',JSON.stringify({stageId,substageId,leadIds}),String(error.message||error).slice(0,1000)],
       );
     } catch (auditError) { console.warn('Bulk stage change audit failed:',auditError.message); }
     throw error;
@@ -1191,7 +1324,8 @@ app.get('/api/admin/users/meta', authenticate, requireUserAdmin, async (req, res
 app.get('/api/admin/users', authenticate, requireUserAdmin, async (req, res) => {
   const [rows] = await pool.query(
     `SELECT u.id, u.employee_id AS employeeId, u.email, u.is_active AS attendanceActive, COALESCE(cuas.is_active,1) AS isActive,
-            COALESCE(e.employee_name, u.email) AS name, e.employee_number AS employeeNumber,
+            COALESCE(e.employee_name,CONCAT_WS(' ',p.first_name,p.last_name),u.email) AS name,
+            p.first_name AS firstName,p.last_name AS lastName,p.phone,e.employee_number AS employeeNumber,
             GROUP_CONCAT(DISTINCT CASE WHEN r.normalized_name LIKE 'CRM\\_%' THEN r.normalized_name END ORDER BY r.normalized_name) AS crmRoles,
             MAX(r.normalized_name = 'ADMIN') AS isSystemAdmin,
             GROUP_CONCAT(DISTINCT cub.branch_id ORDER BY cub.branch_id) AS branchIds,
@@ -1199,11 +1333,12 @@ app.get('/api/admin/users', authenticate, requireUserAdmin, async (req, res) => 
             u.last_login_at_utc AS lastLoginAt
      FROM app_users u
      LEFT JOIN employees e ON e.id = u.employee_id
+     LEFT JOIN crm_user_profiles p ON p.user_id=u.id
      LEFT JOIN crm_user_access_status cuas ON cuas.user_id=u.id
      JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id
      LEFT JOIN crm_user_branches cub ON cub.user_id = u.id LEFT JOIN branches b ON b.id = cub.branch_id
      WHERE r.normalized_name = 'ADMIN' OR r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER')
-     GROUP BY u.id, u.employee_id, u.email, u.is_active, cuas.is_active, e.employee_name, e.employee_number, u.last_login_at_utc
+     GROUP BY u.id, u.employee_id, u.email, u.is_active, cuas.is_active, e.employee_name,p.first_name,p.last_name,p.phone,e.employee_number, u.last_login_at_utc
      ORDER BY name`,
   );
   res.json({ data: rows.map((row) => ({ ...row, id: Number(row.id), employeeId: row.employeeId ? Number(row.employeeId) : null,
@@ -1214,11 +1349,18 @@ app.get('/api/admin/users', authenticate, requireUserAdmin, async (req, res) => 
 
 async function saveCrmUser(req, res, existingUserId = null) {
   const employeeId = Number(req.body.employeeId);
+  const userType = req.body.userType === 'external' ? 'external' : 'employee';
+  const externalUser = userType === 'external';
+  const firstName = String(req.body.firstName || '').trim().slice(0,100);
+  const lastName = String(req.body.lastName || '').trim().slice(0,100);
+  const phone = String(req.body.phone || '').replace(/[^0-9+()\-\s]/g,'').trim().slice(0,30);
   const roleName = String(req.body.roleName || '').toUpperCase();
   const branchIds = [...new Set((req.body.branchIds || []).map(Number).filter((id) => Number.isInteger(id) && id > 0))];
   const email = String(req.body.email || '').trim();
   const password = String(req.body.password || '');
-  if (!Number.isInteger(employeeId) || employeeId <= 0) return res.status(400).json({ message: 'Select an employee' });
+  if (!externalUser && (!Number.isInteger(employeeId) || employeeId <= 0)) return res.status(400).json({ message: 'Select an employee' });
+  if (externalUser && (!firstName || !lastName)) return res.status(400).json({ message: 'First name and last name are required' });
+  if (externalUser && (!email || !/^\S+@\S+\.\S+$/.test(email))) return res.status(400).json({ message: 'Enter a valid login email' });
   if (!assignableCrmRoles.includes(roleName)) return res.status(400).json({ message: 'Select a valid CRM role' });
   if (!branchIds.length) return res.status(400).json({ message: 'Select at least one CRM branch' });
   for (const branchId of branchIds) {
@@ -1227,19 +1369,26 @@ async function saveCrmUser(req, res, existingUserId = null) {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const [employeeRows] = await connection.execute(`SELECT id, email FROM employees WHERE id = ? AND status = 'Active' LIMIT 1`, [employeeId]);
-    if (!employeeRows.length) { await connection.rollback(); return res.status(404).json({ message: 'Active employee not found' }); }
-    const [userRows] = await connection.execute(`SELECT id, email, is_active AS isActive FROM app_users WHERE employee_id = ? LIMIT 1`, [employeeId]);
+    let employeeRows=[];
+    let userRows=[];
+    if(externalUser){
+      if(existingUserId)[userRows]=await connection.execute(`SELECT id,email,is_active AS isActive,employee_id AS employeeId FROM app_users WHERE id=? LIMIT 1`,[Number(existingUserId)]);
+    }else{
+      [employeeRows]=await connection.execute(`SELECT id, email FROM employees WHERE id = ? AND status = 'Active' LIMIT 1`, [employeeId]);
+      if (!employeeRows.length) { await connection.rollback(); return res.status(404).json({ message: 'Active employee not found' }); }
+      [userRows]=await connection.execute(`SELECT id, email, is_active AS isActive FROM app_users WHERE employee_id = ? LIMIT 1`, [employeeId]);
+    }
     let user = userRows[0];
-    if (existingUserId && (!user || Number(user.id) !== Number(existingUserId))) { await connection.rollback(); return res.status(409).json({ message: 'Employee account does not match this CRM user' }); }
+    if (existingUserId && (!user || Number(user.id) !== Number(existingUserId))) { await connection.rollback(); return res.status(409).json({ message: externalUser?'External account does not match this CRM user':'Employee account does not match this CRM user' }); }
+    if(externalUser&&user?.employeeId){await connection.rollback();return res.status(409).json({message:'An employee-linked account cannot be converted to an external user'});}
     if (!user) {
-      const loginEmail = email || employeeRows[0].email;
+      const loginEmail = email || employeeRows[0]?.email;
       if (!loginEmail || !/^\S+@\S+\.\S+$/.test(loginEmail)) { await connection.rollback(); return res.status(400).json({ message: 'A valid login email is required for a new account' }); }
       if (password.length < 8) { await connection.rollback(); return res.status(400).json({ message: 'New accounts require a password of at least 8 characters' }); }
       const [result] = await connection.execute(
         `INSERT INTO app_users (employee_id, email, normalized_email, password_hash, security_stamp, is_active, created_at_utc)
          VALUES (?, ?, ?, ?, ?, TRUE, CURRENT_TIMESTAMP(6))`,
-        [employeeId, loginEmail, loginEmail.toUpperCase(), hashAttendancePassword(password), crypto.randomUUID()],
+        [externalUser?null:employeeId, loginEmail, loginEmail.toUpperCase(), hashAttendancePassword(password), crypto.randomUUID()],
       );
       user = { id: result.insertId, email: loginEmail, isActive: true };
     } else if (!user.isActive) {
@@ -1248,6 +1397,13 @@ async function saveCrmUser(req, res, existingUserId = null) {
     if (password) {
       if (password.length < 8) { await connection.rollback(); return res.status(400).json({ message: 'Password must contain at least 8 characters' }); }
       await connection.execute(`UPDATE app_users SET password_hash = ?, security_stamp = ?, failed_login_count = 0, lockout_end_utc = NULL, updated_at_utc = CURRENT_TIMESTAMP(6) WHERE id = ?`, [hashAttendancePassword(password), crypto.randomUUID(), user.id]);
+    }
+    if(externalUser){
+      await connection.execute(
+        `INSERT INTO crm_user_profiles(user_id,first_name,last_name,phone)
+         VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE first_name=VALUES(first_name),last_name=VALUES(last_name),phone=VALUES(phone)`,
+        [Number(user.id),firstName,lastName,phone||null],
+      );
     }
     await connection.execute(
       `DELETE ur FROM user_roles ur JOIN roles r ON r.id = ur.role_id
@@ -1307,7 +1463,13 @@ function configCode(value) { return String(value || '').trim().toLowerCase().rep
 app.get('/api/admin/lead-config', authenticate, requireUserAdmin, async (_req, res) => {
   const [stages] = await pool.query(`SELECT id,name code,display_name displayName,position,is_active isActive,requires_followup requiresFollowup FROM crm_lead_stages ORDER BY position,display_name`);
   const [substages] = await pool.query(`SELECT ss.id,ss.substage_code code,ss.display_name displayName,ss.stage_id parentId,s.display_name parentName,ss.position,ss.is_active isActive FROM crm_lead_substages ss JOIN crm_lead_stages s ON s.id=ss.stage_id ORDER BY s.position,ss.position,ss.display_name`);
-  const [sources] = await pool.query(`SELECT id,name code,display_name displayName,is_active isActive FROM crm_lead_sources ORDER BY display_name`);
+  const [sources] = await pool.query(`
+    SELECT s.id,s.name code,s.display_name displayName,s.channel_id parentId,
+           ch.display_name parentName,s.is_active isActive
+    FROM crm_lead_sources s
+    LEFT JOIN crm_lead_channels ch ON ch.id=s.channel_id
+    ORDER BY s.display_name
+  `);
   const [campaignCategories] = await pool.query(`SELECT id,category_code code,display_name displayName,is_active isActive FROM crm_campaign_categories ORDER BY display_name`);
   const [campaigns] = await pool.query(`SELECT c.id,c.campaign_code code,c.display_name displayName,c.category_id parentId,COALESCE(cc.display_name,c.category) parentName,c.is_active isActive FROM crm_campaigns c LEFT JOIN crm_campaign_categories cc ON cc.id=c.category_id ORDER BY parentName,c.display_name`);
   const [channelCategories] = await pool.query(`SELECT id,category_code code,display_name displayName,is_active isActive FROM crm_channel_categories ORDER BY display_name`);
@@ -1323,7 +1485,11 @@ app.post('/api/admin/lead-config/:type', authenticate, requireUserAdmin, async (
   try {
     if (type==='stages') await pool.execute(`INSERT INTO crm_lead_stages(name,display_name,position,color_code,requires_followup) SELECT ?,?,COALESCE(MAX(position),0)+1,'#555AB1',? FROM crm_lead_stages`,[code,displayName,req.body.requiresFollowup?1:0]);
     else if (type==='substages') await pool.execute(`INSERT INTO crm_lead_substages(stage_id,substage_code,display_name,position) SELECT ?,?,?,COALESCE(MAX(position),0)+1 FROM crm_lead_substages WHERE stage_id=?`,[Number(req.body.parentId),code,displayName,Number(req.body.parentId)]);
-    else if (type==='sources') await pool.execute(`INSERT INTO crm_lead_sources(name,display_name) VALUES(?,?)`,[code,displayName]);
+    else if (type==='sources') {
+      const [[channel]]=await pool.execute(`SELECT id FROM crm_lead_channels WHERE id=?`,[Number(req.body.parentId)]);
+      if(!channel)return res.status(400).json({message:'Channel is required'});
+      await pool.execute(`INSERT INTO crm_lead_sources(name,display_name,channel_id) VALUES(?,?,?)`,[code,displayName,channel.id]);
+    }
     else if (type==='campaignCategories') await pool.execute(`INSERT INTO crm_campaign_categories(category_code,display_name) VALUES(?,?)`,[code,displayName]);
     else if (type==='campaigns') { const [[category]]=await pool.execute(`SELECT id,display_name FROM crm_campaign_categories WHERE id=?`,[Number(req.body.parentId)]); if(!category)return res.status(400).json({message:'Campaign category is required'}); await pool.execute(`INSERT INTO crm_campaigns(campaign_code,display_name,category,category_id) VALUES(?,?,?,?)`,[code,displayName,category.display_name,category.id]); }
     else if (type==='channelCategories') await pool.execute(`INSERT INTO crm_channel_categories(category_code,display_name) VALUES(?,?)`,[code,displayName]);
@@ -1342,7 +1508,11 @@ app.put('/api/admin/lead-config/:type/:id', authenticate, requireUserAdmin, asyn
     let result;
     if(type==='stages') [result]=await connection.execute(`UPDATE crm_lead_stages SET display_name=?,requires_followup=? WHERE id=?`,[displayName,req.body.requiresFollowup?1:0,id]);
     else if(type==='substages') [result]=await connection.execute(`UPDATE crm_lead_substages SET display_name=?,stage_id=? WHERE id=?`,[displayName,Number(req.body.parentId),id]);
-    else if(type==='sources') [result]=await connection.execute(`UPDATE crm_lead_sources SET display_name=? WHERE id=?`,[displayName,id]);
+    else if(type==='sources') {
+      const [[channel]]=await connection.execute(`SELECT id FROM crm_lead_channels WHERE id=?`,[Number(req.body.parentId)]);
+      if(!channel){await connection.rollback();return res.status(400).json({message:'Channel is required'});}
+      [result]=await connection.execute(`UPDATE crm_lead_sources SET display_name=?,channel_id=? WHERE id=?`,[displayName,channel.id,id]);
+    }
     else if(type==='campaignCategories') { [result]=await connection.execute(`UPDATE crm_campaign_categories SET display_name=? WHERE id=?`,[displayName,id]); await connection.execute(`UPDATE crm_campaigns SET category=? WHERE category_id=?`,[displayName,id]); }
     else if(type==='campaigns') { const [[category]]=await connection.execute(`SELECT id,display_name FROM crm_campaign_categories WHERE id=?`,[Number(req.body.parentId)]); if(!category){await connection.rollback();return res.status(400).json({message:'Campaign category is required'});} [result]=await connection.execute(`UPDATE crm_campaigns SET display_name=?,category=?,category_id=? WHERE id=?`,[displayName,category.display_name,category.id,id]); }
     else if(type==='channelCategories') { [result]=await connection.execute(`UPDATE crm_channel_categories SET display_name=? WHERE id=?`,[displayName,id]); await connection.execute(`UPDATE crm_lead_channels SET category=? WHERE category_id=?`,[displayName,id]); }
@@ -1357,6 +1527,75 @@ app.put('/api/admin/lead-config/:type/:id/status', authenticate, requireUserAdmi
   const [result]=await pool.execute(`UPDATE ${definition.table} SET is_active=? WHERE id=?`,[req.body.isActive?1:0,Number(req.params.id)]);
   if(!result.affectedRows)return res.status(404).json({message:`${definition.label} not found`});
   res.json({message:`${definition.label} marked ${req.body.isActive?'active':'inactive'}`});
+});
+
+app.delete('/api/admin/lead-config/:type/:id', authenticate, requireUserAdmin, async (req,res) => {
+  const type=req.params.type,definition=leadConfigTypes[type],id=Number(req.params.id);
+  if(!definition)return res.status(404).json({message:'Configuration type not found'});
+  const connection=await pool.getConnection();
+  try{
+    await connection.beginTransaction();
+    let linked=0;
+    if(type==='sources'){
+      const [[usage]]=await connection.execute(
+        `SELECT (SELECT COUNT(*) FROM crm_leads WHERE source_id=?)+(SELECT COUNT(*) FROM crm_lead_source_history WHERE source_id=?) AS count`,[id,id],
+      );linked=Number(usage.count);
+    }else if(type==='campaigns'){
+      const [[usage]]=await connection.execute(
+        `SELECT (SELECT COUNT(*) FROM crm_leads WHERE campaign_id=?)+(SELECT COUNT(*) FROM crm_lead_source_history WHERE campaign_id=?) AS count`,[id,id],
+      );linked=Number(usage.count);
+    }else if(type==='channels'){
+      const [[usage]]=await connection.execute(
+        `SELECT
+          (SELECT COUNT(*) FROM crm_leads WHERE channel_id=?)
+          +(SELECT COUNT(*) FROM crm_lead_source_history WHERE channel_id=?)
+          +(SELECT COUNT(*) FROM crm_leads l JOIN crm_lead_sources s ON s.id=l.source_id WHERE s.channel_id=?)
+          +(SELECT COUNT(*) FROM crm_lead_source_history h JOIN crm_lead_sources s ON s.id=h.source_id WHERE s.channel_id=?) AS count`,
+        [id,id,id,id],
+      );linked=Number(usage.count);
+    }else if(type==='channelCategories'){
+      const [[usage]]=await connection.execute(
+        `SELECT
+          (SELECT COUNT(*) FROM crm_leads l JOIN crm_lead_channels c ON c.id=l.channel_id WHERE c.category_id=?)
+          +(SELECT COUNT(*) FROM crm_lead_source_history h JOIN crm_lead_channels c ON c.id=h.channel_id WHERE c.category_id=?)
+          +(SELECT COUNT(*) FROM crm_leads l JOIN crm_lead_sources s ON s.id=l.source_id JOIN crm_lead_channels c ON c.id=s.channel_id WHERE c.category_id=?)
+          +(SELECT COUNT(*) FROM crm_lead_source_history h JOIN crm_lead_sources s ON s.id=h.source_id JOIN crm_lead_channels c ON c.id=s.channel_id WHERE c.category_id=?) AS count`,
+        [id,id,id,id],
+      );linked=Number(usage.count);
+    }else if(type==='campaignCategories'){
+      const [[usage]]=await connection.execute(
+        `SELECT
+          (SELECT COUNT(*) FROM crm_leads l JOIN crm_campaigns c ON c.id=l.campaign_id WHERE c.category_id=?)
+          +(SELECT COUNT(*) FROM crm_lead_source_history h JOIN crm_campaigns c ON c.id=h.campaign_id WHERE c.category_id=?) AS count`,
+        [id,id],
+      );linked=Number(usage.count);
+    }else if(type==='stages'){
+      const [[usage]]=await connection.execute(`SELECT COUNT(*) AS count FROM crm_leads WHERE stage_id=?`,[id]);linked=Number(usage.count);
+    }else if(type==='substages'){
+      const [[usage]]=await connection.execute(`SELECT COUNT(*) AS count FROM crm_leads WHERE substage_id=?`,[id]);linked=Number(usage.count);
+    }
+    if(linked){
+      await connection.rollback();
+      return res.status(409).json({message:`Cannot delete this ${definition.label.toLowerCase()} because ${linked} lead record${linked===1?' is':'s are'} linked to it`});
+    }
+    if(type==='channelCategories'){
+      await connection.execute(`DELETE s FROM crm_lead_sources s JOIN crm_lead_channels c ON c.id=s.channel_id WHERE c.category_id=?`,[id]);
+      await connection.execute(`DELETE FROM crm_lead_channels WHERE category_id=?`,[id]);
+    }else if(type==='channels')await connection.execute(`DELETE FROM crm_lead_sources WHERE channel_id=?`,[id]);
+    else if(type==='campaignCategories')await connection.execute(`DELETE FROM crm_campaigns WHERE category_id=?`,[id]);
+    else if(type==='stages'){
+      const [[children]]=await connection.execute(`SELECT COUNT(*) AS count FROM crm_lead_substages WHERE stage_id=?`,[id]);
+      if(Number(children.count)){await connection.rollback();return res.status(409).json({message:'Delete the sub-stages under this stage before deleting the stage'});}
+    }
+    const [result]=await connection.execute(`DELETE FROM ${definition.table} WHERE id=?`,[id]);
+    if(!result.affectedRows){await connection.rollback();return res.status(404).json({message:`${definition.label} not found`});}
+    await connection.commit();
+    res.json({message:`${definition.label} and its unused child configuration deleted successfully`});
+  }catch(error){
+    await connection.rollback();
+    if(error.code==='ER_ROW_IS_REFERENCED_2')return res.status(409).json({message:`This ${definition.label.toLowerCase()} is linked to application history and cannot be deleted`});
+    throw error;
+  }finally{connection.release();}
 });
 
 app.get('/api/saved-filters', authenticate, requireCrmAccess, async (req, res) => {
@@ -1404,7 +1643,8 @@ app.get('/api/automations', authenticate, requireCrmAccess, async (req,res)=>{
              SUM(status IN ('pending','running')) AS pendingCount
       FROM crm_automation_executions GROUP BY workflow_id
     ) x ON x.workflow_id=w.id
-    ORDER BY w.created_at_utc DESC`);
+    WHERE w.business_unit_id=?
+    ORDER BY w.created_at_utc DESC`,[Number(req.businessUnit.id)]);
   res.json({data:rows.map(row=>({...row,id:Number(row.id),isActive:Boolean(row.isActive),completedCount:Number(row.completedCount||0),failedCount:Number(row.failedCount||0),pendingCount:Number(row.pendingCount||0),definition:typeof row.definition==='string'?JSON.parse(row.definition):row.definition}))});
 });
 
@@ -1472,7 +1712,7 @@ app.post('/api/automations', authenticate, requireCrmAccess, requireLeadWrite, a
   const name=cleanOptional(req.body.name,180); const category=cleanOptional(req.body.category,40); const definition=req.body.definition&&typeof req.body.definition==='object'?req.body.definition:{};
   if(!name||!category)return res.status(400).json({message:'Automation name and category are required'});
   await validateAutomationDefinition(definition, Number(req.user.id));
-  const [result]=await pool.execute(`INSERT INTO crm_automation_workflows(name,category,start_at,definition_json,is_active,created_by) VALUES(?,?,?,?,?,?)`,[name,category,req.body.startAt||null,JSON.stringify(definition),req.body.isActive?1:0,Number(req.user.id)]);
+  const [result]=await pool.execute(`INSERT INTO crm_automation_workflows(business_unit_id,name,category,start_at,definition_json,is_active,created_by) VALUES(?,?,?,?,?,?,?)`,[Number(req.businessUnit.id),name,category,req.body.startAt||null,JSON.stringify(definition),req.body.isActive?1:0,Number(req.user.id)]);
   res.status(201).json({message:'Automation workflow created',id:Number(result.insertId)});
 });
 
@@ -1485,8 +1725,8 @@ app.put('/api/automations/:id', authenticate, requireCrmAccess, requireLeadWrite
   try {
     await connection.beginTransaction();
     const [[existing]]=await connection.execute(
-      `SELECT start_at,definition_json FROM crm_automation_workflows WHERE id=? FOR UPDATE`,
-      [workflowId],
+      `SELECT start_at,definition_json FROM crm_automation_workflows WHERE id=? AND business_unit_id=? FOR UPDATE`,
+      [workflowId,Number(req.businessUnit.id)],
     );
     if(!existing){
       await connection.rollback();
@@ -1504,8 +1744,8 @@ app.put('/api/automations/:id', authenticate, requireCrmAccess, requireLeadWrite
       existingDefinition!==nextDefinition || existingStart!==nextStart;
     await connection.execute(
       `UPDATE crm_automation_workflows
-       SET name=?,category=?,start_at=?,definition_json=? WHERE id=?`,
-      [name,category,req.body.startAt||null,nextDefinition,workflowId],
+       SET name=?,category=?,start_at=?,definition_json=? WHERE id=? AND business_unit_id=?`,
+      [name,category,req.body.startAt||null,nextDefinition,workflowId,Number(req.businessUnit.id)],
     );
     if(executionRuleChanged){
       await connection.execute(
@@ -1527,12 +1767,12 @@ app.put('/api/automations/:id', authenticate, requireCrmAccess, requireLeadWrite
 });
 
 app.put('/api/automations/:id/status', authenticate, requireCrmAccess, requireLeadWrite, async (req,res)=>{
-  const [result]=await pool.execute(`UPDATE crm_automation_workflows SET is_active=? WHERE id=?`,[req.body.isActive?1:0,Number(req.params.id)]); if(!result.affectedRows)return res.status(404).json({message:'Automation workflow not found'}); res.json({message:`Automation ${req.body.isActive?'activated':'paused'}`});
+  const [result]=await pool.execute(`UPDATE crm_automation_workflows SET is_active=? WHERE id=? AND business_unit_id=?`,[req.body.isActive?1:0,Number(req.params.id),Number(req.businessUnit.id)]); if(!result.affectedRows)return res.status(404).json({message:'Automation workflow not found'}); res.json({message:`Automation ${req.body.isActive?'activated':'paused'}`});
 });
 
 app.post('/api/automations/:id/run', authenticate, requireCrmAccess, requireLeadWrite, async (req,res)=>{
   const id=Number(req.params.id);
-  const [[workflow]]=await pool.execute(`SELECT id,is_active AS isActive FROM crm_automation_workflows WHERE id=? LIMIT 1`,[id]);
+  const [[workflow]]=await pool.execute(`SELECT id,is_active AS isActive FROM crm_automation_workflows WHERE id=? AND business_unit_id=? LIMIT 1`,[id,Number(req.businessUnit.id)]);
   if(!workflow)return res.status(404).json({message:'Automation workflow not found'});
   if(!workflow.isActive)return res.status(409).json({message:'Activate the workflow before running it'});
   const result=await automationEngine.run({workflowId:id});
@@ -1540,7 +1780,7 @@ app.post('/api/automations/:id/run', authenticate, requireCrmAccess, requireLead
 });
 
 app.delete('/api/automations/:id', authenticate, requireCrmAccess, requireLeadDelete, async (req,res)=>{
-  const [result]=await pool.execute(`DELETE FROM crm_automation_workflows WHERE id=?`,[Number(req.params.id)]); if(!result.affectedRows)return res.status(404).json({message:'Automation workflow not found'}); res.json({message:'Automation workflow deleted'});
+  const [result]=await pool.execute(`DELETE FROM crm_automation_workflows WHERE id=? AND business_unit_id=?`,[Number(req.params.id),Number(req.businessUnit.id)]); if(!result.affectedRows)return res.status(404).json({message:'Automation workflow not found'}); res.json({message:'Automation workflow deleted'});
 });
 
 function campaignScheduleDates(body) {
@@ -1610,9 +1850,9 @@ app.get('/api/marketing-campaigns', authenticate, requireCrmAccess, async (req,r
              SUM(status='READ') readDeliveries
       FROM crm_marketing_campaign_deliveries GROUP BY campaign_id
     ) d ON d.campaign_id=c.id
-    WHERE c.organization_id=?
+    WHERE c.organization_id=? AND c.business_unit_id=?
     ORDER BY c.created_at_utc DESC`,
-    [Number(req.user.id)],
+    [Number(req.user.id),Number(req.businessUnit.id)],
   );
   res.json({data:rows.map(row=>({
     ...row,id:Number(row.id),recipientCount:Number(row.recipientCount),
@@ -1692,11 +1932,11 @@ app.post('/api/marketing-campaigns', authenticate, requireCrmAccess, requireLead
     await connection.beginTransaction();
     const [campaignResult]=await connection.execute(
       `INSERT INTO crm_marketing_campaigns
-       (organization_id,name,rule_type,communication_count,first_communication_at,gap_days,
+       (business_unit_id,organization_id,name,rule_type,communication_count,first_communication_at,gap_days,
         weekdays_json,calendar_dates_json,audience_filters_json,integration_id,response_owner,
         retry_attempts,status,created_by)
-       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'ACTIVE',?)`,
-      [Number(req.user.id),name,ruleType,communicationCount,scheduleDates[0],
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'ACTIVE',?)`,
+      [Number(req.businessUnit.id),Number(req.user.id),name,ruleType,communicationCount,scheduleDates[0],
        ruleType==='days_gap'?Math.max(1,Number(req.body.gapDays||1)):null,
        ruleType==='weekdays'?JSON.stringify(req.body.weekdays||[]):null,
        ruleType==='calendar_dates'?JSON.stringify(req.body.calendarDates||[]):null,
@@ -1741,8 +1981,8 @@ app.put('/api/marketing-campaigns/:id/status', authenticate, requireCrmAccess, r
   const status=String(req.body.status||'').toUpperCase();
   if(!['ACTIVE','PAUSED','CANCELLED'].includes(status))return res.status(400).json({message:'Invalid campaign status'});
   const [result]=await pool.execute(
-    `UPDATE crm_marketing_campaigns SET status=? WHERE id=? AND organization_id=?`,
-    [status,Number(req.params.id),Number(req.user.id)],
+    `UPDATE crm_marketing_campaigns SET status=? WHERE id=? AND organization_id=? AND business_unit_id=?`,
+    [status,Number(req.params.id),Number(req.user.id),Number(req.businessUnit.id)],
   );
   if(!result.affectedRows)return res.status(404).json({message:'Campaign not found'});
   if(status==='CANCELLED')await pool.execute(
@@ -1821,6 +2061,14 @@ app.get('/api/leads', authenticate, requireCrmAccess, async (req, res) => {
 // ============= Bulk Upload Routes =============
 app.get('/api/bulk-uploads/download-template', authenticate, requireCrmAccess, requireLeadWrite, async (req, res) => {
   try {
+    const [metadataFields] = await pool.execute(
+      `SELECT field_key AS fieldKey,display_name AS displayName,field_type AS fieldType,
+              is_import_required AS isRequired,import_header AS importHeader,import_sample_value AS importSampleValue
+       FROM crm_metadata_fields
+       WHERE business_unit_id=? AND module_key='leads' AND is_active=TRUE AND is_importable=TRUE
+       ORDER BY position`,
+      [Number(req.businessUnit.id)],
+    );
     // Query for real sample data from database (with fallbacks)
     let classData, campaignData, substageData, userData, sourceData;
 
@@ -1838,28 +2086,26 @@ app.get('/api/bulk-uploads/download-template', authenticate, requireCrmAccess, r
     const sourceId = sourceData?.[0]?.id || '1';
     const sourceName = sourceData?.[0]?.display_name || 'Web Form';
 
-    // Mandatory and optional columns for bulk upload
-    const headers = [
-      'Student Name *',
-      'Phone *',
-      'Class ID *',
-      'Campaign Name *',
-      'Sub-stage ID *',
-      'Assign To *',
-      'Source ID *',
-      'Remarks'
-    ];
-
-    const sampleRow = [
-      'Rahul Kumar',
-      '9876543210',
-      classId,
-      campaignName,
-      substageId,
-      userEmail,
-      sourceId,
-      'Sample lead'
-    ];
+    const fallbackFields = [
+      ['student_name','Student Name',true,'Rahul Kumar'],['phone','Phone',true,'9876543210'],
+      ['class_id','Class ID',true,classId],['campaign_id','Campaign Name',true,campaignName],
+      ['substage_id','Sub-stage ID',true,substageId],['owner_employee_id','Assign To',true,userEmail],
+      ['source_id','Source ID',true,sourceId],['remarks','Remarks',false,'Sample lead'],
+    ].map(([fieldKey,displayName,isRequired,importSampleValue])=>({fieldKey,displayName,isRequired,importHeader:displayName,importSampleValue}));
+    const templateFields=metadataFields.length?metadataFields:fallbackFields;
+    const dynamicSample=(field)=>{
+      if(field.importSampleValue)return field.importSampleValue;
+      const known={class_id:classId,campaign_id:campaignName,substage_id:substageId,owner_employee_id:userEmail,source_id:sourceId};
+      if(known[field.fieldKey]!=null)return known[field.fieldKey];
+      if(field.fieldType==='email')return 'contact@example.com';
+      if(field.fieldType==='phone')return '9876543210';
+      if(['number','decimal'].includes(field.fieldType))return '1';
+      if(field.fieldType==='date')return new Date().toISOString().slice(0,10);
+      if(field.fieldType==='boolean')return 'Yes';
+      return '';
+    };
+    const headers=templateFields.map(field=>`${field.importHeader||field.displayName}${field.isRequired?' *':''}`);
+    const sampleRow=templateFields.map(dynamicSample);
 
     // Escape CSV values
     const escapeCSV = (value) => {
@@ -1878,7 +2124,8 @@ app.get('/api/bulk-uploads/download-template', authenticate, requireCrmAccess, r
     ].join('\n');
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="bulk_lead_upload_template_${new Date().toISOString().split('T')[0]}.csv"`);
+    const templateName=req.query.template==='google'?'Google_Sheets_Import_Template':`bulk_lead_upload_template_${new Date().toISOString().split('T')[0]}`;
+    res.setHeader('Content-Disposition', `attachment; filename="${templateName}.csv"`);
     res.send(templateContent);
   } catch (error) {
     console.error('Template download error:', error);
@@ -2073,6 +2320,20 @@ app.delete('/api/admission-class-configurations/:id', authenticate, requireUserA
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
+      const [[usage]] = await connection.execute(`
+        SELECT COUNT(*) AS count
+        FROM crm_leads l
+        JOIN crm_admission_class_configurations c ON c.id=?
+        JOIN crm_admission_class_configuration_details d ON d.configuration_id=c.id AND d.class_id=l.class_id
+        WHERE l.academic_year=c.academic_year
+          AND l.branch_id=c.branch_id
+          AND l.curriculum_id=c.curriculum_id
+          AND l.admission_type_id=c.admission_type_id
+      `, [configId]);
+      if (Number(usage.count) > 0) {
+        await connection.rollback();
+        return res.status(409).json({ message: `Cannot delete this academic configuration because ${usage.count} lead${Number(usage.count) === 1 ? ' is' : 's are'} linked to it` });
+      }
       await connection.execute(`DELETE FROM crm_admission_class_configuration_details WHERE configuration_id = ?`, [configId]);
       await connection.execute(`DELETE FROM crm_admission_class_configurations WHERE id = ?`, [configId]);
       await connection.commit();
@@ -2257,10 +2518,33 @@ app.put('/api/academic-years/:id', authenticate, requireUserAdmin, async (req, r
 app.delete('/api/academic-years/:id', authenticate, requireUserAdmin, async (req, res) => {
   try {
     const yearId = Number(req.params.id);
-
-    await pool.execute(`DELETE FROM crm_academic_years WHERE id = ?`, [yearId]);
-
-    res.json({ message: 'Academic Year deleted successfully' });
+    const [[year]] = await pool.execute(`SELECT academic_year AS academicYear FROM crm_academic_years WHERE id=?`, [yearId]);
+    if (!year) return res.status(404).json({ message: 'Academic Year not found' });
+    const [[usage]] = await pool.execute(`
+      SELECT
+        (SELECT COUNT(*) FROM crm_leads WHERE academic_year=?)
+        +(SELECT COUNT(*) FROM crm_lead_source_history WHERE academic_year=?) AS count
+    `, [year.academicYear, year.academicYear]);
+    if (Number(usage.count) > 0) {
+      return res.status(409).json({ message: `Cannot delete this academic year because ${usage.count} lead record${Number(usage.count) === 1 ? ' is' : 's are'} linked to it` });
+    }
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [configs] = await connection.execute(`SELECT id FROM crm_admission_class_configurations WHERE academic_year=?`, [year.academicYear]);
+      for (const config of configs) {
+        await connection.execute(`DELETE FROM crm_admission_class_configuration_details WHERE configuration_id=?`, [config.id]);
+      }
+      await connection.execute(`DELETE FROM crm_admission_class_configurations WHERE academic_year=?`, [year.academicYear]);
+      await connection.execute(`DELETE FROM crm_academic_years WHERE id=?`, [yearId]);
+      await connection.commit();
+      res.json({ message: 'Academic Year and its unused child configuration deleted successfully' });
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -2286,9 +2570,9 @@ app.get('/api/bulk-operations', authenticate, requireCrmAccess, requireLeadWrite
      FROM crm_bulk_operations bo
      JOIN app_users u ON u.id=bo.created_by_user_id
      LEFT JOIN employees e ON e.id=u.employee_id
-     WHERE ${where.join(' AND ')}
+    WHERE bo.business_unit_id=? AND ${where.join(' AND ')}
      ORDER BY bo.created_at_utc DESC LIMIT 250`,
-    values,
+    [Number(req.businessUnit.id),...values],
   );
   res.json({ data: rows.map(row => ({ ...row, id:Number(row.id), details:typeof row.details==='string' ? JSON.parse(row.details) : row.details })) });
 });
@@ -2299,9 +2583,9 @@ app.post('/api/bulk-operations/data-export', authenticate, requireCrmAccess, req
   const leadIds = [...new Set((Array.isArray(req.body.leadIds)?req.body.leadIds:[]).map(Number).filter(id=>Number.isInteger(id)&&id>0))];
   const [result] = await pool.execute(
     `INSERT INTO crm_bulk_operations
-     (operation_type,status,created_by_user_id,total_records,successful_records,summary,details_json,completed_at_utc)
-     VALUES ('data_export','completed',?,?,?,?,?,CURRENT_TIMESTAMP(6))`,
-    [Number(req.user.id),totalRecords,totalRecords,`Exported ${totalRecords} lead${totalRecords===1?'':'s'}`,JSON.stringify({fileName,leadIds})],
+     (business_unit_id,operation_type,status,created_by_user_id,total_records,successful_records,summary,details_json,completed_at_utc)
+     VALUES (?,'data_export','completed',?,?,?,?,?,CURRENT_TIMESTAMP(6))`,
+    [Number(req.businessUnit.id),Number(req.user.id),totalRecords,totalRecords,`Exported ${totalRecords} lead${totalRecords===1?'':'s'}`,JSON.stringify({fileName,leadIds})],
   );
   res.status(201).json({ id:Number(result.insertId), message:'Export recorded' });
 });
@@ -2310,8 +2594,8 @@ app.get('/api/bulk-operations/:id/export', authenticate, requireCrmAccess, requi
   const operationId=Number(req.params.id);
   if(!Number.isInteger(operationId)||operationId<=0)return res.status(400).json({message:'Invalid bulk operation'});
   const [[operation]]=await pool.execute(
-    `SELECT id,operation_type AS operationType,details_json AS details FROM crm_bulk_operations WHERE id=? LIMIT 1`,
-    [operationId],
+    `SELECT id,operation_type AS operationType,details_json AS details FROM crm_bulk_operations WHERE id=? AND business_unit_id=? LIMIT 1`,
+    [operationId,Number(req.businessUnit.id)],
   );
   if(!operation)return res.status(404).json({message:'Bulk operation not found'});
   const details=typeof operation.details==='string'?JSON.parse(operation.details):operation.details||{};
@@ -2370,10 +2654,10 @@ app.get('/api/bulk-uploads', authenticate, requireCrmAccess, requireLeadWrite, a
      FROM crm_bulk_uploads bu
      JOIN app_users u ON u.id=bu.uploaded_by_user_id
      LEFT JOIN employees e ON e.id=u.employee_id
-     WHERE ${scope.sql}
+     WHERE bu.business_unit_id=? AND ${scope.sql}
      ORDER BY bu.created_at_utc DESC
      LIMIT 100`,
-    scope.params
+    [Number(req.businessUnit.id),...scope.params]
   );
   res.json({ data: rows.map(row => ({ ...row, id: Number(row.id) })) });
 });
@@ -2391,8 +2675,8 @@ app.get('/api/bulk-uploads/:id', authenticate, requireCrmAccess, requireLeadWrit
      FROM crm_bulk_uploads bu
      JOIN app_users u ON u.id=bu.uploaded_by_user_id
      LEFT JOIN employees e ON e.id=u.employee_id
-     WHERE bu.id=? AND ${scope.sql}`,
-    [Number(req.params.id), ...scope.params]
+     WHERE bu.id=? AND bu.business_unit_id=? AND ${scope.sql}`,
+    [Number(req.params.id),Number(req.businessUnit.id), ...scope.params]
   );
   if (!upload) return res.status(404).json({ message: 'Upload not found' });
 
@@ -2423,8 +2707,8 @@ app.get('/api/bulk-uploads/:id', authenticate, requireCrmAccess, requireLeadWrit
 app.get('/api/bulk-uploads/:id/download-errors', authenticate, requireCrmAccess, requireLeadWrite, async (req, res) => {
   const scope = scopedWhere(req.user, 'bu.branch_id');
   const [[upload]] = await pool.execute(
-    `SELECT id FROM crm_bulk_uploads bu WHERE bu.id=? AND ${scope.sql}`,
-    [Number(req.params.id), ...scope.params]
+    `SELECT id FROM crm_bulk_uploads bu WHERE bu.id=? AND bu.business_unit_id=? AND ${scope.sql}`,
+    [Number(req.params.id),Number(req.businessUnit.id), ...scope.params]
   );
   if (!upload) return res.status(404).json({ message: 'Upload not found' });
 
@@ -2449,8 +2733,8 @@ app.get('/api/bulk-uploads/:id/download-errors', authenticate, requireCrmAccess,
 app.get('/api/bulk-uploads/:id/download-successful', authenticate, requireCrmAccess, requireLeadWrite, async (req, res) => {
   const scope = scopedWhere(req.user, 'bu.branch_id');
   const [[upload]] = await pool.execute(
-    `SELECT id FROM crm_bulk_uploads bu WHERE bu.id=? AND ${scope.sql}`,
-    [Number(req.params.id), ...scope.params]
+    `SELECT id FROM crm_bulk_uploads bu WHERE bu.id=? AND bu.business_unit_id=? AND ${scope.sql}`,
+    [Number(req.params.id),Number(req.businessUnit.id), ...scope.params]
   );
   if (!upload) return res.status(404).json({ message: 'Upload not found' });
 
@@ -2516,9 +2800,9 @@ app.post('/api/bulk-uploads', authenticate, requireCrmAccess, requireLeadWrite, 
     await connection.beginTransaction();
 
     const [result] = await connection.execute(
-      `INSERT INTO crm_bulk_uploads (branch_id, file_name, uploaded_by_user_id, total_records)
-       VALUES (?, ?, ?, ?)`,
-      [branchId, fileName, Number(req.user.id), records.length]
+      `INSERT INTO crm_bulk_uploads (business_unit_id, branch_id, file_name, uploaded_by_user_id, total_records)
+       VALUES (?, ?, ?, ?, ?)`,
+      [Number(req.businessUnit.id),branchId, fileName, Number(req.user.id), records.length]
     );
     const uploadId = result.insertId;
 
@@ -2619,8 +2903,15 @@ async function processBulkUpload(uploadId, records, branchId, userId, pool) {
       try {
         const normalizedPhone = String(record.phone).replace(/[^0-9]/g, '');
         const [[existing]] = await connection.execute(
-          `SELECT id, lead_number FROM crm_leads WHERE branch_id=? AND normalized_phone=? AND deleted_at_utc IS NULL LIMIT 1`,
-          [branchId, normalizedPhone]
+          `SELECT l.id, l.lead_number
+             FROM crm_leads l
+             JOIN crm_bulk_uploads bu ON bu.id=?
+            WHERE l.business_unit_id=bu.business_unit_id
+              AND l.branch_id=?
+              AND l.normalized_phone=?
+              AND l.deleted_at_utc IS NULL
+            LIMIT 1`,
+          [uploadId, branchId, normalizedPhone]
         );
 
         if (existing) {
@@ -2637,12 +2928,12 @@ async function processBulkUpload(uploadId, records, branchId, userId, pool) {
         // Create lead
         const temporaryNumber = `PENDING-${crypto.randomUUID()}`;
         const [result] = await connection.execute(
-          `INSERT INTO crm_leads (lead_number, branch_id, student_name, phone, normalized_phone, alternate_phone, email,
+          `INSERT INTO crm_leads (business_unit_id, lead_number, branch_id, student_name, phone, normalized_phone, alternate_phone, email,
            applying_class, class_id, curriculum_id, academic_year, parent_name, city, stage_id, source_id,
            owner_employee_id, channel_id, campaign_id, admission_type_id, substage_id,
            lead_score, remarks, next_followup_at_utc, created_by_user_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [temporaryNumber, branchId, cleanOptional(record.studentName, 200), cleanOptional(record.phone, 30),
+           VALUES ((SELECT business_unit_id FROM crm_bulk_uploads WHERE id=?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [uploadId, temporaryNumber, branchId, cleanOptional(record.studentName, 200), cleanOptional(record.phone, 30),
            normalizedPhone, cleanOptional(record.alternatePhone, 30), cleanOptional(record.email, 254),
            cleanOptional(record.applyingClass, 50), Number(record.classId), Number(record.curriculumId || 1),
            cleanOptional(record.academicYear, 20), cleanOptional(record.parentName, 200),
@@ -2999,9 +3290,9 @@ app.post('/api/bulk-leads/import', authenticate, requireCrmAccess, requireLeadWr
     await connection.beginTransaction();
 
     const [result] = await connection.execute(
-      `INSERT INTO crm_bulk_uploads (branch_id, file_name, uploaded_by_user_id, total_records, status, processing_started_at_utc)
-       VALUES (?, ?, ?, ?, 'Validating', CURRENT_TIMESTAMP(6))`,
-      [userBranchId, fileName, userId, records.length]
+      `INSERT INTO crm_bulk_uploads (business_unit_id, branch_id, file_name, uploaded_by_user_id, total_records, status, processing_started_at_utc)
+       VALUES (?, ?, ?, ?, ?, 'Validating', CURRENT_TIMESTAMP(6))`,
+      [Number(req.businessUnit.id),userBranchId, fileName, userId, records.length]
     );
     const newUploadId = result.insertId;
 
@@ -3396,7 +3687,7 @@ async function processBulkUploadImport(uploadId, records, branchId, userId, pool
 
         // Create lead - use pre-validated values (all required fields already verified)
         const temporaryNumber = `PENDING-${crypto.randomUUID()}`;
-        const params = [temporaryNumber, Number(record.branchId), cleanOptional(record.studentName, 200), cleanOptional(record.phone, 30),
+        const params = [uploadId,temporaryNumber, Number(record.branchId), cleanOptional(record.studentName, 200), cleanOptional(record.phone, 30),
            record.normalizedPhone, Number(record.classId), Number(record.curriculumId),
            record.academicYear, Number(record.stageId), Number(record.sourceId),
            Number(record.channelId), Number(record.ownerEmployeeId), Number(record.campaignId), Number(record.admissionTypeId), Number(record.substageId),
@@ -3408,11 +3699,11 @@ async function processBulkUploadImport(uploadId, records, branchId, userId, pool
         // LOG: Before INSERT with full params
         if (rowNum === 1) console.log(`[BULK-IMPORT-LEAD] Row ${rowNum} params:`, JSON.stringify(safeParams.map((p, i) => `[${i}]=${p===null?'NULL':p}`), null, 2));
 
-        const sqlInsert = `INSERT INTO crm_leads (lead_number, branch_id, student_name, phone, normalized_phone,
+        const sqlInsert = `INSERT INTO crm_leads (business_unit_id,lead_number, branch_id, student_name, phone, normalized_phone,
            class_id, curriculum_id, academic_year, stage_id, source_id,
            channel_id, owner_employee_id, campaign_id, admission_type_id, substage_id,
            remarks, next_followup_at_utc, created_by_user_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+           VALUES ((SELECT business_unit_id FROM crm_bulk_uploads WHERE id=?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
         if (rowNum === 1) {
           console.log(`[SQL-EXACT] Complete SQL string:\n${sqlInsert}`);
@@ -3553,6 +3844,7 @@ async function processBulkUploadImport(uploadId, records, branchId, userId, pool
 
 // ============= Integration Hub Routes =============
 app.use('/api/hub', createIntegrationHubRoutes(integrationHubService, authenticate, requireCrmAccess));
+app.use('/api/platform', createBusinessPlatformRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
 
 // ============= WhatsApp Template Routes =============
 app.use('/api/whatsapp', createWhatsAppTemplateRoutes(pool, authenticate, console));

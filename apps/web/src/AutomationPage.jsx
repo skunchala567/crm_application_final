@@ -12,6 +12,7 @@ import {
   Zap,
 } from "lucide-react";
 import { api } from "./api";
+import { useBusinessUnit } from "./BusinessUnitContext.jsx";
 import { MultiSearchSelect, SearchSelect } from "./FilterWorkspace.jsx";
 import {
   MarketingCampaignList,
@@ -89,6 +90,7 @@ function currentIndiaSchedule() {
 }
 
 export default function AutomationPage() {
+  const { selectedId } = useBusinessUnit();
   const [view, setView] = useState("list"),
     [items, setItems] = useState([]),
     [campaigns, setCampaigns] = useState([]),
@@ -133,8 +135,14 @@ export default function AutomationPage() {
     );
   }
   useEffect(() => {
+    setItems([]);
+    setCampaigns([]);
+    setMeta(null);
+    setWhatsappTemplates({});
+    setView("list");
+    setEditingId(null);
     load().catch((error) => setNotice(error.message));
-  }, []);
+  }, [selectedId]);
   const visible = useMemo(
     () =>
       items.filter(

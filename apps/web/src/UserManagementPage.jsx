@@ -12,7 +12,11 @@ import {
 import { api } from "./api";
 
 const initialForm = {
+  userType: "employee",
   employeeId: "",
+  firstName: "",
+  lastName: "",
+  phone: "",
   email: "",
   roleName: "COUNSELLOR",
   branchIds: [],
@@ -135,7 +139,11 @@ export default function UserManagementPage() {
   }
   function editUser(user) {
     setForm({
+      userType: user.employeeId ? "employee" : "external",
       employeeId: user.employeeId || "",
+      firstName: user.firstName || "",
+      lastName: user.lastName || "",
+      phone: user.phone || "",
       email: user.email,
       roleName: user.roles.find((role) => role !== "ADMIN") || "CRM_ADMIN",
       branchIds: user.branchIds,
@@ -213,8 +221,8 @@ export default function UserManagementPage() {
           <span className="eyebrow">CRM administration</span>
           <h1>User management</h1>
           <p>
-            Grant employees CRM roles and branch access without changing
-            Attendance permissions.
+            Grant CRM access to existing employees or create standalone CRM
+            users who are not available in the employee master.
           </p>
         </div>
         <button className="primary" onClick={createUser}>
@@ -359,7 +367,7 @@ export default function UserManagementPage() {
             <div className="empty">
               <UserCog />
               <strong>No CRM users found</strong>
-              <span>Add an employee to get started.</span>
+              <span>Add an employee-linked or standalone CRM user to get started.</span>
             </div>
           )}
         </div>
@@ -379,49 +387,61 @@ export default function UserManagementPage() {
             </div>
             <form onSubmit={save}>
               <div className="form-section">
-                <h3>Employee and login</h3>
+                <h3>User identity and login</h3>
                 <div className="form-grid">
-                  <label className="wide">
-                    Employee *
-                    <EmployeeSearch
-                      employees={meta.employees}
-                      value={form.employeeId}
-                      onChange={selectEmployee}
-                      disabled={drawer.mode === "edit"}
-                    />
-                  </label>
+                  <div className="wide account-origin-options">
+                    <span className="field-label">User source</span>
+                    <div className="crm-status-options">
+                      <button type="button" disabled={drawer.mode==="edit"} className={form.userType==="employee"?"active":""} onClick={()=>setForm({...initialForm,userType:"employee"})}><i/>Existing employee<span>Select from the active employee master.</span></button>
+                      <button type="button" disabled={drawer.mode==="edit"} className={form.userType==="external"?"active":""} onClick={()=>setForm({...initialForm,userType:"external"})}><i/>New external user<span>Create a CRM-only user not present in employees.</span></button>
+                    </div>
+                  </div>
+                  {form.userType==="employee"?<label className="wide">
+                      Employee *
+                      <EmployeeSearch
+                        employees={meta.employees}
+                        value={form.employeeId}
+                        onChange={selectEmployee}
+                        disabled={drawer.mode === "edit"}
+                      />
+                    </label>:<>
+                    <label>First name *<input required value={form.firstName} onChange={event=>setForm({...form,firstName:event.target.value})}/></label>
+                    <label>Last name *<input required value={form.lastName} onChange={event=>setForm({...form,lastName:event.target.value})}/></label>
+                    <label className="wide">Phone<input type="tel" value={form.phone} onChange={event=>setForm({...form,phone:event.target.value.replace(/[^0-9+()\-\s]/g,"").slice(0,30)})}/></label>
+                  </>}
                   <label className="wide">
                     Login email *
                     <input
                       type="email"
                       required
                       value={form.email}
-                      disabled={isExistingLogin || drawer.mode === "edit"}
+                      disabled={(form.userType==="employee"&&isExistingLogin) || drawer.mode === "edit"}
                       onChange={(event) =>
                         setForm({ ...form, email: event.target.value })
                       }
                     />
                   </label>
                   <label className="wide">
-                    {isExistingLogin || drawer.mode === "edit"
+                    {(form.userType==="employee"&&isExistingLogin) || drawer.mode === "edit"
                       ? "New password (optional)"
                       : "Initial password *"}
                     <input
                       type="password"
-                      required={!isExistingLogin && drawer.mode === "create"}
+                      required={drawer.mode === "create" && (form.userType==="external"||!isExistingLogin)}
                       minLength="8"
                       value={form.password}
                       onChange={(event) =>
                         setForm({ ...form, password: event.target.value })
                       }
                       placeholder={
-                        isExistingLogin
+                        (form.userType==="employee"&&isExistingLogin)
                           ? "Leave blank to keep current password"
                           : "Minimum 8 characters"
                       }
                     />
                   </label>
-                  {selectedEmployee && (
+                  {form.userType==="external"&&<div className="account-note wide"><strong>Standalone CRM login</strong><span>This user is not added to the employee master. Their access is limited to the CRM role and branches configured below.</span></div>}
+                  {form.userType==="employee"&&selectedEmployee && (
                     <div className="account-note wide">
                       <strong>
                         {isExistingLogin

@@ -2,11 +2,13 @@ const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:3001/api";
 
 export async function api(path, options = {}) {
   const token = localStorage.getItem("crm_token");
+  const businessUnitId = localStorage.getItem("crm_business_unit_id");
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(businessUnitId ? { "X-Business-Unit-Id": businessUnitId } : {}),
       ...options.headers,
     },
   });

@@ -8,13 +8,15 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { api } from "./api";
-import LeadsPage from "./LeadsPage.jsx";
+import BusinessUnitLeadRouter from "./DynamicLeadsPage.jsx";
 import SettingsPage from "./SettingsPage.jsx";
 import AutomationPage from "./AutomationPage.jsx";
+import OperationsPage from "./OperationsPage.jsx";
 import WhatsAppInbox from "./WhatsAppInbox.jsx";
 import BulkActionsPage from "./BulkActionsPage.jsx";
 import OAuthCallbackPage from "./pages/OAuthCallbackPage.jsx";
 import GlobalSearch from "./GlobalSearch.jsx";
+import { BusinessUnitProvider, BusinessUnitSelector, useBusinessUnit } from "./BusinessUnitContext.jsx";
 import "./SidebarTogglePosition.css";
 import {
   BarChart3,
@@ -22,9 +24,12 @@ import {
   CalendarClock,
   ChevronDown,
   CircleHelp,
+  Eye,
+  EyeOff,
   GraduationCap,
   LayoutDashboard,
   LogOut,
+  MessageCircle,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
@@ -38,12 +43,14 @@ import {
   UserRound,
   Users,
   Zap,
+  Workflow,
   X,
 } from "lucide-react";
 
 const menu = [
   ["Dashboard", "/", LayoutDashboard],
   ["Leads", "/leads", Users],
+  ["Tracker", "/tracker", Workflow],
   ["Bulk Actions", "/bulk-actions", UploadCloud],
   ["Reports", "/reports", BarChart3],
   ["Automations", "/automations", Zap],
@@ -82,6 +89,7 @@ function getTokenExpiry() {
 function Login({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -125,9 +133,9 @@ function Login({ onLogin }) {
         </div>
         <div className="quote-card">
           <p>
-            “Our team now knows exactly which family needs attention and when.”
+            “We know a CRM isn't just about managing contacts—it's about enabling teams, improving customer experiences, and driving business growth.”
           </p>
-          <span>Admissions Office · Greenwood Academy</span>
+          <span>Kunchala Srikanth - Market Farmer</span>
         </div>
       </section>
       <section className="login-panel">
@@ -154,29 +162,36 @@ function Login({ onLogin }) {
           </label>
           <label>
             Password
-            <input
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              type="password"
-              required
-            />
+            <span className="password-input">
+              <input
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                type={showPassword ? "text" : "password"}
+                required
+              />
+              <button type="button" aria-label={showPassword ? "Hide password" : "Show password"} title={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword(value => !value)}>
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </span>
           </label>
           {error && <div className="form-error">{error}</div>}
           <button className="primary full" disabled={loading}>
             {loading ? "Signing in…" : "Sign in"}
           </button>
-          <div className="demo-note">
-            <strong>Shared secure access</strong>
-            <span>Use your Attendance email and password.</span>
-            <span>An approved CRM role is required.</span>
-          </div>
         </form>
+        <footer className="login-footer">
+          <span>© {new Date().getFullYear()} All rights reserved by KK Associates</span>
+          <a className="login-whatsapp" href="https://wa.me/+919966369102" target="_blank" rel="noreferrer" aria-label="Contact KK Associates on WhatsApp" title="Contact us on WhatsApp">
+            <MessageCircle size={22}/>
+          </a>
+        </footer>
       </section>
     </main>
   );
 }
 
 function Shell({ user, onLogout }) {
+  const { selectedId: activeBusinessUnitId } = useBusinessUnit();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("crm_sidebar_collapsed") === "true");
   const [settingsExpanded, setSettingsExpanded] = useState(false);
@@ -201,6 +216,7 @@ function Shell({ user, onLogout }) {
       <aside className={`${mobileOpen ? "sidebar open" : "sidebar"} ${sidebarCollapsed ? "collapsed" : ""}`}>
         <button className="icon-btn mobile-only sidebar-close" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X/></button>
         <button className="sidebar-toggle" onClick={toggleSidebar} aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}>{sidebarCollapsed?<PanelLeftOpen/>:<PanelLeftClose/>}</button>
+        <BusinessUnitSelector/>
         <nav>
           {menu.map(([label, path, Icon]) => (
             <NavLink
@@ -227,8 +243,7 @@ function Shell({ user, onLogout }) {
           </button>
           <div id="settings-submenu" className={`settings-submenu ${settingsExpanded ? "expanded" : ""}`}>
             <NavLink to="/settings/users" className="settings-submenu-item"><span className="submenu-indent">User Management</span></NavLink>
-            <NavLink to="/settings/lead-config" className="settings-submenu-item"><span className="submenu-indent">Lead Configuration</span></NavLink>
-            <NavLink to="/settings/academic-config" className="settings-submenu-item"><span className="submenu-indent">Academic Configuration</span></NavLink>
+            <NavLink to="/settings/business-units" className="settings-submenu-item"><span className="submenu-indent">Business Units</span></NavLink>
             <NavLink to="/settings/integrations" className="settings-submenu-item"><span className="submenu-indent">Integrations</span></NavLink>
             <NavLink to="/settings/google-sheets" className="settings-submenu-item"><span className="submenu-indent">Google Sheets</span></NavLink>
             <NavLink to="/settings/whatsapp-templates" className="settings-submenu-item"><span className="submenu-indent">WhatsApp Templates</span></NavLink>
@@ -255,23 +270,27 @@ function Shell({ user, onLogout }) {
         <GlobalSearch />
         <button className="mobile-nav-trigger mobile-only" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu/></button>
         <Routes location={location}>
-          <Route path="/" element={<Dashboard user={user} />} />
-          <Route path="/leads" element={<LeadsPage />} />
+          <Route path="/" element={<Dashboard key={activeBusinessUnitId} user={user} />} />
+          <Route path="/leads" element={<BusinessUnitLeadRouter key={activeBusinessUnitId} />} />
+          <Route path="/tracker" element={<OperationsPage key={activeBusinessUnitId} />} />
+          <Route path="/operations" element={<Navigate to="/tracker" replace />} />
           <Route path="/whatsapp-inbox" element={<WhatsAppInbox />} />
-          <Route path="/bulk-actions" element={<BulkActionsPage />} />
+          <Route path="/bulk-actions" element={<BulkActionsPage key={activeBusinessUnitId} />} />
+          <Route path="/reports" element={<ReportsPage key={activeBusinessUnitId} />} />
           <Route path="/settings" element={<SettingsPage initialTab="users" />} />
           <Route path="/settings/users" element={<SettingsPage initialTab="users" />} />
-          <Route path="/settings/lead-config" element={<SettingsPage initialTab="config" />} />
-          <Route path="/settings/academic-config" element={<SettingsPage initialTab="academic" />} />
-          <Route path="/settings/academic-years" element={<Navigate to="/settings/academic-config" replace />} />
-          <Route path="/settings/admission-classes" element={<Navigate to="/settings/academic-config?section=classes" replace />} />
+          <Route path="/settings/business-units" element={<SettingsPage initialTab="business-units" />} />
+          <Route path="/settings/lead-config" element={<Navigate to="/settings/business-units?tab=sources" replace />} />
+          <Route path="/settings/academic-config" element={<Navigate to="/settings/business-units?tab=academic" replace />} />
+          <Route path="/settings/academic-years" element={<Navigate to="/settings/business-units?tab=academic" replace />} />
+          <Route path="/settings/admission-classes" element={<Navigate to="/settings/business-units?tab=academic&section=classes" replace />} />
           <Route path="/settings/integrations" element={<SettingsPage initialTab="integrations" />} />
           <Route path="/settings/google-sheets" element={<SettingsPage initialTab="google-sheets" />} />
           <Route path="/settings/whatsapp-templates" element={<SettingsPage initialTab="whatsapp-templates" />} />
           <Route path="/integrations" element={<Navigate to="/settings/integrations" replace />} />
           <Route path="/oauth-callback" element={<OAuthCallbackPage />} />
           <Route path="/oauth-error" element={<OAuthCallbackPage />} />
-          <Route path="/automations" element={<AutomationPage />} />
+          <Route path="/automations" element={<AutomationPage key={activeBusinessUnitId} />} />
           <Route path="*" element={<ComingSoon />} />
         </Routes>
       </section>
@@ -280,13 +299,17 @@ function Shell({ user, onLogout }) {
 }
 
 function Dashboard({ user }) {
+  const { selectedUnit } = useBusinessUnit();
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   useEffect(() => {
+    if (!selectedUnit?.id) return;
+    setData(null);
+    setError("");
     api("/dashboard")
       .then(setData)
       .catch((err) => setError(err.message));
-  }, []);
+  }, [selectedUnit?.id]);
   if (error) return <ErrorState message={error} />;
   if (!data) return <Loading />;
   const cards = [
@@ -411,6 +434,57 @@ function Dashboard({ user }) {
           link
         />
         <LeadTable leads={data.recentLeads} />
+      </article>
+    </main>
+  );
+}
+
+function ReportsPage() {
+  const { selectedUnit } = useBusinessUnit();
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!selectedUnit?.id) return;
+    setData(null);
+    setError("");
+    api("/dashboard").then(setData).catch((err) => setError(err.message));
+  }, [selectedUnit?.id]);
+  if (error) return <ErrorState message={error} />;
+  if (!data) return <Loading />;
+  const cards = [
+    ["Total leads", data.stats.totalLeads, Users, "violet"],
+    ["New this week", data.stats.newThisWeek, Target, "blue"],
+    ["Follow-ups due", data.stats.followupsDue, CalendarClock, "orange"],
+    ["Completed", data.stats.admissions, GraduationCap, "green"],
+  ];
+  return (
+    <main className="page">
+      <div className="page-heading">
+        <div>
+          <span className="eyebrow">{selectedUnit.name}</span>
+          <h1>Reports</h1>
+          <p>Business Unit performance and lead journey summary.</p>
+        </div>
+      </div>
+      <section className="stats-grid">
+        {cards.map(([label, value, Icon, color]) => (
+          <article className="stat-card" key={label}>
+            <div className={`stat-icon ${color}`}><Icon /></div>
+            <div><span>{label}</span><strong>{Number(value || 0).toLocaleString()}</strong></div>
+          </article>
+        ))}
+      </section>
+      <article className="panel">
+        <PanelTitle title="Lead journey" subtitle={`Current pipeline distribution for ${selectedUnit.name}`} action="Live" />
+        <div className="funnel">
+          {data.funnel.map((item) => (
+            <div className="funnel-row" key={item.label}>
+              <div className="funnel-label"><span>{item.label}</span><strong>{item.value}</strong></div>
+              <div className="track"><span style={{ width: `${data.stats.totalLeads ? Math.max(4, (Number(item.value) / Number(data.stats.totalLeads)) * 100) : 0}%`, background: item.color }} /></div>
+              <small>{item.value} leads</small>
+            </div>
+          ))}
+        </div>
       </article>
     </main>
   );
@@ -569,7 +643,7 @@ export default function App() {
         path="/*"
         element={
           user ? (
-            <Shell user={user} onLogout={logout} />
+            <BusinessUnitProvider><Shell user={user} onLogout={logout} /></BusinessUnitProvider>
           ) : (
             <Navigate to="/login" />
           )

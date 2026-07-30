@@ -193,6 +193,48 @@
   height: 42px;
 }
 
+/* Keep every filter label, control value and dropdown option left aligned. */
+.filter-workspace,
+.filter-workspace input,
+.filter-workspace select,
+.filter-workspace option,
+.filter-workspace textarea {
+  text-align: left;
+}
+
+.filter-field,
+.filter-field > span,
+.filter-field .search-select,
+.filter-field .multi-select-input,
+.filter-field .search-select input {
+  justify-items: start;
+  text-align: left;
+}
+
+.filter-field .search-select input,
+.filter-field .search-select input::placeholder {
+  text-align: left;
+}
+
+.filter-field .search-select-menu,
+.filter-field .multi-select-options {
+  text-align: left;
+}
+
+.filter-field .search-select-menu button,
+.filter-field .multi-select-options > button {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.filter-field .multi-select-actions > button {
+  text-align: left;
+}
+
+.filter-field .multi-select-actions > button > span {
+  margin-left: auto;
+}
+
 .filter-workspace-footer {
   min-width: 0;
   gap: 10px;

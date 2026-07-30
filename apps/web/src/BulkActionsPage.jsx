@@ -1,9 +1,11 @@
 import { Fragment, useEffect, useState } from 'react';
 import { ChevronRight, Download, Eye, FileDown, GitBranch, RefreshCw, RotateCcw, Search, UserRoundCheck, X } from 'lucide-react';
 import { api } from './api';
+import { useBusinessUnit } from './BusinessUnitContext.jsx';
 import './BulkActionsPage.css';
 
 export default function BulkActionsPage() {
+  const { selectedId } = useBusinessUnit();
   const [uploads, setUploads] = useState([]);
   const [operations, setOperations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -17,10 +19,15 @@ export default function BulkActionsPage() {
   const [detailsLoading, setDetailsLoading] = useState(false);
 
   useEffect(() => {
+    setUploads([]);
+    setOperations([]);
+    setSelectedUpload(null);
+    setExpandedOperation(null);
+    setLoading(true);
     loadData();
     const interval = setInterval(loadData, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [selectedId]);
 
   const loadData = async () => {
     try {
@@ -53,7 +60,7 @@ export default function BulkActionsPage() {
       const endpoint = activeTab === 'uploads'
         ? `/api/bulk-uploads/${row.id}/download-successful`
         : `/api/bulk-operations/${row.id}/export`;
-      const response = await fetch(endpoint,{headers:{Authorization:`Bearer ${localStorage.getItem('crm_token')}`}});
+      const response = await fetch(endpoint,{headers:{Authorization:`Bearer ${localStorage.getItem('crm_token')}`,'X-Business-Unit-Id':String(selectedId)}});
       if(!response.ok){
         const errorBody=await response.json().catch(()=>({}));
         throw new Error(errorBody.message||'Export failed');

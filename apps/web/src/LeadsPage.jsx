@@ -60,6 +60,8 @@ const emptyForm = {
   nextFollowupAt: "",
   followupType: "",
   remarks: "",
+  status: "Active",
+  customValues: {},
   sourceHistory: [],
 };
 
@@ -76,8 +78,8 @@ function serialize(form) {
   return {
     ...form,
     branchId: Number(form.branchId),
-    classId: Number(form.classId),
-    curriculumId: Number(form.curriculumId),
+    classId: form.classId ? Number(form.classId) : null,
+    curriculumId: form.curriculumId ? Number(form.curriculumId) : null,
     stageId: Number(form.stageId),
     sourceId: form.sourceId ? Number(form.sourceId) : null,
     channelId: form.channelId ? Number(form.channelId) : null,
@@ -135,6 +137,67 @@ function SearchSuggestion({
       </div>
     </label>
   );
+}
+
+const configuredFieldProperties = {
+  name:"studentName",student_name:"studentName",phone:"phone",primary_phone:"phone",
+  alternate_phone:"alternatePhone",email:"email",parent_name:"parentName",city:"city",
+  academic_year:"academicYear",branch_id:"branchId",admission_type_id:"admissionTypeId",
+  curriculum_id:"curriculumId",class_id:"classId",channel_id:"channelId",source_id:"sourceId",
+  campaign_id:"campaignId",stage_id:"stageId",substage_id:"substageId",
+  owner_employee_id:"ownerEmployeeId",next_followup_at_utc:"nextFollowupAt",
+  followup_type:"followupType",remarks:"remarks",lead_score:"leadScore",
+};
+
+function ConfiguredLeadFields({fields,form,setForm,meta,availableAdmissionTypes,availableCurricula,availableClasses,inputRef}){
+  const update=(field,value)=>{
+    const property=configuredFieldProperties[field.fieldKey];
+    if(property){
+      const resets={};
+      if(property==="branchId")resets.ownerEmployeeId="";
+      if(property==="admissionTypeId")Object.assign(resets,{curriculumId:"",classId:""});
+      if(property==="curriculumId")resets.classId="";
+      if(property==="channelId")Object.assign(resets,{sourceId:"",campaignId:""});
+      if(property==="sourceId")resets.campaignId="";
+      if(property==="stageId")Object.assign(resets,{substageId:"",nextFollowupAt:"",followupType:""});
+      setForm(current=>({...current,...resets,[property]:value}));
+    }else setForm(current=>({...current,customValues:{...(current.customValues||{}),[field.fieldKey]:value}}));
+  };
+  const valueOf=field=>{
+    const property=configuredFieldProperties[field.fieldKey];
+    return property?form[property]??"":form.customValues?.[field.fieldKey]??"";
+  };
+  const optionsFor=field=>{
+    const map={
+      academic_year:meta.academicYears.map(item=>({id:item.academicYear,label:item.displayName||item.academicYear})),
+      branch_id:meta.branches.map(item=>({id:item.id,label:item.name})),
+      admission_type_id:(availableAdmissionTypes.length?availableAdmissionTypes:meta.admissionTypes).map(item=>({id:item.id,label:item.displayName})),
+      curriculum_id:(availableCurricula.length?availableCurricula:meta.curricula).map(item=>({id:item.id,label:item.displayName})),
+      channel_id:meta.channels.map(item=>({id:item.id,label:item.displayName})),
+      source_id:meta.sources.map(item=>({id:item.id,label:item.displayName})),
+      campaign_id:meta.campaigns.map(item=>({id:item.id,label:item.displayName})),
+      stage_id:meta.stages.map(item=>({id:item.id,label:item.displayName})),
+      substage_id:meta.substages.filter(item=>!form.stageId||String(item.stageId)===String(form.stageId)).map(item=>({id:item.id,label:item.displayName})),
+      owner_employee_id:meta.employees.filter(item=>!form.branchId||String(item.branchId)===String(form.branchId)).map(item=>({id:item.id,label:item.name})),
+      followup_type:["Call","WhatsApp","Email","Visit"].map(item=>({id:item,label:item})),
+    };
+    return map[field.fieldKey]||(field.options||[]).map(item=>({id:item,label:item}));
+  };
+  return <div className="form-grid configured-lead-fields">
+    {fields.map(field=>{
+      const value=valueOf(field),required=Boolean(field.isRequired),label=<>{field.displayName}{required?" *":""}</>;
+      if(field.fieldKey==="class_id")return <SearchSuggestion key={field.id} label={field.displayName} required={required} options={availableClasses.map(item=>({id:item.id,label:item.displayName}))} value={value} onChange={next=>update(field,next)} placeholder={availableClasses.length?"Search class…":"No classes available"}/>;
+      const options=optionsFor(field);
+      if(options.length||["single_select","multi_select","user"].includes(field.fieldType)){
+        if(field.fieldType==="multi_select")return <label key={field.id}>{label}<select multiple required={required} value={Array.isArray(value)?value:[]} onChange={event=>update(field,Array.from(event.target.selectedOptions,option=>option.value))}>{options.map(option=><option key={option.id} value={option.id}>{option.label}</option>)}</select></label>;
+        return <label key={field.id}>{label}<select required={required} value={value} onChange={event=>update(field,event.target.value)}><option value="">{required?"Select":"Not specified"} {field.displayName.toLowerCase()}</option>{options.map(option=><option key={option.id} value={option.id}>{option.label}</option>)}</select></label>;
+      }
+      if(field.fieldType==="boolean")return <label key={field.id} className="configured-checkbox"><input type="checkbox" checked={Boolean(value)} onChange={event=>update(field,event.target.checked)}/>{field.displayName}</label>;
+      if(["textarea"].includes(field.fieldType))return <label key={field.id} className="wide">{label}<textarea required={required} rows="4" placeholder={field.placeholder||""} value={value} onChange={event=>update(field,event.target.value)}/></label>;
+      const type={phone:"tel",email:"email",number:"number",decimal:"number",date:"date",datetime:"datetime-local",file:"file"}[field.fieldType]||"text";
+      return <label key={field.id}>{label}<input ref={["name","student_name"].includes(field.fieldKey)?inputRef:undefined} required={required} type={type} step={field.fieldType==="decimal"?"any":undefined} placeholder={field.placeholder||""} value={type==="file"?undefined:value} onChange={event=>update(field,type==="file"?event.target.files?.[0]?.name||"":field.fieldType==="phone"?event.target.value.replace(/\D/g,"").slice(0,15):event.target.value)}/></label>;
+    })}
+  </div>;
 }
 
 function formatRangeDate(value) {
@@ -366,6 +429,7 @@ export default function LeadsPage() {
     branches: [],
     employees: [],
     academicYears: [],
+    leadFields: [],
     marketingCampaigns: [],
   });
   const [search, setSearch] = useState("");
@@ -414,6 +478,7 @@ export default function LeadsPage() {
   const [referralOptions,setReferralOptions]=useState({branches:[],employees:[]});
   const [savedFunnel, setSavedFunnel] = useState(() => localStorage.getItem("crm_saved_funnel") || "");
   const [filterPanel, setFilterPanel] = useState(null);
+  const [appliedFiltersExpanded, setAppliedFiltersExpanded] = useState(true);
   const [advancedFilters, setAdvancedFilters] = useState(emptyAdvancedFilters);
   const [followupDateType, setFollowupDateType] = useState("nextFollowup");
   const [funnels, setFunnels] = useState([]);
@@ -614,12 +679,10 @@ export default function LeadsPage() {
     }
   }, [searchParams, meta.stages.length]);
 
-  const filtered = useMemo(
+  const leadsMatchingActiveFilters = useMemo(
     () =>
       leads.filter(
         (lead) =>
-          (!stageFilter || stageFilter === "Re-enquired" || lead.stage === stageFilter) &&
-          (stageFilter !== "Re-enquired" || Boolean(lead.reEnquiredAt)) &&
           (!branchFilter.length || branchFilter.includes(String(lead.branchId))) &&
           (!advancedFilters.sourceId.length || advancedFilters.sourceId.includes(String(lead.sourceId))) &&
           (!advancedFilters.ownerEmployeeId.length || advancedFilters.ownerEmployeeId.includes(String(lead.ownerEmployeeId))) &&
@@ -647,8 +710,71 @@ export default function LeadsPage() {
           (!advancedFilters.followupFrom || (getDateFieldValue(lead, followupDateType) && istDateKey(getDateFieldValue(lead, followupDateType)) >= advancedFilters.followupFrom)) &&
           (!advancedFilters.followupTo || (getDateFieldValue(lead, followupDateType) && istDateKey(getDateFieldValue(lead, followupDateType)) <= advancedFilters.followupTo)),
       ),
-    [leads, stageFilter, branchFilter, advancedFilters, followupDateType],
+    [leads, branchFilter, advancedFilters, followupDateType],
   );
+  const filtered = useMemo(
+    () => leadsMatchingActiveFilters.filter(
+      lead =>
+        (!stageFilter || stageFilter === "Re-enquired" || lead.stage === stageFilter) &&
+        (stageFilter !== "Re-enquired" || Boolean(lead.reEnquiredAt)),
+    ),
+    [leadsMatchingActiveFilters, stageFilter],
+  );
+  const filteredStageCounts = useMemo(() => {
+    const counts = Object.fromEntries(meta.stages.map(stage => [stage.displayName, 0]));
+    for (const lead of leadsMatchingActiveFilters) {
+      if (lead.stage) counts[lead.stage] = Number(counts[lead.stage] || 0) + 1;
+    }
+    counts["Re-enquired"] = leadsMatchingActiveFilters.filter(lead => Boolean(lead.reEnquiredAt)).length;
+    return counts;
+  }, [leadsMatchingActiveFilters, meta.stages]);
+  const appliedFilterGroups = useMemo(() => {
+    const findLabels = (values, options) => (values || [])
+      .map(value => options.find(option => String(option.id ?? option.value ?? option.displayName) === String(value))?.displayName
+        || options.find(option => String(option.id ?? option.value ?? option.name) === String(value))?.name
+        || options.find(option => String(option.id ?? option.value ?? option.label) === String(value))?.label
+        || String(value))
+      .filter(Boolean);
+    const add = (target, label, values) => {
+      const list = Array.isArray(values) ? values.filter(Boolean) : values ? [values] : [];
+      if (list.length) target.push({ label, values:list });
+    };
+    const lead = [], academic = [], communication = [], marketing = [], dates = [], ranges = [];
+    add(lead, "Search", search);
+    add(lead, "Branch", findLabels(branchFilter, meta.branches));
+    add(lead, "Touch status", advancedFilters.touchStatus.map(value => value === "touched" ? "Is touched" : value === "untouched" ? "Untouched" : value));
+    add(lead, "Current stage", stageFilter || advancedFilters.stage);
+    add(lead, "Sub-stage", findLabels(advancedFilters.substageId, meta.substages));
+    add(lead, "Lead source", findLabels(advancedFilters.sourceId, meta.sources));
+    add(lead, "Counsellor", findLabels(advancedFilters.ownerEmployeeId, meta.employees));
+    add(lead, "Channel category", advancedFilters.channelCategory);
+    add(lead, "Channel", findLabels(advancedFilters.channelId, meta.channels));
+    add(lead, "Campaign category", advancedFilters.campaignCategory);
+    add(lead, "Campaign", findLabels(advancedFilters.campaignId, meta.campaigns));
+    add(academic, "Class", findLabels(advancedFilters.classId, meta.classes));
+    add(academic, "Curriculum", findLabels(advancedFilters.curriculumId, meta.curricula));
+    add(academic, "Admission type", findLabels(advancedFilters.admissionTypeId, meta.admissionTypes));
+    add(academic, "Referred from", findLabels(advancedFilters.referredByEmployeeId, meta.employees));
+    add(communication, "Parent", advancedFilters.isParent.map(value => value === "yes" ? "Yes" : "No"));
+    add(communication, "Looking for admissions", advancedFilters.lookingForAdmission.map(value => value === "yes" ? "Yes" : "No"));
+    add(communication, "WhatsApp response", advancedFilters.whatsappResponse);
+    add(communication, "Contact availability", advancedFilters.contactAvailability.map(value => value === "email" ? "Has email address" : "Has phone number"));
+    add(marketing, "Bulk campaign", findLabels(advancedFilters.marketingCampaignId, meta.marketingCampaigns || []));
+    add(marketing, "Delivery status", advancedFilters.marketingDeliveryStatus);
+    add(dates, `${followupDateType === "addedDate" ? "Added date" : followupDateType === "modifiedDate" ? "Modified date" : "Follow-up"} from`, advancedFilters.followupFrom);
+    add(dates, `${followupDateType === "addedDate" ? "Added date" : followupDateType === "modifiedDate" ? "Modified date" : "Follow-up"} to`, advancedFilters.followupTo);
+    add(ranges, "Minimum lead score", advancedFilters.scoreMin);
+    add(ranges, "Maximum lead score", advancedFilters.scoreMax);
+    return [
+      ["Lead details", lead],
+      ["Academic details", academic],
+      ["Communication details", communication],
+      ["Marketing campaigns", marketing],
+      ["Date filters", dates],
+      ["Range filters", ranges],
+    ].filter(([,items]) => items.length);
+  }, [search, branchFilter, stageFilter, advancedFilters, followupDateType, meta]);
+  const hasAppliedFilters = appliedFilterGroups.length > 0;
   const totalRecords = filtered.length;
   const totalPages = Math.ceil(totalRecords / pageSize);
   const startIndex = (currentPage - 1) * pageSize;
@@ -673,6 +799,7 @@ export default function LeadsPage() {
     const normalized=normalizeFilters(filters); setAdvancedFilters(normalized);
     setBranchFilter(normalized.branchId);
     setStageFilter(normalized.stage.length===1?normalized.stage[0]:"");
+    setAppliedFiltersExpanded(true);
     setFilterPanel(null);
     setMessage({ type: "success", text: "Lead filters applied" });
   }
@@ -771,6 +898,10 @@ export default function LeadsPage() {
       academicYear: defaultAcademicYear,
       branchId: meta.branches[0]?.id || "",
       stageId: meta.stages[0]?.id || "",
+      substageId: meta.substages.find(item=>String(item.stageId)===String(meta.stages[0]?.id))?.id || "",
+      classId: meta.classes[0]?.id || "",
+      curriculumId: meta.curricula[0]?.id || "",
+      admissionTypeId: meta.admissionTypes[0]?.id || "",
       ownerEmployeeId: currentUser?.employeeId || "",
     });
     setDrawer({ mode: "create", title: "Add new lead" });
@@ -963,15 +1094,15 @@ export default function LeadsPage() {
   }
 
   return (
-    <main className="page leads-page">
+    <main className={`page leads-page ${hasAppliedFilters ? (appliedFiltersExpanded ? "applied-filters-open" : "applied-filters-collapsed") : ""}`}>
       <section className="lead-command-center">
         <div className="funnel-callout">
           <FunnelStrip funnels={funnels} onApply={applyFunnel} onDelete={deleteFunnel} onCreate={createFunnel} onAddLead={openCreate} onSearch={(query) => setSearch(query)} onMessages={() => navigate("/whatsapp-inbox")} unreadCount={whatsAppConversations.reduce((sum,item)=>sum+Number(item.unread_count||0),0)}/>
         </div>
         <div className="stage-tabs" role="tablist">
-          <button className={`stage-tab ${!stageFilter ? "active" : ""}`} onClick={() => setStageFilter("")}><span className="stage-name">All</span> <span className="stage-count">{totalLeads}</span></button>
-          {meta.stages.map(stage => <button key={stage.id} className={`stage-tab ${stageFilter === stage.displayName ? "active" : ""}`} onClick={() => setStageFilter(stage.displayName)}><span className="stage-name">{stage.displayName}</span> <span className="stage-count">{stageCounts[stage.displayName] || 0}</span></button>)}
-          <button className={`stage-tab ${stageFilter === "Re-enquired" ? "active" : ""}`} onClick={() => setStageFilter("Re-enquired")}><span className="stage-name">Re-enquired</span> <span className="stage-count">{stageCounts["Re-enquired"] || 0}</span></button>
+          <button className={`stage-tab ${!stageFilter ? "active" : ""}`} onClick={() => setStageFilter("")}><span className="stage-name">All</span> <span className="stage-count">{leadsMatchingActiveFilters.length}</span></button>
+          {meta.stages.map(stage => <button key={stage.id} className={`stage-tab ${stageFilter === stage.displayName ? "active" : ""}`} onClick={() => setStageFilter(stage.displayName)}><span className="stage-name">{stage.displayName}</span> <span className="stage-count">{filteredStageCounts[stage.displayName] || 0}</span></button>)}
+          <button className={`stage-tab ${stageFilter === "Re-enquired" ? "active" : ""}`} onClick={() => setStageFilter("Re-enquired")}><span className="stage-name">Re-enquired</span> <span className="stage-count">{filteredStageCounts["Re-enquired"] || 0}</span></button>
         </div>
         <div className="lead-control-row">
           <div className="inline-lead-filter"><span>Branch</span><MultiSearchSelect label="Branch" value={branchFilter} onChange={setBranchFilter} options={[{value:"",label:"All branches"},...meta.branches.map(branch=>({value:String(branch.id),label:branch.name}))]}/></div>
@@ -1147,6 +1278,37 @@ export default function LeadsPage() {
           </div>
         )}
       </article>
+      {hasAppliedFilters && (
+        <aside className={`applied-filters-panel ${appliedFiltersExpanded ? "expanded" : "collapsed"}`} aria-label="Applied lead filters">
+          <button
+            className="applied-filter-toggle"
+            title={appliedFiltersExpanded ? "Collapse applied filters" : "Expand applied filters"}
+            aria-label={appliedFiltersExpanded ? "Collapse applied filters" : "Expand applied filters"}
+            onClick={() => setAppliedFiltersExpanded(current => !current)}
+          >
+            {appliedFiltersExpanded ? <PanelRightClose size={17}/> : <PanelRightOpen size={17}/>}
+          </button>
+          {appliedFiltersExpanded && <>
+            <header>
+              <div><Filter size={17}/><span><strong>Applied filters</strong><small>{appliedFilterGroups.reduce((sum,[,items]) => sum + items.length, 0)} active</small></span></div>
+            </header>
+            <div className="applied-filter-sections">
+              {appliedFilterGroups.map(([group,items]) => (
+                <section key={group}>
+                  <h3>{group}<b>{items.length}</b></h3>
+                  <div>
+                    {items.map(item => <article key={item.label}><span>{item.label}</span><p>{item.values.map(value => <em key={`${item.label}-${value}`}>{value}</em>)}</p></article>)}
+                  </div>
+                </section>
+              ))}
+            </div>
+            <footer>
+              <button className="secondary" onClick={clearLeadFilters}><RefreshCw size={15}/>Reset</button>
+              <button className="primary" onClick={() => setFilterPanel("filter")}><Pencil size={15}/>Edit filters</button>
+            </footer>
+          </>}
+        </aside>
+      )}
       {filterPanel && (
         <FilterWorkspace
           mode={filterPanel}
@@ -1219,7 +1381,12 @@ export default function LeadsPage() {
             </nav>}
             <form onSubmit={save}>
               <fieldset disabled={drawer.mode === "view"}>
-                <div className={`form-section ${drawer.mode!=="create"&&drawerTab!=="student"?"tab-hidden":""}`}>
+                {drawer.mode==="create"&&<div className="form-section">
+                  <h3>Lead details</h3>
+                  <ConfiguredLeadFields fields={meta.leadFields||[]} form={form} setForm={setForm} meta={meta} availableAdmissionTypes={availableAdmissionTypes} availableCurricula={availableCurricula} availableClasses={availableClasses} inputRef={studentNameInputRef}/>
+                </div>}
+                {drawer.mode!=="create"&&<>
+                <div className={`form-section ${drawerTab!=="student"?"tab-hidden":""}`}>
                   <h3>Student and contact</h3>
                   <div className="form-grid">
                     <label>
@@ -1334,7 +1501,7 @@ export default function LeadsPage() {
                     />
                   </div>
                 </div>
-                <div className={`form-section ${drawer.mode!=="create"&&drawerTab!=="source"?"tab-hidden":""}`}>
+                <div className={`form-section ${drawerTab!=="source"?"tab-hidden":""}`}>
                   <h3>Source details</h3>
                   <div className="form-grid source-layout">
                     <section className="source-primary"><div className="source-primary-grid">
@@ -1365,7 +1532,8 @@ export default function LeadsPage() {
                     {drawer.mode!=="create"&&<div className="wide source-history"><strong>Source history</strong>{form.sourceHistory?.length?form.sourceHistory.map(item=><article key={item.id}><b>{item.isPrimary?"Primary":"Secondary"}</b><span>{item.academicYear} · {item.channel} · {item.source} · {item.campaign}</span><small>{item.addedBy} · {new Date(item.createdAt).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"})}</small></article>):<p>No source history available</p>}</div>}
                   </div>
                 </div>
-                {drawer.mode === "create" && <div className="form-section">
+                </>}
+                {false && drawer.mode === "create" && <div className="form-section">
                   <h3>Follow-up and notes</h3>
                   <div className="form-grid">
                     <label>

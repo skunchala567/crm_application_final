@@ -685,7 +685,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
 
   // ============= Field Mapping =============
 
-  const CRM_FIELDS = [
+  const LEGACY_CRM_FIELDS = [
     { name: 'student_name', label: 'Student Name', type: 'text', required: true },
     { name: 'phone', label: 'Phone', type: 'text', required: true },
     { name: 'class_id', label: 'Class ID', type: 'number', required: true },
@@ -695,9 +695,20 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
     { name: 'assign_to', label: 'Assign To', type: 'email', required: true },
     { name: 'remarks', label: 'Remarks', type: 'text', required: false }
   ];
+  const getCrmFields = async (businessUnitId) => {
+    if (!businessUnitId) return LEGACY_CRM_FIELDS;
+    const [fields] = await service.pool.execute(
+      `SELECT field_key AS name,COALESCE(import_header,display_name) AS label,field_type AS type,is_import_required AS required
+       FROM crm_metadata_fields
+       WHERE business_unit_id=? AND module_key='leads' AND is_active=TRUE AND is_importable=TRUE
+       ORDER BY position`,
+      [Number(businessUnitId)],
+    );
+    return fields.length ? fields.map(field=>({...field,required:Boolean(field.required)})) : LEGACY_CRM_FIELDS;
+  };
 
   // Get sheet headers for mapping
-  router.get('/integrations/:integrationId/field-mapping/headers', authenticate, async (req, res, next) => {
+  router.get('/integrations/:integrationId/field-mapping/headers', authenticate, requireCrmAccess, async (req, res, next) => {
     try {
       const organizationId = req.user?.id || 1;
       const integrationId = parseInt(req.params.integrationId);
@@ -708,7 +719,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
         success: true,
         data: {
           sheetHeaders: headers,
-          crmFields: CRM_FIELDS
+          crmFields: await getCrmFields(req.businessUnit?.id)
         }
       });
     } catch (error) {
@@ -717,7 +728,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   });
 
   // Get current field mapping
-  router.get('/integrations/:integrationId/field-mapping', authenticate, async (req, res, next) => {
+  router.get('/integrations/:integrationId/field-mapping', authenticate, requireCrmAccess, async (req, res, next) => {
     try {
       const organizationId = req.user?.id || 1;
       const integrationId = parseInt(req.params.integrationId);
@@ -728,7 +739,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
         success: true,
         data: {
           mappings: mapping,
-          crmFields: CRM_FIELDS
+          crmFields: await getCrmFields(req.businessUnit?.id)
         }
       });
     } catch (error) {
