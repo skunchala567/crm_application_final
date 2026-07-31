@@ -140,6 +140,29 @@
 .operations-page .operation-card:hover{box-shadow:0 6px 16px #24264c14;transform:translateY(-1px)}
 .operations-empty{width:100%;min-height:360px;background:#fff;border:1px solid #dfe1ea;border-radius:10px}
 .operations-empty button{display:inline-flex;align-items:center;gap:6px;margin-top:12px}
+
+.metadata-dialog .field-usage-panel{grid-column:1/-1;display:grid;gap:9px;padding:12px;border-radius:9px;background:#f7f7fb;border:1px solid #ecedf5}
+.field-usage-panel>div:first-child{display:grid;gap:2px}
+.field-usage-panel strong{font-size:11px;color:#303246}
+.field-usage-panel span{color:#7d8092;font-size:9px}
+.field-usage-grid{padding:0;background:transparent;grid-template-columns:repeat(3,minmax(0,1fr))}
+.field-usage-grid label{align-items:flex-start}
+.field-usage-grid label>span{display:grid;gap:2px;min-width:0}
+.field-usage-grid b{font-size:10px;color:#3e4052}
+.field-usage-grid small{font-size:8px;line-height:1.35;color:#858799;font-weight:500}
+.metadata-dialog form>label.wide,.metadata-dialog .enquiry-field-builder{grid-column:1/-1}
+.enquiry-form-list .enquiry-form-card{grid-template-columns:34px minmax(180px,1fr) auto auto}
+.enquiry-editor-form{width:min(760px,calc(100vw - 28px))}
+.metadata-dialog:has(.enquiry-editor-form){width:min(820px,calc(100vw - 28px))}
+.enquiry-field-builder{display:grid;gap:9px;padding:12px;border:1px solid #e4e6ef;border-radius:9px;background:#fafafd}
+.enquiry-field-builder>div:first-child{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.enquiry-field-builder strong{font-size:11px;color:#303246}
+.enquiry-field-builder>div:first-child select{max-width:240px}
+.enquiry-field-builder p{margin:8px 0;color:#858799;font-size:10px}
+.enquiry-field-row{display:grid;grid-template-columns:minmax(120px,1fr) minmax(120px,1fr) 92px 32px;align-items:center;gap:8px}
+.enquiry-field-row label{display:flex!important;align-items:center;gap:6px;font-size:10px;font-weight:700}
+.enquiry-field-row label input{width:auto}
+.enquiry-field-row .icon-btn{width:32px;height:32px}
 @media(max-width:900px){
   .operations-guide>div{grid-template-columns:1fr}
   .operations-guide>div>svg{display:none}

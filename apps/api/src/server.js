@@ -408,6 +408,132 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.get('/api/auth/me', authenticate, (req, res) => res.json({ user: req.user }));
 
+async function publicFormDefinition(formKey, activeOnly = true) {
+  const [[form]]=await pool.execute(
+    `SELECT f.id,f.form_key AS formKey,f.display_name AS displayName,f.description,f.business_unit_id AS businessUnitId,
+            f.default_branch_id AS defaultBranchId,f.default_stage_id AS defaultStageId,f.default_substage_id AS defaultSubstageId,
+            f.default_source_id AS defaultSourceId,f.default_channel_id AS defaultChannelId,f.default_campaign_id AS defaultCampaignId,
+            f.default_owner_employee_id AS defaultOwnerEmployeeId,f.field_schema_json AS fieldSchema,f.settings_json AS settings,
+            f.success_message AS successMessage,f.redirect_url AS redirectUrl,f.is_active AS isActive,
+            COALESCE(f.updated_by_user_id,f.created_by_user_id) AS actorUserId,bu.display_name AS businessUnitName,bu.color_code AS color
+     FROM crm_public_enquiry_forms f
+     JOIN crm_business_units bu ON bu.id=f.business_unit_id
+     WHERE f.form_key=? ${activeOnly?'AND f.is_active=TRUE AND bu.is_active=TRUE':''}
+     LIMIT 1`,
+    [String(formKey||'').trim()],
+  );
+  if(!form)return null;
+  form.fieldSchema=parseJsonValue(form.fieldSchema,[]);
+  form.settings=parseJsonValue(form.settings,{});
+  return form;
+}
+
+async function publicFieldOptions(businessUnitId, fieldKeys) {
+  const [fields]=await pool.execute(
+    `SELECT field_key AS fieldKey,display_name AS displayName,field_type AS fieldType,placeholder,options_json AS options,is_required AS isRequired,validation_json AS validation
+     FROM crm_metadata_fields WHERE business_unit_id=? AND module_key='leads' AND is_active=TRUE ORDER BY position,display_name`,
+    [Number(businessUnitId)],
+  );
+  const selected=new Set(fieldKeys);
+  const visible=fields.filter(field=>selected.has(field.fieldKey));
+  const [[classes],[curricula],[admissionTypes]]=await Promise.all([
+    pool.query(`SELECT id AS value,display_name AS label FROM crm_classes WHERE is_active=TRUE ORDER BY position,display_name`),
+    pool.query(`SELECT id AS value,display_name AS label FROM crm_curricula WHERE is_active=TRUE ORDER BY position,display_name`),
+    pool.query(`SELECT id AS value,display_name AS label FROM crm_admission_types WHERE is_active=TRUE ORDER BY display_name`),
+  ]);
+  const optionMap={class_id:classes,curriculum_id:curricula,admission_type_id:admissionTypes};
+  return visible.map(field=>({
+    ...field,
+    options:optionMap[field.fieldKey]||parseJsonValue(field.options,[]).map(value=>({value,label:String(value)})),
+    validation:parseJsonValue(field.validation,{}),
+  }));
+}
+
+app.get('/api/public/enquiry-forms/:formKey', async (req,res)=>{
+  const form=await publicFormDefinition(req.params.formKey,true);
+  if(!form)return res.status(404).json({message:'This enquiry form is not available'});
+  const schema=Array.isArray(form.fieldSchema)?form.fieldSchema:[];
+  const fields=await publicFieldOptions(form.businessUnitId,schema.map(field=>field.fieldKey));
+  const fieldsByKey=new Map(fields.map(field=>[field.fieldKey,field]));
+  res.json({
+    form:{
+      key:form.formKey,name:form.displayName,description:form.description,businessUnitName:form.businessUnitName,
+      color:form.color,settings:form.settings,successMessage:form.successMessage,redirectUrl:form.redirectUrl,
+      fields:schema.map(item=>({...(fieldsByKey.get(item.fieldKey)||{}),...item})).filter(item=>item.fieldKey),
+    },
+  });
+});
+
+app.post('/api/public/enquiry-forms/:formKey/submit', async (req,res)=>{
+  const form=await publicFormDefinition(req.params.formKey,true);
+  if(!form)return res.status(404).json({message:'This enquiry form is not available'});
+  if(String(req.body.website||'').trim())return res.status(400).json({message:'Submission rejected'});
+  const schema=Array.isArray(form.fieldSchema)?form.fieldSchema:[];
+  const values=req.body.values&&typeof req.body.values==='object'?req.body.values:{};
+  const missing=schema.filter(field=>field.required&&cleanOptional(values[field.fieldKey],500)==null);
+  if(missing.length)return res.status(400).json({message:`${missing[0].label||missing[0].fieldKey} is required`});
+  const standard={
+    name:'studentName',student_name:'studentName',phone:'phone',primary_phone:'phone',alternate_phone:'alternatePhone',
+    email:'email',parent_name:'parentName',city:'city',academic_year:'academicYear',class_id:'classId',
+    curriculum_id:'curriculumId',admission_type_id:'admissionTypeId',remarks:'remarks',
+  };
+  const body={
+    branchId:Number(form.defaultBranchId),stageId:Number(form.defaultStageId),substageId:form.defaultSubstageId?Number(form.defaultSubstageId):null,
+    sourceId:form.defaultSourceId?Number(form.defaultSourceId):null,channelId:form.defaultChannelId?Number(form.defaultChannelId):null,
+    campaignId:form.defaultCampaignId?Number(form.defaultCampaignId):null,ownerEmployeeId:form.defaultOwnerEmployeeId?Number(form.defaultOwnerEmployeeId):null,
+    intakeMethod:'website',leadScore:0,customValues:{},
+  };
+  for(const [fieldKey,value] of Object.entries(values)){
+    if(standard[fieldKey])body[standard[fieldKey]]=value;
+    else body.customValues[fieldKey]=value;
+  }
+  if(!body.remarks)body.remarks=`Website enquiry from ${form.displayName}`;
+  const validationError=validateLead(body,{requireClass:schema.some(field=>field.fieldKey==='class_id'&&field.required),requirePhone:schema.some(field=>['phone','primary_phone'].includes(field.fieldKey)&&field.required)!==false});
+  if(validationError)return res.status(400).json({message:validationError});
+  const [[branch]]=await pool.execute(`SELECT id FROM branches WHERE id=? AND is_active=TRUE LIMIT 1`,[body.branchId]);
+  if(!branch)return res.status(400).json({message:'This enquiry form is not mapped to an active branch'});
+  const [[stage]]=await pool.execute(`SELECT id FROM crm_lead_stages WHERE id=? AND business_unit_id=? AND is_active=TRUE LIMIT 1`,[body.stageId,Number(form.businessUnitId)]);
+  if(!stage)return res.status(400).json({message:'This enquiry form is not mapped to an active stage'});
+  if(body.sourceId){
+    const sourceValidationError=await validateSourceDetails(body);
+    if(sourceValidationError)return res.status(400).json({message:sourceValidationError});
+  }
+  const connection=await pool.getConnection();
+  const submittedPhone=cleanOptional(body.phone,30);
+  const normalizedPhone=submittedPhone?String(submittedPhone).replace(/[^0-9]/g,''):`no-phone-${crypto.randomUUID()}`;
+  const actorUserId=Number(form.actorUserId);
+  const lockName=`crm-public-lead:${Number(form.businessUnitId)}:${body.branchId}:${normalizedPhone}`;
+  try{
+    const [[lock]]=await connection.execute(`SELECT GET_LOCK(?,10) AS acquired`,[lockName]);
+    if(!Number(lock.acquired))return res.status(409).json({message:'This enquiry is being processed. Please retry.'});
+    await connection.beginTransaction();
+    const [[existing]]=await connection.execute(`SELECT id,lead_number AS leadNumber FROM crm_leads WHERE business_unit_id=? AND branch_id=? AND normalized_phone=? AND deleted_at_utc IS NULL ORDER BY id LIMIT 1 FOR UPDATE`,[Number(form.businessUnitId),body.branchId,normalizedPhone]);
+    if(existing&&body.sourceId&&body.channelId&&body.campaignId){
+      const enquiry=await appendLeadSourceOrDetectDuplicate(connection,existing,body,'website',actorUserId);
+      await connection.commit();
+      if(enquiry.duplicate)return res.status(200).json({id:Number(existing.id),leadNumber:existing.leadNumber,message:'Your enquiry is already available with our admissions team.'});
+      return res.json({id:Number(existing.id),leadNumber:existing.leadNumber,reEnquired:true,message:form.successMessage});
+    }
+    if(existing){
+      await connection.commit();
+      return res.status(200).json({id:Number(existing.id),leadNumber:existing.leadNumber,message:'Your enquiry is already available with our admissions team.'});
+    }
+    const temporaryNumber=`PENDING-${crypto.randomUUID()}`;
+    const [result]=await connection.execute(
+      `INSERT INTO crm_leads (business_unit_id,lead_number,branch_id,student_name,phone,normalized_phone,alternate_phone,email,applying_class,class_id,curriculum_id,academic_year,parent_name,city,stage_id,source_id,owner_employee_id,channel_id,campaign_id,admission_type_id,substage_id,lead_score,remarks,custom_values_json,created_by_user_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [Number(form.businessUnitId),temporaryNumber,body.branchId,cleanOptional(body.studentName,200),submittedPhone||'',normalizedPhone,cleanOptional(body.alternatePhone,30),cleanOptional(body.email,254),null,body.classId?Number(body.classId):null,body.curriculumId?Number(body.curriculumId):null,cleanOptional(body.academicYear,20),cleanOptional(body.parentName,200),cleanOptional(body.city,100),body.stageId,body.sourceId,body.ownerEmployeeId,body.channelId,body.campaignId,body.admissionTypeId?Number(body.admissionTypeId):null,body.substageId,0,cleanOptional(body.remarks,10000),JSON.stringify(body.customValues||{}),actorUserId],
+    );
+    const leadNumber=`ADM-${new Date().getFullYear()}-${String(result.insertId).padStart(6,'0')}`;
+    await connection.execute(`UPDATE crm_leads SET lead_number=? WHERE id=?`,[leadNumber,result.insertId]);
+    if(body.sourceId&&body.channelId&&body.campaignId)await connection.execute(`INSERT INTO crm_lead_source_history(lead_id,academic_year,source_id,channel_id,campaign_id,is_primary,intake_method,created_by_user_id) VALUES(?,?,?,?,?,TRUE,'website',?)`,[result.insertId,cleanOptional(body.academicYear,20),body.sourceId,body.channelId,body.campaignId,actorUserId]);
+    await connection.execute(`INSERT INTO crm_lead_activities(lead_id,activity_type,summary,actor_user_id) VALUES(?,'created','Lead created via website enquiry form',?)`,[result.insertId,actorUserId]);
+    await connection.commit();
+    res.status(201).json({id:Number(result.insertId),leadNumber,message:form.successMessage});
+  }catch(error){await connection.rollback();throw error;}
+  finally{await connection.execute(`SELECT RELEASE_LOCK(?)`,[lockName]).catch(()=>{});connection.release();}
+});
+
 app.get('/api/branches', authenticate, requireCrmAccess, async (req, res) => {
   const scope = scopedWhere(req.user, 'b.id');
   const [rows] = await pool.execute(
@@ -733,7 +859,7 @@ app.get('/api/leads/meta', authenticate, requireCrmAccess, async (req, res) => {
   const [academicYears] = await pool.query(`SELECT id, academic_year AS academicYear, display_name AS displayName FROM crm_academic_years WHERE is_active = TRUE ORDER BY academic_year DESC`);
   const [leadFields] = await pool.execute(
     `SELECT id,field_key AS fieldKey,display_name AS displayName,field_type AS fieldType,placeholder,
-            options_json AS options,is_system AS isSystem,is_required AS isRequired,position
+            options_json AS options,validation_json AS validation,is_system AS isSystem,is_required AS isRequired,position
      FROM crm_metadata_fields
      WHERE business_unit_id=? AND module_key='leads' AND is_active=TRUE
      ORDER BY position,display_name`,
@@ -769,6 +895,7 @@ app.get('/api/leads/meta', authenticate, requireCrmAccess, async (req, res) => {
       options:field.fieldKey==='source'
         ? businessSources.map(source=>source.displayName)
         : parseJsonValue(field.options,[]),
+      validation:parseJsonValue(field.validation,{}),
     })) });
 });
 

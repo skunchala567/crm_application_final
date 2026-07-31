@@ -1,0 +1,31 @@
+USE attendance_biometric;
+SET NAMES utf8mb4;
+
+CREATE TABLE IF NOT EXISTS crm_public_enquiry_forms (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  business_unit_id BIGINT UNSIGNED NOT NULL,
+  form_key VARCHAR(100) NOT NULL,
+  display_name VARCHAR(150) NOT NULL,
+  description VARCHAR(500),
+  default_branch_id BIGINT NULL,
+  default_stage_id BIGINT UNSIGNED NULL,
+  default_substage_id BIGINT UNSIGNED NULL,
+  default_source_id BIGINT UNSIGNED NULL,
+  default_channel_id BIGINT UNSIGNED NULL,
+  default_campaign_id BIGINT UNSIGNED NULL,
+  default_owner_employee_id BIGINT NULL,
+  field_schema_json JSON NOT NULL,
+  settings_json JSON,
+  success_message VARCHAR(500),
+  redirect_url VARCHAR(500),
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_by_user_id BIGINT UNSIGNED NULL,
+  updated_by_user_id BIGINT UNSIGNED NULL,
+  created_at_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  updated_at_utc DATETIME(6) NULL ON UPDATE CURRENT_TIMESTAMP(6),
+  UNIQUE KEY uq_crm_public_enquiry_form_key (form_key),
+  KEY ix_crm_public_enquiry_form_unit (business_unit_id,is_active,display_name),
+  CONSTRAINT fk_crm_public_enquiry_form_unit FOREIGN KEY (business_unit_id) REFERENCES crm_business_units(id) ON DELETE CASCADE,
+  CONSTRAINT fk_crm_public_enquiry_form_created_by FOREIGN KEY (created_by_user_id) REFERENCES app_users(id) ON DELETE SET NULL,
+  CONSTRAINT fk_crm_public_enquiry_form_updated_by FOREIGN KEY (updated_by_user_id) REFERENCES app_users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

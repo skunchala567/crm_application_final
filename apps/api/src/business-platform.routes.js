@@ -219,17 +219,23 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
   router.get('/business-units/:id/config', async (req,res)=>{
     const unitId=Number(req.params.id),unit=await accessibleUnit(req,unitId);
     if(!unit)return res.status(403).json({message:'Business unit access denied'});
-    const [[fields],[forms],[pipelines],[pipelineStages],[workflows],[operationStages],[modules]]=await Promise.all([
-      pool.execute(`SELECT id,field_key AS fieldKey,display_name AS displayName,field_type AS fieldType,placeholder,help_text AS helpText,options_json AS options,is_system AS isSystem,is_required AS isRequired,is_filterable AS isFilterable,filter_control AS filterControl,is_searchable AS isSearchable,is_importable AS isImportable,is_import_required AS isImportRequired,import_header AS importHeader,import_sample_value AS importSampleValue,show_in_list AS showInList,position,column_width AS columnWidth,is_active AS isActive FROM crm_metadata_fields WHERE business_unit_id=? ORDER BY module_key,position`,[unitId]),
+    const [[fields],[forms],[enquiryForms],[pipelines],[pipelineStages],[workflows],[operationStages],[modules],[branches],[sources],[channels],[campaigns],[employees]]=await Promise.all([
+      pool.execute(`SELECT id,field_key AS fieldKey,display_name AS displayName,field_type AS fieldType,placeholder,help_text AS helpText,options_json AS options,validation_json AS validation,is_system AS isSystem,is_required AS isRequired,is_filterable AS isFilterable,filter_control AS filterControl,is_searchable AS isSearchable,is_importable AS isImportable,is_import_required AS isImportRequired,import_header AS importHeader,import_sample_value AS importSampleValue,show_in_list AS showInList,position,column_width AS columnWidth,is_active AS isActive FROM crm_metadata_fields WHERE business_unit_id=? ORDER BY module_key,position`,[unitId]),
       pool.execute(`SELECT id,form_key AS formKey,display_name AS displayName,form_type AS formType,sections_json AS sections,is_default AS isDefault,is_active AS isActive FROM crm_metadata_forms WHERE business_unit_id=? ORDER BY display_name`,[unitId]),
+      pool.execute(`SELECT id,form_key AS formKey,display_name AS displayName,description,default_branch_id AS defaultBranchId,default_stage_id AS defaultStageId,default_substage_id AS defaultSubstageId,default_source_id AS defaultSourceId,default_channel_id AS defaultChannelId,default_campaign_id AS defaultCampaignId,default_owner_employee_id AS defaultOwnerEmployeeId,field_schema_json AS fieldSchema,settings_json AS settings,success_message AS successMessage,redirect_url AS redirectUrl,is_active AS isActive FROM crm_public_enquiry_forms WHERE business_unit_id=? ORDER BY display_name`,[unitId]),
       pool.execute(`SELECT id,pipeline_key AS pipelineKey,display_name AS displayName,description,entity_label_singular AS entityLabelSingular,entity_label_plural AS entityLabelPlural,is_default AS isDefault,is_active AS isActive FROM crm_metadata_pipelines WHERE business_unit_id=? ORDER BY is_default DESC,display_name`,[unitId]),
       pool.execute(`SELECT ps.id,ps.pipeline_id AS pipelineId,ps.stage_key AS stageKey,ps.display_name AS displayName,ps.stage_type AS stageType,ps.color_code AS color,ps.position,ps.is_active AS isActive FROM crm_metadata_pipeline_stages ps JOIN crm_metadata_pipelines p ON p.id=ps.pipeline_id WHERE p.business_unit_id=? ORDER BY ps.pipeline_id,ps.position`,[unitId]),
       pool.execute(`SELECT id,workflow_key AS workflowKey,display_name AS displayName,entity_label AS entityLabel,description,form_schema_json AS formSchema,is_default AS isDefault,is_active AS isActive FROM crm_operation_workflows WHERE business_unit_id=? ORDER BY is_default DESC,display_name`,[unitId]),
       pool.execute(`SELECT os.id,os.workflow_id AS workflowId,os.stage_key AS stageKey,os.display_name AS displayName,os.stage_type AS stageType,os.color_code AS color,os.position,os.checklist_json AS checklist,os.is_active AS isActive FROM crm_operation_stages os JOIN crm_operation_workflows ow ON ow.id=os.workflow_id WHERE ow.business_unit_id=? ORDER BY os.workflow_id,os.position`,[unitId]),
       pool.execute(`SELECT id,module_key AS moduleKey,display_name AS displayName,module_type AS moduleType,description,layout_json AS layout,settings_json AS settings,position,is_active AS isActive FROM crm_business_modules WHERE business_unit_id=? ORDER BY position`,[unitId]),
+      pool.query(`SELECT id,branch_name AS name FROM branches WHERE is_active=TRUE ORDER BY branch_name`),
+      pool.query(`SELECT id,display_name AS displayName FROM crm_lead_sources WHERE is_active=TRUE ORDER BY display_name`),
+      pool.query(`SELECT id,display_name AS displayName FROM crm_lead_channels WHERE is_active=TRUE ORDER BY display_name`),
+      pool.query(`SELECT id,display_name AS displayName FROM crm_campaigns WHERE is_active=TRUE ORDER BY display_name`),
+      pool.query(`SELECT id,employee_name AS name FROM employees WHERE status='Active' ORDER BY employee_name LIMIT 1000`),
     ]);
     const normalize=rows=>rows.map(row=>Object.fromEntries(Object.entries(row).map(([key,value])=>[
-      key,['options','sections','formSchema','checklist','layout','settings'].includes(key)?parseJson(value,key==='options'?[]:{}):value,
+      key,['options','sections','formSchema','fieldSchema','checklist','layout','settings','validation'].includes(key)?parseJson(value,key==='options'?[]:{}):value,
     ])));
     let resolvedPipelines=normalize(pipelines);
     let resolvedPipelineStages=normalize(pipelineStages);
@@ -256,7 +262,7 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
       id:Number(unit.id),code:unit.unit_code,name:unit.display_name,industryType:unit.industry_type,
       compatibilityMode:unit.compatibility_mode,color:unit.color_code,
     },fields:normalize(fields),forms:normalize(forms),pipelines:resolvedPipelines,pipelineStages:resolvedPipelineStages,
-    leadSubstages:normalize(leadSubstages),workflows:normalize(workflows),operationStages:normalize(operationStages),modules:normalize(modules)});
+    leadSubstages:normalize(leadSubstages),enquiryForms:normalize(enquiryForms),branches:normalize(branches),sources:normalize(sources),channels:normalize(channels),campaigns:normalize(campaigns),employees:normalize(employees),workflows:normalize(workflows),operationStages:normalize(operationStages),modules:normalize(modules)});
   });
 
   router.post('/business-units/:id/fields', requireUserAdmin, async (req,res)=>{
@@ -268,10 +274,10 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     try{
       const [result]=await pool.execute(
         `INSERT INTO crm_metadata_fields
-         (business_unit_id,module_key,field_key,display_name,field_type,placeholder,help_text,options_json,is_required,is_filterable,filter_control,is_searchable,is_importable,is_import_required,import_header,import_sample_value,show_in_list,position,column_width)
-         VALUES (?,'leads',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         (business_unit_id,module_key,field_key,display_name,field_type,placeholder,help_text,options_json,validation_json,is_required,is_filterable,filter_control,is_searchable,is_importable,is_import_required,import_header,import_sample_value,show_in_list,position,column_width)
+         VALUES (?,'leads',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [unitId,fieldKey,displayName,fieldType,text(req.body.placeholder,200),text(req.body.helpText,500),
-         JSON.stringify(Array.isArray(req.body.options)?req.body.options:[]),req.body.isRequired?1:0,req.body.isFilterable===false?0:1,
+         JSON.stringify(Array.isArray(req.body.options)?req.body.options:[]),JSON.stringify(req.body.validation&&typeof req.body.validation==='object'?req.body.validation:{}),req.body.isRequired?1:0,req.body.isFilterable===false?0:1,
          text(req.body.filterControl,40)||'contains',req.body.isSearchable?1:0,req.body.isImportable===false?0:1,req.body.isImportRequired?1:0,text(req.body.importHeader,160)||displayName,
          text(req.body.importSampleValue,255),req.body.showInList===false?0:1,Number(next.position),Math.max(100,Math.min(400,Number(req.body.columnWidth)||180))],
       );
@@ -281,10 +287,10 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
 
   router.put('/business-units/:unitId/fields/:id', requireUserAdmin, async (req,res)=>{
     const [result]=await pool.execute(
-      `UPDATE crm_metadata_fields SET display_name=?,placeholder=?,help_text=?,options_json=?,is_required=?,is_filterable=?,filter_control=?,is_searchable=?,is_importable=?,is_import_required=?,import_header=?,import_sample_value=?,show_in_list=?,column_width=?,is_active=?
+      `UPDATE crm_metadata_fields SET display_name=?,placeholder=?,help_text=?,options_json=?,validation_json=?,is_required=?,is_filterable=?,filter_control=?,is_searchable=?,is_importable=?,is_import_required=?,import_header=?,import_sample_value=?,show_in_list=?,column_width=?,is_active=?
        WHERE id=? AND business_unit_id=?`,
       [text(req.body.displayName,150),text(req.body.placeholder,200),text(req.body.helpText,500),JSON.stringify(Array.isArray(req.body.options)?req.body.options:[]),
-       req.body.isRequired?1:0,req.body.isFilterable===false?0:1,text(req.body.filterControl,40)||'contains',req.body.isSearchable?1:0,req.body.isImportable===false?0:1,req.body.isImportRequired?1:0,
+       JSON.stringify(req.body.validation&&typeof req.body.validation==='object'?req.body.validation:{}),req.body.isRequired?1:0,req.body.isFilterable===false?0:1,text(req.body.filterControl,40)||'contains',req.body.isSearchable?1:0,req.body.isImportable===false?0:1,req.body.isImportRequired?1:0,
        text(req.body.importHeader,160)||text(req.body.displayName,150),text(req.body.importSampleValue,255),req.body.showInList===false?0:1,
        Math.max(100,Math.min(400,Number(req.body.columnWidth)||180)),req.body.isActive===false?0:1,Number(req.params.id),Number(req.params.unitId)],
     );
@@ -347,6 +353,75 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
       await connection.commit();
       res.json({message:'Lead field deleted from this Business Unit'});
     }catch(error){await connection.rollback();throw error;}finally{connection.release();}
+  });
+
+  const enquiryPayload=req=>{
+    const fields=Array.isArray(req.body.fields)?req.body.fields.filter(field=>field&&field.fieldKey).map((field,index)=>({
+      fieldKey:String(field.fieldKey).slice(0,80),
+      label:text(field.label,150),
+      required:Boolean(field.required),
+      placeholder:text(field.placeholder,200),
+      position:Number(field.position)||index+1,
+    })):[];
+    return {
+      displayName:text(req.body.displayName,150),
+      description:text(req.body.description,500),
+      defaultBranchId:req.body.defaultBranchId?Number(req.body.defaultBranchId):null,
+      defaultStageId:req.body.defaultStageId?Number(req.body.defaultStageId):null,
+      defaultSubstageId:req.body.defaultSubstageId?Number(req.body.defaultSubstageId):null,
+      defaultSourceId:req.body.defaultSourceId?Number(req.body.defaultSourceId):null,
+      defaultChannelId:req.body.defaultChannelId?Number(req.body.defaultChannelId):null,
+      defaultCampaignId:req.body.defaultCampaignId?Number(req.body.defaultCampaignId):null,
+      defaultOwnerEmployeeId:req.body.defaultOwnerEmployeeId?Number(req.body.defaultOwnerEmployeeId):null,
+      fields,
+      settings:req.body.settings&&typeof req.body.settings==='object'?req.body.settings:{},
+      successMessage:text(req.body.successMessage,500)||'Thank you. Your enquiry has been submitted.',
+      redirectUrl:text(req.body.redirectUrl,500),
+      isActive:req.body.isActive!==false,
+    };
+  };
+
+  router.post('/business-units/:id/enquiry-forms', requireUserAdmin, async (req,res)=>{
+    const unitId=Number(req.params.id),unit=await accessibleUnit(req,unitId,true);
+    if(!unit)return res.status(403).json({message:'Business unit management access required'});
+    const payload=enquiryPayload(req);
+    if(!payload.displayName)return res.status(400).json({message:'Form name is required'});
+    if(!payload.defaultBranchId||!payload.defaultStageId)return res.status(400).json({message:'Default branch and stage are required'});
+    if(!payload.fields.length)return res.status(400).json({message:'Select at least one field for the enquiry form'});
+    const formKey=slug(req.body.formKey||`${unit.unit_code}_${payload.displayName}`)||`enquiry_${Date.now()}`;
+    try{
+      const [result]=await pool.execute(
+        `INSERT INTO crm_public_enquiry_forms
+         (business_unit_id,form_key,display_name,description,default_branch_id,default_stage_id,default_substage_id,default_source_id,default_channel_id,default_campaign_id,default_owner_employee_id,field_schema_json,settings_json,success_message,redirect_url,is_active,created_by_user_id,updated_by_user_id)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [unitId,formKey,payload.displayName,payload.description,payload.defaultBranchId,payload.defaultStageId,payload.defaultSubstageId,payload.defaultSourceId,payload.defaultChannelId,payload.defaultCampaignId,payload.defaultOwnerEmployeeId,JSON.stringify(payload.fields),JSON.stringify(payload.settings),payload.successMessage,payload.redirectUrl,payload.isActive?1:0,Number(req.user.id),Number(req.user.id)],
+      );
+      res.status(201).json({id:Number(result.insertId),formKey,message:'Enquiry form created'});
+    }catch(error){if(error.code==='ER_DUP_ENTRY')return res.status(409).json({message:'This enquiry form key already exists'});throw error;}
+  });
+
+  router.put('/business-units/:unitId/enquiry-forms/:id', requireUserAdmin, async (req,res)=>{
+    const unitId=Number(req.params.unitId),formId=Number(req.params.id),unit=await accessibleUnit(req,unitId,true);
+    if(!unit)return res.status(403).json({message:'Business unit management access required'});
+    const payload=enquiryPayload(req);
+    if(!payload.displayName)return res.status(400).json({message:'Form name is required'});
+    if(!payload.defaultBranchId||!payload.defaultStageId)return res.status(400).json({message:'Default branch and stage are required'});
+    if(!payload.fields.length)return res.status(400).json({message:'Select at least one field for the enquiry form'});
+    const [result]=await pool.execute(
+      `UPDATE crm_public_enquiry_forms SET display_name=?,description=?,default_branch_id=?,default_stage_id=?,default_substage_id=?,default_source_id=?,default_channel_id=?,default_campaign_id=?,default_owner_employee_id=?,field_schema_json=?,settings_json=?,success_message=?,redirect_url=?,is_active=?,updated_by_user_id=?
+       WHERE id=? AND business_unit_id=?`,
+      [payload.displayName,payload.description,payload.defaultBranchId,payload.defaultStageId,payload.defaultSubstageId,payload.defaultSourceId,payload.defaultChannelId,payload.defaultCampaignId,payload.defaultOwnerEmployeeId,JSON.stringify(payload.fields),JSON.stringify(payload.settings),payload.successMessage,payload.redirectUrl,payload.isActive?1:0,Number(req.user.id),formId,unitId],
+    );
+    if(!result.affectedRows)return res.status(404).json({message:'Enquiry form not found'});
+    res.json({message:'Enquiry form updated'});
+  });
+
+  router.delete('/business-units/:unitId/enquiry-forms/:id', requireUserAdmin, async (req,res)=>{
+    const unitId=Number(req.params.unitId),formId=Number(req.params.id),unit=await accessibleUnit(req,unitId,true);
+    if(!unit)return res.status(403).json({message:'Business unit management access required'});
+    const [result]=await pool.execute(`DELETE FROM crm_public_enquiry_forms WHERE id=? AND business_unit_id=?`,[formId,unitId]);
+    if(!result.affectedRows)return res.status(404).json({message:'Enquiry form not found'});
+    res.json({message:'Enquiry form deleted'});
   });
 
   const sourceConfigDefinitions={

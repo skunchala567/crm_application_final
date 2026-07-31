@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BarChart3, Calculator, CalendarRange, Check, ChevronDown, ChevronLeft, Columns3, Filter, Funnel, LayoutList,
-  ChevronRight, MoreHorizontal, PieChart, Plus, Save, Search, Trash2, X,
+  ChevronRight, Maximize2, MoreHorizontal, PieChart, Plus, Save, Search, Trash2, X,
 } from "lucide-react";
 import { useBusinessUnit } from "./BusinessUnitContext.jsx";
 import "./ReportBuilder.css";
@@ -455,16 +455,55 @@ export default function ReportBuilder({ data, leads = [], leadFields = [] }) {
 export function SavedReportsDashboard({ data }) {
   const { selectedUnit } = useBusinessUnit();
   const [reports, setReports] = useState(() => readSavedReports(selectedUnit.id));
+  const [expandedReport, setExpandedReport] = useState(null);
   useEffect(() => {
     const handler = () => setReports(readSavedReports(selectedUnit.id));
     window.addEventListener("crm:saved-reports-changed", handler);
     return () => window.removeEventListener("crm:saved-reports-changed", handler);
   }, [selectedUnit.id]);
+  useEffect(() => {
+    if (!expandedReport) return undefined;
+    const onKeyDown = event => {
+      if (event.key === "Escape") setExpandedReport(null);
+    };
+    document.body.classList.add("report-expanded-open");
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.classList.remove("report-expanded-open");
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [expandedReport]);
   if (!reports.length) return <div className="saved-dashboard-empty"><BarChart3 /><h3>No saved reports yet</h3><p>Create a report from the Reports screen and it will appear here for {selectedUnit.name}.</p></div>;
-  return <div className="saved-report-grid">{reports.map(report => <article className="panel saved-report-card" key={report.id}><div><span>{TYPES.find(type => type.id === report.type)?.label}</span><h3>{report.title}</h3>{report.description && <p>{report.description}</p>}<SavedReportFilters report={report} /></div><ReportVisual report={report} data={report.generatedData} compact /></article>)}</div>;
+  return <>
+    <div className="saved-report-grid">{reports.map(report => <article className="panel saved-report-card" key={report.id}>
+      <div className="saved-card-head">
+        <div><span>{TYPES.find(type => type.id === report.type)?.label}</span><h3>{report.title}</h3>{report.description && <p>{report.description}</p>}<SavedReportFilters report={report} /></div>
+        <button className="saved-expand-btn" type="button" onClick={() => setExpandedReport(report)} aria-label={`Expand ${report.title || "saved report"}`} title="Expand report"><Maximize2 size={15} /></button>
+      </div>
+      <ReportVisual report={report} data={report.generatedData} compact />
+    </article>)}</div>
+    {expandedReport && <div className="report-fullscreen-backdrop" role="dialog" aria-modal="true" aria-label={`${expandedReport.title || "Saved report"} expanded view`}>
+      <section className="report-fullscreen-panel">
+        <header className="report-fullscreen-head">
+          <div>
+            <span>{TYPES.find(type => type.id === expandedReport.type)?.label}</span>
+            <h2>{expandedReport.title || "Untitled report"}</h2>
+            {expandedReport.description && <p>{expandedReport.description}</p>}
+          </div>
+          <div className="report-fullscreen-tools">
+            <SavedReportFilters report={expandedReport} align="right" />
+            <button className="saved-expand-btn close" type="button" onClick={() => setExpandedReport(null)} aria-label="Close expanded report" title="Close"><X size={17} /></button>
+          </div>
+        </header>
+        <div className="report-fullscreen-body">
+          <ReportVisual report={expandedReport} data={expandedReport.generatedData} />
+        </div>
+      </section>
+    </div>}
+  </>;
 }
 
-function SavedReportFilters({ report }) {
+function SavedReportFilters({ report, align = "left" }) {
   const catalog = report.fieldCatalog || FIELDS;
   const fieldName = id => catalog.find(field => field.id === id)?.label || id;
   const operatorName = operator => ({ equals: "is", not_equals: "is not", contains: "contains", not_contains: "does not contain", greater_than: ">", less_than: "<", before: "before", after: "after", is_blank: "is blank", is_not_blank: "is not blank" }[operator] || operator);
@@ -478,6 +517,6 @@ function SavedReportFilters({ report }) {
     const valueText = ["is_blank", "is_not_blank"].includes(filter.operator) ? "" : values.length > 2 ? `${values.slice(0, 2).join(", ")} +${values.length - 2}` : values.join(", ");
     chips.push({ key: filter.id || index, text: `${fieldName(filter.field)} ${operatorName(filter.operator)}${valueText ? ` ${valueText}` : ""}` });
   });
-  if (!chips.length) return <div className="saved-filter-summary"><span>All records</span></div>;
-  return <div className="saved-filter-summary" aria-label="Applied report filters"><strong><Filter size={10} />Applied filters</strong><div>{chips.map(chip => <span key={chip.key} title={chip.text}>{chip.text}</span>)}</div></div>;
+  if (!chips.length) return <div className={`saved-filter-summary ${align === "right" ? "right" : ""}`}><span>All records</span></div>;
+  return <div className={`saved-filter-summary ${align === "right" ? "right" : ""}`} aria-label="Applied report filters"><strong><Filter size={10} />Applied filters</strong><div>{chips.map(chip => <span key={chip.key} title={chip.text}>{chip.text}</span>)}</div></div>;
 }

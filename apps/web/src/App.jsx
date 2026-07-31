@@ -6,6 +6,7 @@ import {
   Routes,
   useLocation,
   useNavigate,
+  useParams,
 } from "react-router-dom";
 import { api } from "./api";
 import BusinessUnitLeadRouter from "./DynamicLeadsPage.jsx";
@@ -17,6 +18,7 @@ import BulkActionsPage from "./BulkActionsPage.jsx";
 import OAuthCallbackPage from "./pages/OAuthCallbackPage.jsx";
 import GlobalSearch from "./GlobalSearch.jsx";
 import ReportBuilder, { SavedReportsDashboard } from "./ReportBuilder.jsx";
+import PublicEnquiryForm from "./PublicEnquiryForm.jsx";
 import { BusinessUnitProvider, BusinessUnitSelector, useBusinessUnit } from "./BusinessUnitContext.jsx";
 import "./SidebarTogglePosition.css";
 import {
@@ -633,6 +635,10 @@ export default function App() {
   return (
     <Routes>
       <Route
+        path="/public/enquiry/:formKey"
+        element={<PublicEnquiryRoute />}
+      />
+      <Route
         path="/login"
         element={user ? <Navigate to="/" /> : <Login onLogin={setUser} />}
       />
@@ -648,4 +654,9 @@ export default function App() {
       />
     </Routes>
   );
+}
+
+function PublicEnquiryRoute() {
+  const { formKey } = useParams();
+  return <PublicEnquiryForm formKey={formKey} />;
 }
