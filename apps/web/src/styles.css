@@ -150,3 +150,11 @@ table th{background:#f8f8fc}.avatar.muted{background:var(--accent-soft);color:va
   }
   .filter-workspace-body{grid-template-columns:1fr}
 }
+.search-select-menu button,
+.multi-select-options>button,
+.multi-search-menu button,
+.filter-values-popover section>button{width:100%;display:flex;align-items:center;justify-content:flex-start;text-align:left}
+.search-select-menu button>span,
+.multi-select-options>button>span,
+.multi-search-menu button>span,
+.filter-values-popover section>button>span{min-width:0;text-align:left}

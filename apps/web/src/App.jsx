@@ -16,6 +16,7 @@ import WhatsAppInbox from "./WhatsAppInbox.jsx";
 import BulkActionsPage from "./BulkActionsPage.jsx";
 import OAuthCallbackPage from "./pages/OAuthCallbackPage.jsx";
 import GlobalSearch from "./GlobalSearch.jsx";
+import ReportBuilder, { SavedReportsDashboard } from "./ReportBuilder.jsx";
 import { BusinessUnitProvider, BusinessUnitSelector, useBusinessUnit } from "./BusinessUnitContext.jsx";
 import "./SidebarTogglePosition.css";
 import {
@@ -302,6 +303,7 @@ function Dashboard({ user }) {
   const { selectedUnit } = useBusinessUnit();
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
+  const [dashboardTab, setDashboardTab] = useState("overview");
   useEffect(() => {
     if (!selectedUnit?.id) return;
     setData(null);
@@ -336,6 +338,11 @@ function Dashboard({ user }) {
           <Plus size={18} /> Add new lead
         </button>
       </div>
+      <div className="dashboard-tabs" role="tablist" aria-label="Dashboard views">
+        <button className={dashboardTab === "overview" ? "active" : ""} onClick={() => setDashboardTab("overview")}>Overview</button>
+        <button className={dashboardTab === "saved" ? "active" : ""} onClick={() => setDashboardTab("saved")}>Saved Reports</button>
+      </div>
+      {dashboardTab === "overview" ? <>
       <section className="stats-grid">
         {cards.map(([label, value, trend, Icon, color]) => (
           <article className="stat-card" key={label}>
@@ -435,6 +442,7 @@ function Dashboard({ user }) {
         />
         <LeadTable leads={data.recentLeads} />
       </article>
+      </> : <SavedReportsDashboard data={data} />}
     </main>
   );
 }
@@ -442,12 +450,20 @@ function Dashboard({ user }) {
 function ReportsPage() {
   const { selectedUnit } = useBusinessUnit();
   const [data, setData] = useState(null);
+  const [reportLeads, setReportLeads] = useState([]);
+  const [reportMeta, setReportMeta] = useState(null);
   const [error, setError] = useState("");
   useEffect(() => {
     if (!selectedUnit?.id) return;
     setData(null);
     setError("");
-    api("/dashboard").then(setData).catch((err) => setError(err.message));
+    Promise.all([api("/dashboard"), api("/leads"), api("/leads/meta")])
+      .then(([dashboard, leadsResult, meta]) => {
+        setData(dashboard);
+        setReportLeads(leadsResult.data || []);
+        setReportMeta(meta);
+      })
+      .catch((err) => setError(err.message));
   }, [selectedUnit?.id]);
   if (error) return <ErrorState message={error} />;
   if (!data) return <Loading />;
@@ -458,34 +474,15 @@ function ReportsPage() {
     ["Completed", data.stats.admissions, GraduationCap, "green"],
   ];
   return (
-    <main className="page">
+    <main className="page report-page">
       <div className="page-heading">
         <div>
           <span className="eyebrow">{selectedUnit.name}</span>
           <h1>Reports</h1>
-          <p>Business Unit performance and lead journey summary.</p>
+          <p>Build, customize and save reusable business intelligence reports.</p>
         </div>
       </div>
-      <section className="stats-grid">
-        {cards.map(([label, value, Icon, color]) => (
-          <article className="stat-card" key={label}>
-            <div className={`stat-icon ${color}`}><Icon /></div>
-            <div><span>{label}</span><strong>{Number(value || 0).toLocaleString()}</strong></div>
-          </article>
-        ))}
-      </section>
-      <article className="panel">
-        <PanelTitle title="Lead journey" subtitle={`Current pipeline distribution for ${selectedUnit.name}`} action="Live" />
-        <div className="funnel">
-          {data.funnel.map((item) => (
-            <div className="funnel-row" key={item.label}>
-              <div className="funnel-label"><span>{item.label}</span><strong>{item.value}</strong></div>
-              <div className="track"><span style={{ width: `${data.stats.totalLeads ? Math.max(4, (Number(item.value) / Number(data.stats.totalLeads)) * 100) : 0}%`, background: item.color }} /></div>
-              <small>{item.value} leads</small>
-            </div>
-          ))}
-        </div>
-      </article>
+      <ReportBuilder data={data} leads={reportLeads} leadFields={reportMeta?.leadFields || []} />
     </main>
   );
 }
