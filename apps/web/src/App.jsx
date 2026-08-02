@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Navigate,
   NavLink,
@@ -17,10 +17,11 @@ import WhatsAppInbox from "./WhatsAppInbox.jsx";
 import BulkActionsPage from "./BulkActionsPage.jsx";
 import OAuthCallbackPage from "./pages/OAuthCallbackPage.jsx";
 import GlobalSearch from "./GlobalSearch.jsx";
-import ReportBuilder, { SavedReportsDashboard } from "./ReportBuilder.jsx";
+import ReportBuilder, { SavedReportsDashboard, ReportVisual, buildLiveReportData, canViewSavedReport, readSavedReports } from "./ReportBuilder.jsx";
 import PublicEnquiryForm from "./PublicEnquiryForm.jsx";
 import { BusinessUnitProvider, BusinessUnitSelector, useBusinessUnit } from "./BusinessUnitContext.jsx";
 import "./SidebarTogglePosition.css";
+import "./DashboardCanvas.css";
 import {
   BarChart3,
   Bell,
@@ -39,6 +40,7 @@ import {
   PhoneCall,
   Plus,
   Search,
+  Settings2,
   Settings,
   Sparkles,
   Target,
@@ -227,6 +229,7 @@ function Shell({ user, onLogout }) {
               key={label}
               to={path}
               end={path === "/"}
+              className={({ isActive }) => isActive || (label === "Dashboard" && location.pathname.startsWith("/saved-reports")) ? "active" : ""}
             >
               <Icon size={19} />
               <span>{label}</span>
@@ -249,7 +252,7 @@ function Shell({ user, onLogout }) {
             <NavLink to="/settings/business-units" className="settings-submenu-item"><span className="submenu-indent">Business Units</span></NavLink>
             <NavLink to="/settings/integrations" className="settings-submenu-item"><span className="submenu-indent">Integrations</span></NavLink>
             <NavLink to="/settings/google-sheets" className="settings-submenu-item"><span className="submenu-indent">Google Sheets</span></NavLink>
-            <NavLink to="/settings/whatsapp-templates" className="settings-submenu-item"><span className="submenu-indent">WhatsApp Templates</span></NavLink>
+            <NavLink to="/settings/whatsapp-templates" className="settings-submenu-item"><span className="submenu-indent">WhatsApp</span></NavLink>
           </div>
         </nav>
         <div className="sidebar-help">
@@ -280,6 +283,7 @@ function Shell({ user, onLogout }) {
           <Route path="/whatsapp-inbox" element={<WhatsAppInbox />} />
           <Route path="/bulk-actions" element={<BulkActionsPage key={activeBusinessUnitId} />} />
           <Route path="/reports" element={<ReportsPage key={activeBusinessUnitId} />} />
+          <Route path="/saved-reports/new" element={<SavedReportCreatePage key={activeBusinessUnitId} />} />
           <Route path="/settings" element={<SettingsPage initialTab="users" />} />
           <Route path="/settings/users" element={<SettingsPage initialTab="users" />} />
           <Route path="/settings/business-units" element={<SettingsPage initialTab="business-units" />} />
@@ -303,15 +307,25 @@ function Shell({ user, onLogout }) {
 
 function Dashboard({ user }) {
   const { selectedUnit } = useBusinessUnit();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [data, setData] = useState(null);
+  const [savedReportLeads, setSavedReportLeads] = useState([]);
   const [error, setError] = useState("");
-  const [dashboardTab, setDashboardTab] = useState("overview");
+  const [dashboardTab, setDashboardTab] = useState(location.state?.dashboardTab === "saved" ? "saved" : "overview");
+  useEffect(() => {
+    if (location.state?.dashboardTab === "saved") setDashboardTab("saved");
+  }, [location.state?.dashboardTab]);
   useEffect(() => {
     if (!selectedUnit?.id) return;
     setData(null);
+    setSavedReportLeads([]);
     setError("");
-    api("/dashboard")
-      .then(setData)
+    Promise.all([api("/dashboard"), api("/leads")])
+      .then(([dashboard, leadsResult]) => {
+        setData(dashboard);
+        setSavedReportLeads(leadsResult.data || []);
+      })
       .catch((err) => setError(err.message));
   }, [selectedUnit?.id]);
   if (error) return <ErrorState message={error} />;
@@ -336,7 +350,7 @@ function Dashboard({ user }) {
           <h1>Good afternoon, {user.name.split(" ")[0]}</h1>
           <p>Here’s what needs your admissions team’s attention today.</p>
         </div>
-        <button className="primary">
+        <button className="primary" onClick={() => navigate("/leads")}>
           <Plus size={18} /> Add new lead
         </button>
       </div>
@@ -344,113 +358,212 @@ function Dashboard({ user }) {
         <button className={dashboardTab === "overview" ? "active" : ""} onClick={() => setDashboardTab("overview")}>Overview</button>
         <button className={dashboardTab === "saved" ? "active" : ""} onClick={() => setDashboardTab("saved")}>Saved Reports</button>
       </div>
-      {dashboardTab === "overview" ? <>
-      <section className="stats-grid">
-        {cards.map(([label, value, trend, Icon, color]) => (
-          <article className="stat-card" key={label}>
-            <div className={`stat-icon ${color}`}>
-              <Icon />
-            </div>
-            <div>
-              <span>{label}</span>
-              <strong>{value.toLocaleString()}</strong>
-              <small className={trend.includes("overdue") ? "warning" : ""}>
-                {trend}{" "}
-                <em>{trend.includes("overdue") ? "" : "vs last month"}</em>
-              </small>
-            </div>
-          </article>
-        ))}
-      </section>
-      <section className="dashboard-grid">
-        <article className="panel funnel-panel">
-          <PanelTitle
-            title="Admissions view"
-            subtitle="Lead movement this academic year"
-            action="Last 30 days"
-          />
-          <div className="funnel">
-            {data.funnel.map((item, index) => (
-              <div className="funnel-row" key={item.label}>
-                <div className="funnel-label">
-                  <span>{item.label}</span>
-                  <strong>{item.value}</strong>
-                </div>
-                <div className="track">
-                  <span
-                    style={{
-                      width: `${100 - index * 14}%`,
-                      background: item.color,
-                    }}
-                  />
-                </div>
-                <small>
-                  {index
-                    ? `${Math.round((item.value / data.funnel[index - 1].value) * 100)}% conversion`
-                    : "100% of enquiries"}
-                </small>
-              </div>
-            ))}
-          </div>
-        </article>
-        <article className="panel tasks-panel">
-          <PanelTitle
-            title="Today’s priorities"
-            subtitle="Follow-ups requiring action"
-            action="View all"
-            link
-          />
-          <div className="task-list">
-            {[
-              [
-                "Call Aarav Sharma’s parent",
-                "Counselling follow-up · 10:30 AM",
-                "AS",
-                "urgent",
-              ],
-              [
-                "Application documents pending",
-                "Diya Patel · Grade 5",
-                "DP",
-                "normal",
-              ],
-              [
-                "Campus visit confirmation",
-                "Sara Khan · Tomorrow at 11:00 AM",
-                "SK",
-                "normal",
-              ],
-              ["Fee reminder", "Kabir Reddy · Due in 2 days", "KR", "low"],
-            ].map(([title, sub, initials, tone]) => (
-              <div className="task" key={title}>
-                <span className={`task-dot ${tone}`} />
-                <span className="avatar muted">{initials}</span>
-                <div>
-                  <strong>{title}</strong>
-                  <span>{sub}</span>
-                </div>
-                <button>•••</button>
-              </div>
-            ))}
-          </div>
-        </article>
-      </section>
-      <article className="panel recent">
-        <PanelTitle
-          title="Recent leads"
-          subtitle="Latest enquiries across all sources"
-          action="View all leads"
-          link
-        />
-        <LeadTable leads={data.recentLeads} />
-      </article>
-      </> : <SavedReportsDashboard data={data} />}
+      {dashboardTab === "overview" ? <DashboardOverviewCanvas data={data} leads={savedReportLeads} cards={cards} /> : <SavedReportsDashboard data={data} leads={savedReportLeads} onCreateNew={() => navigate("/saved-reports/new", { state: { createNewReportAt: Date.now(), returnTo: "dashboard-saved" } })} />}
     </main>
   );
 }
 
+const DASHBOARD_WIDGETS = [
+  { id: "stats", title: "Performance cards", size: "full" },
+  { id: "funnel", title: "Admissions funnel", size: "half" },
+  { id: "tasks", title: "Today’s priorities", size: "half" },
+  { id: "recent", title: "Recent leads", size: "full" },
+];
+
+function dashboardLayoutKey(unitId) {
+  return `crm_dashboard_overview_layout_${unitId || "default"}`;
+}
+
+function readDashboardLayout(unitId) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(dashboardLayoutKey(unitId)) || "null");
+    if (Array.isArray(saved) && saved.length) return normalizeDashboardLayout(saved);
+  } catch {}
+  return DASHBOARD_WIDGETS.map(widget => ({ id: widget.id, size: widget.size, visible: true }));
+}
+
+function normalizeDashboardLayout(layout) {
+  const known = new Set(DASHBOARD_WIDGETS.map(widget => widget.id));
+  const cleaned = layout.filter(item => known.has(item.id) || String(item.id || "").startsWith("report:")).map(item => ({ id: item.id, size: item.size === "full" ? "full" : "half", visible: item.visible !== false }));
+  const existing = new Set(cleaned.map(item => item.id));
+  DASHBOARD_WIDGETS.forEach(widget => { if (!existing.has(widget.id)) cleaned.push({ id: widget.id, size: widget.size, visible: true }); });
+  return cleaned;
+}
+
+function DashboardOverviewCanvas({ data, leads = [], cards, editable = false }) {
+  const { selectedUnit } = useBusinessUnit();
+  const [layout, setLayout] = useState(() => readDashboardLayout(selectedUnit?.id));
+  const [savedReports, setSavedReports] = useState(() => readSavedReports(selectedUnit?.id));
+  const [widgetPickerOpen, setWidgetPickerOpen] = useState(false);
+  const [widgetSearch, setWidgetSearch] = useState("");
+  useEffect(() => setLayout(readDashboardLayout(selectedUnit?.id)), [selectedUnit?.id]);
+  useEffect(() => {
+    const loadReports = () => setSavedReports(readSavedReports(selectedUnit?.id));
+    loadReports();
+    window.addEventListener("crm:saved-reports-changed", loadReports);
+    return () => window.removeEventListener("crm:saved-reports-changed", loadReports);
+  }, [selectedUnit?.id]);
+  useEffect(() => {
+    if (!widgetPickerOpen) return undefined;
+    const close = event => {
+      if (!event.target.closest(".dashboard-widget-picker-wrap")) {
+        setWidgetPickerOpen(false);
+        setWidgetSearch("");
+      }
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [widgetPickerOpen]);
+  const saveLayout = next => {
+    const normalized = normalizeDashboardLayout(next);
+    setLayout(normalized);
+    localStorage.setItem(dashboardLayoutKey(selectedUnit?.id), JSON.stringify(normalized));
+  };
+  const move = (index, direction) => {
+    const next = [...layout];
+    const target = index + direction;
+    if (target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target], next[index]];
+    saveLayout(next);
+  };
+  const patchWidget = (id, values) => saveLayout(layout.map(item => item.id === id ? { ...item, ...values } : item));
+  const addReportWidget = report => {
+    const id = `report:${report.id}`;
+    saveLayout(layout.some(item => item.id === id) ? layout.map(item => item.id === id ? { ...item, visible: true } : item) : [{ id, size: "half", visible: true }, ...layout]);
+  };
+  const available = DASHBOARD_WIDGETS.filter(widget => !layout.some(item => item.id === widget.id && item.visible !== false));
+  const visibleSavedReports = savedReports.filter(report => canViewSavedReport(report));
+  const availableReports = visibleSavedReports.filter(report => !layout.some(item => item.id === `report:${report.id}` && item.visible !== false));
+  const availableItems = [
+    ...available.map(widget => ({ id: widget.id, type: "widget", title: widget.title, subtitle: "Dashboard widget", action: () => patchWidget(widget.id, { visible: true }) })),
+    ...availableReports.map(report => ({ id: `report:${report.id}`, type: "report", title: report.title || "Untitled report", subtitle: `${report.type || "Report"} saved report`, action: () => addReportWidget(report) })),
+  ].filter(item => `${item.title} ${item.subtitle}`.toLowerCase().includes(widgetSearch.toLowerCase().trim()));
+  const visibleLayout = layout.filter(item => item.visible !== false);
+  return <section className={`dashboard-canvas ${editable ? "editing" : ""}`}>
+    {editable && <div className="dashboard-designer-toolbar panel">
+      <div><Settings2 size={17} /><span><strong>Dashboard layout editor</strong><small>Add widgets and adjust how the Dashboard overview appears for this business unit.</small></span></div>
+      <div className="dashboard-widget-picker-wrap">
+        <button type="button" className="secondary dashboard-widget-picker-trigger" onClick={() => setWidgetPickerOpen(value => !value)}><Plus size={14} />Add widget / report<ChevronDown size={14} /></button>
+        {widgetPickerOpen && <div className="dashboard-widget-picker">
+          <label><Search size={14} /><input autoFocus value={widgetSearch} onChange={event => setWidgetSearch(event.target.value)} placeholder="Search widgets or saved reports..." /></label>
+          <section>
+            {availableItems.map(item => <button type="button" key={`${item.type}-${item.id}`} onClick={() => { item.action(); setWidgetPickerOpen(false); setWidgetSearch(""); }}>
+              <span>{item.title}</span>
+              <small>{item.subtitle}</small>
+            </button>)}
+            {!availableItems.length && <p>No hidden widgets or saved reports found.</p>}
+          </section>
+        </div>}
+        <button type="button" className="secondary" onClick={() => { setWidgetPickerOpen(false); saveLayout(DASHBOARD_WIDGETS.map(widget => ({ id: widget.id, size: widget.size, visible: true }))); }}>Reset layout</button>
+      </div>
+    </div>}
+    <div className="dashboard-widget-grid">
+      {visibleLayout.map((item, index) => {
+        const reportId = String(item.id || "").startsWith("report:") ? String(item.id).slice(7) : "";
+        const report = reportId ? visibleSavedReports.find(saved => String(saved.id) === reportId) : null;
+        const definition = report ? { title: report.title || "Saved report" } : DASHBOARD_WIDGETS.find(widget => widget.id === item.id);
+        if (!definition) return null;
+        return <article key={item.id} className={`dashboard-widget ${item.size === "full" ? "wide" : ""} ${item.visible === false ? "hidden-widget" : ""}`}>
+          {editable && <div className="dashboard-widget-actions">
+            <strong>{definition.title}</strong>
+            <button onClick={() => move(index, -1)} disabled={index === 0}>↑</button>
+            <button onClick={() => move(index, 1)} disabled={index === layout.length - 1}>↓</button>
+            <button onClick={() => patchWidget(item.id, { size: item.size === "full" ? "half" : "full" })}>{item.size === "full" ? "½" : "↔"}</button>
+            <button onClick={() => patchWidget(item.id, { visible: false })}>Hide</button>
+          </div>}
+          <DashboardWidgetContent id={item.id} data={data} leads={leads} cards={cards} report={report} />
+        </article>;
+      })}
+    </div>
+  </section>;
+}
+
+function DashboardWidgetContent({ id, data, leads, cards, report }) {
+  if (report) return <article className="panel dashboard-report-widget">
+    <div className="dashboard-report-widget-head">
+      <span>Saved report</span>
+      <h3>{report.title || "Untitled report"}</h3>
+      {report.description && <p>{report.description}</p>}
+    </div>
+    <ReportVisual report={report} data={buildLiveReportData(report, leads)} compact />
+  </article>;
+  if (id === "stats") return <section className="stats-grid dashboard-stats-widget">
+    {cards.map(([label, value, trend, Icon, color]) => (
+      <article className="stat-card" key={label}>
+        <div className={`stat-icon ${color}`}><Icon /></div>
+        <div><span>{label}</span><strong>{Number(value || 0).toLocaleString()}</strong>{trend && <small className={String(trend).includes("overdue") ? "warning" : ""}>{trend} <em>{String(trend).includes("overdue") ? "" : "vs last month"}</em></small>}</div>
+      </article>
+    ))}
+  </section>;
+  if (id === "funnel") return <article className="panel funnel-panel">
+    <PanelTitle title="Admissions view" subtitle="Lead movement this academic year" action="Live" />
+    <div className="funnel">{(data.funnel || []).map((item, index) => {
+      const previous = Number(data.funnel?.[index - 1]?.value || 0);
+      const conversion = index && previous ? Math.round((Number(item.value || 0) / previous) * 100) : 100;
+      return <div className="funnel-row" key={item.label}><div className="funnel-label"><span>{item.label}</span><strong>{item.value}</strong></div><div className="track"><span style={{ width: `${Math.max(7, 100 - index * 14)}%`, background: item.color }} /></div><small>{index ? `${conversion}% conversion` : "100% of enquiries"}</small></div>;
+    })}</div>
+  </article>;
+  if (id === "tasks") {
+    const due = (leads || []).filter(lead => lead.nextFollowup || lead.followupAt).slice(0, 6);
+    return <article className="panel tasks-panel"><PanelTitle title="Today’s priorities" subtitle="Follow-ups requiring action" action="Live" /><div className="task-list">{due.length ? due.map(lead => <div className="task" key={lead.id || lead.leadId}><span className="task-dot urgent" /><span className="avatar muted">{String(lead.studentName || "?").slice(0, 2).toUpperCase()}</span><div><strong>{lead.studentName || "Unnamed lead"}</strong><span>{[lead.stage, lead.nextFollowup || lead.followupAt].filter(Boolean).join(" · ")}</span></div></div>) : <div className="empty"><strong>No pending follow-ups</strong><span>You’re all caught up.</span></div>}</div></article>;
+  }
+  if (id === "recent") return <article className="panel recent"><PanelTitle title="Recent leads" subtitle="Latest enquiries across all sources" action="Live" /><LeadTable leads={(leads?.length ? leads : data.recentLeads || []).slice(0, 8)} /></article>;
+  return null;
+}
+
 function ReportsPage() {
   const { selectedUnit } = useBusinessUnit();
+  const location = useLocation();
+  const [data, setData] = useState(null);
+  const [reportLeads, setReportLeads] = useState([]);
+  const [reportMeta, setReportMeta] = useState(null);
+  const [builderActive, setBuilderActive] = useState(false);
+  const [reportsTab, setReportsTab] = useState("library");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!selectedUnit?.id) return;
+    setData(null);
+    setError("");
+    Promise.all([api("/dashboard"), api("/leads"), api("/leads/meta")])
+      .then(([dashboard, leadsResult, meta]) => {
+        setData(dashboard);
+        setReportLeads(leadsResult.data || []);
+        setReportMeta(meta);
+      })
+      .catch((err) => setError(err.message));
+  }, [selectedUnit?.id]);
+  if (error) return <ErrorState message={error} />;
+  if (!data) return <Loading />;
+  const cards = [
+    ["Total leads", data.stats.totalLeads, "Live", Users, "violet"],
+    ["New this week", data.stats.newThisWeek, "Live", Target, "blue"],
+    ["Follow-ups due", data.stats.followupsDue, "Live", CalendarClock, "orange"],
+    ["Completed", data.stats.admissions, "Live", GraduationCap, "green"],
+  ];
+  return (
+    <main className={`page report-page ${builderActive ? "builder-active" : ""}`}>
+      {!builderActive && <div className="page-heading">
+        <div>
+          <span className="eyebrow">{selectedUnit.name}</span>
+          <h1>Reports</h1>
+          <p>Build, customize and save reusable business intelligence reports.</p>
+        </div>
+      </div>}
+      {!builderActive && <div className="report-page-tabs" role="tablist" aria-label="Reports workspace">
+        <button type="button" className={reportsTab === "library" ? "active" : ""} onClick={() => setReportsTab("library")}>Reports library</button>
+        <button type="button" className={reportsTab === "dashboard" ? "active" : ""} onClick={() => setReportsTab("dashboard")}>Dashboard layout</button>
+      </div>}
+      {reportsTab === "dashboard" && !builderActive
+        ? <DashboardOverviewCanvas data={data} leads={reportLeads} cards={cards} editable />
+        : <ReportBuilder data={data} leads={reportLeads} leadFields={reportMeta?.leadFields || []} onModeChange={setBuilderActive} createNewSignal={location.state?.createNewReportAt} returnTo={location.state?.returnTo} />}
+    </main>
+  );
+}
+
+function SavedReportCreatePage() {
+  const { selectedUnit } = useBusinessUnit();
+  const location = useLocation();
+  const [createSignal] = useState(() => location.state?.createNewReportAt || Date.now());
   const [data, setData] = useState(null);
   const [reportLeads, setReportLeads] = useState([]);
   const [reportMeta, setReportMeta] = useState(null);
@@ -469,24 +582,9 @@ function ReportsPage() {
   }, [selectedUnit?.id]);
   if (error) return <ErrorState message={error} />;
   if (!data) return <Loading />;
-  const cards = [
-    ["Total leads", data.stats.totalLeads, Users, "violet"],
-    ["New this week", data.stats.newThisWeek, Target, "blue"],
-    ["Follow-ups due", data.stats.followupsDue, CalendarClock, "orange"],
-    ["Completed", data.stats.admissions, GraduationCap, "green"],
-  ];
-  return (
-    <main className="page report-page">
-      <div className="page-heading">
-        <div>
-          <span className="eyebrow">{selectedUnit.name}</span>
-          <h1>Reports</h1>
-          <p>Build, customize and save reusable business intelligence reports.</p>
-        </div>
-      </div>
-      <ReportBuilder data={data} leads={reportLeads} leadFields={reportMeta?.leadFields || []} />
-    </main>
-  );
+  return <main className="page report-page builder-active saved-report-create-page">
+    <ReportBuilder data={data} leads={reportLeads} leadFields={reportMeta?.leadFields || []} createNewSignal={createSignal} returnTo="dashboard-saved" />
+  </main>;
 }
 
 function LeadTable({ leads }) {

@@ -6,12 +6,16 @@
 .public-enquiry-card p{margin:0;color:#74778b;font-size:13px;line-height:1.6}
 .public-enquiry-card form{display:grid;grid-template-columns:1fr 1fr;gap:15px;padding:24px 26px}
 .public-enquiry-card label{display:grid;gap:7px;color:#383b50;font-size:12px;font-weight:800}
-.public-enquiry-card label.wide,.public-form-error,.public-enquiry-card button{grid-column:1/-1}
+.public-enquiry-card label.wide,.public-form-error,.public-payment-note,.public-enquiry-card button{grid-column:1/-1}
 .public-enquiry-card input,.public-enquiry-card select,.public-enquiry-card textarea{width:100%;border:1px solid #d9dce8;border-radius:8px;background:#fff;padding:11px 12px;color:#25283d;font:500 13px Manrope,sans-serif;outline:0}
 .public-enquiry-card input:focus,.public-enquiry-card select:focus,.public-enquiry-card textarea:focus{border-color:var(--accent,#4A4FB1);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent,#4A4FB1) 16%,transparent)}
 .public-enquiry-card textarea{resize:vertical}
 .public-enquiry-card button{height:46px;border:0;border-radius:8px;background:var(--accent,#4A4FB1);color:#fff;font:800 14px Manrope,sans-serif;cursor:pointer}
 .public-enquiry-card button:disabled{opacity:.7;cursor:not-allowed}
+.public-payment-note{display:grid;gap:4px;padding:14px 16px;border:1px solid color-mix(in srgb,var(--accent,#4A4FB1) 24%,#d9dce8);border-radius:10px;background:color-mix(in srgb,var(--accent,#4A4FB1) 8%,#fff)}
+.public-payment-note strong{color:#202238;font-size:13px}
+.public-payment-note span{color:var(--accent,#4A4FB1);font-size:15px;font-weight:900}
+.public-payment-note small{color:#74778b;font-size:11px}
 .public-form-error{padding:10px 12px;border-radius:8px;background:#fff0f0;color:#ad3434;font-size:12px}
 .public-enquiry-card.success,.public-enquiry-card.loading{display:grid;place-items:center;text-align:center;padding:44px 26px}
 .public-enquiry-card.success svg{width:46px;height:46px;color:var(--accent,#4A4FB1);margin-bottom:10px}

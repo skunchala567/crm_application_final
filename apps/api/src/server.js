@@ -7,6 +7,7 @@ import path from 'node:path';
 import jwt from 'jsonwebtoken';
 import mysql from 'mysql2/promise';
 import ExcelJS from 'exceljs';
+import axios from 'axios';
 import { demoLeads, demoUser } from './data.js';
 import { IntegrationHubService, createIntegrationHubRoutes } from './integration-hub/index.js';
 import { createWhatsAppTemplateRoutes } from './whatsapp/whatsapp-template.routes.js';
@@ -324,7 +325,7 @@ function leadScopedWhere(user) {
   const unitId=Number(user.businessUnitId);
   const unitSql=Number.isInteger(unitId)&&unitId>0?'l.business_unit_id=?':'1=1';
   const unitParams=Number.isInteger(unitId)&&unitId>0?[unitId]:[];
-  if (user.roles?.includes('ADMIN') && branchIds.length === 0) return { sql: unitSql, params: unitParams };
+  if (user.roles?.some((role) => ['ADMIN', 'CRM_ADMIN'].includes(role))) return { sql: unitSql, params: unitParams };
   if (branchIds.length === 0) return { sql: '1=0', params: [] };
   const placeholders = branchIds.map(() => '?').join(',');
   return {
@@ -449,19 +450,258 @@ async function publicFieldOptions(businessUnitId, fieldKeys) {
   }));
 }
 
+function normalizeMarketingCode(value) {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 100);
+}
+
+function safeTrackingValue(value, maxLength = 500) {
+  const text = String(value ?? '').trim();
+  return text ? text.slice(0, maxLength) : '';
+}
+
+async function resolvePublicTracking(form, trackingInput = {}) {
+  const tracking = trackingInput && typeof trackingInput === 'object' ? trackingInput : {};
+  const locationInput = tracking.location && typeof tracking.location === 'object' ? tracking.location : {};
+  const latitude = Number(locationInput.latitude);
+  const longitude = Number(locationInput.longitude);
+  const accuracy = Number(locationInput.accuracy);
+  const attribution = {
+    branchId: Number(tracking.branchId) || null,
+    academicYearId: Number(tracking.academicYearId) || null,
+    academicYear: safeTrackingValue(tracking.academicYear, 20),
+    instituteId: safeTrackingValue(tracking.instituteId, 50),
+    sourceId: Number(tracking.sourceId) || null,
+    channelId: Number(tracking.channelId) || null,
+    campaignId: Number(tracking.campaignId) || null,
+    utmSource: safeTrackingValue(tracking.utmSource || tracking.utm_source, 120),
+    utmMedium: safeTrackingValue(tracking.utmMedium || tracking.utm_medium, 120),
+    utmCampaign: safeTrackingValue(tracking.utmCampaign || tracking.utm_campaign, 180),
+    utmTerm: safeTrackingValue(tracking.utmTerm || tracking.utm_term, 180),
+    utmContent: safeTrackingValue(tracking.utmContent || tracking.utm_content, 180),
+    gclid: safeTrackingValue(tracking.gclid, 255),
+    fbclid: safeTrackingValue(tracking.fbclid, 255),
+    landingPage: safeTrackingValue(tracking.landingPage, 1000),
+    referrer: safeTrackingValue(tracking.referrer, 1000),
+    location: {
+      supported: Boolean(locationInput.supported),
+      captured: Boolean(locationInput.captured && Number.isFinite(latitude) && Number.isFinite(longitude)),
+      latitude: Number.isFinite(latitude) ? latitude : null,
+      longitude: Number.isFinite(longitude) ? longitude : null,
+      accuracy: Number.isFinite(accuracy) ? accuracy : null,
+      capturedAt: safeTrackingValue(locationInput.capturedAt, 80),
+      reason: safeTrackingValue(locationInput.reason, 120),
+    },
+  };
+  const resolved = {
+    branchId: Number(form.defaultBranchId),
+    academicYear: form.settings?.defaultAcademicYear || '',
+    sourceId: form.defaultSourceId ? Number(form.defaultSourceId) : null,
+    channelId: form.defaultChannelId ? Number(form.defaultChannelId) : null,
+    campaignId: form.defaultCampaignId ? Number(form.defaultCampaignId) : null,
+    attribution,
+  };
+  if (attribution.branchId) {
+    const [[branch]] = await pool.execute(`SELECT id FROM branches WHERE id=? AND is_active=TRUE LIMIT 1`, [attribution.branchId]);
+    if (branch) resolved.branchId = attribution.branchId;
+  }
+  if (attribution.academicYearId) {
+    const [[year]] = await pool.execute(`SELECT academic_year AS academicYear FROM crm_academic_years WHERE id=? AND is_active=TRUE LIMIT 1`, [attribution.academicYearId]);
+    if (year?.academicYear) resolved.academicYear = year.academicYear;
+  } else if (attribution.academicYear) {
+    const [[year]] = await pool.execute(`SELECT academic_year AS academicYear FROM crm_academic_years WHERE academic_year=? AND is_active=TRUE LIMIT 1`, [attribution.academicYear]);
+    if (year?.academicYear) resolved.academicYear = year.academicYear;
+  }
+  if (attribution.sourceId) {
+    const [[source]] = await pool.execute(`SELECT id FROM crm_lead_sources WHERE id=? AND is_active=TRUE LIMIT 1`, [attribution.sourceId]);
+    if (source) resolved.sourceId = attribution.sourceId;
+  } else if (attribution.utmSource) {
+    const sourceCode = normalizeMarketingCode(attribution.utmSource);
+    const [[source]] = await pool.execute(`SELECT id FROM crm_lead_sources WHERE is_active=TRUE AND (LOWER(name)=? OR LOWER(display_name)=?) LIMIT 1`, [sourceCode, attribution.utmSource.toLowerCase()]);
+    if (source) resolved.sourceId = Number(source.id);
+  }
+  if (attribution.channelId) {
+    const [[channel]] = await pool.execute(`SELECT id FROM crm_lead_channels WHERE id=? AND is_active=TRUE LIMIT 1`, [attribution.channelId]);
+    if (channel) resolved.channelId = attribution.channelId;
+  } else if (attribution.utmMedium) {
+    const channelCode = normalizeMarketingCode(attribution.utmMedium);
+    const [[channel]] = await pool.execute(`SELECT id FROM crm_lead_channels WHERE is_active=TRUE AND (LOWER(channel_code)=? OR LOWER(display_name)=?) LIMIT 1`, [channelCode, attribution.utmMedium.toLowerCase()]);
+    if (channel) resolved.channelId = Number(channel.id);
+  }
+  if (attribution.campaignId) {
+    const [[campaign]] = await pool.execute(`SELECT id FROM crm_campaigns WHERE id=? AND is_active=TRUE LIMIT 1`, [attribution.campaignId]);
+    if (campaign) resolved.campaignId = attribution.campaignId;
+  } else if (attribution.utmCampaign) {
+    const campaignCode = normalizeMarketingCode(attribution.utmCampaign);
+    const [[campaign]] = await pool.execute(`SELECT id FROM crm_campaigns WHERE is_active=TRUE AND (LOWER(campaign_code)=? OR LOWER(display_name)=?) LIMIT 1`, [campaignCode, attribution.utmCampaign.toLowerCase()]);
+    if (campaign) resolved.campaignId = Number(campaign.id);
+  }
+  return resolved;
+}
+
+async function branchPaymentConfig(branchId) {
+  let hasPaymentColumns = true;
+  try {
+    const [columns] = await pool.execute(
+      `SELECT column_name AS columnName FROM information_schema.columns
+       WHERE table_schema=DATABASE() AND table_name='branches'
+         AND column_name IN ('jodo_payment_enabled','jodo_api_key','jodo_secret_key','jodo_collector_code','application_amount','application_stage_id','application_payment_component')`,
+    );
+    hasPaymentColumns = columns.length >= 7;
+  } catch {
+    hasPaymentColumns = false;
+  }
+  const sql = hasPaymentColumns
+    ? `SELECT id,branch_name AS branchName,jodo_payment_enabled AS paymentEnabled,
+            jodo_api_key AS apiKey,jodo_secret_key AS secretKey,jodo_collector_code AS collectorCode,
+            application_amount AS amount,application_stage_id AS applicationStageId,
+            application_payment_component AS componentType
+     FROM branches
+     WHERE id=? AND is_active=TRUE LIMIT 1`
+    : `SELECT id,branch_name AS branchName,0 AS paymentEnabled,
+              NULL AS apiKey,NULL AS secretKey,NULL AS collectorCode,NULL AS amount,NULL AS applicationStageId,
+              'Payable Amount' AS componentType
+       FROM branches
+       WHERE id=? AND is_active=TRUE LIMIT 1`;
+  const [[branch]] = await pool.execute(
+    sql,
+    [Number(branchId)],
+  );
+  if (!branch) return null;
+  return {
+    ...branch,
+    paymentEnabled: Boolean(branch.paymentEnabled),
+    amount: branch.amount == null ? null : Number(branch.amount),
+  };
+}
+
+function publicPaymentEnabled(config) {
+  return Boolean(config?.paymentEnabled && config.apiKey && config.secretKey && config.collectorCode && Number(config.amount) > 0);
+}
+
+function publicPaymentVisible(config) {
+  return Boolean(config?.paymentEnabled && Number(config.amount) > 0);
+}
+
+function publicPaymentMissingParts(config) {
+  if (!config?.paymentEnabled) return ['payment enabled'];
+  const missing = [];
+  if (!config.apiKey) missing.push('Jodo API key');
+  if (!config.secretKey) missing.push('Jodo secret key');
+  if (!config.collectorCode) missing.push('Jodo collector code');
+  if (!(Number(config.amount) > 0)) missing.push('application amount');
+  return missing;
+}
+
+function normalizeJodoOrderId(payload) {
+  if (!payload || typeof payload !== 'object') return '';
+  return String(payload.order_id || payload.orderId || payload.id || payload.order?.id || payload.data?.order_id || payload.data?.id || '').slice(0, 120);
+}
+
+function jodoPaymentUrl(payload) {
+  if (!payload || typeof payload !== 'object') return '';
+  return String(payload.payment_url || payload.paymentUrl || payload.payment_link || payload.paymentLink || payload.url || payload.order?.payment_url || payload.data?.payment_url || payload.data?.payment_link || '').slice(0, 1000);
+}
+
+function isPublicHttpsUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    const hostname = url.hostname.toLowerCase();
+    return url.protocol === 'https:' &&
+      hostname !== 'localhost' &&
+      hostname !== '127.0.0.1' &&
+      hostname !== '0.0.0.0' &&
+      !hostname.endsWith('.local');
+  } catch {
+    return false;
+  }
+}
+
+function jodoCallbackBaseUrl(req) {
+  return cleanOptional(process.env.API_PUBLIC_URL, 500) || `${req.protocol}://${req.get('host')}`;
+}
+
+async function createJodoOrder(config, customer, callbackUrl) {
+  const payload = {
+    name: cleanOptional(customer.name, 200),
+    phone: normalizeIndianMobile(customer.phone),
+    email: cleanOptional(customer.email, 254),
+    collector_code: cleanOptional(config.collectorCode, 100),
+    details: [{
+      component_type: cleanOptional(config.componentType, 120) || 'Payable Amount',
+      amount: Number(Number(config.amount).toFixed(2)),
+    }],
+    callback_url: callbackUrl,
+  };
+  const response = await axios.post('https://ext.jodo.in/api/v1/integrations/pay/orders', payload, {
+    auth: { username: config.apiKey, password: config.secretKey },
+    headers: { 'Content-Type': 'application/json' },
+    timeout: 20000,
+  });
+  return response.data;
+}
+
+async function getJodoOrder(config, orderId) {
+  const response = await axios.get(`https://ext.jodo.in/api/v1/integrations/pay/orders/${encodeURIComponent(orderId)}`, {
+    auth: { username: config.apiKey, password: config.secretKey },
+    headers: { 'Content-Type': 'application/json' },
+    timeout: 20000,
+  });
+  return response.data;
+}
+
+function jodoOrderData(payload) {
+  return payload?.data && typeof payload.data === 'object' ? payload.data : payload;
+}
+
 app.get('/api/public/enquiry-forms/:formKey', async (req,res)=>{
   const form=await publicFormDefinition(req.params.formKey,true);
   if(!form)return res.status(404).json({message:'This enquiry form is not available'});
   const schema=Array.isArray(form.fieldSchema)?form.fieldSchema:[];
   const fields=await publicFieldOptions(form.businessUnitId,schema.map(field=>field.fieldKey));
   const fieldsByKey=new Map(fields.map(field=>[field.fieldKey,field]));
+  const resolvedTracking=await resolvePublicTracking(form,req.query);
+  const paymentConfig=await branchPaymentConfig(resolvedTracking.branchId);
+  const paymentVisible=publicPaymentVisible(paymentConfig);
   res.json({
     form:{
       key:form.formKey,name:form.displayName,description:form.description,businessUnitName:form.businessUnitName,
       color:form.color,settings:form.settings,successMessage:form.successMessage,redirectUrl:form.redirectUrl,
+      payment:paymentVisible?{
+        enabled:true,
+        configured:publicPaymentEnabled(paymentConfig),
+        amount:paymentConfig.amount,
+        componentType:paymentConfig.componentType||'Payable Amount',
+        branchId:resolvedTracking.branchId,
+      }:{enabled:false},
       fields:schema.map(item=>({...(fieldsByKey.get(item.fieldKey)||{}),...item})).filter(item=>item.fieldKey),
     },
   });
+});
+
+app.post('/api/public/enquiry-forms/:formKey/payment-order', async (req,res)=>{
+  const form=await publicFormDefinition(req.params.formKey,true);
+  if(!form)return res.status(404).json({message:'This enquiry form is not available'});
+  if(String(req.body.website||'').trim())return res.status(400).json({message:'Submission rejected'});
+  const values=req.body.values&&typeof req.body.values==='object'?req.body.values:{};
+  const resolvedTracking=await resolvePublicTracking(form,req.body.tracking);
+  const config=await branchPaymentConfig(resolvedTracking.branchId);
+  if(!publicPaymentEnabled(config))return res.status(400).json({message:`Online application payment is incomplete for this branch. Missing: ${publicPaymentMissingParts(config).join(', ')}`});
+  const name=values.student_name||values.name||values.studentName;
+  const phone=values.phone||values.primary_phone||values.primaryPhone;
+  const email=values.email||'';
+  if(!cleanOptional(name,200)||!cleanOptional(phone,30)||!cleanOptional(email,254))return res.status(400).json({message:'Student name, phone and email are required before payment'});
+  if(!isValidIndianMobile(phone))return res.status(400).json({message:'Enter a valid Indian mobile number before payment'});
+  if(!isValidEmailAddress(email))return res.status(400).json({message:'Enter a valid email address before payment'});
+  const baseUrl=jodoCallbackBaseUrl(req);
+  if(!isPublicHttpsUrl(baseUrl))return res.status(400).json({message:'Payment callback URL must be a public HTTPS URL. Set API_PUBLIC_URL to your public API URL, for example an ngrok HTTPS URL while testing.'});
+  const callbackUrl=`${baseUrl}/api/public/enquiry-forms/${encodeURIComponent(form.formKey)}/payment-callback`;
+  try{
+    const order=await createJodoOrder(config,{name,phone,email},callbackUrl);
+    res.json({orderId:normalizeJodoOrderId(order),paymentUrl:jodoPaymentUrl(order),amount:config.amount,raw:order});
+  }catch(error){
+    const message=error.response?.data?.message || error.response?.data?.error || error.message || 'Unable to create payment order';
+    res.status(502).json({message:`Payment order creation failed: ${String(message).slice(0,300)}`});
+  }
 });
 
 app.post('/api/public/enquiry-forms/:formKey/submit', async (req,res)=>{
@@ -470,6 +710,7 @@ app.post('/api/public/enquiry-forms/:formKey/submit', async (req,res)=>{
   if(String(req.body.website||'').trim())return res.status(400).json({message:'Submission rejected'});
   const schema=Array.isArray(form.fieldSchema)?form.fieldSchema:[];
   const values=req.body.values&&typeof req.body.values==='object'?req.body.values:{};
+  const resolvedTracking=await resolvePublicTracking(form,req.body.tracking);
   const missing=schema.filter(field=>field.required&&cleanOptional(values[field.fieldKey],500)==null);
   if(missing.length)return res.status(400).json({message:`${missing[0].label||missing[0].fieldKey} is required`});
   const standard={
@@ -478,29 +719,51 @@ app.post('/api/public/enquiry-forms/:formKey/submit', async (req,res)=>{
     curriculum_id:'curriculumId',admission_type_id:'admissionTypeId',remarks:'remarks',
   };
   const body={
-    branchId:Number(form.defaultBranchId),stageId:Number(form.defaultStageId),substageId:form.defaultSubstageId?Number(form.defaultSubstageId):null,
-    sourceId:form.defaultSourceId?Number(form.defaultSourceId):null,channelId:form.defaultChannelId?Number(form.defaultChannelId):null,
-    campaignId:form.defaultCampaignId?Number(form.defaultCampaignId):null,ownerEmployeeId:form.defaultOwnerEmployeeId?Number(form.defaultOwnerEmployeeId):null,
+    branchId:resolvedTracking.branchId,stageId:Number(form.defaultStageId),substageId:form.defaultSubstageId?Number(form.defaultSubstageId):null,
+    sourceId:resolvedTracking.sourceId,channelId:resolvedTracking.channelId,
+    campaignId:resolvedTracking.campaignId,ownerEmployeeId:form.defaultOwnerEmployeeId?Number(form.defaultOwnerEmployeeId):null,
     intakeMethod:'website',leadScore:0,customValues:{},
   };
   for(const [fieldKey,value] of Object.entries(values)){
     if(standard[fieldKey])body[standard[fieldKey]]=value;
     else body.customValues[fieldKey]=value;
   }
-  if(!body.remarks)body.remarks=`Website enquiry from ${form.displayName}`;
+  body.customValues={...(body.customValues||{}),websiteAttribution:resolvedTracking.attribution};
+  if(resolvedTracking.attribution?.location?.captured){
+    body.customValues.latitude=resolvedTracking.attribution.location.latitude;
+    body.customValues.longitude=resolvedTracking.attribution.location.longitude;
+    body.customValues.locationAccuracy=resolvedTracking.attribution.location.accuracy;
+    body.customValues.locationCapturedAt=resolvedTracking.attribution.location.capturedAt;
+  }
+  if(!body.academicYear)body.academicYear=resolvedTracking.academicYear||form.settings?.defaultAcademicYear;
+  if(!cleanOptional(body.academicYear,20))return res.status(400).json({message:'This enquiry form is not configured with an academic year. Please contact admissions.'});
+  if(!body.remarks){
+    const campaignNote=resolvedTracking.attribution.utmCampaign?` · Campaign: ${resolvedTracking.attribution.utmCampaign}`:'';
+    const sourceNote=resolvedTracking.attribution.utmSource?` · Source: ${resolvedTracking.attribution.utmSource}`:'';
+    body.remarks=`Website enquiry from ${form.displayName}${sourceNote}${campaignNote}`;
+  }
   const validationError=validateLead(body,{requireClass:schema.some(field=>field.fieldKey==='class_id'&&field.required),requirePhone:schema.some(field=>['phone','primary_phone'].includes(field.fieldKey)&&field.required)!==false});
   if(validationError)return res.status(400).json({message:validationError});
+  const paymentConfig=await branchPaymentConfig(body.branchId);
+  const payment= req.body.payment && typeof req.body.payment==='object' ? req.body.payment : {};
+  const paymentOrderId=cleanOptional(payment.orderId || payment.order_id,120);
+  const paymentStatus=cleanOptional(payment.status,40) || (paymentOrderId ? 'order_created' : null);
+  if(publicPaymentEnabled(paymentConfig)&&!paymentOrderId)return res.status(400).json({message:'Create the online application payment order before submitting this form'});
+  if(publicPaymentEnabled(paymentConfig)&&paymentStatus&&['paid','success','completed','captured'].includes(String(paymentStatus).toLowerCase())&&paymentConfig.applicationStageId){
+    body.stageId=Number(paymentConfig.applicationStageId);
+    body.customValues.websiteAttribution.paymentMovedStage=true;
+  }
   const [[branch]]=await pool.execute(`SELECT id FROM branches WHERE id=? AND is_active=TRUE LIMIT 1`,[body.branchId]);
   if(!branch)return res.status(400).json({message:'This enquiry form is not mapped to an active branch'});
   const [[stage]]=await pool.execute(`SELECT id FROM crm_lead_stages WHERE id=? AND business_unit_id=? AND is_active=TRUE LIMIT 1`,[body.stageId,Number(form.businessUnitId)]);
   if(!stage)return res.status(400).json({message:'This enquiry form is not mapped to an active stage'});
-  if(body.sourceId){
+  if(body.sourceId&&body.channelId){
     const sourceValidationError=await validateSourceDetails(body);
     if(sourceValidationError)return res.status(400).json({message:sourceValidationError});
   }
   const connection=await pool.getConnection();
   const submittedPhone=cleanOptional(body.phone,30);
-  const normalizedPhone=submittedPhone?String(submittedPhone).replace(/[^0-9]/g,''):`no-phone-${crypto.randomUUID()}`;
+  const normalizedPhone=submittedPhone?normalizeIndianMobile(submittedPhone):`no-phone-${crypto.randomUUID()}`;
   const actorUserId=Number(form.actorUserId);
   const lockName=`crm-public-lead:${Number(form.businessUnitId)}:${body.branchId}:${normalizedPhone}`;
   try{
@@ -520,9 +783,9 @@ app.post('/api/public/enquiry-forms/:formKey/submit', async (req,res)=>{
     }
     const temporaryNumber=`PENDING-${crypto.randomUUID()}`;
     const [result]=await connection.execute(
-      `INSERT INTO crm_leads (business_unit_id,lead_number,branch_id,student_name,phone,normalized_phone,alternate_phone,email,applying_class,class_id,curriculum_id,academic_year,parent_name,city,stage_id,source_id,owner_employee_id,channel_id,campaign_id,admission_type_id,substage_id,lead_score,remarks,custom_values_json,created_by_user_id)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [Number(form.businessUnitId),temporaryNumber,body.branchId,cleanOptional(body.studentName,200),submittedPhone||'',normalizedPhone,cleanOptional(body.alternatePhone,30),cleanOptional(body.email,254),null,body.classId?Number(body.classId):null,body.curriculumId?Number(body.curriculumId):null,cleanOptional(body.academicYear,20),cleanOptional(body.parentName,200),cleanOptional(body.city,100),body.stageId,body.sourceId,body.ownerEmployeeId,body.channelId,body.campaignId,body.admissionTypeId?Number(body.admissionTypeId):null,body.substageId,0,cleanOptional(body.remarks,10000),JSON.stringify(body.customValues||{}),actorUserId],
+      `INSERT INTO crm_leads (business_unit_id,lead_number,branch_id,student_name,phone,normalized_phone,alternate_phone,email,applying_class,class_id,curriculum_id,academic_year,parent_name,city,stage_id,source_id,owner_employee_id,channel_id,campaign_id,admission_type_id,substage_id,lead_score,remarks,custom_values_json,jodo_order_id,application_payment_status,application_payment_amount,application_payment_at_utc,created_by_user_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [Number(form.businessUnitId),temporaryNumber,body.branchId,cleanOptional(body.studentName,200),submittedPhone||'',normalizedPhone,cleanOptional(body.alternatePhone,30),cleanOptional(body.email,254),null,body.classId?Number(body.classId):null,body.curriculumId?Number(body.curriculumId):null,cleanOptional(body.academicYear,20),cleanOptional(body.parentName,200),cleanOptional(body.city,100),body.stageId,body.sourceId,body.ownerEmployeeId,body.channelId,body.campaignId,body.admissionTypeId?Number(body.admissionTypeId):null,body.substageId,0,cleanOptional(body.remarks,10000),JSON.stringify(body.customValues||{}),paymentOrderId,paymentStatus,publicPaymentEnabled(paymentConfig)?Number(paymentConfig.amount):null,['paid','success','completed','captured'].includes(String(paymentStatus||'').toLowerCase())?new Date():null,actorUserId],
     );
     const leadNumber=`ADM-${new Date().getFullYear()}-${String(result.insertId).padStart(6,'0')}`;
     await connection.execute(`UPDATE crm_leads SET lead_number=? WHERE id=?`,[leadNumber,result.insertId]);
@@ -532,6 +795,80 @@ app.post('/api/public/enquiry-forms/:formKey/submit', async (req,res)=>{
     res.status(201).json({id:Number(result.insertId),leadNumber,message:form.successMessage});
   }catch(error){await connection.rollback();throw error;}
   finally{await connection.execute(`SELECT RELEASE_LOCK(?)`,[lockName]).catch(()=>{});connection.release();}
+});
+
+app.post('/api/public/enquiry-forms/:formKey/payment-callback', async (req,res)=>{
+  const form=await publicFormDefinition(req.params.formKey,true);
+  if(!form)return res.status(404).json({message:'This enquiry form is not available'});
+  const payload=req.body&&typeof req.body==='object'?req.body:{};
+  const orderId=normalizeJodoOrderId(payload)||cleanOptional(payload.order_id||payload.orderId,120);
+  if(!orderId)return res.status(400).json({message:'Order id is required'});
+  const [[lead]]=await pool.execute(
+    `SELECT l.id,l.branch_id AS branchId,l.stage_id AS stageId,b.application_stage_id AS applicationStageId
+     FROM crm_leads l
+     JOIN branches b ON b.id=l.branch_id
+     WHERE l.business_unit_id=? AND l.jodo_order_id=? AND l.deleted_at_utc IS NULL
+     ORDER BY l.id DESC LIMIT 1`,
+    [Number(form.businessUnitId),orderId],
+  );
+  if(!lead)return res.status(404).json({message:'Lead not found for this payment order'});
+  const config=await branchPaymentConfig(lead.branchId);
+  if(!publicPaymentEnabled(config))return res.status(400).json({message:'Payment is not configured for this branch'});
+  let orderPayload;
+  try{
+    orderPayload=await getJodoOrder(config,orderId);
+  }catch(error){
+    const message=error.response?.data?.message || error.response?.data?.error || error.message || 'Unable to verify payment order';
+    return res.status(502).json({message:`Payment verification failed: ${String(message).slice(0,300)}`});
+  }
+  const order=jodoOrderData(orderPayload);
+  const status=cleanOptional(order?.status,40)||'unpaid';
+  const paid=String(status).toLowerCase()==='paid';
+  const paidAt=cleanOptional(order?.paid_at,80);
+  const amount=Array.isArray(order?.details)?order.details.reduce((sum,item)=>sum+Number(item.amount||0),0):Number(config.amount||0);
+  const nextStageId=paid&&lead.applicationStageId?Number(lead.applicationStageId):Number(lead.stageId);
+  await pool.execute(
+    `UPDATE crm_leads
+     SET application_payment_status=?,application_payment_amount=?,
+         application_payment_at_utc=IF(?,COALESCE(?,CURRENT_TIMESTAMP(6)),application_payment_at_utc),
+         stage_id=?,updated_at_utc=CURRENT_TIMESTAMP(6)
+     WHERE id=?`,
+    [status,amount||config.amount,paid?1:0,paidAt?new Date(paidAt):null,nextStageId,Number(lead.id)],
+  );
+  await pool.execute(
+    `INSERT INTO crm_lead_activities(lead_id,activity_type,summary,actor_user_id)
+     VALUES(?,?,?,?)`,
+    [Number(lead.id),paid?'payment_completed':'payment_update',`Jodo payment ${status||'callback received'} for order ${orderId}`,Number(form.actorUserId)],
+  );
+  res.json({message:'Payment status updated',paid});
+});
+
+app.post('/api/public/enquiry-forms/:formKey/payment-status', async (req,res)=>{
+  const form=await publicFormDefinition(req.params.formKey,true);
+  if(!form)return res.status(404).json({message:'This enquiry form is not available'});
+  const orderId=cleanOptional(req.body.orderId || req.body.order_id,120);
+  if(!orderId)return res.status(400).json({message:'Order id is required'});
+  const [[lead]]=await pool.execute(
+    `SELECT l.id,l.branch_id AS branchId,l.stage_id AS stageId,b.application_stage_id AS applicationStageId
+     FROM crm_leads l JOIN branches b ON b.id=l.branch_id
+     WHERE l.business_unit_id=? AND l.jodo_order_id=? AND l.deleted_at_utc IS NULL
+     ORDER BY l.id DESC LIMIT 1`,
+    [Number(form.businessUnitId),orderId],
+  );
+  if(!lead)return res.status(404).json({message:'Lead not found for this payment order'});
+  const config=await branchPaymentConfig(lead.branchId);
+  if(!publicPaymentEnabled(config))return res.status(400).json({message:'Payment is not configured for this branch'});
+  const orderPayload=await getJodoOrder(config,orderId);
+  const order=jodoOrderData(orderPayload);
+  const paid=String(order?.status||'').toLowerCase()==='paid';
+  if(paid){
+    const nextStageId=lead.applicationStageId?Number(lead.applicationStageId):Number(lead.stageId);
+    await pool.execute(
+      `UPDATE crm_leads SET application_payment_status='paid',application_payment_at_utc=COALESCE(?,CURRENT_TIMESTAMP(6)),stage_id=?,updated_at_utc=CURRENT_TIMESTAMP(6) WHERE id=?`,
+      [order?.paid_at?new Date(order.paid_at):null,nextStageId,Number(lead.id)],
+    );
+  }
+  res.json({orderId,status:order?.status||'unpaid',paid});
 });
 
 app.get('/api/branches', authenticate, requireCrmAccess, async (req, res) => {
@@ -639,9 +976,9 @@ async function queryLeads(user, search, limit = null) {
     : '';
   const [rows] = await pool.execute(
     `SELECT l.id, l.lead_number AS leadId, l.branch_id AS branchId, b.branch_name AS branch,
-            l.student_name AS studentName, l.phone, l.email,
+            l.student_name AS studentName, l.phone, l.alternate_phone AS alternatePhone, l.email, l.parent_name AS parentName, l.city,
             l.class_id AS classId, COALESCE(cls.display_name, l.applying_class) AS applyingClass,
-            l.curriculum_id AS curriculumId, cur.display_name AS curriculum,
+            l.curriculum_id AS curriculumId, cur.display_name AS curriculum, l.academic_year AS academicYear,
             l.stage_id AS stageId, s.display_name AS stage, l.source_id AS sourceId, src.display_name AS source,
             l.substage_id AS substageId, l.channel_id AS channelId,
             l.campaign_id AS campaignId, l.admission_type_id AS admissionTypeId,
@@ -666,7 +1003,7 @@ async function queryLeads(user, search, limit = null) {
               ELSE 'untouched'
             END AS touchStatus,
             l.is_parent AS isParent, l.looking_for_admission AS lookingForAdmission, l.whatsapp_response AS whatsappResponse,
-            l.lead_score AS score, l.owner_employee_id AS ownerEmployeeId,
+            l.lead_score AS score, l.remarks, l.custom_values_json AS customValues, l.owner_employee_id AS ownerEmployeeId,
             COALESCE(e.employee_name, 'Unassigned') AS owner, l.next_followup_at_utc AS nextFollowup,
             COALESCE(l.updated_at_utc,l.created_at_utc) AS recentModified,
             ((SELECT COUNT(*) FROM crm_lead_comments remark_count WHERE remark_count.lead_id=l.id)
@@ -693,8 +1030,14 @@ async function queryLeads(user, search, limit = null) {
      ORDER BY l.created_at_utc DESC${limitClause}`,
     [...scope.params, ...params],
   );
-  return rows.map((row) => ({
+  return rows.map((row) => {
+    const customValues = parseJsonValue(row.customValues, {});
+    const location = customValues.websiteAttribution?.location || {};
+    return {
     ...row,
+    latitude: customValues.latitude ?? location.latitude ?? null,
+    longitude: customValues.longitude ?? location.longitude ?? null,
+    customValues,
     marketingDeliveries: String(row.marketingDeliveryPairs || '')
       .split(',')
       .filter(Boolean)
@@ -703,7 +1046,8 @@ async function queryLeads(user, search, limit = null) {
         return { campaignId: String(campaignId), status: String(status).toUpperCase() };
       }),
     marketingDeliveryPairs: undefined,
-  }));
+  };
+  });
 }
 
 async function accessibleBranch(user, branchId) {
@@ -716,6 +1060,24 @@ async function accessibleBranch(user, branchId) {
 function cleanOptional(value, maxLength = 500) {
   const text = String(value ?? '').trim();
   return text ? text.slice(0, maxLength) : null;
+}
+
+function normalizeIndianMobile(value) {
+  const digits = String(value ?? '').replace(/\D/g, '');
+  if (digits.length === 10) return digits;
+  if (digits.length === 12 && digits.startsWith('91')) return digits.slice(2);
+  if (digits.length === 11 && digits.startsWith('0')) return digits.slice(1);
+  return digits;
+}
+
+function isValidIndianMobile(value) {
+  return /^[6-9]\d{9}$/.test(normalizeIndianMobile(value));
+}
+
+function isValidEmailAddress(value) {
+  const email = String(value ?? '').trim();
+  if (!email) return true;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
 }
 
 function parseJsonValue(value, fallback = {}) {
@@ -753,10 +1115,14 @@ async function appendLeadSourceOrDetectDuplicate(connection, existingLead, recor
 function validateLead(body, options = {}) {
   const studentName = cleanOptional(body.studentName, 200);
   const phone = cleanOptional(body.phone, 30);
+  const alternatePhone = cleanOptional(body.alternatePhone, 30);
+  const email = cleanOptional(body.email, 254);
   const classId = Number(body.classId);
   if (!studentName) return 'Student name is required';
   if (options.requirePhone !== false && !phone) return 'Phone is required';
-  if (phone && !/^[0-9+()\-\s]{7,30}$/.test(phone)) return 'Enter a valid phone number';
+  if (phone && !isValidIndianMobile(phone)) return 'Enter a valid Indian mobile number';
+  if (alternatePhone && !isValidIndianMobile(alternatePhone)) return 'Enter a valid alternate Indian mobile number';
+  if (email && !isValidEmailAddress(email)) return 'Enter a valid email address';
   if (options.requireClass !== false && (!Number.isInteger(classId) || classId <= 0)) return 'Select a valid Class ID';
   const score = Number(body.leadScore ?? 0);
   if (!Number.isFinite(score) || score < 0 || score > 100) return 'Lead score must be between 0 and 100';
@@ -1011,7 +1377,7 @@ app.post('/api/leads', authenticate, requireCrmAccess, requireLeadWrite, async (
   const connection = await pool.getConnection();
   const submittedPhone = cleanOptional(req.body.phone,30);
   const normalizedPhone = submittedPhone
-    ? String(submittedPhone).replace(/[^0-9]/g, '')
+    ? normalizeIndianMobile(submittedPhone)
     : `no-phone-${crypto.randomUUID()}`;
   const intakeMethod = ['manual','bulk','integration'].includes(req.body.intakeMethod) ? req.body.intakeMethod : 'manual';
   const lockName = `crm-lead:${Number(req.businessUnit.id)}:${Number(req.body.branchId)}:${normalizedPhone}`;
@@ -2009,12 +2375,31 @@ app.post('/api/marketing-campaigns', authenticate, requireCrmAccess, requireLead
   const canonicalTouches=[];
   for(let index=0;index<touches.length;index+=1){
     const touch=touches[index];const templateId=Number(touch.templateId);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS crm_whatsapp_template_user_visibility (
+        template_id INT NOT NULL,
+        user_id BIGINT UNSIGNED NOT NULL,
+        created_at_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        PRIMARY KEY (template_id, user_id),
+        KEY ix_whatsapp_template_visibility_user (user_id),
+        CONSTRAINT fk_whatsapp_template_visibility_template FOREIGN KEY (template_id)
+          REFERENCES crm_whatsapp_templates(id) ON DELETE CASCADE,
+        CONSTRAINT fk_whatsapp_template_visibility_user FOREIGN KEY (user_id)
+          REFERENCES app_users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    `);
+    const templateVisibilitySql = req.user.roles?.some(role=>['ADMIN','CRM_ADMIN'].includes(String(role).toUpperCase()))
+      ? ''
+      : `AND EXISTS (SELECT 1 FROM crm_whatsapp_template_user_visibility tv WHERE tv.template_id=crm_whatsapp_templates.id AND tv.user_id=?)`;
+    const templateVisibilityParams = req.user.roles?.some(role=>['ADMIN','CRM_ADMIN'].includes(String(role).toUpperCase()))
+      ? []
+      : [Number(req.user.id)];
     const [[template]]=await pool.execute(
       `SELECT id,template_name,body,language,total_parameters,template_type,header_type
        FROM crm_whatsapp_templates
        WHERE id=? AND integration_id=? AND organization_id=?
-         AND deleted_at IS NULL AND UPPER(status)='APPROVED' LIMIT 1`,
-      [templateId,integrationId,Number(req.user.id)],
+         AND deleted_at IS NULL AND UPPER(status)='APPROVED' ${templateVisibilitySql} LIMIT 1`,
+      [templateId,integrationId,Number(req.user.id),...templateVisibilityParams],
     );
     if(!template)return res.status(400).json({message:`Communication ${index+1} template is unavailable`});
     const count=Math.max(Number(template.total_parameters||0),...[...String(template.body||'').matchAll(/\{\{\s*(\d+)\s*\}\}/g)].map(match=>Number(match[1])),0);
@@ -2286,6 +2671,77 @@ app.get('/api/bulk-uploads/config', authenticate, requireCrmAccess, requireLeadW
 });
 
 // ============= Admission Class Configuration APIs =============
+app.get('/api/admission-class-master-data', authenticate, requireUserAdmin, async (_req, res) => {
+  try {
+    const [[academicYears],[branches],[curricula],[admissionTypes],[classes]] = await Promise.all([
+      pool.query(`SELECT id, academic_year AS academicYear, display_name AS displayName FROM crm_academic_years WHERE is_active=TRUE ORDER BY academic_year DESC`),
+      pool.query(`SELECT id, branch_name AS name, short_name AS shortName FROM branches WHERE is_active=TRUE ORDER BY branch_name`),
+      pool.query(`SELECT id, curriculum_code AS code, display_name AS displayName, position, is_active AS isActive FROM crm_curricula ORDER BY position, display_name`),
+      pool.query(`SELECT id, type_code AS code, display_name AS displayName, is_active AS isActive FROM crm_admission_types ORDER BY display_name`),
+      pool.query(`SELECT id, class_code AS code, display_name AS displayName, position, is_active AS isActive FROM crm_classes WHERE is_active=TRUE ORDER BY position, display_name`),
+    ]);
+    res.json({ academicYears, branches, curricula, admissionTypes, classes });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.get('/api/curricula', authenticate, requireUserAdmin, async (_req, res) => {
+  const [rows] = await pool.query(`SELECT id, curriculum_code AS code, display_name AS displayName, position, is_active AS isActive FROM crm_curricula ORDER BY position, display_name`);
+  res.json({ data: rows });
+});
+
+app.post('/api/curricula', authenticate, requireUserAdmin, async (req, res) => {
+  const displayName = cleanOptional(req.body.displayName, 100);
+  const code = cleanOptional(req.body.code, 30) || displayName?.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 30);
+  const position = Number(req.body.position || 0);
+  if (!displayName) return res.status(400).json({ message: 'Curriculum name is required' });
+  try {
+    const [result] = await pool.execute(`INSERT INTO crm_curricula(curriculum_code,display_name,position,is_active) VALUES(?,?,?,?)`, [code, displayName, Number.isFinite(position) ? position : 0, req.body.isActive === false ? 0 : 1]);
+    res.status(201).json({ id: result.insertId, message: 'Curriculum created successfully' });
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'Curriculum code already exists' });
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.put('/api/curricula/:id', authenticate, requireUserAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const displayName = cleanOptional(req.body.displayName, 100);
+  const code = cleanOptional(req.body.code, 30);
+  const position = Number(req.body.position || 0);
+  if (!displayName || !code) return res.status(400).json({ message: 'Curriculum code and name are required' });
+  await pool.execute(`UPDATE crm_curricula SET curriculum_code=?,display_name=?,position=?,is_active=?,updated_at_utc=CURRENT_TIMESTAMP(6) WHERE id=?`, [code, displayName, Number.isFinite(position) ? position : 0, req.body.isActive === false ? 0 : 1, id]);
+  res.json({ message: 'Curriculum updated successfully' });
+});
+
+app.get('/api/admission-types', authenticate, requireUserAdmin, async (_req, res) => {
+  const [rows] = await pool.query(`SELECT id, type_code AS code, display_name AS displayName, is_active AS isActive FROM crm_admission_types ORDER BY display_name`);
+  res.json({ data: rows });
+});
+
+app.post('/api/admission-types', authenticate, requireUserAdmin, async (req, res) => {
+  const displayName = cleanOptional(req.body.displayName, 100);
+  const code = cleanOptional(req.body.code, 50) || displayName?.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 50);
+  if (!displayName) return res.status(400).json({ message: 'Admission type name is required' });
+  try {
+    const [result] = await pool.execute(`INSERT INTO crm_admission_types(type_code,display_name,is_active) VALUES(?,?,?)`, [code, displayName, req.body.isActive === false ? 0 : 1]);
+    res.status(201).json({ id: result.insertId, message: 'Admission type created successfully' });
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'Admission type code already exists' });
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.put('/api/admission-types/:id', authenticate, requireUserAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const displayName = cleanOptional(req.body.displayName, 100);
+  const code = cleanOptional(req.body.code, 50);
+  if (!displayName || !code) return res.status(400).json({ message: 'Admission type code and name are required' });
+  await pool.execute(`UPDATE crm_admission_types SET type_code=?,display_name=?,is_active=? WHERE id=?`, [code, displayName, req.body.isActive === false ? 0 : 1, id]);
+  res.json({ message: 'Admission type updated successfully' });
+});
+
 app.get('/api/admission-class-configurations', authenticate, requireUserAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query(`
@@ -2349,9 +2805,12 @@ app.get('/api/admission-class-configurations/:id', authenticate, requireUserAdmi
 
 app.post('/api/admission-class-configurations', authenticate, requireUserAdmin, async (req, res) => {
   try {
-    const { academicYear, branchId, curriculumId, admissionTypeId, classIds } = req.body;
+    const { academicYear, classIds } = req.body;
+    const branchIds = [...new Set((Array.isArray(req.body.branchIds) ? req.body.branchIds : [req.body.branchId]).map(Number).filter(Number.isFinite))];
+    const curriculumIds = [...new Set((Array.isArray(req.body.curriculumIds) ? req.body.curriculumIds : [req.body.curriculumId]).map(Number).filter(Number.isFinite))];
+    const admissionTypeIds = [...new Set((Array.isArray(req.body.admissionTypeIds) ? req.body.admissionTypeIds : [req.body.admissionTypeId]).map(Number).filter(Number.isFinite))];
 
-    if (!academicYear || !branchId || !curriculumId || !admissionTypeId) {
+    if (!academicYear || !branchIds.length || !curriculumIds.length || !admissionTypeIds.length) {
       return res.status(400).json({ message: 'Academic Year, Branch, Curriculum, and Admission Type are required' });
     }
 
@@ -2359,37 +2818,40 @@ app.post('/api/admission-class-configurations', authenticate, requireUserAdmin, 
       return res.status(400).json({ message: 'At least one class must be selected' });
     }
 
-    // Check for duplicate configuration
-    const [[existing]] = await pool.query(`
-      SELECT id FROM crm_admission_class_configurations
-      WHERE academic_year = ? AND branch_id = ? AND curriculum_id = ? AND admission_type_id = ?
-      LIMIT 1
-    `, [String(academicYear), branchId, curriculumId, admissionTypeId]);
-
-    if (existing) {
-      return res.status(409).json({ message: 'Configuration already exists for the selected Academic Year, Branch, Curriculum and Admission Type' });
-    }
-
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-
-      const [result] = await connection.execute(`
-        INSERT INTO crm_admission_class_configurations (academic_year, branch_id, curriculum_id, admission_type_id, is_active, created_by, updated_by)
-        VALUES (?, ?, ?, ?, 1, ?, ?)
-      `, [String(academicYear), branchId, curriculumId, admissionTypeId, Number(req.user.id), Number(req.user.id)]);
-
-      const configId = result.insertId;
-
-      for (const classId of classIds) {
-        await connection.execute(`
-          INSERT INTO crm_admission_class_configuration_details (configuration_id, class_id, is_active)
-          VALUES (?, ?, 1)
-        `, [configId, Number(classId)]);
+      let created = 0;
+      let updated = 0;
+      for (const branchId of branchIds) {
+        for (const curriculumId of curriculumIds) {
+          for (const admissionTypeId of admissionTypeIds) {
+            const [[existing]] = await connection.execute(`
+              SELECT id FROM crm_admission_class_configurations
+              WHERE academic_year = ? AND branch_id = ? AND curriculum_id = ? AND admission_type_id = ?
+              LIMIT 1
+            `, [String(academicYear), branchId, curriculumId, admissionTypeId]);
+            const configId = existing?.id || (await connection.execute(`
+              INSERT INTO crm_admission_class_configurations (academic_year, branch_id, curriculum_id, admission_type_id, is_active, created_by, updated_by)
+              VALUES (?, ?, ?, ?, 1, ?, ?)
+            `, [String(academicYear), branchId, curriculumId, admissionTypeId, Number(req.user.id), Number(req.user.id)]))[0].insertId;
+            if (existing) {
+              updated += 1;
+              await connection.execute(`UPDATE crm_admission_class_configurations SET is_active=1, updated_by=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, [Number(req.user.id), configId]);
+              await connection.execute(`DELETE FROM crm_admission_class_configuration_details WHERE configuration_id = ?`, [configId]);
+            } else created += 1;
+            for (const classId of classIds) {
+              await connection.execute(`
+                INSERT INTO crm_admission_class_configuration_details (configuration_id, class_id, is_active)
+                VALUES (?, ?, 1)
+              `, [configId, Number(classId)]);
+            }
+          }
+        }
       }
 
       await connection.commit();
-      res.status(201).json({ id: configId, message: 'Configuration created successfully' });
+      res.status(201).json({ created, updated, message: `Configuration saved for ${created + updated} combination${created + updated === 1 ? '' : 's'}` });
     } catch (error) {
       await connection.rollback();
       throw error;
@@ -3028,7 +3490,7 @@ async function processBulkUpload(uploadId, records, branchId, userId, pool) {
 
       // Check for duplicates and create lead
       try {
-        const normalizedPhone = String(record.phone).replace(/[^0-9]/g, '');
+        const normalizedPhone = normalizeIndianMobile(record.phone);
         const [[existing]] = await connection.execute(
           `SELECT l.id, l.lead_number
              FROM crm_leads l
@@ -3328,9 +3790,9 @@ app.post('/api/bulk-leads/validate', authenticate, requireCrmAccess, requireLead
       if (!record.phone || String(record.phone).trim().length === 0) {
         errors.push('Phone is required');
       } else {
-        const normalizedPhone = String(record.phone).replace(/[^0-9]/g, '');
-        if (normalizedPhone.length < 7 || normalizedPhone.length > 15) {
-          errors.push('Phone must contain 7-15 digits');
+        const normalizedPhone = normalizeIndianMobile(record.phone);
+        if (!isValidIndianMobile(record.phone)) {
+          errors.push('Phone must be a valid Indian mobile number');
         }
         record.normalizedPhone = normalizedPhone;
       }
@@ -3583,9 +4045,9 @@ app.post('/api/bulk-leads/import', authenticate, requireCrmAccess, requireLeadWr
       if (!record.phone || String(record.phone).trim().length === 0) {
         errors.push('Phone is required');
       } else {
-        const normalizedPhone = String(record.phone).replace(/[^0-9]/g, '');
-        if (normalizedPhone.length < 7 || normalizedPhone.length > 15) {
-          errors.push('Phone must contain 7-15 digits');
+        const normalizedPhone = normalizeIndianMobile(record.phone);
+        if (!isValidIndianMobile(record.phone)) {
+          errors.push('Phone must be a valid Indian mobile number');
         }
         record.normalizedPhone = normalizedPhone;
       }
@@ -3795,7 +4257,7 @@ async function processBulkUploadImport(uploadId, records, branchId, userId, pool
         const followupValidation = await validateStageFollowup(record);
 
         // No need to re-check duplicates - already validated
-        const normalizedPhone = String(record.phone).replace(/[^0-9]/g, '');
+        const normalizedPhone = normalizeIndianMobile(record.phone);
         const [[existing]] = await connection.execute(
           `SELECT id, lead_number FROM crm_leads WHERE branch_id=? AND normalized_phone=? AND deleted_at_utc IS NULL LIMIT 1`,
           [branchId, normalizedPhone]

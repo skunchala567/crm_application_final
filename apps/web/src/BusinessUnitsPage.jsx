@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { ArrowDown, ArrowUp, Building2, CalendarRange, ChevronRight, Copy, Database, ExternalLink, GitBranch, Layers3, Pencil, Plus, Settings2, Trash2, Waypoints, Workflow, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ArrowDown, ArrowUp, Building2, CalendarRange, Check, ChevronDown, ChevronRight, Copy, CreditCard, Database, ExternalLink, GitBranch, Layers3, Pencil, Plus, Search, Settings2, Trash2, Waypoints, Workflow, X } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from './api';
 import { useBusinessUnit } from './BusinessUnitContext.jsx';
@@ -9,7 +9,8 @@ import './MetadataPlatform.css';
 
 const emptyUnit={name:'',industryType:'General',description:'',color:'#4A4FB1'};
 const emptyField={displayName:'',fieldType:'text',placeholder:'',options:'',isRequired:false,isFilterable:true,filterControl:'contains',isSearchable:false,isImportable:true,isImportRequired:false,importHeader:'',importSampleValue:'',showInList:true,columnWidth:180,useInLeadForm:true,useInQuickCreate:false,useInLeadDetails:true,useInReports:true,useInAutomations:false};
-const emptyEnquiryForm={displayName:'',description:'',defaultBranchId:'',defaultStageId:'',defaultSubstageId:'',defaultSourceId:'',defaultChannelId:'',defaultCampaignId:'',defaultOwnerEmployeeId:'',successMessage:'Thank you. Your enquiry has been submitted.',redirectUrl:'',isActive:true,fields:[]};
+const emptyEnquiryForm={displayName:'',description:'',defaultBranchId:'',defaultStageId:'',defaultSubstageId:'',defaultSourceId:'',defaultChannelId:'',defaultCampaignId:'',defaultOwnerEmployeeId:'',settings:{defaultAcademicYear:''},successMessage:'Thank you. Your enquiry has been submitted.',redirectUrl:'',isActive:true,fields:[]};
+const emptyBranchForm={name:'',shortName:'',isActive:true,jodoPaymentEnabled:false,jodoApiKey:'',jodoSecretKey:'',jodoCollectorCode:'',applicationAmount:'',applicationStageId:'',applicationPaymentComponent:'Payable Amount'};
 const fieldUsageKeys=['useInLeadForm','useInQuickCreate','useInLeadDetails','useInReports','useInAutomations'];
 const fieldUsageFromValidation=field=>{
   const usage=field?.validation?.usage||{};
@@ -58,11 +59,16 @@ export default function BusinessUnitsPage({onMessage}){
   const [unitForm,setUnitForm]=useState(emptyUnit);
   const [fieldForm,setFieldForm]=useState(emptyField);
   const [enquiryForm,setEnquiryForm]=useState(emptyEnquiryForm);
+  const [branchForm,setBranchForm]=useState(emptyBranchForm);
   const [stageForm,setStageForm]=useState({displayName:'',stageType:'open',color:'#4A4FB1',requiresFollowup:false,isActive:true});
   const [substageForm,setSubstageForm]=useState({displayName:'',stageId:'',isActive:true});
   const [editingId,setEditingId]=useState(null);
   const [saving,setSaving]=useState(false);
+  const [unitPickerOpen,setUnitPickerOpen]=useState(false);
+  const [unitSearch,setUnitSearch]=useState('');
+  const unitPickerRef=useRef(null);
   const selected=context.units.find(unit=>unit.id===selectedId);
+  const filteredUnits=context.units.filter(unit=>`${unit.name} ${unit.industryType} ${unit.description||''}`.toLowerCase().includes(unitSearch.toLowerCase().trim()));
 
   const notify=(type,text)=>onMessage?.({type,text});
   const loadConfig=async id=>{
@@ -78,6 +84,15 @@ export default function BusinessUnitsPage({onMessage}){
   },[context.units,searchParams,selectedId]);
   useEffect(()=>{loadConfig(selectedId);},[selectedId]);
   useEffect(()=>{if(selected&&selected.compatibilityMode!=='legacy_school'&&tab==='academic')setTab('overview');},[selected?.id,selected?.compatibilityMode,tab]);
+  useEffect(()=>{
+    if(!unitPickerOpen)return undefined;
+    const close=event=>{if(!unitPickerRef.current?.contains(event.target))setUnitPickerOpen(false);};
+    const escape=event=>{if(event.key==='Escape')setUnitPickerOpen(false);};
+    document.addEventListener('mousedown',close,true);
+    document.addEventListener('touchstart',close,true);
+    document.addEventListener('keydown',escape,true);
+    return()=>{document.removeEventListener('mousedown',close,true);document.removeEventListener('touchstart',close,true);document.removeEventListener('keydown',escape,true);};
+  },[unitPickerOpen]);
 
   const changeTab=id=>{
     setTab(id);
@@ -114,6 +129,13 @@ export default function BusinessUnitsPage({onMessage}){
       const result=await api(`/platform/business-units/${selectedId}/enquiry-forms/${row.id}`,{method:'DELETE'});
       notify('success',result.message);await loadConfig(selectedId);
     }catch(error){notify('error',error.message);}
+  };
+  const saveBranch=async event=>{
+    event.preventDefault();setSaving(true);
+    try{
+      const result=await api(editingId?`/platform/business-units/${selectedId}/branches/${editingId}`:`/platform/business-units/${selectedId}/branches`,{method:editingId?'PUT':'POST',body:JSON.stringify(branchForm)});
+      await loadConfig(selectedId);setDialog(null);setEditingId(null);setBranchForm(emptyBranchForm);notify('success',result.message);
+    }catch(error){notify('error',error.message);}finally{setSaving(false);}
   };
   const addPipelineStage=async event=>{
     event.preventDefault();setSaving(true);
@@ -176,7 +198,28 @@ export default function BusinessUnitsPage({onMessage}){
     <main className="metadata-page business-units-page">
       <header className="metadata-page-header">
         <div><span className="eyebrow">Platform configuration</span><h1>Business Units</h1><p>Create CRM workspaces and configure their lead journey</p></div>
-        <button className="primary" onClick={()=>{setEditingId(null);setUnitForm(emptyUnit);setDialog('unit')}}><Plus size={17}/> Add business unit</button>
+        <div className="business-unit-header-actions">
+          <div className="business-unit-top-picker" ref={unitPickerRef}>
+            <button type="button" onClick={()=>setUnitPickerOpen(value=>!value)}>
+              <i style={{background:selected?.color||'#4A4FB1'}}><Building2 size={17}/></i>
+              <span><small>Selected business unit</small><strong>{selected?.name||'Select business unit'}</strong></span>
+              <b>{context.units.length}</b>
+              <ChevronDown size={16}/>
+            </button>
+            {unitPickerOpen&&<div className="business-unit-picker-menu">
+              <label><Search size={14}/><input autoFocus value={unitSearch} onChange={event=>setUnitSearch(event.target.value)} placeholder="Search business units..."/></label>
+              <section>
+                {filteredUnits.map(unit=><button key={unit.id} type="button" className={selectedId===unit.id?'active':''} onClick={()=>{setSelectedId(unit.id);setUnitPickerOpen(false);setUnitSearch('');}}>
+                  <i style={{background:unit.color}}><Building2 size={15}/></i>
+                  <span><strong>{unit.name}</strong><small>{unit.industryType} · {unit.leadCount} records</small></span>
+                  {unit.isDefault&&<em>Default</em>}
+                </button>)}
+                {!filteredUnits.length&&<p>No business units found</p>}
+              </section>
+            </div>}
+          </div>
+          <button className="primary" onClick={()=>{setEditingId(null);setUnitForm(emptyUnit);setDialog('unit')}}><Plus size={17}/> Add business unit</button>
+        </div>
       </header>
       <div className="business-unit-workspace">
         <aside className="business-unit-list">
@@ -199,9 +242,10 @@ export default function BusinessUnitsPage({onMessage}){
               {!selected.isDefault&&<button className="icon-btn danger" title="Delete business unit" onClick={removeBusinessUnit}><Trash2 size={16}/></button>}
             </div>
             <nav className="metadata-tabs">
-              {[['overview',Layers3,'Overview'],['fields',Settings2,'Lead fields'],['enquiry',ExternalLink,'Enquiry forms'],['pipeline',GitBranch,'Lead pipeline'],['sources',Waypoints,'Source configuration'],...(selected.compatibilityMode==='legacy_school'?[['academic',CalendarRange,'Academic configuration']]:[]),['operations',Workflow,'Tracker']].map(([id,Icon,label])=><button key={id} className={tab===id?'active':''} onClick={()=>changeTab(id)}><Icon size={16}/>{label}</button>)}
+              {[['overview',Layers3,'Overview'],['branches',CreditCard,'Branches & payments'],['fields',Settings2,'Lead fields'],['enquiry',ExternalLink,'Enquiry forms'],['pipeline',GitBranch,'Lead pipeline'],['sources',Waypoints,'Source configuration'],...(selected.compatibilityMode==='legacy_school'?[['academic',CalendarRange,'Academic configuration']]:[]),['operations',Workflow,'Tracker'],['database',Database,'Database tables']].map(([id,Icon,label])=><button key={id} className={tab===id?'active':''} onClick={()=>changeTab(id)}><Icon size={16}/>{label}</button>)}
             </nav>
             {tab==='overview'&&<Overview config={config} selected={selected}/>}
+            {tab==='branches'&&<BranchesPaymentPanel config={config} onAdd={()=>{setEditingId(null);setBranchForm(emptyBranchForm);setDialog('branch')}} onEdit={branch=>{setEditingId(branch.id);setBranchForm({...emptyBranchForm,...branch,jodoApiKey:'',jodoSecretKey:'',applicationAmount:branch.applicationAmount??'',applicationStageId:branch.applicationStageId??'',applicationPaymentComponent:branch.applicationPaymentComponent||'Payable Amount'});setDialog('branch')}}/>}
             {tab==='fields'&&<MetadataList title="Lead fields" description="Configure forms, list columns, filters, search, and import templates for this business unit." action="Add field" onAdd={()=>{setEditingId(null);setFieldForm(emptyField);setDialog('field')}} onEdit={row=>{const field=config.fields.find(item=>item.id===row.id);setEditingId(field.id);setFieldForm({...emptyField,...field,...fieldUsageFromValidation(field),options:(field.options||[]).join(', ')});setDialog('field')}} onDelete={row=>removeConfiguredItem('fields',row,'lead field')} rows={config.fields.map(field=>({id:field.id,title:field.displayName,subtitle:`${field.fieldType.replace('_',' ')} · ${field.fieldKey}`,badges:[field.isSystem?'System field':null,field.isRequired?'Lead form mandatory':null,field.showInList?'List column':null,field.isFilterable?'Filter':null,field.isSearchable?'Search':null,field.validation?.usage?.reports!==false?'Reports':null,field.isImportable?(field.isImportRequired?'Import required':'Import column'):null].filter(Boolean)}))}/>}
             {tab==='enquiry'&&<EnquiryFormsPanel config={config} selected={selected} onAdd={()=>{setEditingId(null);setEnquiryForm({...emptyEnquiryForm,fields:defaultEnquiryFields(config.fields)});setDialog('enquiry-form')}} onEdit={form=>{setEditingId(form.id);setEnquiryForm({...emptyEnquiryForm,...form,fields:form.fieldSchema||[]});setDialog('enquiry-form')}} onDelete={removeEnquiryForm} onMessage={notify}/>}
             {tab==='pipeline'&&<section className="pipeline-configuration">
@@ -215,14 +259,16 @@ export default function BusinessUnitsPage({onMessage}){
             {tab==='sources'&&<section className="business-unit-source"><LeadConfiguration key={selectedId} embedded businessUnitId={selectedId} useBusinessUnitSources={selected.compatibilityMode==='metadata'} onMessage={message=>message&&notify(message.type,message.text)}/></section>}
             {tab==='academic'&&selected.compatibilityMode==='legacy_school'&&<section className="business-unit-academic"><AcademicConfigurationPage embedded onMessage={message=>message&&notify(message.type,message.text)}/></section>}
             {tab==='operations'&&<MetadataList title="Tracker statuses" description="Configure and order the progress statuses for MOM action items. New action items always start in the first status." action="Add status" onAdd={()=>{setEditingId(null);setStageForm({displayName:'',stageType:'open',color:'#4A4FB1'});setDialog('operation-stage')}} onEdit={row=>{const stage=config.operationStages.find(item=>item.id===row.id);setEditingId(stage.id);setStageForm({displayName:stage.displayName,stageType:stage.stageType,color:stage.color,isActive:stage.isActive});setDialog('operation-stage')}} onMove={moveOperationStage} onDelete={row=>removeConfiguredItem('operation-stages',row,'Tracker status')} rows={config.operationStages.map((stage,index)=>({id:stage.id,title:stage.displayName,subtitle:stage.stageType.replaceAll('_',' '),badges:[index===0?'Default starting status':`Order ${index+1}`],color:stage.color,canMoveUp:index>0,canMoveDown:index<config.operationStages.length-1}))}/>}
+            {tab==='database'&&<BusinessUnitDatabaseTables selected={selected}/>}
           </>}
         </section>
       </div>
       {dialog&&<><div className="drawer-backdrop" onClick={()=>setDialog(null)}/><section className="metadata-dialog" role="dialog" aria-modal="true">
-        <header><div><span className="eyebrow">Configuration</span><h2>{editingId?'Edit ':dialog==='unit'?'Add business unit':dialog==='field'?'Add lead field':dialog==='enquiry-form'?'Add enquiry form':dialog==='pipeline-stage'?'Add pipeline stage':dialog==='pipeline-substage'?'Add pipeline sub-stage':'Add tracker status'}{editingId&&(dialog==='field'?'lead field':dialog==='enquiry-form'?'enquiry form':dialog==='pipeline-stage'?'pipeline stage':dialog==='pipeline-substage'?'pipeline sub-stage':'tracker status')}</h2></div><button className="icon-btn" onClick={()=>{setDialog(null);setEditingId(null)}}><X/></button></header>
+        <header><div><span className="eyebrow">Configuration</span><h2>{editingId?'Edit ':dialog==='unit'?'Add business unit':dialog==='field'?'Add lead field':dialog==='enquiry-form'?'Add enquiry form':dialog==='branch'?'Add branch':dialog==='pipeline-stage'?'Add pipeline stage':dialog==='pipeline-substage'?'Add pipeline sub-stage':'Add tracker status'}{editingId&&(dialog==='field'?'lead field':dialog==='enquiry-form'?'enquiry form':dialog==='branch'?'branch':dialog==='pipeline-stage'?'pipeline stage':dialog==='pipeline-substage'?'pipeline sub-stage':'tracker status')}</h2></div><button className="icon-btn" onClick={()=>{setDialog(null);setEditingId(null)}}><X/></button></header>
         {dialog==='unit'&&<form onSubmit={createUnit}><label>Name *<input required value={unitForm.name} onChange={e=>setUnitForm({...unitForm,name:e.target.value})} placeholder="e.g. Real Estate"/></label><label>Industry type *<input required value={unitForm.industryType} onChange={e=>setUnitForm({...unitForm,industryType:e.target.value})} placeholder="e.g. Property Sales"/></label><label>Description<textarea rows="3" value={unitForm.description} onChange={e=>setUnitForm({...unitForm,description:e.target.value})}/></label><label>Theme colour<input type="color" value={unitForm.color} onChange={e=>setUnitForm({...unitForm,color:e.target.value})}/></label><DialogFooter saving={saving} onCancel={()=>setDialog(null)}/></form>}
         {dialog==='field'&&<FieldConfigurationForm fieldForm={fieldForm} setFieldForm={setFieldForm} saving={saving} onCancel={()=>setDialog(null)} onSubmit={addField}/>}
         {dialog==='enquiry-form'&&<EnquiryFormEditor form={enquiryForm} setForm={setEnquiryForm} config={config} saving={saving} onCancel={()=>setDialog(null)} onSubmit={saveEnquiryForm}/>}
+        {dialog==='branch'&&<BranchPaymentForm form={branchForm} setForm={setBranchForm} config={config} saving={saving} onCancel={()=>setDialog(null)} onSubmit={saveBranch}/>}
         {['pipeline-stage','operation-stage'].includes(dialog)&&<form onSubmit={dialog==='pipeline-stage'?addPipelineStage:addOperationStage}><label>{dialog==='operation-stage'?'Status':'Stage'} name *<input required value={stageForm.displayName} onChange={e=>setStageForm({...stageForm,displayName:e.target.value})}/></label>{dialog==='operation-stage'&&<label>Status behaviour<select value={stageForm.stageType} onChange={e=>setStageForm({...stageForm,stageType:e.target.value})}><option value="open">Open / active</option><option value="on_hold">On hold</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></label>}<label>Colour<input type="color" value={stageForm.color} onChange={e=>setStageForm({...stageForm,color:e.target.value})}/></label>{dialog==='pipeline-stage'&&<label className="check-option"><input type="checkbox" checked={stageForm.requiresFollowup} onChange={e=>setStageForm({...stageForm,requiresFollowup:e.target.checked})}/>Next follow-up required</label>}{editingId&&<label className="check-option"><input type="checkbox" checked={stageForm.isActive!==false} onChange={e=>setStageForm({...stageForm,isActive:e.target.checked})}/>Active</label>}<DialogFooter saving={saving} onCancel={()=>setDialog(null)}/></form>}
         {dialog==='pipeline-substage'&&<form onSubmit={addPipelineSubstage}><label>Parent stage *<select required value={substageForm.stageId} onChange={e=>setSubstageForm({...substageForm,stageId:Number(e.target.value)})}><option value="">Select stage</option>{config.pipelineStages.map(stage=><option key={stage.id} value={stage.id}>{stage.displayName}</option>)}</select></label><label>Sub-stage name *<input required value={substageForm.displayName} onChange={e=>setSubstageForm({...substageForm,displayName:e.target.value})}/></label>{editingId&&<label className="check-option"><input type="checkbox" checked={substageForm.isActive!==false} onChange={e=>setSubstageForm({...substageForm,isActive:e.target.checked})}/>Active</label>}<DialogFooter saving={saving} onCancel={()=>setDialog(null)}/></form>}
       </section></>}
@@ -234,6 +280,61 @@ function Overview({config}){
   const cards=[['Modules',config.modules.length,Layers3],['Lead fields',config.fields.length,Settings2],['Pipeline stages',config.pipelineStages.length,GitBranch],['Tracker stages',config.operationStages.length,Workflow]];
   return <div className="metadata-overview"><div className="metadata-stat-grid">{cards.map(([label,value,Icon])=><article key={label}><Icon/><span>{label}</span><strong>{value}</strong></article>)}</div><section className="metadata-explanation"><h3>Business Unit configuration</h3><p>Manage this Business Unit’s fields, lead pipeline, source data, academic setup where applicable, and tracker workflow from the tabs above.</p></section></div>;
 }
+function BranchesPaymentPanel({config,onAdd,onEdit}){
+  const branches=config.branches||[];
+  return <section className="metadata-list"><header><div><h3>Branches & online application payments</h3><p>Configure branch-wise Jodo collector code, application amount, and paid application stage.</p></div><button className="primary" onClick={onAdd}><Plus size={16}/>Add branch</button></header>
+    <div>{branches.map(branch=><article key={branch.id}><i style={{background:'#ECECFB',color:'#4A4FB1'}}><CreditCard size={15}/></i><span><strong>{branch.name}</strong><small>{branch.shortName||'No short name'} · {branch.jodoPaymentEnabled?'Online payment enabled':'Payment disabled'}</small></span><div className="metadata-row-badges"><em>{branch.jodoCollectorCode||'No collector code'}</em><em>{branch.applicationAmount?`₹${Number(branch.applicationAmount).toLocaleString('en-IN')}`:'No amount'}</em><em>{config.pipelineStages.find(stage=>String(stage.id)===String(branch.applicationStageId))?.displayName||'No application stage'}</em></div><div className="metadata-row-actions"><button className="icon-btn" title="Edit branch payment configuration" onClick={()=>onEdit(branch)}><Pencil size={15}/></button></div></article>)}{!branches.length&&<div className="empty"><CreditCard/><strong>No branches available</strong><span>Add a branch or configure existing branches for online application payments.</span></div>}</div>
+  </section>;
+}
+
+function BranchPaymentForm({form,setForm,config,saving,onCancel,onSubmit}){
+  const patch=changes=>setForm({...form,...changes});
+  return <form onSubmit={onSubmit}>
+    <label>Branch name *<input required value={form.name||''} onChange={e=>patch({name:e.target.value})} placeholder="e.g. Nacharam"/></label>
+    <label>Short name / code<input value={form.shortName||''} onChange={e=>patch({shortName:e.target.value})} placeholder="NACHARAM"/></label>
+    <label className="check-option"><input type="checkbox" checked={form.isActive!==false} onChange={e=>patch({isActive:e.target.checked})}/>Active branch</label>
+    <label className="check-option"><input type="checkbox" checked={Boolean(form.jodoPaymentEnabled)} onChange={e=>patch({jodoPaymentEnabled:e.target.checked})}/>Enable online application payment</label>
+    <label>Jodo collector code<input value={form.jodoCollectorCode||''} onChange={e=>patch({jodoCollectorCode:e.target.value})} placeholder="NACHARAM"/></label>
+    <label>Application amount<input type="number" min="0" step="0.01" value={form.applicationAmount||''} onChange={e=>patch({applicationAmount:e.target.value})} placeholder="100.00"/></label>
+    <label>Payment component<input value={form.applicationPaymentComponent||'Payable Amount'} onChange={e=>patch({applicationPaymentComponent:e.target.value})} placeholder="Payable Amount"/></label>
+    <label>Move paid application to stage<select value={form.applicationStageId||''} onChange={e=>patch({applicationStageId:e.target.value})}><option value="">Select application stage</option>{(config.pipelineStages||[]).map(stage=><option key={stage.id} value={stage.id}>{stage.displayName}</option>)}</select></label>
+    <label>Jodo API key<input value={form.jodoApiKey||''} onChange={e=>patch({jodoApiKey:e.target.value})} placeholder={form.id?'Leave blank to keep existing key':'API key'}/></label>
+    <label>Jodo secret key<input type="password" value={form.jodoSecretKey||''} onChange={e=>patch({jodoSecretKey:e.target.value})} placeholder={form.id?'Leave blank to keep existing secret':'Secret key'}/></label>
+    <p className="wide form-hint">Keys are stored on the branch record and are never shown on the public application form.</p>
+    <DialogFooter saving={saving} onCancel={onCancel}/>
+  </form>;
+}
+
+function BusinessUnitDatabaseTables({selected}){
+  const [state,setState]=useState({loading:true,error:'',tables:[]});
+  useEffect(()=>{
+    let ignore=false;
+    setState({loading:true,error:'',tables:[]});
+    api(`/platform/business-units/${selected.id}/database-tables`)
+      .then(result=>{if(!ignore)setState({loading:false,error:'',tables:result.tables||[]});})
+      .catch(error=>{if(!ignore)setState({loading:false,error:error.message,tables:[]});});
+    return()=>{ignore=true;};
+  },[selected.id]);
+  const format=value=>{
+    if(value==null)return 'NULL';
+    if(typeof value==='object')return JSON.stringify(value);
+    const text=String(value);
+    return text.length>120?`${text.slice(0,120)}…`:text;
+  };
+  if(state.loading)return <div className="database-tables-panel"><div className="empty"><Database/><strong>Loading database tables…</strong></div></div>;
+  if(state.error)return <div className="database-tables-panel"><div className="empty"><Database/><strong>Could not load tables</strong><span>{state.error}</span></div></div>;
+  return <section className="database-tables-panel">
+    <header><div><h3>Database tables for {selected.name}</h3><p>Read-only preview of tables containing records scoped to this Business Unit. Showing top 5 rows per table.</p></div><b>{state.tables.length} tables</b></header>
+    {state.tables.map(table=><article className="database-table-card" key={table.tableName}>
+      <div><strong>{table.tableName}</strong><span>{table.rowCount.toLocaleString()} row{table.rowCount===1?'':'s'} for this business unit</span></div>
+      <div className="database-table-wrap">
+        <table><thead><tr>{table.columns.map(column=><th key={column}>{column}</th>)}</tr></thead><tbody>{table.rows.length?table.rows.map((row,index)=><tr key={index}>{table.columns.map(column=><td key={column} title={format(row[column])}>{format(row[column])}</td>)}</tr>):<tr><td colSpan={Math.max(1,table.columns.length)}>No rows for this business unit</td></tr>}</tbody></table>
+      </div>
+    </article>)}
+    {!state.tables.length&&<div className="empty"><Database/><strong>No scoped tables found</strong><span>No tables with business_unit_id were found in this database.</span></div>}
+  </section>;
+}
+
 function defaultEnquiryFields(fields=[]){
   const preferred=['student_name','phone','email','parent_name','class_id','curriculum_id','city','remarks'];
   const byKey=new Map(fields.map(field=>[field.fieldKey,field]));
@@ -258,6 +359,7 @@ function EnquiryFormsPanel({config,selected,onAdd,onEdit,onDelete,onMessage}){
 
 function EnquiryFormEditor({form,setForm,config,saving,onCancel,onSubmit}){
   const patch=changes=>setForm({...form,...changes});
+  const patchSettings=changes=>patch({settings:{...(form.settings||{}),...changes}});
   const fields=config.fields||[];
   const selectedKeys=new Set((form.fields||[]).map(field=>field.fieldKey));
   const addField=field=>patch({fields:[...(form.fields||[]),{fieldKey:field.fieldKey,label:field.displayName,required:Boolean(field.isRequired),placeholder:field.placeholder||'',position:(form.fields||[]).length+1}]});
@@ -268,9 +370,10 @@ function EnquiryFormEditor({form,setForm,config,saving,onCancel,onSubmit}){
     <label>Status<select value={form.isActive?'active':'inactive'} onChange={e=>patch({isActive:e.target.value==='active'})}><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
     <label className="wide">Description<textarea rows="2" value={form.description||''} onChange={e=>patch({description:e.target.value})} placeholder="Shown below the form title"/></label>
     <label>Default branch *<select required value={form.defaultBranchId||''} onChange={e=>patch({defaultBranchId:e.target.value})}><option value="">Select branch</option>{(config.branches||[]).map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+    <label>Academic year *<select required value={form.settings?.defaultAcademicYear||''} onChange={e=>patchSettings({defaultAcademicYear:e.target.value})}><option value="">Select academic year</option>{(config.academicYears||[]).map(item=><option key={item.academicYear} value={item.academicYear}>{item.displayName||item.academicYear}</option>)}</select><small>Used automatically for leads created from this website form.</small></label>
     <label>Default stage *<select required value={form.defaultStageId||''} onChange={e=>patch({defaultStageId:e.target.value,defaultSubstageId:''})}><option value="">Select stage</option>{(config.pipelineStages||[]).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
     <label>Default sub-stage<select value={form.defaultSubstageId||''} onChange={e=>patch({defaultSubstageId:e.target.value})}><option value="">No sub-stage</option>{(config.leadSubstages||[]).filter(item=>!form.defaultStageId||String(item.stageId)===String(form.defaultStageId)).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
-    <label>Assign owner<select value={form.defaultOwnerEmployeeId||''} onChange={e=>patch({defaultOwnerEmployeeId:e.target.value})}><option value="">Unassigned</option>{(config.employees||[]).map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+    <label>Assign owner<OwnerSearchSelect value={form.defaultOwnerEmployeeId||''} options={config.employees||[]} onChange={value=>patch({defaultOwnerEmployeeId:value})}/></label>
     <label>Default source<select value={form.defaultSourceId||''} onChange={e=>patch({defaultSourceId:e.target.value})}><option value="">No source</option>{(config.sources||[]).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
     <label>Default channel<select value={form.defaultChannelId||''} onChange={e=>patch({defaultChannelId:e.target.value})}><option value="">No channel</option>{(config.channels||[]).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
     <label>Default campaign<select value={form.defaultCampaignId||''} onChange={e=>patch({defaultCampaignId:e.target.value})}><option value="">No campaign</option>{(config.campaigns||[]).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
@@ -282,6 +385,33 @@ function EnquiryFormEditor({form,setForm,config,saving,onCancel,onSubmit}){
     <label className="wide">Redirect URL<input value={form.redirectUrl||''} onChange={e=>patch({redirectUrl:e.target.value})} placeholder="Optional: https://yourwebsite.com/thank-you"/></label>
     <DialogFooter saving={saving} onCancel={onCancel}/>
   </form>;
+}
+
+function OwnerSearchSelect({ value, options, onChange }) {
+  const [open,setOpen]=useState(false);
+  const [search,setSearch]=useState('');
+  const selected=options.find(item=>String(item.id)===String(value));
+  const filtered=options.filter(item=>`${item.name||''} ${item.email||''}`.toLowerCase().includes(search.toLowerCase())).slice(0,80);
+  useEffect(()=>{
+    if(!open)return undefined;
+    const close=event=>{if(!event.target.closest('.owner-search-select'))setOpen(false);};
+    const escape=event=>{if(event.key==='Escape')setOpen(false);};
+    document.addEventListener('mousedown',close,true);
+    document.addEventListener('touchstart',close,true);
+    document.addEventListener('keydown',escape,true);
+    return()=>{document.removeEventListener('mousedown',close,true);document.removeEventListener('touchstart',close,true);document.removeEventListener('keydown',escape,true);};
+  },[open]);
+  return <div className="owner-search-select">
+    <button type="button" className={value?'selected':''} onClick={()=>setOpen(current=>!current)}><span>{selected?selected.name:'Unassigned'}</span><ChevronDown size={15}/></button>
+    {open&&<div className="owner-search-menu">
+      <div><Search size={14}/><input autoFocus value={search} onChange={event=>setSearch(event.target.value)} placeholder="Search CRM users..."/></div>
+      <section>
+        <button type="button" className={!value?'active':''} onClick={()=>{onChange('');setOpen(false);}}><i>{!value&&<Check size={12}/>}</i><span><strong>Unassigned</strong><small>No default owner</small></span></button>
+        {filtered.map(item=><button type="button" key={`${item.id}-${item.userId||''}`} className={String(item.id)===String(value)?'active':''} onClick={()=>{onChange(String(item.id));setOpen(false);setSearch('');}}><i>{String(item.id)===String(value)&&<Check size={12}/>}</i><span><strong>{item.name}</strong><small>{item.email||'CRM user'}</small></span></button>)}
+        {!filtered.length&&<p>No CRM users found</p>}
+      </section>
+    </div>}
+  </div>;
 }
 
 function MetadataList({title,description,action,onAdd,onEdit,onDelete,onMove,rows}){

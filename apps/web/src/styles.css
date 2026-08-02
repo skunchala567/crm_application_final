@@ -51,7 +51,9 @@ button svg,a svg,.icon-btn svg,.row-actions svg,.lead-quick-actions svg,.filter-
 .drawer-backdrop{background:#20224a55}.lead-drawer,.user-drawer{background:var(--canvas)}
 .role-options label.selected,.branch-options label.selected{background:var(--accent-soft);border-color:#7378c7}
 table th{background:#f8f8fc}.avatar.muted{background:var(--accent-soft);color:var(--purple)}
-.search-select{position:relative;width:100%;height:40px;border-radius:7px;background:#f0f2f6;display:flex;align-items:center;color:#868896}.search-select:focus-within{box-shadow:0 0 0 2px #595eb033}.search-select>svg:first-child{margin-left:13px;flex:none}.search-select>svg:last-of-type{margin-right:12px;flex:none}.filter-field .search-select input{height:40px;min-width:0;flex:1;border:0!important;background:transparent!important;padding:0 9px!important;box-shadow:none!important;color:#565866}.search-select-menu{position:absolute;left:0;right:0;top:calc(100% + 5px);z-index:45;max-height:240px;overflow:auto;background:#fff;border:1px solid #d7d9e2;border-radius:7px;box-shadow:0 12px 28px #24264c22;padding:5px}.search-select-menu button{width:100%;min-height:36px;border:0;border-radius:5px;background:#fff;color:#4e5060;text-align:left;padding:8px 11px;font-size:12px}.search-select-menu button:hover,.search-select-menu button[aria-selected=true]{background:#eeeeF7;color:var(--purple);font-weight:600}.search-select-menu p{margin:0;padding:12px;color:#8a8c9b;font-size:11px}.search-select input:disabled{cursor:not-allowed;opacity:.6}
+.search-select{position:relative;width:100%;height:40px;border-radius:7px;background:#f0f2f6;display:flex;align-items:center;color:#868896}.search-select:focus-within{box-shadow:0 0 0 2px #595eb033}.search-select>svg:first-child{margin-left:13px;flex:none}.search-select>svg:last-of-type{margin-right:12px;flex:none}.filter-field .search-select input{height:40px;min-width:0;flex:1;border:0!important;background:transparent!important;padding:0 9px!important;box-shadow:none!important;color:#565866}.multi-select-input{display:flex;align-items:center;width:100%;border:0;background:transparent}.search-select-menu{position:absolute;left:0;right:0;top:calc(100% + 5px);z-index:45;max-height:240px;overflow:auto;background:#fff;border:1px solid #d7d9e2;border-radius:7px;box-shadow:0 12px 28px #24264c22;padding:5px}.search-select-menu button{width:100%;min-height:36px;border:0;border-radius:5px;background:#fff;color:#4e5060;text-align:left;padding:8px 11px;font-size:12px}.search-select-menu button:hover,.search-select-menu button[aria-selected=true]{background:#eeeeF7;color:var(--purple);font-weight:600}.search-select-menu p{margin:0;padding:12px;color:#8a8c9b;font-size:11px}.search-select input:disabled{cursor:not-allowed;opacity:.6}
+/* Unified multi-select styling across all pages */
+.search-select{position:relative}.multi-search-select{height:auto;min-height:44px;align-items:center}.multi-select-input{display:flex;align-items:center;gap:6px;min-width:0;flex:1;overflow:hidden}.multi-select-input input{border:0;background:transparent;outline:none;width:26px;min-width:26px;padding:0;color:var(--ink);font-size:13px}.multi-select-input span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink);font-size:13px}.multi-placeholder{color:var(--muted);font-size:13px}.multi-clear{border:0;background:transparent;color:var(--muted);display:flex;align-items:center;cursor:pointer;padding:4px;transition:color .15s ease}.multi-clear:hover{color:var(--icon)}.multi-check{width:16px;height:16px;border:1px solid var(--border);border-radius:3px;display:inline-grid;place-items:center;margin-right:8px;color:#fff;background:transparent;transition:all .15s ease}.search-select-menu button.selected .multi-check{background:var(--primary);border-color:var(--primary)}.multi-select-actions{padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:8px}.multi-select-actions button{width:100%;padding:8px 11px;border:0;background:transparent;color:var(--primary);font-size:11px;font-weight:700;text-align:left;cursor:pointer;display:flex;justify-content:space-between;align-items:center;transition:background .15s ease}.multi-select-actions button:hover{background:var(--primary-soft)}.multi-select-actions button span{background:var(--accent-soft);color:var(--primary);padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;min-width:24px;text-align:center}.multi-select-options{display:grid;gap:4px}.multi-select-options button{width:100%;padding:8px 11px;border:0;border-radius:5px;background:#fff;color:var(--ink);text-align:left;font-size:12px;cursor:pointer;display:flex;align-items:center;transition:all .15s ease}.multi-select-options button:hover{background:var(--primary-soft);color:var(--primary)}.multi-select-options button.selected{background:var(--primary-soft);color:var(--primary);font-weight:700}
 /* Floating application notifications */
 .app-toast{position:fixed;z-index:1000;top:20px;right:20px;width:min(390px,calc(100vw - 32px));display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;padding:13px 14px;border-radius:10px;box-shadow:0 12px 35px #17182c2e;font-size:13px;font-weight:700;animation:toast-in .18s ease-out}.app-toast.success{background:#e8f7f1;color:#176b55;border:1px solid #bfe4d7}.app-toast.error{background:#fff0f0;color:#a63e3e;border:1px solid #efc5c5}.app-toast button{border:0;background:transparent;color:inherit;width:28px;height:28px;display:grid;place-items:center;border-radius:6px;cursor:pointer}.app-toast button:hover{background:#ffffff80}@keyframes toast-in{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
 /* Follow-up and notes modal */
@@ -153,8 +155,101 @@ table th{background:#f8f8fc}.avatar.muted{background:var(--accent-soft);color:va
 .search-select-menu button,
 .multi-select-options>button,
 .multi-search-menu button,
-.filter-values-popover section>button{width:100%;display:flex;align-items:center;justify-content:flex-start;text-align:left}
+.filter-values-popover section>button,
+.owner-search-menu section>button,
+.academic-multi-select .checkbox-item{width:100%;display:flex;align-items:center;justify-content:flex-start!important;text-align:left!important}
 .search-select-menu button>span,
 .multi-select-options>button>span,
 .multi-search-menu button>span,
-.filter-values-popover section>button>span{min-width:0;text-align:left}
+.filter-values-popover section>button>span,
+.owner-search-menu section>button>span,
+.academic-multi-select .checkbox-item>span{min-width:0;text-align:left!important;justify-self:start}
+.search-select-menu,
+.multi-search-menu,
+.filter-values-popover,
+.owner-search-menu,
+.academic-multi-select .multi-select-dropdown{text-align:left!important}
+.search-select input,
+.multi-search-select input,
+.filter-values-popover input,
+.owner-search-menu input,
+.academic-multi-select .search-box input{text-align:left!important}
+
+.whatsapp-settings-shell{padding:18px clamp(12px,2vw,26px) 34px;max-width:100%;overflow:hidden;background:var(--canvas)}
+.whatsapp-settings-tabs{display:flex;gap:8px;margin:0 0 18px;border-bottom:1px solid var(--border)}
+.whatsapp-settings-tabs button{height:44px;padding:0 16px;display:inline-flex;align-items:center;gap:8px;border:0;border-bottom:3px solid transparent;background:transparent;color:var(--muted);font-weight:800;font-size:12px}
+.whatsapp-settings-tabs button.active{color:var(--primary);border-bottom-color:var(--primary);background:var(--primary-soft)}
+.whatsapp-dashboard{display:grid;gap:16px;min-width:0}
+.whatsapp-dashboard-hero{display:grid;grid-template-columns:minmax(140px,1fr) minmax(320px,1.2fr);align-items:flex-end;gap:16px;padding:18px;border:1px solid var(--border);border-radius:14px;background:var(--surface);box-shadow:0 8px 24px #24264c0d;min-width:0}
+.whatsapp-dashboard-hero span{color:var(--primary);font-size:11px;font-weight:900;letter-spacing:.14em;display:block}
+.whatsapp-dashboard-hero h1{margin:4px 0;font-size:clamp(22px,3vw,30px);line-height:1.1;color:var(--ink)}
+.whatsapp-dashboard-hero p{margin:0;color:var(--muted);font-size:12px;line-height:1.45}
+.whatsapp-dashboard-filter-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;min-width:0;width:100%;align-items:center}
+.whatsapp-dashboard-hero select{width:100%;height:44px;min-width:0;border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:0 12px;color:var(--ink);font-weight:700;font-size:13px}
+.whatsapp-dashboard-filter-row .search-select{width:100%;height:44px;border:1px solid var(--border);border-radius:10px;background:var(--surface);display:flex;align-items:center;padding:0 12px;gap:8px;overflow:visible;position:relative}.whatsapp-dashboard-filter-row .search-select input{border:0;background:transparent;outline:none;height:100%;flex:1;font-weight:700;font-size:13px;color:var(--ink);padding:0}.whatsapp-dashboard-filter-row .search-select svg{width:14px;height:14px;flex-shrink:0;color:var(--icon)}.whatsapp-dashboard-filter-row .multi-clear{background:none;border:0;padding:0;color:var(--icon);display:flex;align-items:center;cursor:pointer}.whatsapp-dashboard-filter-row .multi-search-select .search-select-menu{top:calc(100% + 6px);left:0;right:0;max-width:none;z-index:1600;min-width:auto}
+.whatsapp-metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;min-width:0}
+.whatsapp-metric-grid article{min-width:0;padding:18px;border:1px solid var(--border);border-radius:14px;background:var(--surface);display:grid;gap:5px}
+.whatsapp-metric-grid i{width:38px;height:38px;display:grid;place-items:center;border-radius:11px;background:var(--primary-soft);color:var(--primary);flex-shrink:0}
+.whatsapp-metric-grid span{color:var(--muted);font-size:11px;font-weight:800;display:block;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis}
+.whatsapp-metric-grid strong{font-size:clamp(24px,3vw,32px);color:var(--ink);line-height:1.05;word-break:break-word}
+.whatsapp-metric-grid small{font-size:10px;color:#258268;font-weight:800;display:block;overflow:hidden;text-overflow:ellipsis}
+.whatsapp-chart-legend{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:0 4px;color:var(--muted);font-size:11px;font-weight:800}
+.whatsapp-chart-legend span{display:inline-flex;align-items:center;gap:7px}
+.whatsapp-chart-legend i{width:11px;height:11px;border-radius:999px;display:inline-block}
+.whatsapp-chart-legend i.utility{background:var(--primary)}
+.whatsapp-chart-legend i.marketing{background:#ff7a2f}
+.whatsapp-chart-legend small{color:#258268;font-size:10px;font-weight:800}
+.whatsapp-dashboard-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;min-width:0}
+.whatsapp-usage-card{min-height:280px;padding:18px;border:1px solid var(--border);border-radius:14px;background:var(--surface);overflow:visible}
+.whatsapp-usage-card h2{margin:0 0 14px;font-size:15px;color:var(--ink)}
+.whatsapp-usage-card-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.whatsapp-usage-card-header h2{margin:0}
+.whatsapp-usage-card-header>div{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.whatsapp-date-range{position:relative}
+.whatsapp-date-range>button,.whatsapp-export-btn{height:34px;display:inline-flex;align-items:center;gap:7px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--primary);padding:0 10px;font-size:10px;font-weight:800}
+.whatsapp-date-range>button span{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.whatsapp-export-btn:disabled{opacity:.45;cursor:not-allowed}
+.whatsapp-date-popover{position:fixed;left:clamp(18px,3vw,42px);right:clamp(18px,3vw,42px);top:clamp(90px,12vh,130px);z-index:1800;max-width:980px;margin:0 auto;padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--surface);box-shadow:0 22px 70px #17182f30}
+.whatsapp-date-popover .range-calendar-panel{margin-top:0}
+.whatsapp-date-popover .range-calendar-months{min-width:0}
+.whatsapp-date-popover .range-calendar-month{min-width:0}
+.whatsapp-date-popover footer{display:flex;justify-content:flex-end;gap:8px;padding-top:12px;margin-top:12px;border-top:1px solid var(--border)}
+.whatsapp-date-popover footer button{height:34px;border-radius:8px;padding:0 14px;font-size:11px;font-weight:800}
+.whatsapp-date-popover footer button:first-child{border:1px solid var(--border);background:var(--surface);color:var(--ink)}
+.whatsapp-date-popover footer button:last-child{border:1px solid var(--primary);background:var(--primary);color:#fff}
+.whatsapp-day-row{display:grid;grid-template-columns:minmax(74px,92px) minmax(80px,1fr) minmax(36px,54px) minmax(54px,72px);gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid #edeef6;min-width:0}
+.whatsapp-day-row span,.whatsapp-account-row span{font-size:11px;color:#55586e;font-weight:800}
+.whatsapp-day-row div{height:10px;border-radius:10px;background:#f0f1f7;overflow:hidden;display:flex}
+.whatsapp-day-row i,.whatsapp-day-row b{height:100%;display:block}
+.whatsapp-day-row i{background:var(--primary)}
+.whatsapp-day-row b{background:#ff7a2f}
+.whatsapp-day-row strong,.whatsapp-account-row strong{font-size:12px;text-align:right}
+.whatsapp-day-row small,.whatsapp-account-row small{font-size:10px;color:var(--muted);text-align:right}
+.whatsapp-account-row{display:grid;grid-template-columns:minmax(0,1fr) 70px 90px;gap:10px;align-items:center;padding:12px 0;border-bottom:1px solid #edeef6}
+.whatsapp-breakdown-list{display:grid;gap:4px}
+.whatsapp-breakdown-row{display:grid;grid-template-columns:minmax(110px,170px) minmax(90px,1fr) minmax(42px,64px) minmax(54px,76px);gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid #edeef6;min-width:0}
+.whatsapp-breakdown-row span{font-size:11px;color:#55586e;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.whatsapp-breakdown-row div{height:10px;border-radius:10px;background:#f0f1f7;overflow:hidden;display:flex;min-width:0}
+.whatsapp-breakdown-row i,.whatsapp-breakdown-row b{height:100%;display:block}
+.whatsapp-breakdown-row i{background:var(--primary)}
+.whatsapp-breakdown-row b{background:#ff7a2f}
+.whatsapp-breakdown-row strong{font-size:12px;text-align:right;color:var(--ink)}
+.whatsapp-breakdown-row small{font-size:10px;color:var(--muted);text-align:right}
+.whatsapp-status-strip{display:flex;gap:12px;flex-wrap:wrap}
+.whatsapp-status-strip span{padding:10px 14px;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--muted);font-size:11px;font-weight:800}
+.whatsapp-status-strip strong{color:var(--primary);margin-left:8px}
+.whatsapp-pagination{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
+.whatsapp-pagination button{height:30px;display:inline-flex;align-items:center;gap:4px;border:1px solid var(--border);border-radius:7px;background:var(--surface);color:var(--primary);padding:0 9px;font-size:10px;font-weight:800}
+.whatsapp-pagination button:disabled{opacity:.45;color:var(--muted)}
+.whatsapp-pagination span{font-size:10px;color:var(--muted);font-weight:800}
+.whatsapp-dashboard-error,.whatsapp-dashboard-loading{display:flex;align-items:center;gap:8px;padding:14px;border-radius:10px;background:var(--surface);border:1px solid var(--border);color:var(--muted);font-size:12px;font-weight:800}
+.whatsapp-dashboard-error{border-color:#ffd1d1;color:#b64040;background:#fff7f7}
+@media(max-width:1400px){.whatsapp-metric-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:1200px){.whatsapp-metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:1000px){.whatsapp-metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:1280px){.whatsapp-dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:1100px){.whatsapp-dashboard-hero{grid-template-columns:1fr 1fr;gap:14px}.whatsapp-dashboard-filter-row{grid-template-columns:1fr;gap:10px}.whatsapp-dashboard-hero select{width:100%;font-size:12px}.whatsapp-dashboard-grid{grid-template-columns:1fr}}
+@media(max-width:980px){.whatsapp-date-popover{left:14px;right:14px;top:84px;max-height:calc(100vh - 110px);overflow:auto}.whatsapp-date-popover .range-calendar-months{min-width:560px;overflow:auto}}
+@media(max-width:840px){.whatsapp-metric-grid{grid-template-columns:1fr}.whatsapp-dashboard-grid{grid-template-columns:1fr}.whatsapp-dashboard-filter-row{grid-template-columns:1fr 1fr;gap:10px}.whatsapp-usage-card-header{flex-direction:column;align-items:flex-start}.whatsapp-usage-card-header>div{width:100%;justify-content:flex-start}.whatsapp-day-row,.whatsapp-breakdown-row{grid-template-columns:1fr;gap:6px;padding:8px 0}.whatsapp-day-row strong,.whatsapp-day-row small,.whatsapp-breakdown-row strong,.whatsapp-breakdown-row small{text-align:left}.whatsapp-account-row{grid-template-columns:1fr auto;gap:8px;padding:10px 0}.whatsapp-account-row small{grid-column:1/-1;text-align:left}.whatsapp-dashboard-hero{padding:14px;grid-template-columns:1fr;gap:12px}.whatsapp-dashboard-filter-row{width:100%}.whatsapp-dashboard-hero select{height:40px;font-size:12px;width:100%}.whatsapp-metric-grid article{padding:14px}.whatsapp-usage-card{padding:14px}.whatsapp-usage-card h2{font-size:13px;margin-bottom:10px}.whatsapp-date-range>button,.whatsapp-export-btn{height:32px;font-size:9px;padding:0 8px}}
+@media(max-width:720px){.whatsapp-settings-shell{padding:12px}.whatsapp-settings-tabs{overflow-x:auto;gap:4px}.whatsapp-settings-tabs button{padding:0 12px;height:40px}.whatsapp-metric-grid article{padding:12px;gap:4px}.whatsapp-metric-grid i{width:32px;height:32px}.whatsapp-metric-grid strong{font-size:22px}.whatsapp-usage-card{padding:12px;min-height:auto}.whatsapp-chart-legend{font-size:10px;gap:10px}.whatsapp-usage-card h2{font-size:12px}.whatsapp-date-range>button{max-width:100%}.whatsapp-dashboard-hero{gap:10px;grid-template-columns:1fr}.whatsapp-dashboard-filter-row{grid-template-columns:1fr 1fr;gap:8px}.whatsapp-dashboard-filter-row select{font-size:12px}.whatsapp-status-strip{gap:8px}.whatsapp-status-strip span{padding:8px 10px;font-size:10px}}
+@media(max-width:480px){.whatsapp-settings-shell{padding:8px}.whatsapp-dashboard-hero{padding:12px}.whatsapp-dashboard-filter-row{gap:6px}.whatsapp-metric-grid article{padding:10px;gap:3px}.whatsapp-metric-grid strong{font-size:18px}.whatsapp-metric-grid span{font-size:10px}.whatsapp-metric-grid small{font-size:9px}.whatsapp-usage-card{padding:10px}.whatsapp-usage-card h2{font-size:11px}.whatsapp-day-row,.whatsapp-breakdown-row{gap:4px;font-size:10px}.whatsapp-account-row{gap:6px}.whatsapp-status-strip span{padding:6px 8px;font-size:9px}}

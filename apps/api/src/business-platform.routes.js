@@ -219,7 +219,23 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
   router.get('/business-units/:id/config', async (req,res)=>{
     const unitId=Number(req.params.id),unit=await accessibleUnit(req,unitId);
     if(!unit)return res.status(403).json({message:'Business unit access denied'});
-    const [[fields],[forms],[enquiryForms],[pipelines],[pipelineStages],[workflows],[operationStages],[modules],[branches],[sources],[channels],[campaigns],[employees]]=await Promise.all([
+    const [branchPaymentColumns]=await pool.execute(
+      `SELECT column_name AS columnName FROM information_schema.columns
+       WHERE table_schema=DATABASE() AND table_name='branches'
+         AND column_name IN ('jodo_payment_enabled','jodo_collector_code','jodo_api_key','application_amount','application_stage_id','application_payment_component')`,
+    );
+    const hasBranchPaymentColumns=branchPaymentColumns.length>=6;
+    const branchSelect=hasBranchPaymentColumns
+      ? `SELECT id,branch_name AS name,short_name AS shortName,is_active AS isActive,
+                jodo_payment_enabled AS jodoPaymentEnabled,jodo_collector_code AS jodoCollectorCode,
+                jodo_api_key AS jodoApiKey,application_amount AS applicationAmount,
+                application_stage_id AS applicationStageId,application_payment_component AS applicationPaymentComponent
+         FROM branches WHERE is_active=TRUE ORDER BY branch_name`
+      : `SELECT id,branch_name AS name,short_name AS shortName,is_active AS isActive,
+                0 AS jodoPaymentEnabled,NULL AS jodoCollectorCode,NULL AS jodoApiKey,NULL AS applicationAmount,
+                NULL AS applicationStageId,'Payable Amount' AS applicationPaymentComponent
+         FROM branches WHERE is_active=TRUE ORDER BY branch_name`;
+    const [[fields],[forms],[enquiryForms],[pipelines],[pipelineStages],[workflows],[operationStages],[modules],[branches],[sources],[channels],[campaigns],[employees],[academicYears]]=await Promise.all([
       pool.execute(`SELECT id,field_key AS fieldKey,display_name AS displayName,field_type AS fieldType,placeholder,help_text AS helpText,options_json AS options,validation_json AS validation,is_system AS isSystem,is_required AS isRequired,is_filterable AS isFilterable,filter_control AS filterControl,is_searchable AS isSearchable,is_importable AS isImportable,is_import_required AS isImportRequired,import_header AS importHeader,import_sample_value AS importSampleValue,show_in_list AS showInList,position,column_width AS columnWidth,is_active AS isActive FROM crm_metadata_fields WHERE business_unit_id=? ORDER BY module_key,position`,[unitId]),
       pool.execute(`SELECT id,form_key AS formKey,display_name AS displayName,form_type AS formType,sections_json AS sections,is_default AS isDefault,is_active AS isActive FROM crm_metadata_forms WHERE business_unit_id=? ORDER BY display_name`,[unitId]),
       pool.execute(`SELECT id,form_key AS formKey,display_name AS displayName,description,default_branch_id AS defaultBranchId,default_stage_id AS defaultStageId,default_substage_id AS defaultSubstageId,default_source_id AS defaultSourceId,default_channel_id AS defaultChannelId,default_campaign_id AS defaultCampaignId,default_owner_employee_id AS defaultOwnerEmployeeId,field_schema_json AS fieldSchema,settings_json AS settings,success_message AS successMessage,redirect_url AS redirectUrl,is_active AS isActive FROM crm_public_enquiry_forms WHERE business_unit_id=? ORDER BY display_name`,[unitId]),
@@ -228,11 +244,29 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
       pool.execute(`SELECT id,workflow_key AS workflowKey,display_name AS displayName,entity_label AS entityLabel,description,form_schema_json AS formSchema,is_default AS isDefault,is_active AS isActive FROM crm_operation_workflows WHERE business_unit_id=? ORDER BY is_default DESC,display_name`,[unitId]),
       pool.execute(`SELECT os.id,os.workflow_id AS workflowId,os.stage_key AS stageKey,os.display_name AS displayName,os.stage_type AS stageType,os.color_code AS color,os.position,os.checklist_json AS checklist,os.is_active AS isActive FROM crm_operation_stages os JOIN crm_operation_workflows ow ON ow.id=os.workflow_id WHERE ow.business_unit_id=? ORDER BY os.workflow_id,os.position`,[unitId]),
       pool.execute(`SELECT id,module_key AS moduleKey,display_name AS displayName,module_type AS moduleType,description,layout_json AS layout,settings_json AS settings,position,is_active AS isActive FROM crm_business_modules WHERE business_unit_id=? ORDER BY position`,[unitId]),
-      pool.query(`SELECT id,branch_name AS name FROM branches WHERE is_active=TRUE ORDER BY branch_name`),
+      pool.query(branchSelect),
       pool.query(`SELECT id,display_name AS displayName FROM crm_lead_sources WHERE is_active=TRUE ORDER BY display_name`),
       pool.query(`SELECT id,display_name AS displayName FROM crm_lead_channels WHERE is_active=TRUE ORDER BY display_name`),
       pool.query(`SELECT id,display_name AS displayName FROM crm_campaigns WHERE is_active=TRUE ORDER BY display_name`),
-      pool.query(`SELECT id,employee_name AS name FROM employees WHERE status='Active' ORDER BY employee_name LIMIT 1000`),
+      pool.execute(
+        `SELECT DISTINCT e.id, u.id AS userId,
+                COALESCE(e.employee_name,CONCAT_WS(' ',p.first_name,p.last_name),u.email) AS name,
+                u.email
+         FROM app_users u
+         JOIN employees e ON e.id=u.employee_id
+         LEFT JOIN crm_user_profiles p ON p.user_id=u.id
+         LEFT JOIN crm_user_business_units ubu ON ubu.user_id=u.id AND ubu.business_unit_id=?
+         WHERE u.is_active=TRUE
+           AND e.status='Active'
+           AND (ubu.user_id IS NOT NULL OR EXISTS(
+             SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id
+             WHERE ur.user_id=u.id AND r.normalized_name IN ('ADMIN','CRM_ADMIN')
+           ))
+         ORDER BY name
+         LIMIT 1000`,
+        [unitId],
+      ),
+      pool.query(`SELECT academic_year AS academicYear,display_name AS displayName FROM crm_academic_years WHERE is_active=TRUE ORDER BY academic_year DESC`),
     ]);
     const normalize=rows=>rows.map(row=>Object.fromEntries(Object.entries(row).map(([key,value])=>[
       key,['options','sections','formSchema','fieldSchema','checklist','layout','settings','validation'].includes(key)?parseJson(value,key==='options'?[]:{}):value,
@@ -262,7 +296,79 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
       id:Number(unit.id),code:unit.unit_code,name:unit.display_name,industryType:unit.industry_type,
       compatibilityMode:unit.compatibility_mode,color:unit.color_code,
     },fields:normalize(fields),forms:normalize(forms),pipelines:resolvedPipelines,pipelineStages:resolvedPipelineStages,
-    leadSubstages:normalize(leadSubstages),enquiryForms:normalize(enquiryForms),branches:normalize(branches),sources:normalize(sources),channels:normalize(channels),campaigns:normalize(campaigns),employees:normalize(employees),workflows:normalize(workflows),operationStages:normalize(operationStages),modules:normalize(modules)});
+    leadSubstages:normalize(leadSubstages),enquiryForms:normalize(enquiryForms),branches:normalize(branches),sources:normalize(sources),channels:normalize(channels),campaigns:normalize(campaigns),employees:normalize(employees),academicYears:normalize(academicYears),workflows:normalize(workflows),operationStages:normalize(operationStages),modules:normalize(modules)});
+  });
+
+  router.get('/business-units/:id/database-tables', requireUserAdmin, async (req,res)=>{
+    const unitId=Number(req.params.id),unit=await accessibleUnit(req,unitId,true);
+    if(!unit)return res.status(403).json({message:'Business unit access denied'});
+    const [tables]=await pool.execute(
+      `SELECT c.table_name AS tableName
+       FROM information_schema.columns c
+       WHERE c.table_schema=DATABASE()
+         AND c.column_name='business_unit_id'
+         AND (c.table_name LIKE 'crm\\_%' OR c.table_name LIKE 'business\\_%')
+       GROUP BY c.table_name
+       ORDER BY c.table_name`,
+    );
+    const escapeIdentifier=name=>`\`${String(name).replace(/`/g,'``')}\``;
+    const data=[];
+    for(const table of tables){
+      const tableName=table.tableName;
+      const [columnRows]=await pool.execute(
+        `SELECT column_name AS columnName
+         FROM information_schema.columns
+         WHERE table_schema=DATABASE() AND table_name=?
+         ORDER BY ordinal_position`,
+        [tableName],
+      );
+      const columns=columnRows.map(row=>row.columnName);
+      const orderColumn=['created_at_utc','created_at','createdAt','created_on','inserted_at','updated_at_utc','updated_at','id'].find(column=>columns.includes(column))||columns[0];
+      const [[countRow]]=await pool.query(`SELECT COUNT(*) AS count FROM ${escapeIdentifier(tableName)} WHERE business_unit_id=?`,[unitId]);
+      const [rows]=await pool.query(`SELECT * FROM ${escapeIdentifier(tableName)} WHERE business_unit_id=? ORDER BY ${escapeIdentifier(orderColumn)} DESC LIMIT 5`,[unitId]);
+      data.push({tableName,columns,rowCount:Number(countRow.count||0),rows});
+    }
+    res.json({businessUnit:{id:unitId,name:unit.display_name||unit.name},tables:data});
+  });
+
+  router.post('/business-units/:id/branches', requireUserAdmin, async (req,res)=>{
+    const unitId=Number(req.params.id),unit=await accessibleUnit(req,unitId,true);
+    if(!unit)return res.status(403).json({message:'Business unit management access required'});
+    const [[schema]]=await pool.execute(`SELECT COUNT(*) AS count FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='branches' AND column_name='jodo_payment_enabled'`);
+    if(!Number(schema.count))return res.status(400).json({message:'Run database migration 050_branch_jodo_payment_configuration.sql before configuring branch payments'});
+    const name=text(req.body.name,150),shortName=text(req.body.shortName,50)||name;
+    if(!name)return res.status(400).json({message:'Branch name is required'});
+    try{
+      const [result]=await pool.execute(
+        `INSERT INTO branches
+         (branch_name,short_name,is_active,jodo_payment_enabled,jodo_api_key,jodo_secret_key,jodo_collector_code,application_amount,application_stage_id,application_payment_component)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`,
+        [name,shortName,req.body.isActive===false?0:1,req.body.jodoPaymentEnabled?1:0,text(req.body.jodoApiKey,255),text(req.body.jodoSecretKey,255),text(req.body.jodoCollectorCode,100),req.body.applicationAmount?Number(req.body.applicationAmount):null,req.body.applicationStageId?Number(req.body.applicationStageId):null,text(req.body.applicationPaymentComponent,120)||'Payable Amount'],
+      );
+      res.status(201).json({id:Number(result.insertId),message:'Branch created'});
+    }catch(error){
+      if(error.code==='ER_NO_DEFAULT_FOR_FIELD')return res.status(400).json({message:'This branch table has additional required columns. Please create the branch in the master branch setup, then configure payment details here.'});
+      throw error;
+    }
+  });
+
+  router.put('/business-units/:unitId/branches/:id', requireUserAdmin, async (req,res)=>{
+    const unitId=Number(req.params.unitId),unit=await accessibleUnit(req,unitId,true);
+    if(!unit)return res.status(403).json({message:'Business unit management access required'});
+    const [[schema]]=await pool.execute(`SELECT COUNT(*) AS count FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='branches' AND column_name='jodo_payment_enabled'`);
+    if(!Number(schema.count))return res.status(400).json({message:'Run database migration 050_branch_jodo_payment_configuration.sql before configuring branch payments'});
+    const name=text(req.body.name,150);
+    if(!name)return res.status(400).json({message:'Branch name is required'});
+    const [result]=await pool.execute(
+      `UPDATE branches
+       SET branch_name=?,short_name=?,is_active=?,jodo_payment_enabled=?,jodo_api_key=COALESCE(?,jodo_api_key),
+           jodo_secret_key=COALESCE(?,jodo_secret_key),jodo_collector_code=?,application_amount=?,
+           application_stage_id=?,application_payment_component=?
+       WHERE id=?`,
+      [name,text(req.body.shortName,50)||name,req.body.isActive===false?0:1,req.body.jodoPaymentEnabled?1:0,text(req.body.jodoApiKey,255),text(req.body.jodoSecretKey,255),text(req.body.jodoCollectorCode,100),req.body.applicationAmount?Number(req.body.applicationAmount):null,req.body.applicationStageId?Number(req.body.applicationStageId):null,text(req.body.applicationPaymentComponent,120)||'Payable Amount',Number(req.params.id)],
+    );
+    if(!result.affectedRows)return res.status(404).json({message:'Branch not found'});
+    res.json({message:'Branch/payment configuration updated'});
   });
 
   router.post('/business-units/:id/fields', requireUserAdmin, async (req,res)=>{
@@ -374,7 +480,7 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
       defaultCampaignId:req.body.defaultCampaignId?Number(req.body.defaultCampaignId):null,
       defaultOwnerEmployeeId:req.body.defaultOwnerEmployeeId?Number(req.body.defaultOwnerEmployeeId):null,
       fields,
-      settings:req.body.settings&&typeof req.body.settings==='object'?req.body.settings:{},
+      settings:{...(req.body.settings&&typeof req.body.settings==='object'?req.body.settings:{}),defaultAcademicYear:text(req.body.settings?.defaultAcademicYear||req.body.defaultAcademicYear,20)},
       successMessage:text(req.body.successMessage,500)||'Thank you. Your enquiry has been submitted.',
       redirectUrl:text(req.body.redirectUrl,500),
       isActive:req.body.isActive!==false,
@@ -387,6 +493,7 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     const payload=enquiryPayload(req);
     if(!payload.displayName)return res.status(400).json({message:'Form name is required'});
     if(!payload.defaultBranchId||!payload.defaultStageId)return res.status(400).json({message:'Default branch and stage are required'});
+    if(!payload.settings.defaultAcademicYear)return res.status(400).json({message:'Academic year is required for enquiry forms'});
     if(!payload.fields.length)return res.status(400).json({message:'Select at least one field for the enquiry form'});
     const formKey=slug(req.body.formKey||`${unit.unit_code}_${payload.displayName}`)||`enquiry_${Date.now()}`;
     try{
@@ -406,6 +513,7 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     const payload=enquiryPayload(req);
     if(!payload.displayName)return res.status(400).json({message:'Form name is required'});
     if(!payload.defaultBranchId||!payload.defaultStageId)return res.status(400).json({message:'Default branch and stage are required'});
+    if(!payload.settings.defaultAcademicYear)return res.status(400).json({message:'Academic year is required for enquiry forms'});
     if(!payload.fields.length)return res.status(400).json({message:'Select at least one field for the enquiry form'});
     const [result]=await pool.execute(
       `UPDATE crm_public_enquiry_forms SET display_name=?,description=?,default_branch_id=?,default_stage_id=?,default_substage_id=?,default_source_id=?,default_channel_id=?,default_campaign_id=?,default_owner_employee_id=?,field_schema_json=?,settings_json=?,success_message=?,redirect_url=?,is_active=?,updated_by_user_id=?

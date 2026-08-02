@@ -1,23 +1,29 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { BookOpen, CalendarRange } from 'lucide-react';
+import { BookOpen, CalendarRange, Layers3, Tags } from 'lucide-react';
 import AcademicYearsConfiguration from './AcademicYearsConfiguration.jsx';
 import AdmissionClassConfiguration from './AdmissionClassConfiguration.jsx';
+import AcademicMasterDataConfiguration from './AcademicMasterDataConfiguration.jsx';
 
 const sections = [
   { id: 'years', label: 'Academic Years', icon: CalendarRange },
+  { id: 'curricula', label: 'Curriculum', icon: Layers3 },
+  { id: 'admissionTypes', label: 'Admission Types', icon: Tags },
   { id: 'classes', label: 'Admission Classes', icon: BookOpen },
 ];
 
 export default function AcademicConfigurationPage({ onMessage, initialSection = 'years', embedded = false }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedSection = searchParams.get('section');
-  const [activeSection, setActiveSection] = useState(
-    requestedSection === 'classes' ? 'classes' : initialSection
-  );
+  const initialActiveSection = sections.some(section => section.id === requestedSection)
+    ? requestedSection
+    : initialSection;
+  const [activeSection, setActiveSection] = useState(initialActiveSection);
   const ActiveComponent = activeSection === 'classes'
     ? AdmissionClassConfiguration
-    : AcademicYearsConfiguration;
+    : activeSection === 'curricula' || activeSection === 'admissionTypes'
+      ? AcademicMasterDataConfiguration
+      : AcademicYearsConfiguration;
 
   const content = <>
     {!embedded && <div className="lead-config-head">
@@ -40,7 +46,7 @@ export default function AcademicConfigurationPage({ onMessage, initialSection = 
           onClick={() => {
             setActiveSection(id);
             const next = new URLSearchParams(searchParams);
-            if (id === 'classes') next.set('section', 'classes');
+            if (id !== 'years') next.set('section', id);
             else next.delete('section');
             setSearchParams(next);
           }}
@@ -52,7 +58,7 @@ export default function AcademicConfigurationPage({ onMessage, initialSection = 
     </div>
 
     <div className="academic-tab-content" role="tabpanel">
-      <ActiveComponent key={activeSection} onMessage={onMessage} />
+      <ActiveComponent key={activeSection} type={activeSection} onMessage={onMessage} />
     </div>
   </>;
 

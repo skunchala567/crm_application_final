@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, CheckCircle2, FileUp, History, Loader, MessageCircle, RefreshCw, Send, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Download, FileUp, History, Loader, MessageCircle, RefreshCw, Send, X } from 'lucide-react';
 import { api } from '../api';
 import './WhatsAppSendPanel.css';
 import './WhatsAppSendAdvanced.css';
@@ -322,13 +322,51 @@ export function WhatsAppMessageHistory({ open, onClose }) {
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
+  const [dateRange, setDateRange] = useState(() => {
+    const today = new Date();
+    const from = new Date(today);
+    from.setDate(today.getDate() - 6);
+    return {
+      from: from.toISOString().split('T')[0],
+      to: today.toISOString().split('T')[0]
+    };
+  });
+
   const load = async () => {
     setLoading(true);
     try {
-      const result = await api.get(`/hub/smartping/message-history?status=${encodeURIComponent(status)}&search=${encodeURIComponent(search)}`);
+      const query = new URLSearchParams({
+        status: status || '',
+        search: search || '',
+        from: dateRange.from || '',
+        to: dateRange.to || ''
+      });
+      const result = await api.get(`/hub/smartping/message-history?${query.toString()}`);
       setRows(result.data || []);
     } finally { setLoading(false); }
   };
+
+  const exportData = () => {
+    if (!rows.length) return;
+    const headers = ['Date', 'Account', 'Template', 'Recipient', 'Status', 'Failure reason'];
+    const data = rows.map(row => [
+      new Date(row.sent_at || row.created_at).toLocaleString('en-IN'),
+      row.integration_name || '',
+      row.template_name || 'Custom message',
+      row.phone_number || '',
+      row.status || '',
+      row.failure_reason || '—'
+    ]);
+    const csv = [headers, ...data].map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `whatsapp-message-history-${dateRange.from}-to-${dateRange.to}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   useEffect(() => {
     if (!open) return undefined;
     const debounce = window.setTimeout(load, 300);
@@ -337,11 +375,30 @@ export function WhatsAppMessageHistory({ open, onClose }) {
       window.clearTimeout(debounce);
       window.clearInterval(timer);
     };
-  }, [open, status, search]);
+  }, [open, status, search, dateRange.from, dateRange.to]);
+
   if (!open) return null;
   return <div className="wa-history-screen">
     <header><div><History/><span><h2>WhatsApp message history</h2><p>Template messages and their latest delivery status.</p></span></div><button onClick={onClose}><X/></button></header>
-    <div className="wa-history-toolbar"><input placeholder="Search number or template" value={search} onChange={event => setSearch(event.target.value)} onKeyDown={event => event.key === 'Enter' && load()}/><select value={status} onChange={event => setStatus(event.target.value)}><option value="">All statuses</option><option>SENT</option><option>DELIVERED</option><option>READ</option><option>FAILED</option></select><button onClick={load}>Refresh</button></div>
+    <div className="wa-history-toolbar">
+      <div className="wa-history-toolbar-left">
+        <input placeholder="Search number or template" value={search} onChange={event => setSearch(event.target.value)} onKeyDown={event => event.key === 'Enter' && load()}/>
+        <select value={status} onChange={event => setStatus(event.target.value)}>
+          <option value="">All statuses</option>
+          <option>SENT</option>
+          <option>DELIVERED</option>
+          <option>READ</option>
+          <option>FAILED</option>
+        </select>
+      </div>
+      <div className="wa-history-toolbar-right">
+        <input type="date" value={dateRange.from} onChange={event => setDateRange(current => ({ ...current, from: event.target.value }))} max={dateRange.to}/>
+        <span>to</span>
+        <input type="date" value={dateRange.to} onChange={event => setDateRange(current => ({ ...current, to: event.target.value }))} min={dateRange.from} max={new Date().toISOString().split('T')[0]}/>
+        <button onClick={load} title="Refresh data"><RefreshCw size={14}/>Refresh</button>
+        <button onClick={exportData} disabled={!rows.length} title="Export to CSV"><Download size={14}/>Export</button>
+      </div>
+    </div>
     <div className="wa-history-table"><table><thead><tr><th>Date</th><th>Account</th><th>Template</th><th>Recipient</th><th>Status</th><th>Failure reason</th></tr></thead><tbody>{rows.map(row => <tr key={row.id}><td>{new Date(row.sent_at || row.created_at).toLocaleString('en-IN')}</td><td>{row.integration_name}</td><td>{row.template_name || 'Custom message'}</td><td>{row.phone_number}</td><td><b className={`wa-status ${String(row.status).toLowerCase()}`}><span>{row.status === 'READ' || row.status === 'DELIVERED' ? '✓✓' : row.status === 'SENT' ? '✓' : row.status === 'FAILED' || row.status === 'REJECTED' ? '!' : '◷'}</span>{row.status}</b></td><td>{row.failure_reason || '—'}</td></tr>)}</tbody></table>{!loading && !rows.length && <p className="wa-history-empty">No sent messages found.</p>}{loading && !rows.length && <p className="wa-history-empty">Loading history…</p>}</div>
   </div>;
 }

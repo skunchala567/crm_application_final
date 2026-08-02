@@ -1,0 +1,213 @@
+.download-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 360;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 18, 35, 0.62);
+}
+
+.download-fields-dialog {
+  width: min(760px, calc(100vw - 32px));
+  max-height: min(720px, calc(100vh - 32px));
+  display: grid;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 24px 70px rgba(22, 24, 60, 0.32);
+  overflow: hidden;
+}
+
+.download-fields-dialog header {
+  height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 22px;
+  background: linear-gradient(135deg, var(--primary-soft), #ffffff);
+  border-bottom: 1px solid #dfe1fb;
+}
+
+.download-fields-dialog header > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.download-fields-dialog header svg {
+  color: var(--primary);
+}
+
+.download-fields-dialog h2 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--ink);
+}
+
+.download-fields-dialog header button {
+  width: 34px;
+  height: 34px;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  display: grid;
+  place-items: center;
+}
+
+.download-dialog-search {
+  width: min(420px, calc(100% - 44px));
+  height: 38px;
+  justify-self: center;
+  margin: 16px 22px 10px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: #f7f7ff;
+  border: 1px solid #ececff;
+}
+
+.download-dialog-search svg {
+  color: var(--primary);
+}
+
+.download-dialog-search input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.download-dialog-note {
+  margin: 6px 26px 14px;
+  color: #686b76;
+  font-size: 12px;
+  font-style: italic;
+}
+
+.download-select-all {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 28px;
+  border-bottom: 1px solid #dfe1fb;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.download-select-all b {
+  margin-left: auto;
+  min-width: 24px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  text-align: center;
+  font-size: 10px;
+}
+
+.download-fields-dialog input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+}
+
+.download-field-groups {
+  min-height: 0;
+  overflow: auto;
+  padding: 0 26px 14px;
+}
+
+.download-field-group {
+  padding: 16px 0 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.download-field-group h3 {
+  margin: 0 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #4d5060;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.download-field-group > div {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(150px, 1fr));
+  gap: 14px 24px;
+}
+
+.download-field-option {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #4a4d59;
+  font-size: 12px;
+}
+
+.download-field-option span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.download-empty {
+  padding: 26px 0;
+  color: var(--muted);
+  text-align: center;
+}
+
+.download-fields-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 14px 26px;
+  border-top: 1px solid var(--border);
+  background: #fff;
+}
+
+.download-fields-dialog footer button {
+  min-width: 112px;
+  height: 38px;
+  border-radius: 8px;
+  font-weight: 800;
+}
+
+.download-reset {
+  border: 1px solid #cfd2df;
+  background: #fff;
+  color: var(--primary);
+}
+
+.download-primary {
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.download-primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (max-width: 760px) {
+  .download-field-group > div {
+    grid-template-columns: 1fr;
+  }
+}

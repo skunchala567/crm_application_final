@@ -28,6 +28,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { api } from "./api";
 import FilterWorkspace, { emptyAdvancedFilters, MultiSearchSelect, normalizeFilters } from "./FilterWorkspace.jsx";
+import DownloadFieldsDialog from "./DownloadFieldsDialog.jsx";
 import { BulkUploadButton } from "./BulkUpload.jsx";
 import { StageChangeDialog } from "./StageChangeDialog.jsx";
 import { BulkStageChangeConfirm } from "./BulkStageChangeConfirm.jsx";
@@ -237,8 +238,15 @@ function FollowupDateFilter({ from, to, onChange, dueCount = 0, dateType = "next
   useEffect(() => {
     if (!open) return undefined;
     const close = event => { if (!rootRef.current?.contains(event.target)) setOpen(false); };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    const escape = event => { if (event.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", close, true);
+    document.addEventListener("touchstart", close, true);
+    document.addEventListener("keydown", escape, true);
+    return () => {
+      document.removeEventListener("mousedown", close, true);
+      document.removeEventListener("touchstart", close, true);
+      document.removeEventListener("keydown", escape, true);
+    };
   }, [open]);
   const dateTypeLabels = {
     addedAt: "Added",
@@ -407,6 +415,71 @@ function getDateFieldValue(lead, dateType) {
   };
   return dateMap[dateType] || lead.nextFollowup;
 }
+function matchesDateRange(lead, field, from, to) {
+  if (!from && !to) return true;
+  const value = getDateFieldValue(lead, field);
+  if (!value) return false;
+  const key = istDateKey(value);
+  return (!from || key >= from) && (!to || key <= to);
+}
+function containsFilter(value, search) {
+  if (!search) return true;
+  return String(value || "").toLowerCase().includes(String(search).trim().toLowerCase());
+}
+function phoneContainsFilter(value, search) {
+  if (!search) return true;
+  return String(value || "").replace(/\D/g,"").includes(String(search).replace(/\D/g,""));
+}
+
+function formatExportDate(value) {
+  if (!value) return "";
+  return new Date(value).toLocaleString("en-IN", { timeZone:"Asia/Kolkata", dateStyle:"medium", timeStyle:"short" });
+}
+
+function csvCell(value) {
+  return `"${String(value ?? "").replaceAll('"', '""')}"`;
+}
+
+function buildLeadExportGroups(meta) {
+  const base = [
+    { id:"leadId", label:"Lead ID", group:"Lead details", defaultSelected:true, get:lead=>lead.leadId },
+    { id:"studentName", label:"Student name", group:"Lead details", defaultSelected:true, get:lead=>lead.studentName },
+    { id:"primaryPhone", label:"Primary phone", group:"Communication details", defaultSelected:true, get:lead=>lead.phone },
+    { id:"alternatePhone", label:"Alternate phone", group:"Communication details", get:lead=>lead.alternatePhone },
+    { id:"email", label:"Email", group:"Communication details", get:lead=>lead.email },
+    { id:"parentName", label:"Parent name", group:"Family & Address details", get:lead=>lead.parentName },
+    { id:"city", label:"City", group:"Family & Address details", get:lead=>lead.city },
+    { id:"branch", label:"Branch", group:"Academic details", defaultSelected:true, get:lead=>lead.branch },
+    { id:"academicYear", label:"Academic year", group:"Academic details", get:lead=>lead.academicYear },
+    { id:"class", label:"Class", group:"Academic details", defaultSelected:true, get:lead=>lead.applyingClass },
+    { id:"curriculum", label:"Curriculum", group:"Academic details", defaultSelected:true, get:lead=>lead.curriculum },
+    { id:"admissionType", label:"Admission type", group:"Academic details", get:lead=>lead.admissionType },
+    { id:"stage", label:"Stage", group:"Lead journey details", defaultSelected:true, get:lead=>lead.stage },
+    { id:"substage", label:"Sub-stage", group:"Lead journey details", get:lead=>meta.substages.find(item=>String(item.id)===String(lead.substageId))?.displayName || "" },
+    { id:"source", label:"Source", group:"Source details", get:lead=>lead.source },
+    { id:"channel", label:"Channel", group:"Source details", get:lead=>meta.channels.find(item=>String(item.id)===String(lead.channelId))?.displayName || "" },
+    { id:"campaign", label:"Campaign", group:"Source details", get:lead=>meta.campaigns.find(item=>String(item.id)===String(lead.campaignId))?.displayName || "" },
+    { id:"owner", label:"Counsellor", group:"Lead ownership", defaultSelected:true, get:lead=>lead.owner },
+    { id:"touchStatus", label:"Touch status", group:"Lead ownership", get:lead=>lead.touchStatus },
+    { id:"score", label:"Lead score", group:"Lead ownership", get:lead=>lead.score },
+    { id:"remarks", label:"Remarks", group:"Lead journey details", get:lead=>lead.remarks },
+    { id:"addedAt", label:"Added on", group:"Date details", defaultSelected:true, get:lead=>formatExportDate(lead.addedAt) },
+    { id:"updatedAt", label:"Updated on", group:"Date details", defaultSelected:true, get:lead=>formatExportDate(lead.updatedAt) },
+    { id:"referredAt", label:"Referred on", group:"Date details", get:lead=>formatExportDate(lead.referredAt) },
+    { id:"nextFollowup", label:"Next follow-up", group:"Date details", get:lead=>formatExportDate(lead.nextFollowup) },
+    { id:"reEnquiredAt", label:"Re-enquired on", group:"Date details", get:lead=>formatExportDate(lead.reEnquiredAt) },
+  ];
+  const standardKeys = new Set(["name","student_name","phone","primary_phone","alternate_phone","email","parent_name","city","academic_year","branch_id","admission_type_id","curriculum_id","class_id","channel_id","source_id","campaign_id","stage_id","substage_id","owner_employee_id","next_followup_at_utc"]);
+  const custom = (meta.leadFields || [])
+    .filter(field => field.fieldKey && !standardKeys.has(String(field.fieldKey)))
+    .map(field => ({ id:`custom:${field.fieldKey}`, label:field.displayName, group:"Configured custom fields", get:lead=>lead.customValues?.[field.fieldKey] }));
+  const byGroup = [...base, ...custom].reduce((acc, field) => {
+    if (!acc[field.group]) acc[field.group] = [];
+    if (!acc[field.group].some(existing => existing.label.toLowerCase() === field.label.toLowerCase())) acc[field.group].push(field);
+    return acc;
+  }, {});
+  return Object.entries(byGroup).map(([name, fields]) => ({ name, fields }));
+}
 
 export default function LeadsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -493,6 +566,7 @@ export default function LeadsPage() {
   const [whatsAppRecipients, setWhatsAppRecipients] = useState(null);
   const [marketingLeadIds, setMarketingLeadIds] = useState(null);
   const [whatsAppConversations, setWhatsAppConversations] = useState([]);
+  const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
   const studentNameInputRef = useRef(null);
   function toggleQuickActions(){setQuickActionsExpanded(current=>!current)}
 
@@ -699,7 +773,12 @@ export default function LeadsPage() {
           (!advancedFilters.isParent.length || advancedFilters.isParent.some(value => value === "yes" ? Boolean(lead.isParent) : !lead.isParent)) &&
           (!advancedFilters.lookingForAdmission.length || advancedFilters.lookingForAdmission.some(value => value === "yes" ? Boolean(lead.lookingForAdmission) : !lead.lookingForAdmission)) &&
           (!advancedFilters.whatsappResponse.length || advancedFilters.whatsappResponse.includes(String(lead.whatsappResponse))) &&
-          (!advancedFilters.contactAvailability.length || advancedFilters.contactAvailability.some(value => value === "email" ? Boolean(lead.email) : Boolean(lead.phone))) &&
+          containsFilter(lead.studentName, advancedFilters.studentName) &&
+          phoneContainsFilter(lead.phone, advancedFilters.primaryPhone) &&
+          phoneContainsFilter(lead.alternatePhone, advancedFilters.alternatePhone) &&
+          containsFilter(lead.email, advancedFilters.email) &&
+          containsFilter(lead.parentName, advancedFilters.parentName) &&
+          (!advancedFilters.contactAvailability.length || advancedFilters.contactAvailability.some(value => value === "email" ? Boolean(lead.email) : value === "alternatePhone" ? Boolean(lead.alternatePhone) : Boolean(lead.phone))) &&
           (!advancedFilters.marketingCampaignId.length && !advancedFilters.marketingDeliveryStatus.length ||
             (lead.marketingDeliveries || []).some(delivery =>
               (!advancedFilters.marketingCampaignId.length || advancedFilters.marketingCampaignId.includes(String(delivery.campaignId))) &&
@@ -707,10 +786,13 @@ export default function LeadsPage() {
             )) &&
           (!advancedFilters.scoreMin || Number(lead.score) >= Number(advancedFilters.scoreMin)) &&
           (!advancedFilters.scoreMax || Number(lead.score) <= Number(advancedFilters.scoreMax)) &&
-          (!advancedFilters.followupFrom || (getDateFieldValue(lead, followupDateType) && istDateKey(getDateFieldValue(lead, followupDateType)) >= advancedFilters.followupFrom)) &&
-          (!advancedFilters.followupTo || (getDateFieldValue(lead, followupDateType) && istDateKey(getDateFieldValue(lead, followupDateType)) <= advancedFilters.followupTo)),
+          matchesDateRange(lead, "addedAt", advancedFilters.addedFrom, advancedFilters.addedTo) &&
+          matchesDateRange(lead, "updatedAt", advancedFilters.updatedFrom, advancedFilters.updatedTo) &&
+          matchesDateRange(lead, "referredAt", advancedFilters.referredFrom, advancedFilters.referredTo) &&
+          matchesDateRange(lead, "nextFollowup", advancedFilters.nextFollowupFrom || advancedFilters.followupFrom, advancedFilters.nextFollowupTo || advancedFilters.followupTo) &&
+          matchesDateRange(lead, "reEnquiredAt", advancedFilters.reEnquiredFrom, advancedFilters.reEnquiredTo),
       ),
-    [leads, branchFilter, advancedFilters, followupDateType],
+    [leads, branchFilter, advancedFilters],
   );
   const filtered = useMemo(
     () => leadsMatchingActiveFilters.filter(
@@ -728,6 +810,8 @@ export default function LeadsPage() {
     counts["Re-enquired"] = leadsMatchingActiveFilters.filter(lead => Boolean(lead.reEnquiredAt)).length;
     return counts;
   }, [leadsMatchingActiveFilters, meta.stages]);
+
+  const leadExportGroups = useMemo(() => buildLeadExportGroups(meta), [meta]);
   const appliedFilterGroups = useMemo(() => {
     const findLabels = (values, options) => (values || [])
       .map(value => options.find(option => String(option.id ?? option.value ?? option.displayName) === String(value))?.displayName
@@ -756,13 +840,20 @@ export default function LeadsPage() {
     add(academic, "Admission type", findLabels(advancedFilters.admissionTypeId, meta.admissionTypes));
     add(academic, "Referred from", findLabels(advancedFilters.referredByEmployeeId, meta.employees));
     add(communication, "Parent", advancedFilters.isParent.map(value => value === "yes" ? "Yes" : "No"));
+    add(communication, "Student name", advancedFilters.studentName);
+    add(communication, "Primary phone", advancedFilters.primaryPhone);
+    add(communication, "Alternate phone", advancedFilters.alternatePhone);
+    add(communication, "Email", advancedFilters.email);
+    add(communication, "Parent name", advancedFilters.parentName);
     add(communication, "Looking for admissions", advancedFilters.lookingForAdmission.map(value => value === "yes" ? "Yes" : "No"));
     add(communication, "WhatsApp response", advancedFilters.whatsappResponse);
-    add(communication, "Contact availability", advancedFilters.contactAvailability.map(value => value === "email" ? "Has email address" : "Has phone number"));
+    add(communication, "Contact availability", advancedFilters.contactAvailability.map(value => value === "email" ? "Has email address" : value === "alternatePhone" ? "Has alternate phone" : "Has phone number"));
     add(marketing, "Bulk campaign", findLabels(advancedFilters.marketingCampaignId, meta.marketingCampaigns || []));
     add(marketing, "Delivery status", advancedFilters.marketingDeliveryStatus);
-    add(dates, `${followupDateType === "addedDate" ? "Added date" : followupDateType === "modifiedDate" ? "Modified date" : "Follow-up"} from`, advancedFilters.followupFrom);
-    add(dates, `${followupDateType === "addedDate" ? "Added date" : followupDateType === "modifiedDate" ? "Modified date" : "Follow-up"} to`, advancedFilters.followupTo);
+    [["Added",advancedFilters.addedFrom,advancedFilters.addedTo],["Updated",advancedFilters.updatedFrom,advancedFilters.updatedTo],["Referred",advancedFilters.referredFrom,advancedFilters.referredTo],["Next Follow-up",advancedFilters.nextFollowupFrom || advancedFilters.followupFrom,advancedFilters.nextFollowupTo || advancedFilters.followupTo],["Re-Enquired",advancedFilters.reEnquiredFrom,advancedFilters.reEnquiredTo]].forEach(([label,from,to]) => {
+      add(dates, `${label} from`, from);
+      add(dates, `${label} to`, to);
+    });
     add(ranges, "Minimum lead score", advancedFilters.scoreMin);
     add(ranges, "Maximum lead score", advancedFilters.scoreMax);
     return [
@@ -809,6 +900,7 @@ export default function LeadsPage() {
     setStageFilter("");
     setBranchFilter([]);
     setAdvancedFilters(emptyAdvancedFilters);
+    setFollowupDateType("nextFollowup");
     setMessage({ type: "success", text: "Filters cleared — showing all accessible branches" });
   }
 
@@ -828,10 +920,11 @@ export default function LeadsPage() {
     }
   }
 
-  async function exportLeads() {
-    const header = ["Lead ID", "Student", "Phone", "Branch", "Class", "Curriculum", "Stage", "Counsellor"];
-    const rows = filtered.map(lead => [lead.leadId, lead.studentName, lead.phone, lead.branch, lead.applyingClass, lead.curriculum, lead.stage, lead.owner]);
-    const csv = [header, ...rows].map(row => row.map(value => `"${String(value || "").replaceAll('"', '""')}"`).join(",")).join("\n");
+  async function exportLeads(fields) {
+    const selectedFields = fields?.length ? fields : leadExportGroups.flatMap(group => group.fields).filter(field => field.defaultSelected);
+    const header = selectedFields.map(field => field.label);
+    const rows = filtered.map(lead => selectedFields.map(field => field.get(lead)));
+    const csv = [header, ...rows].map(row => row.map(csvCell).join(",")).join("\n");
     const fileName = `crm-leads-${new Date().toISOString().slice(0, 10)}.csv`;
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
@@ -839,8 +932,11 @@ export default function LeadsPage() {
     link.click(); URL.revokeObjectURL(link.href);
     try {
       await api('/bulk-operations/data-export',{method:'POST',body:JSON.stringify({totalRecords:rows.length,fileName,leadIds:filtered.map(lead=>lead.id)})});
+      setMessage({ type:"success", text:`Downloaded ${rows.length} lead${rows.length === 1 ? "" : "s"} with ${header.length} field${header.length === 1 ? "" : "s"}` });
     } catch (error) {
       setMessage({type:'error',text:`Export downloaded, but its audit entry could not be saved: ${error.message}`});
+    } finally {
+      setDownloadDialogOpen(false);
     }
   }
 
@@ -1117,7 +1213,7 @@ export default function LeadsPage() {
             <button title={`Refer ${selectedIds.length || "selected"} leads`} aria-label="Refer selected leads" onClick={openBulkRefer} disabled={!selectedIds.length}><UserRoundPlus/></button>
             <button title={`Add marketing campaign for ${filtered.length} filtered leads`} onClick={openFilteredMarketingCampaign} disabled={!filtered.length}><Megaphone/></button>
             <button title={`Send WhatsApp to ${selectedIds.length || "selected"} leads in this view`} onClick={openSelectedMessages} disabled={!selectedIds.length}><MessageCircle/></button>
-            <button title="Export visible leads" onClick={exportLeads}><Download/></button>
+            <button title="Export visible leads" onClick={() => setDownloadDialogOpen(true)}><Download/></button>
             </>}
             <button className="quick-actions-toggle" title={quickActionsExpanded?"Collapse lead actions":"Expand lead actions"} aria-label={quickActionsExpanded?"Collapse lead actions":"Expand lead actions"} onClick={toggleQuickActions}>{quickActionsExpanded?<PanelRightClose/>:<PanelRightOpen/>}</button>
             <button title="Clear filters" aria-label="Clear filters" onClick={clearLeadFilters}><RefreshCw/></button>
@@ -1125,6 +1221,7 @@ export default function LeadsPage() {
           </div></div>
         </div>
       </section>
+      {downloadDialogOpen && <DownloadFieldsDialog title="Download Data" groups={leadExportGroups} onClose={() => setDownloadDialogOpen(false)} onDownload={exportLeads}/>}
       <Toast message={message} onClose={() => setMessage(null)} />
       <article className="panel leads-panel">
         <div className="table-wrap">
@@ -1313,7 +1410,7 @@ export default function LeadsPage() {
         <FilterWorkspace
           mode={filterPanel}
           meta={meta}
-          initialFilters={{ ...advancedFilters, branchId: branchFilter, stage: stageFilter }}
+          initialFilters={{ ...advancedFilters, branchId: branchFilter, stage: stageFilter, dateType: followupDateType }}
           onApply={applyAdvancedFilters}
           onClose={() => setFilterPanel(null)}
           onSaved={({ name, type }) => {

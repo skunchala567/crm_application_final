@@ -13,7 +13,7 @@ const settingsTabs = [
   { id: 'business-units', path: '/settings/business-units', label: 'Business Units', icon: Building2, component: BusinessUnitsPage },
   { id: 'integrations', path: '/settings/integrations', label: 'Integrations', icon: Settings, component: IntegrationHubPage },
   { id: 'google-sheets', path: '/settings/google-sheets', label: 'Google Sheets', icon: Settings, component: GoogleSheetsSettings },
-  { id: 'whatsapp-templates', path: '/settings/whatsapp-templates', label: 'WhatsApp Templates', icon: MessageCircle, component: WhatsAppTemplatesSettings },
+  { id: 'whatsapp-templates', path: '/settings/whatsapp-templates', label: 'WhatsApp', icon: MessageCircle, component: WhatsAppTemplatesSettings },
 ];
 
 export default function SettingsPage(){
