@@ -149,8 +149,9 @@ export function createMarketingCampaignEngine(pool, { sendWhatsApp, logger = con
     try {
       await pool.query(`
         UPDATE crm_marketing_campaign_deliveries d
-        JOIN crm_whatsapp_messages m ON m.message_id=d.whatsapp_message_id
-        SET d.status=CASE UPPER(m.status)
+        JOIN crm_whatsapp_messages m
+          ON CONVERT(m.message_id USING utf8mb4) COLLATE utf8mb4_0900_ai_ci = d.whatsapp_message_id
+        SET d.status=CASE UPPER(CONVERT(m.status USING utf8mb4) COLLATE utf8mb4_0900_ai_ci)
               WHEN 'READ' THEN 'READ'
               WHEN 'DELIVERED' THEN 'DELIVERED'
               WHEN 'FAILED' THEN 'FAILED'
@@ -160,7 +161,7 @@ export function createMarketingCampaignEngine(pool, { sendWhatsApp, logger = con
             END,
             d.error_message=COALESCE(m.failed_reason,d.error_message)
         WHERE d.status IN ('QUEUED','SENT','DELIVERED')
-          AND UPPER(m.status) IN ('SENT','DELIVERED','READ','FAILED','REJECTED')
+          AND UPPER(CONVERT(m.status USING utf8mb4) COLLATE utf8mb4_0900_ai_ci) IN ('SENT','DELIVERED','READ','FAILED','REJECTED')
       `);
       await pool.query(`
         UPDATE crm_marketing_campaign_deliveries
@@ -168,6 +169,10 @@ export function createMarketingCampaignEngine(pool, { sendWhatsApp, logger = con
         WHERE status='RUNNING'
           AND COALESCE(updated_at_utc,created_at_utc)<DATE_SUB(NOW(),INTERVAL 2 MINUTE)
       `);
+      const [activeCampaignRows] = await pool.query(`
+        SELECT id FROM crm_marketing_campaigns WHERE status='ACTIVE'
+      `);
+      for (const campaign of activeCampaignRows) await refreshRollups(campaign.id);
       const [deliveries] = await pool.query(`
         SELECT d.id,d.campaign_id,d.recipient_id,d.attempts,
                c.organization_id,c.integration_id,c.retry_attempts,c.name campaign_name,

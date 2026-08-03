@@ -8,6 +8,39 @@ import { stateManager } from './oauth-state-manager.js';
 
 export function createIntegrationHubRoutes(service, authenticate, requireCrmAccess) {
   const router = express.Router();
+  let templateVisibilitySchemaReady = false;
+  async function ensureTemplateVisibilitySchema() {
+    if (templateVisibilitySchemaReady) return;
+    await service.pool.query(`
+      CREATE TABLE IF NOT EXISTS crm_whatsapp_template_user_visibility (
+        template_id INT NOT NULL,
+        user_id BIGINT UNSIGNED NOT NULL,
+        created_at_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        PRIMARY KEY (template_id, user_id),
+        KEY ix_whatsapp_template_visibility_user (user_id),
+        CONSTRAINT fk_whatsapp_template_visibility_template FOREIGN KEY (template_id)
+          REFERENCES crm_whatsapp_templates(id) ON DELETE CASCADE,
+        CONSTRAINT fk_whatsapp_template_visibility_user FOREIGN KEY (user_id)
+          REFERENCES app_users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    `);
+    templateVisibilitySchemaReady = true;
+  }
+  const isTemplateAdmin = user => (user?.roles || []).some(role => ['ADMIN','CRM_ADMIN'].includes(String(role).toUpperCase()));
+  async function canUseTemplate(req, integrationId, templateName) {
+    if (!templateName || isTemplateAdmin(req.user)) return true;
+    await ensureTemplateVisibilitySchema();
+    const [[template]] = await service.pool.execute(
+      `SELECT t.id
+       FROM crm_whatsapp_templates t
+       JOIN crm_whatsapp_template_user_visibility tv ON tv.template_id=t.id AND tv.user_id=?
+       WHERE t.integration_id=? AND t.deleted_at IS NULL
+         AND LOWER(t.template_name)=LOWER(?)
+       LIMIT 1`,
+      [Number(req.user.id), Number(integrationId), String(templateName)],
+    );
+    return Boolean(template);
+  }
 
   // ============= OAuth Callback (Public - No Auth Required) =============
   // Must be before authentication middleware
@@ -685,7 +718,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
 
   // ============= Field Mapping =============
 
-  const CRM_FIELDS = [
+  const LEGACY_CRM_FIELDS = [
     { name: 'student_name', label: 'Student Name', type: 'text', required: true },
     { name: 'phone', label: 'Phone', type: 'text', required: true },
     { name: 'class_id', label: 'Class ID', type: 'number', required: true },
@@ -695,9 +728,20 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
     { name: 'assign_to', label: 'Assign To', type: 'email', required: true },
     { name: 'remarks', label: 'Remarks', type: 'text', required: false }
   ];
+  const getCrmFields = async (businessUnitId) => {
+    if (!businessUnitId) return LEGACY_CRM_FIELDS;
+    const [fields] = await service.pool.execute(
+      `SELECT field_key AS name,COALESCE(import_header,display_name) AS label,field_type AS type,is_import_required AS required
+       FROM crm_metadata_fields
+       WHERE business_unit_id=? AND module_key='leads' AND is_active=TRUE AND is_importable=TRUE
+       ORDER BY position`,
+      [Number(businessUnitId)],
+    );
+    return fields.length ? fields.map(field=>({...field,required:Boolean(field.required)})) : LEGACY_CRM_FIELDS;
+  };
 
   // Get sheet headers for mapping
-  router.get('/integrations/:integrationId/field-mapping/headers', authenticate, async (req, res, next) => {
+  router.get('/integrations/:integrationId/field-mapping/headers', authenticate, requireCrmAccess, async (req, res, next) => {
     try {
       const organizationId = req.user?.id || 1;
       const integrationId = parseInt(req.params.integrationId);
@@ -708,7 +752,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
         success: true,
         data: {
           sheetHeaders: headers,
-          crmFields: CRM_FIELDS
+          crmFields: await getCrmFields(req.businessUnit?.id)
         }
       });
     } catch (error) {
@@ -717,7 +761,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   });
 
   // Get current field mapping
-  router.get('/integrations/:integrationId/field-mapping', authenticate, async (req, res, next) => {
+  router.get('/integrations/:integrationId/field-mapping', authenticate, requireCrmAccess, async (req, res, next) => {
     try {
       const organizationId = req.user?.id || 1;
       const integrationId = parseInt(req.params.integrationId);
@@ -728,7 +772,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
         success: true,
         data: {
           mappings: mapping,
-          crmFields: CRM_FIELDS
+          crmFields: await getCrmFields(req.businessUnit?.id)
         }
       });
     } catch (error) {
@@ -806,6 +850,12 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
           message: 'phoneNumber and message are required'
         });
       }
+      if (!(await canUseTemplate(req, integrationId, templateName))) {
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have access to this WhatsApp template'
+        });
+      }
 
       const result = await service.sendSmartpingMessage(
         integrationId,
@@ -845,6 +895,12 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
         return res.status(400).json({
           success: false,
           message: 'message is required'
+        });
+      }
+      if (!(await canUseTemplate(req, integrationId, templateName))) {
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have access to this WhatsApp template'
         });
       }
 

@@ -12,6 +12,26 @@
 export class IntegrationRepository {
   constructor(pool) {
     this.pool = pool;
+    this.whatsappPricingSchemaReady = false;
+  }
+
+  async ensureWhatsAppPricingSchema() {
+    if (this.whatsappPricingSchemaReady) return;
+    const [columns] = await this.pool.query(`
+      SELECT column_name AS columnName
+      FROM information_schema.columns
+      WHERE table_schema = DATABASE()
+        AND table_name = 'crm_integrations'
+        AND column_name IN ('whatsapp_utility_message_price','whatsapp_marketing_message_price')
+    `);
+    const existing = new Set((columns || []).map(row => String(row.columnName || row.COLUMN_NAME || '').toLowerCase()));
+    if (!existing.has('whatsapp_utility_message_price')) {
+      await this.pool.query(`ALTER TABLE crm_integrations ADD COLUMN whatsapp_utility_message_price DECIMAL(10,4) NULL`);
+    }
+    if (!existing.has('whatsapp_marketing_message_price')) {
+      await this.pool.query(`ALTER TABLE crm_integrations ADD COLUMN whatsapp_marketing_message_price DECIMAL(10,4) NULL`);
+    }
+    this.whatsappPricingSchemaReady = true;
   }
 
   // Map old ENUM status values to new status values for consistent frontend API
@@ -60,6 +80,7 @@ export class IntegrationRepository {
   }
 
   async list(organizationId, filters = {}) {
+    await this.ensureWhatsAppPricingSchema();
     const whereConditions = ['organization_id = ?'];
     const params = [organizationId];
 
@@ -107,7 +128,9 @@ export class IntegrationRepository {
           projectApiPassword: row.project_api_password || configData.projectApiPassword,
           baseUrl: row.aisensy_base_url || configData.baseUrl,
           apiKey: row.aisensy_api_key || configData.apiKey,
-          mediaPublicBaseUrl: row.media_public_base_url || configData.mediaPublicBaseUrl
+          mediaPublicBaseUrl: row.media_public_base_url || configData.mediaPublicBaseUrl,
+          whatsappUtilityMessagePrice: row.whatsapp_utility_message_price ?? configData.whatsappUtilityMessagePrice,
+          whatsappMarketingMessagePrice: row.whatsapp_marketing_message_price ?? configData.whatsappMarketingMessagePrice
         };
       }
       if ((row.provider_name || row.provider)?.toLowerCase() === 'google_sheets') {
@@ -117,6 +140,19 @@ export class IntegrationRepository {
           clientSecret: row.google_client_secret || configData.clientSecret,
           redirectUrl: row.google_redirect_uri || configData.redirectUrl
         };
+      }
+      if ((row.provider_name || row.provider)?.toLowerCase() === 'callerdesk') {
+        configData = {
+          defaultDeskphone: configData.defaultDeskphone || '',
+          defaultGroupName: configData.defaultGroupName || '',
+          hasApiKey: Boolean(configData.apiKeyEncrypted),
+          hasApiSecret: Boolean(configData.apiSecretEncrypted),
+          hasIntegrationKey: Boolean(configData.integrationKeyEncrypted),
+          webhookConfigured: Boolean(configData.webhookSecret)
+        };
+      }
+      if ((row.provider_name || row.provider)?.toLowerCase() === 'smartflo') {
+        configData={defaultDid:configData.defaultDid||'',defaultDepartmentId:configData.defaultDepartmentId||'',hasPassword:Boolean(configData.passwordEncrypted),hasPermanentToken:Boolean(configData.permanentTokenEncrypted),webhookConfigured:Boolean(configData.webhookSecret)};
       }
 
       // Normalize field names to support both old schema and migration 005 schema
@@ -154,6 +190,7 @@ export class IntegrationRepository {
   }
 
   async getById(integrationId, organizationId) {
+    await this.ensureWhatsAppPricingSchema();
     const [rows] = await this.pool.execute(`
       SELECT * FROM crm_integrations
       WHERE id = ? AND organization_id = ?
@@ -178,7 +215,9 @@ export class IntegrationRepository {
         projectApiPassword: row.project_api_password || configData.projectApiPassword,
         baseUrl: row.aisensy_base_url || configData.baseUrl,
         apiKey: row.aisensy_api_key || configData.apiKey,
-        mediaPublicBaseUrl: row.media_public_base_url || configData.mediaPublicBaseUrl
+        mediaPublicBaseUrl: row.media_public_base_url || configData.mediaPublicBaseUrl,
+        whatsappUtilityMessagePrice: row.whatsapp_utility_message_price ?? configData.whatsappUtilityMessagePrice,
+        whatsappMarketingMessagePrice: row.whatsapp_marketing_message_price ?? configData.whatsappMarketingMessagePrice
       };
     }
     if ((row.provider_name || row.provider)?.toLowerCase() === 'google_sheets') {
@@ -188,6 +227,19 @@ export class IntegrationRepository {
         clientSecret: row.google_client_secret || configData.clientSecret,
         redirectUrl: row.google_redirect_uri || configData.redirectUrl
       };
+    }
+    if ((row.provider_name || row.provider)?.toLowerCase() === 'callerdesk') {
+      configData = {
+        defaultDeskphone: configData.defaultDeskphone || '',
+        defaultGroupName: configData.defaultGroupName || '',
+        hasApiKey: Boolean(configData.apiKeyEncrypted),
+        hasApiSecret: Boolean(configData.apiSecretEncrypted),
+        hasIntegrationKey: Boolean(configData.integrationKeyEncrypted),
+        webhookConfigured: Boolean(configData.webhookSecret)
+      };
+    }
+    if ((row.provider_name || row.provider)?.toLowerCase() === 'smartflo') {
+      configData={defaultDid:configData.defaultDid||'',defaultDepartmentId:configData.defaultDepartmentId||'',hasPassword:Boolean(configData.passwordEncrypted),hasPermanentToken:Boolean(configData.permanentTokenEncrypted),webhookConfigured:Boolean(configData.webhookSecret)};
     }
 
     // Normalize field names to support both old schema and migration 005 schema
@@ -226,6 +278,7 @@ export class IntegrationRepository {
   }
 
   async create(integrationData) {
+    await this.ensureWhatsAppPricingSchema();
     const {
       organizationId, integrationName, integrationType, providerName,
       config, createdById, status = 'pending_auth'
@@ -255,13 +308,17 @@ export class IntegrationRepository {
     const aisensyBaseUrl = isSmartping ? (config?.baseUrl || config?.aisensyBaseUrl || null) : null;
     const aisensyApiKey = isSmartping ? (config?.apiKey || config?.aisensyApiKey || null) : null;
     const mediaPublicBaseUrl = isSmartping ? (config?.mediaPublicBaseUrl || null) : null;
+    const whatsappUtilityMessagePrice = isSmartping && config?.whatsappUtilityMessagePrice !== undefined && config?.whatsappUtilityMessagePrice !== ''
+      ? Number(config.whatsappUtilityMessagePrice) : null;
+    const whatsappMarketingMessagePrice = isSmartping && config?.whatsappMarketingMessagePrice !== undefined && config?.whatsappMarketingMessagePrice !== ''
+      ? Number(config.whatsappMarketingMessagePrice) : null;
     const isGoogleSheets = providerName?.toLowerCase() === 'google_sheets';
     const googleClientId = isGoogleSheets ? (config?.clientId || null) : null;
     const googleClientSecret = isGoogleSheets ? (config?.clientSecret || null) : null;
     const googleRedirectUri = isGoogleSheets ? (config?.redirectUrl || null) : null;
     const storedConfig = { ...(config || {}) };
     if (isSmartping) {
-      ['projectId', 'project_id', 'projectApiPassword', 'project_api_password', 'baseUrl', 'aisensyBaseUrl', 'apiKey', 'aisensyApiKey', 'mediaPublicBaseUrl']
+      ['projectId', 'project_id', 'projectApiPassword', 'project_api_password', 'baseUrl', 'aisensyBaseUrl', 'apiKey', 'aisensyApiKey', 'mediaPublicBaseUrl', 'whatsappUtilityMessagePrice', 'whatsappMarketingMessagePrice']
         .forEach(key => delete storedConfig[key]);
     }
     if (isGoogleSheets) {
@@ -274,9 +331,10 @@ export class IntegrationRepository {
       INSERT INTO crm_integrations
         (organization_id, name, type, provider, config, project_id, project_api_password,
          aisensy_base_url, aisensy_api_key, media_public_base_url,
+         whatsapp_utility_message_price, whatsapp_marketing_message_price,
          google_client_id, google_client_secret, google_redirect_uri,
          status, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `, [
       organizationId,
       integrationName,
@@ -288,6 +346,8 @@ export class IntegrationRepository {
       aisensyBaseUrl,
       aisensyApiKey,
       mediaPublicBaseUrl,
+      whatsappUtilityMessagePrice,
+      whatsappMarketingMessagePrice,
       googleClientId,
       googleClientSecret,
       googleRedirectUri,
@@ -299,6 +359,7 @@ export class IntegrationRepository {
   }
 
   async update(integrationId, organizationId, updateData) {
+    await this.ensureWhatsAppPricingSchema();
     const { integrationName, config, status } = updateData;
     const updates = [];
     const params = [];
@@ -310,7 +371,7 @@ export class IntegrationRepository {
     }
     if (config !== undefined) {
       const storedConfig = { ...(config || {}) };
-      ['projectId', 'project_id', 'projectApiPassword', 'project_api_password', 'baseUrl', 'aisensyBaseUrl', 'apiKey', 'aisensyApiKey', 'mediaPublicBaseUrl']
+      ['projectId', 'project_id', 'projectApiPassword', 'project_api_password', 'baseUrl', 'aisensyBaseUrl', 'apiKey', 'aisensyApiKey', 'mediaPublicBaseUrl', 'whatsappUtilityMessagePrice', 'whatsappMarketingMessagePrice']
         .forEach(key => delete storedConfig[key]);
       ['clientId', 'clientSecret', 'redirectUrl'].forEach(key => delete storedConfig[key]);
       updates.push('config = ?');
@@ -328,6 +389,10 @@ export class IntegrationRepository {
         params.push(config?.apiKey || config?.aisensyApiKey || null);
         updates.push('media_public_base_url = ?');
         params.push(config?.mediaPublicBaseUrl || null);
+        updates.push('whatsapp_utility_message_price = ?');
+        params.push(config?.whatsappUtilityMessagePrice === '' || config?.whatsappUtilityMessagePrice == null ? null : Number(config.whatsappUtilityMessagePrice));
+        updates.push('whatsapp_marketing_message_price = ?');
+        params.push(config?.whatsappMarketingMessagePrice === '' || config?.whatsappMarketingMessagePrice == null ? null : Number(config.whatsappMarketingMessagePrice));
       }
       if (current?.provider_name?.toLowerCase() === 'google_sheets') {
         updates.push('google_client_id = ?');

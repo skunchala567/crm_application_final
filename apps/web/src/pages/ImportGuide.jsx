@@ -1,14 +1,35 @@
+import { useEffect, useState } from 'react';
 import { Download, CheckCircle, AlertCircle, Info } from 'lucide-react';
+import { api } from '../api';
+import { useBusinessUnit } from '../BusinessUnitContext.jsx';
 import './ImportGuide.css';
 
 export default function ImportGuide() {
-  const handleDownloadTemplate = () => {
+  const {selectedUnit}=useBusinessUnit();
+  const [importFields,setImportFields]=useState([]);
+  useEffect(()=>{
+    if(!selectedUnit?.id)return;
+    api(`/platform/business-units/${selectedUnit.id}/config`)
+      .then(config=>setImportFields((config.fields||[]).filter(field=>field.isActive&&field.isImportable)))
+      .catch(()=>setImportFields([]));
+  },[selectedUnit?.id]);
+  const handleDownloadTemplate = async () => {
+    const token=localStorage.getItem('crm_token');
+    const businessUnitId=localStorage.getItem('crm_business_unit_id');
+    const base=import.meta.env.VITE_API_URL||'http://127.0.0.1:3001/api';
+    const response=await fetch(`${base}/bulk-uploads/download-template?template=google`,{headers:{
+      ...(token?{Authorization:`Bearer ${token}`}:{ }),
+      ...(businessUnitId?{'X-Business-Unit-Id':businessUnitId}:{ }),
+    }});
+    if(!response.ok)return;
+    const url=URL.createObjectURL(await response.blob());
     const link = document.createElement('a');
-    link.href = '/Google_Sheets_Import_Template.csv';
+    link.href = url;
     link.download = 'Google_Sheets_Import_Template.csv';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -44,7 +65,13 @@ export default function ImportGuide() {
               <div className="col-rules">Rules</div>
             </div>
 
-            {[
+            {(importFields.length ? importFields.map((field,index)=>({
+              name:String.fromCharCode(65+index),
+              field:field.importHeader||field.displayName,
+              type:field.fieldType.replace('_',' '),
+              req:field.isImportRequired?'Yes':'No',
+              rules:field.helpText||field.placeholder||'Configured by the Business Unit',
+            })) : [
               { name: 'A', field: 'student_name', type: 'Text', req: '✅ Yes', rules: 'Full name (min 2 chars)' },
               { name: 'B', field: 'phone', type: 'Text', req: '✅ Yes*', rules: '10 digits, starts 6-9' },
               { name: 'C', field: 'email', type: 'Email', req: '✅ Yes*', rules: 'Valid email format' },
@@ -54,7 +81,7 @@ export default function ImportGuide() {
               { name: 'G', field: 'city', type: 'Text', req: '❌ No', rules: 'City name' },
               { name: 'H', field: 'remarks', type: 'Text', req: '❌ No', rules: 'Additional notes' },
               { name: 'I', field: 'lead_score', type: 'Number', req: '❌ No', rules: '0-100 score' }
-            ].map((col, idx) => (
+            ]).map((col, idx) => (
               <div key={idx} className="table-row">
                 <div className="col-name">{col.name}</div>
                 <div className="col-field"><code>{col.field}</code></div>

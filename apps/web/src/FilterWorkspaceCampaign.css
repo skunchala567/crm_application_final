@@ -110,20 +110,65 @@
 }
 
 /* Filter workspace alignment overrides */
-.filter-workspace-head {
+.filter-workspace .filter-workspace-head {
   display: grid;
-  grid-template-columns: minmax(230px, 1fr) minmax(280px, 390px) 42px;
+  grid-template-columns: minmax(230px, 1fr) minmax(270px, 340px) 42px;
   align-items: center;
   gap: 16px;
+  position: relative;
+  z-index: 100;
 }
 
 .filter-title {
   min-width: 0;
 }
 
-.saved-filter-loader {
-  width: 100%;
+.filter-workspace .saved-filter-loader {
+  width: min(340px, 100%);
   margin: 0;
+  justify-self: end;
+  overflow: visible;
+  background: transparent;
+  border-radius: 0;
+}
+
+.saved-filter-loader .search-select {
+  width: 100%;
+  height: 40px;
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 1px 3px #24264c0d;
+  overflow: visible;
+}
+
+.saved-filter-loader .search-select > input {
+  height: 38px;
+  min-width: 0;
+  flex: 1;
+  padding: 0 4px;
+  border: 0 !important;
+  outline: 0;
+  background: transparent !important;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.saved-filter-loader .search-select-menu {
+  top: calc(100% + 6px);
+  z-index: 300;
+  max-height: 240px;
+  padding: 5px;
+  border-radius: 9px;
+  box-shadow: 0 12px 28px #20223c1f;
+}
+
+.saved-filter-loader .search-select-menu button {
+  min-height: 36px;
+  padding: 8px 10px;
+  justify-content: flex-start;
+  text-align: left;
+  border-radius: 6px;
 }
 
 .filter-close {
@@ -139,6 +184,7 @@
 
 .filter-workspace-body {
   grid-template-columns: 240px minmax(0, 1fr);
+  min-height: 0;
 }
 
 .filter-section-search {
@@ -154,15 +200,164 @@
   min-height: 48px;
   height: auto;
   padding: 0 18px;
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.filter-sections > button i {
+  flex: 0 0 17px;
 }
 
 .filter-fields {
   padding: 0 clamp(24px, 3vw, 48px) 32px;
+  min-width: 0;
+  overflow: auto;
 }
 
 .filter-fields > .field-search {
   width: min(500px, 100%);
   max-width: none;
+}
+
+.date-range-filter-grid {
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+  max-width: none;
+  padding-bottom: 72px;
+}
+
+.date-range-filter-card {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #e1e4ef;
+  border-radius: 12px;
+  background: #fff;
+  min-width: 0;
+}
+
+.date-range-filter-card h3 {
+  grid-column: 1 / -1;
+  margin: 0;
+  font: 800 12px Manrope, sans-serif;
+  color: #343764;
+}
+
+@media(max-width:760px){
+  .date-range-filter-grid{grid-template-columns:1fr}
+}
+
+.date-range-filter-control {
+  position: relative;
+  min-width: 0;
+}
+
+.date-range-filter-trigger {
+  width: 100%;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  padding: 8px 11px;
+  text-align: left;
+}
+
+.date-range-filter-trigger > svg:first-child {
+  color: var(--primary);
+  flex: none;
+}
+
+.date-range-filter-trigger > svg:last-child {
+  color: var(--primary);
+  flex: none;
+  margin-left: auto;
+}
+
+.date-range-filter-trigger > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.date-range-filter-trigger small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.date-range-filter-trigger strong {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.date-range-filter-trigger.active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.filter-workspace-date-popover {
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+}
+
+.filter-workspace-date-popover .range-calendar-panel,
+.filter-workspace-date-popover .range-calendar-months,
+.filter-workspace-date-popover .range-calendar-month {
+  min-width: 0;
+}
+
+.filter-workspace-date-popover .range-calendar-panel {
+  max-height: min(420px, calc(100vh - 170px));
+}
+
+.filter-workspace-date-popover .range-calendar-panel aside {
+  display: grid;
+  grid-template-rows: 34px repeat(7, 34px);
+  align-content: start;
+}
+
+.filter-workspace-date-popover .range-calendar-panel aside strong,
+.filter-workspace-date-popover .range-calendar-panel aside button {
+  height: 34px;
+  min-height: 34px;
+  padding-block: 0;
+}
+
+.filter-workspace-date-popover .range-calendar-month header strong {
+  white-space: normal;
+  line-height: 1.2;
+}
+
+@media (max-width: 760px) {
+  .filter-workspace-date-popover .range-calendar-panel aside {
+    grid-template-rows: auto;
+  }
+}
+
+@media (max-width: 900px) {
+  .filter-workspace .filter-workspace-head {
+    grid-template-columns: 1fr 42px;
+  }
+
+  .filter-workspace .saved-filter-loader {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+  }
+
+  .filter-workspace-body {
+    grid-template-columns: 210px minmax(0, 1fr);
+  }
 }
 
 .filter-grid {
@@ -193,6 +388,48 @@
   height: 42px;
 }
 
+/* Keep every filter label, control value and dropdown option left aligned. */
+.filter-workspace,
+.filter-workspace input,
+.filter-workspace select,
+.filter-workspace option,
+.filter-workspace textarea {
+  text-align: left;
+}
+
+.filter-field,
+.filter-field > span,
+.filter-field .search-select,
+.filter-field .multi-select-input,
+.filter-field .search-select input {
+  justify-items: start;
+  text-align: left;
+}
+
+.filter-field .search-select input,
+.filter-field .search-select input::placeholder {
+  text-align: left;
+}
+
+.filter-field .search-select-menu,
+.filter-field .multi-select-options {
+  text-align: left;
+}
+
+.filter-field .search-select-menu button,
+.filter-field .multi-select-options > button {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.filter-field .multi-select-actions > button {
+  text-align: left;
+}
+
+.filter-field .multi-select-actions > button > span {
+  margin-left: auto;
+}
+
 .filter-workspace-footer {
   min-width: 0;
   gap: 10px;
@@ -214,14 +451,15 @@
 }
 
 @media (max-width: 760px) {
-  .filter-workspace-head {
+  .filter-workspace .filter-workspace-head {
     display: grid;
     grid-template-columns: 1fr 42px;
   }
 
-  .saved-filter-loader {
+  .filter-workspace .saved-filter-loader {
     grid-column: 1 / -1;
     grid-row: 2;
+    width: 100%;
   }
 
   .filter-workspace-body {

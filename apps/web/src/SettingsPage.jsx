@@ -1,20 +1,30 @@
 import { useLocation } from 'react-router-dom';
 import { useState } from 'react';
-import { Settings, Users, ClipboardList, X, MessageCircle } from 'lucide-react';
+import { Building2, Settings, Users, MessageCircle, PhoneCall, Link2, MapPin, Zap } from 'lucide-react';
+import './SettingsPage.css';
 import UserManagementPage from './UserManagementPage.jsx';
-import LeadConfiguration from './LeadConfiguration.jsx';
-import AcademicConfigurationPage from './AcademicConfigurationPage.jsx';
 import WhatsAppTemplatesSettings from './WhatsAppTemplatesSettings.jsx';
 import IntegrationHubPage from './pages/IntegrationHubPage.jsx';
 import GoogleSheetsSettings from './pages/GoogleSheetsSettings.jsx';
+import BusinessUnitsPage from './BusinessUnitsPage.jsx';
+import Toast from './Toast.jsx';
+import CallerDeskSettings from './pages/CallerDeskSettings.jsx';
+import SmartfloSettings from './pages/SmartfloSettings.jsx';
+import JodoPaymentLinksSettings from './pages/JodoPaymentLinksSettings.jsx';
+import BranchSettingsPage from './pages/BranchSettingsPage.jsx';
+import PaymentFormsPage from './pages/PaymentFormsPage.jsx';
 
 const settingsTabs = [
   { id: 'users', path: '/settings/users', label: 'User Management', icon: Users, component: UserManagementPage },
-  { id: 'config', path: '/settings/lead-config', label: 'Lead Configuration', icon: ClipboardList, component: LeadConfiguration },
-  { id: 'academic', path: '/settings/academic-config', label: 'Academic Configuration', icon: ClipboardList, component: AcademicConfigurationPage },
+  { id: 'business-units', path: '/settings/business-units', label: 'Business Units', icon: Building2, component: BusinessUnitsPage },
+  { id: 'branches', path: '/settings/branches', label: 'Branch Settings', icon: MapPin, component: BranchSettingsPage },
+  { id: 'payment-forms', path: '/settings/payment-forms', label: 'Payment Forms', icon: Zap, component: PaymentFormsPage },
   { id: 'integrations', path: '/settings/integrations', label: 'Integrations', icon: Settings, component: IntegrationHubPage },
   { id: 'google-sheets', path: '/settings/google-sheets', label: 'Google Sheets', icon: Settings, component: GoogleSheetsSettings },
-  { id: 'whatsapp-templates', path: '/settings/whatsapp-templates', label: 'WhatsApp Templates', icon: MessageCircle, component: WhatsAppTemplatesSettings },
+  { id: 'whatsapp-templates', path: '/settings/whatsapp-templates', label: 'WhatsApp', icon: MessageCircle, component: WhatsAppTemplatesSettings },
+  { id: 'callerdesk', path: '/settings/callerdesk', label: 'Calling', icon: PhoneCall, component: CallerDeskSettings },
+  { id: 'smartflo', path: '/settings/smartflo', label: 'Smartflo', icon: PhoneCall, component: SmartfloSettings },
+  { id: 'payment-links', path: '/settings/payment-links', label: 'Payment Links', icon: Link2, component: JodoPaymentLinksSettings },
 ];
 
 export default function SettingsPage(){
@@ -26,11 +36,15 @@ export default function SettingsPage(){
     // Map pathname to tab ID
     const pathToTabMap = {
       '/settings/users': 'users',
-      '/settings/lead-config': 'config',
-      '/settings/academic-config': 'academic',
+      '/settings/business-units': 'business-units',
+      '/settings/branches': 'branches',
+      '/settings/payment-forms': 'payment-forms',
       '/settings/integrations': 'integrations',
       '/settings/google-sheets': 'google-sheets',
       '/settings/whatsapp-templates': 'whatsapp-templates',
+      '/settings/callerdesk': 'callerdesk',
+      '/settings/smartflo': 'smartflo',
+      '/settings/payment-links': 'payment-links',
       '/settings': 'users', // default
     };
 
@@ -42,16 +56,23 @@ export default function SettingsPage(){
   const ActiveComponent = activeTabConfig?.component;
 
   return (
-    <div className="settings-page-content">
-      {message && (
-        <div className={`notice ${message.type}`} style={{ margin: '20px 30px 16px' }}>
-          <span>{message.text}</span>
-          <button onClick={() => setMessage(null)}>
-            <X size={16} />
-          </button>
-        </div>
-      )}
-      {ActiveComponent && <ActiveComponent key={activeTabId} onMessage={setMessage} />}
+    <div className="settings-page">
+      <Toast message={message} onClose={() => setMessage(null)} />
+      <nav className="settings-tabs">
+        {settingsTabs.map(tab => (
+          <a
+            key={tab.id}
+            href={tab.path}
+            className={`tab ${activeTabId === tab.id ? 'active' : ''}`}
+          >
+            <tab.icon size={18} />
+            <span>{tab.label}</span>
+          </a>
+        ))}
+      </nav>
+      <div className="settings-page-content">
+        {ActiveComponent && <ActiveComponent key={activeTabId} onMessage={setMessage} />}
+      </div>
     </div>
   );
 }

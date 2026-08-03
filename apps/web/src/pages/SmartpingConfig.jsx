@@ -8,6 +8,8 @@ export default function SmartpingConfig({ integrationId, onConfigSaved }) {
   const [aisensyBaseUrl, setAisensyBaseUrl] = useState('https://backend.aisensy.com');
   const [aisensyApiKey, setAisensyApiKey] = useState('');
   const [mediaPublicBaseUrl, setMediaPublicBaseUrl] = useState('');
+  const [utilityMessagePrice, setUtilityMessagePrice] = useState('');
+  const [marketingMessagePrice, setMarketingMessagePrice] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -29,6 +31,8 @@ export default function SmartpingConfig({ integrationId, onConfigSaved }) {
       setAisensyBaseUrl(config.baseUrl || 'https://backend.aisensy.com');
       setAisensyApiKey(config.apiKey || '');
       setMediaPublicBaseUrl(config.mediaPublicBaseUrl || '');
+      setUtilityMessagePrice(config.whatsappUtilityMessagePrice ?? '');
+      setMarketingMessagePrice(config.whatsappMarketingMessagePrice ?? '');
       setError(null);
     } catch (err) {
       setError('Failed to load configuration: ' + err.message);
@@ -69,7 +73,9 @@ export default function SmartpingConfig({ integrationId, onConfigSaved }) {
           projectApiPassword: apiKey.trim(),
           baseUrl: aisensyBaseUrl.trim().replace(/\/+$/, ''),
           apiKey: aisensyApiKey.trim(),
-          mediaPublicBaseUrl: mediaPublicBaseUrl.trim().replace(/\/+$/, '')
+          mediaPublicBaseUrl: mediaPublicBaseUrl.trim().replace(/\/+$/, ''),
+          whatsappUtilityMessagePrice: utilityMessagePrice === '' ? null : Number(utilityMessagePrice),
+          whatsappMarketingMessagePrice: marketingMessagePrice === '' ? null : Number(marketingMessagePrice)
         }
       });
 
@@ -104,7 +110,9 @@ export default function SmartpingConfig({ integrationId, onConfigSaved }) {
           projectApiPassword: apiKey.trim(),
           baseUrl: aisensyBaseUrl.trim().replace(/\/+$/, ''),
           apiKey: aisensyApiKey.trim(),
-          mediaPublicBaseUrl: mediaPublicBaseUrl.trim().replace(/\/+$/, '')
+          mediaPublicBaseUrl: mediaPublicBaseUrl.trim().replace(/\/+$/, ''),
+          whatsappUtilityMessagePrice: utilityMessagePrice === '' ? null : Number(utilityMessagePrice),
+          whatsappMarketingMessagePrice: marketingMessagePrice === '' ? null : Number(marketingMessagePrice)
         }
       });
 
@@ -225,6 +233,37 @@ export default function SmartpingConfig({ integrationId, onConfigSaved }) {
         <p style={styles.hint}>Public HTTPS address of this CRM API. AiSensy uses it to download media uploaded for this WhatsApp account.</p>
       </div>
 
+      <div style={styles.priceGrid}>
+        <div style={styles.formGroup}>
+          <label style={styles.label}>Utility message price</label>
+          <input
+            type="number"
+            min="0"
+            step="0.0001"
+            style={styles.input}
+            placeholder="Example: 0.115"
+            value={utilityMessagePrice}
+            onChange={(e) => setUtilityMessagePrice(e.target.value)}
+            disabled={saving}
+          />
+          <p style={styles.hint}>Used for transactional/utility WhatsApp spend analytics.</p>
+        </div>
+        <div style={styles.formGroup}>
+          <label style={styles.label}>Marketing message price</label>
+          <input
+            type="number"
+            min="0"
+            step="0.0001"
+            style={styles.input}
+            placeholder="Example: 0.7846"
+            value={marketingMessagePrice}
+            onChange={(e) => setMarketingMessagePrice(e.target.value)}
+            disabled={saving}
+          />
+          <p style={styles.hint}>Used for bulk/campaign WhatsApp spend analytics.</p>
+        </div>
+      </div>
+
       {error && (
         <div style={styles.errorBox}>
           <AlertCircle size={18} style={{ marginRight: '8px' }} />
@@ -315,6 +354,11 @@ const styles = {
   },
   formGroup: {
     marginBottom: '1.5rem',
+  },
+  priceGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+    gap: '1rem',
   },
   label: {
     display: 'block',

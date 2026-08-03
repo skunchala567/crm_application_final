@@ -8,7 +8,6 @@ import {
   Download,
   Filter,
   History,
-  Mail,
   Megaphone,
   NotebookPen,
   MessageSquare,
@@ -16,6 +15,7 @@ import {
   MoreVertical,
   PanelRightClose,
   PanelRightOpen,
+  PhoneCall,
   Pencil,
   Plus,
   RefreshCw,
@@ -29,6 +29,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { api } from "./api";
 import FilterWorkspace, { emptyAdvancedFilters, MultiSearchSelect, normalizeFilters } from "./FilterWorkspace.jsx";
+import DownloadFieldsDialog from "./DownloadFieldsDialog.jsx";
 import { BulkUploadButton } from "./BulkUpload.jsx";
 import { StageChangeDialog } from "./StageChangeDialog.jsx";
 import { BulkStageChangeConfirm } from "./BulkStageChangeConfirm.jsx";
@@ -61,6 +62,8 @@ const emptyForm = {
   nextFollowupAt: "",
   followupType: "",
   remarks: "",
+  status: "Active",
+  customValues: {},
   sourceHistory: [],
 };
 
@@ -77,8 +80,8 @@ function serialize(form) {
   return {
     ...form,
     branchId: Number(form.branchId),
-    classId: Number(form.classId),
-    curriculumId: Number(form.curriculumId),
+    classId: form.classId ? Number(form.classId) : null,
+    curriculumId: form.curriculumId ? Number(form.curriculumId) : null,
     stageId: Number(form.stageId),
     sourceId: form.sourceId ? Number(form.sourceId) : null,
     channelId: form.channelId ? Number(form.channelId) : null,
@@ -138,6 +141,67 @@ function SearchSuggestion({
   );
 }
 
+const configuredFieldProperties = {
+  name:"studentName",student_name:"studentName",phone:"phone",primary_phone:"phone",
+  alternate_phone:"alternatePhone",email:"email",parent_name:"parentName",city:"city",
+  academic_year:"academicYear",branch_id:"branchId",admission_type_id:"admissionTypeId",
+  curriculum_id:"curriculumId",class_id:"classId",channel_id:"channelId",source_id:"sourceId",
+  campaign_id:"campaignId",stage_id:"stageId",substage_id:"substageId",
+  owner_employee_id:"ownerEmployeeId",next_followup_at_utc:"nextFollowupAt",
+  followup_type:"followupType",remarks:"remarks",lead_score:"leadScore",
+};
+
+function ConfiguredLeadFields({fields,form,setForm,meta,availableAdmissionTypes,availableCurricula,availableClasses,inputRef}){
+  const update=(field,value)=>{
+    const property=configuredFieldProperties[field.fieldKey];
+    if(property){
+      const resets={};
+      if(property==="branchId")resets.ownerEmployeeId="";
+      if(property==="admissionTypeId")Object.assign(resets,{curriculumId:"",classId:""});
+      if(property==="curriculumId")resets.classId="";
+      if(property==="channelId")Object.assign(resets,{sourceId:"",campaignId:""});
+      if(property==="sourceId")resets.campaignId="";
+      if(property==="stageId")Object.assign(resets,{substageId:"",nextFollowupAt:"",followupType:""});
+      setForm(current=>({...current,...resets,[property]:value}));
+    }else setForm(current=>({...current,customValues:{...(current.customValues||{}),[field.fieldKey]:value}}));
+  };
+  const valueOf=field=>{
+    const property=configuredFieldProperties[field.fieldKey];
+    return property?form[property]??"":form.customValues?.[field.fieldKey]??"";
+  };
+  const optionsFor=field=>{
+    const map={
+      academic_year:meta.academicYears.map(item=>({id:item.academicYear,label:item.displayName||item.academicYear})),
+      branch_id:meta.branches.map(item=>({id:item.id,label:item.name})),
+      admission_type_id:(availableAdmissionTypes.length?availableAdmissionTypes:meta.admissionTypes).map(item=>({id:item.id,label:item.displayName})),
+      curriculum_id:(availableCurricula.length?availableCurricula:meta.curricula).map(item=>({id:item.id,label:item.displayName})),
+      channel_id:meta.channels.map(item=>({id:item.id,label:item.displayName})),
+      source_id:meta.sources.map(item=>({id:item.id,label:item.displayName})),
+      campaign_id:meta.campaigns.map(item=>({id:item.id,label:item.displayName})),
+      stage_id:meta.stages.map(item=>({id:item.id,label:item.displayName})),
+      substage_id:meta.substages.filter(item=>!form.stageId||String(item.stageId)===String(form.stageId)).map(item=>({id:item.id,label:item.displayName})),
+      owner_employee_id:meta.employees.filter(item=>!form.branchId||String(item.branchId)===String(form.branchId)).map(item=>({id:item.id,label:item.name})),
+      followup_type:["Call","WhatsApp","Email","Visit"].map(item=>({id:item,label:item})),
+    };
+    return map[field.fieldKey]||(field.options||[]).map(item=>({id:item,label:item}));
+  };
+  return <div className="form-grid configured-lead-fields">
+    {fields.map(field=>{
+      const value=valueOf(field),required=Boolean(field.isRequired),label=<>{field.displayName}{required?" *":""}</>;
+      if(field.fieldKey==="class_id")return <SearchSuggestion key={field.id} label={field.displayName} required={required} options={availableClasses.map(item=>({id:item.id,label:item.displayName}))} value={value} onChange={next=>update(field,next)} placeholder={availableClasses.length?"Search class…":"No classes available"}/>;
+      const options=optionsFor(field);
+      if(options.length||["single_select","multi_select","user"].includes(field.fieldType)){
+        if(field.fieldType==="multi_select")return <label key={field.id}>{label}<select multiple required={required} value={Array.isArray(value)?value:[]} onChange={event=>update(field,Array.from(event.target.selectedOptions,option=>option.value))}>{options.map(option=><option key={option.id} value={option.id}>{option.label}</option>)}</select></label>;
+        return <label key={field.id}>{label}<select required={required} value={value} onChange={event=>update(field,event.target.value)}><option value="">{required?"Select":"Not specified"} {field.displayName.toLowerCase()}</option>{options.map(option=><option key={option.id} value={option.id}>{option.label}</option>)}</select></label>;
+      }
+      if(field.fieldType==="boolean")return <label key={field.id} className="configured-checkbox"><input type="checkbox" checked={Boolean(value)} onChange={event=>update(field,event.target.checked)}/>{field.displayName}</label>;
+      if(["textarea"].includes(field.fieldType))return <label key={field.id} className="wide">{label}<textarea required={required} rows="4" placeholder={field.placeholder||""} value={value} onChange={event=>update(field,event.target.value)}/></label>;
+      const type={phone:"tel",email:"email",number:"number",decimal:"number",date:"date",datetime:"datetime-local",file:"file"}[field.fieldType]||"text";
+      return <label key={field.id}>{label}<input ref={["name","student_name"].includes(field.fieldKey)?inputRef:undefined} required={required} type={type} step={field.fieldType==="decimal"?"any":undefined} placeholder={field.placeholder||""} value={type==="file"?undefined:value} onChange={event=>update(field,type==="file"?event.target.files?.[0]?.name||"":field.fieldType==="phone"?event.target.value.replace(/\D/g,"").slice(0,15):event.target.value)}/></label>;
+    })}
+  </div>;
+}
+
 function formatRangeDate(value) {
   if (!value) return "";
   return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${value}T00:00:00`));
@@ -175,8 +239,15 @@ function FollowupDateFilter({ from, to, onChange, dueCount = 0, dateType = "next
   useEffect(() => {
     if (!open) return undefined;
     const close = event => { if (!rootRef.current?.contains(event.target)) setOpen(false); };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    const escape = event => { if (event.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", close, true);
+    document.addEventListener("touchstart", close, true);
+    document.addEventListener("keydown", escape, true);
+    return () => {
+      document.removeEventListener("mousedown", close, true);
+      document.removeEventListener("touchstart", close, true);
+      document.removeEventListener("keydown", escape, true);
+    };
   }, [open]);
   const dateTypeLabels = {
     addedAt: "Added",
@@ -209,11 +280,14 @@ function FollowupDateFilter({ from, to, onChange, dueCount = 0, dateType = "next
     const key = localDateKey(date);
     onChange(till ? "" : key, key);
   }
+  function tillToday() {
+    onChange("", localDateKey(new Date()));
+  }
   const nextMonth = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1);
   return <div className="inline-lead-filter followup-date-filter" ref={rootRef}>
     <span>Follow-ups</span>
     <button type="button" className={`followup-range-trigger ${from || to ? "active" : ""}`} aria-expanded={open} onClick={toggleOpen}><CalendarRange size={16}/><div style={{display:"flex",flexDirection:"column",alignItems:"flex-start",minWidth:0,flex:1}}><small style={{fontSize:"10px",color:"#999"}}>{dateTypeLabels[dateType]}</small><b>{label}</b></div><ChevronDown size={14}/><span className={`followup-due-badge ${dueCount>0?"has-due":""}`} title={`${dueCount} follow-ups due through today`}>{dueCount>99?"99+":dueCount}</span></button>
-    {open && <div className="followup-range-popover">
+    {open && <div className="followup-range-popover leads-date-range-popover">
       <div className="followup-range-header">
         <div className="followup-range-title"><CalendarRange size={18}/><div><strong>{dateTypeLabels[dateType]}</strong><small>Select the {dateTypeLabels[dateType].toLowerCase()} range</small></div></div>
         <select value={dateType} onChange={(e) => onDateTypeChange(e.target.value)} className="date-type-select-popover" title="Select date type to filter by">
@@ -225,7 +299,7 @@ function FollowupDateFilter({ from, to, onChange, dueCount = 0, dateType = "next
         </select>
       </div>
       <div className="range-calendar-panel">
-        <aside><strong>Choose a period</strong><button type="button" onClick={() => preset(0)}>Today</button><button type="button" onClick={() => yesterday()}>Yesterday</button><button type="button" onClick={() => yesterday(true)}>Till yesterday</button><button type="button" onClick={() => preset(1)}>Next day</button><button type="button" onClick={() => preset(7)}>Next 7 days</button><button type="button" onClick={() => preset(30)}>Next 30 days</button></aside>
+        <aside><strong>Choose a period</strong><button type="button" onClick={() => preset(0)}>Today</button><button type="button" onClick={() => yesterday()}>Yesterday</button><button type="button" onClick={tillToday}>Till today</button><button type="button" onClick={() => yesterday(true)}>Till yesterday</button><button type="button" onClick={() => preset(1)}>Next day</button><button type="button" onClick={() => preset(7)}>Next 7 days</button><button type="button" onClick={() => preset(30)}>Next 30 days</button></aside>
         <div className="range-calendar-months"><RangeCalendarMonth month={visibleMonth} from={from} to={to} onSelect={selectDate} onPrevious={() => setVisibleMonth(new Date(visibleMonth.getFullYear(),visibleMonth.getMonth()-1,1))} previous/><RangeCalendarMonth month={nextMonth} from={from} to={to} onSelect={selectDate} onNext={() => setVisibleMonth(new Date(visibleMonth.getFullYear(),visibleMonth.getMonth()+1,1))} next/></div>
       </div>
       <div className="followup-range-footer"><button type="button" className="range-clear" onClick={() => onChange("", "")}>Clear</button><button type="button" className="range-apply" onClick={() => setOpen(false)}>Apply dates</button></div>
@@ -245,6 +319,21 @@ function FunnelStrip({
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const searchInputRef = useRef(null);
+  const moreMenuRef = useRef(null);
+
+  useEffect(() => {
+    if (!moreOpen) return undefined;
+    const close = event => { if (!moreMenuRef.current?.contains(event.target)) setMoreOpen(false); };
+    const escape = event => { if (event.key === "Escape") setMoreOpen(false); };
+    document.addEventListener("mousedown", close, true);
+    document.addEventListener("touchstart", close, true);
+    document.addEventListener("keydown", escape, true);
+    return () => {
+      document.removeEventListener("mousedown", close, true);
+      document.removeEventListener("touchstart", close, true);
+      document.removeEventListener("keydown", escape, true);
+    };
+  }, [moreOpen]);
 
   return (
     <div className="funnel-strip">
@@ -270,7 +359,7 @@ function FunnelStrip({
       <div className="funnel-header-actions">
 
         {funnels.length > 0 && (
-          <div className="funnel-more-wrap">
+          <div className="funnel-more-wrap" ref={moreMenuRef}>
             <button
               className="funnel-more"
               onClick={() => setMoreOpen(!moreOpen)}
@@ -345,6 +434,71 @@ function getDateFieldValue(lead, dateType) {
   };
   return dateMap[dateType] || lead.nextFollowup;
 }
+function matchesDateRange(lead, field, from, to) {
+  if (!from && !to) return true;
+  const value = getDateFieldValue(lead, field);
+  if (!value) return false;
+  const key = istDateKey(value);
+  return (!from || key >= from) && (!to || key <= to);
+}
+function containsFilter(value, search) {
+  if (!search) return true;
+  return String(value || "").toLowerCase().includes(String(search).trim().toLowerCase());
+}
+function phoneContainsFilter(value, search) {
+  if (!search) return true;
+  return String(value || "").replace(/\D/g,"").includes(String(search).replace(/\D/g,""));
+}
+
+function formatExportDate(value) {
+  if (!value) return "";
+  return new Date(value).toLocaleString("en-IN", { timeZone:"Asia/Kolkata", dateStyle:"medium", timeStyle:"short" });
+}
+
+function csvCell(value) {
+  return `"${String(value ?? "").replaceAll('"', '""')}"`;
+}
+
+function buildLeadExportGroups(meta) {
+  const base = [
+    { id:"leadId", label:"Lead ID", group:"Lead details", defaultSelected:true, get:lead=>lead.leadId },
+    { id:"studentName", label:"Student name", group:"Lead details", defaultSelected:true, get:lead=>lead.studentName },
+    { id:"primaryPhone", label:"Primary phone", group:"Communication details", defaultSelected:true, get:lead=>lead.phone },
+    { id:"alternatePhone", label:"Alternate phone", group:"Communication details", get:lead=>lead.alternatePhone },
+    { id:"email", label:"Email", group:"Communication details", get:lead=>lead.email },
+    { id:"parentName", label:"Parent name", group:"Family & Address details", get:lead=>lead.parentName },
+    { id:"city", label:"City", group:"Family & Address details", get:lead=>lead.city },
+    { id:"branch", label:"Branch", group:"Academic details", defaultSelected:true, get:lead=>lead.branch },
+    { id:"academicYear", label:"Academic year", group:"Academic details", get:lead=>lead.academicYear },
+    { id:"class", label:"Class", group:"Academic details", defaultSelected:true, get:lead=>lead.applyingClass },
+    { id:"curriculum", label:"Curriculum", group:"Academic details", defaultSelected:true, get:lead=>lead.curriculum },
+    { id:"admissionType", label:"Admission type", group:"Academic details", get:lead=>lead.admissionType },
+    { id:"stage", label:"Stage", group:"Lead journey details", defaultSelected:true, get:lead=>lead.stage },
+    { id:"substage", label:"Sub-stage", group:"Lead journey details", get:lead=>meta.substages.find(item=>String(item.id)===String(lead.substageId))?.displayName || "" },
+    { id:"source", label:"Source", group:"Source details", get:lead=>lead.source },
+    { id:"channel", label:"Channel", group:"Source details", get:lead=>meta.channels.find(item=>String(item.id)===String(lead.channelId))?.displayName || "" },
+    { id:"campaign", label:"Campaign", group:"Source details", get:lead=>meta.campaigns.find(item=>String(item.id)===String(lead.campaignId))?.displayName || "" },
+    { id:"owner", label:"Counsellor", group:"Lead ownership", defaultSelected:true, get:lead=>lead.owner },
+    { id:"touchStatus", label:"Touch status", group:"Lead ownership", get:lead=>lead.touchStatus },
+    { id:"score", label:"Lead score", group:"Lead ownership", get:lead=>lead.score },
+    { id:"remarks", label:"Remarks", group:"Lead journey details", get:lead=>lead.remarks },
+    { id:"addedAt", label:"Added on", group:"Date details", defaultSelected:true, get:lead=>formatExportDate(lead.addedAt) },
+    { id:"updatedAt", label:"Updated on", group:"Date details", defaultSelected:true, get:lead=>formatExportDate(lead.updatedAt) },
+    { id:"referredAt", label:"Referred on", group:"Date details", get:lead=>formatExportDate(lead.referredAt) },
+    { id:"nextFollowup", label:"Next follow-up", group:"Date details", get:lead=>formatExportDate(lead.nextFollowup) },
+    { id:"reEnquiredAt", label:"Re-enquired on", group:"Date details", get:lead=>formatExportDate(lead.reEnquiredAt) },
+  ];
+  const standardKeys = new Set(["name","student_name","phone","primary_phone","alternate_phone","email","parent_name","city","academic_year","branch_id","admission_type_id","curriculum_id","class_id","channel_id","source_id","campaign_id","stage_id","substage_id","owner_employee_id","next_followup_at_utc"]);
+  const custom = (meta.leadFields || [])
+    .filter(field => field.fieldKey && !standardKeys.has(String(field.fieldKey)))
+    .map(field => ({ id:`custom:${field.fieldKey}`, label:field.displayName, group:"Configured custom fields", get:lead=>lead.customValues?.[field.fieldKey] }));
+  const byGroup = [...base, ...custom].reduce((acc, field) => {
+    if (!acc[field.group]) acc[field.group] = [];
+    if (!acc[field.group].some(existing => existing.label.toLowerCase() === field.label.toLowerCase())) acc[field.group].push(field);
+    return acc;
+  }, {});
+  return Object.entries(byGroup).map(([name, fields]) => ({ name, fields }));
+}
 
 export default function LeadsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -367,6 +521,7 @@ export default function LeadsPage() {
     branches: [],
     employees: [],
     academicYears: [],
+    leadFields: [],
     marketingCampaigns: [],
   });
   const [search, setSearch] = useState("");
@@ -415,6 +570,7 @@ export default function LeadsPage() {
   const [referralOptions,setReferralOptions]=useState({branches:[],employees:[]});
   const [savedFunnel, setSavedFunnel] = useState(() => localStorage.getItem("crm_saved_funnel") || "");
   const [filterPanel, setFilterPanel] = useState(null);
+  const [appliedFiltersExpanded, setAppliedFiltersExpanded] = useState(true);
   const [advancedFilters, setAdvancedFilters] = useState(emptyAdvancedFilters);
   const [followupDateType, setFollowupDateType] = useState("nextFollowup");
   const [funnels, setFunnels] = useState([]);
@@ -429,8 +585,25 @@ export default function LeadsPage() {
   const [whatsAppRecipients, setWhatsAppRecipients] = useState(null);
   const [marketingLeadIds, setMarketingLeadIds] = useState(null);
   const [whatsAppConversations, setWhatsAppConversations] = useState([]);
+  const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
   const studentNameInputRef = useRef(null);
   function toggleQuickActions(){setQuickActionsExpanded(current=>!current)}
+
+  async function callLead(lead){
+    setOpenActionId(null);
+    try{
+      const [callerdeskResult,smartfloResult]=await Promise.allSettled([api('/callerdesk/config'),api('/smartflo/config')]);
+      const providers=[];
+      if(callerdeskResult.status==='fulfilled'&&callerdeskResult.value.data?.configured&&callerdeskResult.value.data?.isActive!==false)providers.push('callerdesk');
+      if(smartfloResult.status==='fulfilled'&&smartfloResult.value.data?.configured&&smartfloResult.value.data?.isActive!==false)providers.push('smartflo');
+      if(!providers.length)throw new Error('Configure CallerDesk or Tata Smartflo in Integrations before making calls');
+      const provider=providers.length===1?providers[0]:(window.confirm('Use Tata Smartflo for this call? Select Cancel to use CallerDesk.')?'smartflo':'callerdesk');
+      const label=provider==='smartflo'?'Tata Smartflo':'CallerDesk';
+      if(!window.confirm(`Start a ${label} call to ${lead.studentName} (${lead.phone})? Your mapped phone will ring first.`))return;
+      await api.post(`/${provider}/leads/${lead.id}/call`,provider==='callerdesk'?{mode:'member'}:{});
+      setMessage({type:'success',text:`${label} is calling ${lead.studentName}. Answer your phone to connect.`});
+    }catch(error){setMessage({type:'error',text:error.message});}
+  }
 
   async function loadFunnels() {
     try {
@@ -615,12 +788,10 @@ export default function LeadsPage() {
     }
   }, [searchParams, meta.stages.length]);
 
-  const filtered = useMemo(
+  const leadsMatchingActiveFilters = useMemo(
     () =>
       leads.filter(
         (lead) =>
-          (!stageFilter || stageFilter === "Re-enquired" || lead.stage === stageFilter) &&
-          (stageFilter !== "Re-enquired" || Boolean(lead.reEnquiredAt)) &&
           (!branchFilter.length || branchFilter.includes(String(lead.branchId))) &&
           (!advancedFilters.sourceId.length || advancedFilters.sourceId.includes(String(lead.sourceId))) &&
           (!advancedFilters.ownerEmployeeId.length || advancedFilters.ownerEmployeeId.includes(String(lead.ownerEmployeeId))) &&
@@ -637,7 +808,12 @@ export default function LeadsPage() {
           (!advancedFilters.isParent.length || advancedFilters.isParent.some(value => value === "yes" ? Boolean(lead.isParent) : !lead.isParent)) &&
           (!advancedFilters.lookingForAdmission.length || advancedFilters.lookingForAdmission.some(value => value === "yes" ? Boolean(lead.lookingForAdmission) : !lead.lookingForAdmission)) &&
           (!advancedFilters.whatsappResponse.length || advancedFilters.whatsappResponse.includes(String(lead.whatsappResponse))) &&
-          (!advancedFilters.contactAvailability.length || advancedFilters.contactAvailability.some(value => value === "email" ? Boolean(lead.email) : Boolean(lead.phone))) &&
+          containsFilter(lead.studentName, advancedFilters.studentName) &&
+          phoneContainsFilter(lead.phone, advancedFilters.primaryPhone) &&
+          phoneContainsFilter(lead.alternatePhone, advancedFilters.alternatePhone) &&
+          containsFilter(lead.email, advancedFilters.email) &&
+          containsFilter(lead.parentName, advancedFilters.parentName) &&
+          (!advancedFilters.contactAvailability.length || advancedFilters.contactAvailability.some(value => value === "email" ? Boolean(lead.email) : value === "alternatePhone" ? Boolean(lead.alternatePhone) : Boolean(lead.phone))) &&
           (!advancedFilters.marketingCampaignId.length && !advancedFilters.marketingDeliveryStatus.length ||
             (lead.marketingDeliveries || []).some(delivery =>
               (!advancedFilters.marketingCampaignId.length || advancedFilters.marketingCampaignId.includes(String(delivery.campaignId))) &&
@@ -645,11 +821,85 @@ export default function LeadsPage() {
             )) &&
           (!advancedFilters.scoreMin || Number(lead.score) >= Number(advancedFilters.scoreMin)) &&
           (!advancedFilters.scoreMax || Number(lead.score) <= Number(advancedFilters.scoreMax)) &&
-          (!advancedFilters.followupFrom || (getDateFieldValue(lead, followupDateType) && istDateKey(getDateFieldValue(lead, followupDateType)) >= advancedFilters.followupFrom)) &&
-          (!advancedFilters.followupTo || (getDateFieldValue(lead, followupDateType) && istDateKey(getDateFieldValue(lead, followupDateType)) <= advancedFilters.followupTo)),
+          matchesDateRange(lead, "addedAt", advancedFilters.addedFrom, advancedFilters.addedTo) &&
+          matchesDateRange(lead, "updatedAt", advancedFilters.updatedFrom, advancedFilters.updatedTo) &&
+          matchesDateRange(lead, "referredAt", advancedFilters.referredFrom, advancedFilters.referredTo) &&
+          matchesDateRange(lead, "nextFollowup", advancedFilters.nextFollowupFrom || advancedFilters.followupFrom, advancedFilters.nextFollowupTo || advancedFilters.followupTo) &&
+          matchesDateRange(lead, "reEnquiredAt", advancedFilters.reEnquiredFrom, advancedFilters.reEnquiredTo),
       ),
-    [leads, stageFilter, branchFilter, advancedFilters, followupDateType],
+    [leads, branchFilter, advancedFilters],
   );
+  const filtered = useMemo(
+    () => leadsMatchingActiveFilters.filter(
+      lead =>
+        (!stageFilter || stageFilter === "Re-enquired" || lead.stage === stageFilter) &&
+        (stageFilter !== "Re-enquired" || Boolean(lead.reEnquiredAt)),
+    ),
+    [leadsMatchingActiveFilters, stageFilter],
+  );
+  const filteredStageCounts = useMemo(() => {
+    const counts = Object.fromEntries(meta.stages.map(stage => [stage.displayName, 0]));
+    for (const lead of leadsMatchingActiveFilters) {
+      if (lead.stage) counts[lead.stage] = Number(counts[lead.stage] || 0) + 1;
+    }
+    counts["Re-enquired"] = leadsMatchingActiveFilters.filter(lead => Boolean(lead.reEnquiredAt)).length;
+    return counts;
+  }, [leadsMatchingActiveFilters, meta.stages]);
+
+  const leadExportGroups = useMemo(() => buildLeadExportGroups(meta), [meta]);
+  const appliedFilterGroups = useMemo(() => {
+    const findLabels = (values, options) => (values || [])
+      .map(value => options.find(option => String(option.id ?? option.value ?? option.displayName) === String(value))?.displayName
+        || options.find(option => String(option.id ?? option.value ?? option.name) === String(value))?.name
+        || options.find(option => String(option.id ?? option.value ?? option.label) === String(value))?.label
+        || String(value))
+      .filter(Boolean);
+    const add = (target, label, values) => {
+      const list = Array.isArray(values) ? values.filter(Boolean) : values ? [values] : [];
+      if (list.length) target.push({ label, values:list });
+    };
+    const lead = [], academic = [], communication = [], marketing = [], dates = [], ranges = [];
+    add(lead, "Search", search);
+    add(lead, "Branch", findLabels(branchFilter, meta.branches));
+    add(lead, "Touch status", advancedFilters.touchStatus.map(value => value === "touched" ? "Is touched" : value === "untouched" ? "Untouched" : value));
+    add(lead, "Sub-stage", findLabels(advancedFilters.substageId, meta.substages));
+    add(lead, "Lead source", findLabels(advancedFilters.sourceId, meta.sources));
+    add(lead, "Counsellor", findLabels(advancedFilters.ownerEmployeeId, meta.employees));
+    add(lead, "Channel category", advancedFilters.channelCategory);
+    add(lead, "Channel", findLabels(advancedFilters.channelId, meta.channels));
+    add(lead, "Campaign category", advancedFilters.campaignCategory);
+    add(lead, "Campaign", findLabels(advancedFilters.campaignId, meta.campaigns));
+    add(academic, "Class", findLabels(advancedFilters.classId, meta.classes));
+    add(academic, "Curriculum", findLabels(advancedFilters.curriculumId, meta.curricula));
+    add(academic, "Admission type", findLabels(advancedFilters.admissionTypeId, meta.admissionTypes));
+    add(academic, "Referred from", findLabels(advancedFilters.referredByEmployeeId, meta.employees));
+    add(communication, "Parent", advancedFilters.isParent.map(value => value === "yes" ? "Yes" : "No"));
+    add(communication, "Student name", advancedFilters.studentName);
+    add(communication, "Primary phone", advancedFilters.primaryPhone);
+    add(communication, "Alternate phone", advancedFilters.alternatePhone);
+    add(communication, "Email", advancedFilters.email);
+    add(communication, "Parent name", advancedFilters.parentName);
+    add(communication, "Looking for admissions", advancedFilters.lookingForAdmission.map(value => value === "yes" ? "Yes" : "No"));
+    add(communication, "WhatsApp response", advancedFilters.whatsappResponse);
+    add(communication, "Contact availability", advancedFilters.contactAvailability.map(value => value === "email" ? "Has email address" : value === "alternatePhone" ? "Has alternate phone" : "Has phone number"));
+    add(marketing, "Bulk campaign", findLabels(advancedFilters.marketingCampaignId, meta.marketingCampaigns || []));
+    add(marketing, "Delivery status", advancedFilters.marketingDeliveryStatus);
+    [["Added",advancedFilters.addedFrom,advancedFilters.addedTo],["Updated",advancedFilters.updatedFrom,advancedFilters.updatedTo],["Referred",advancedFilters.referredFrom,advancedFilters.referredTo],["Next Follow-up",advancedFilters.nextFollowupFrom || advancedFilters.followupFrom,advancedFilters.nextFollowupTo || advancedFilters.followupTo],["Re-Enquired",advancedFilters.reEnquiredFrom,advancedFilters.reEnquiredTo]].forEach(([label,from,to]) => {
+      add(dates, `${label} from`, from);
+      add(dates, `${label} to`, to);
+    });
+    add(ranges, "Minimum lead score", advancedFilters.scoreMin);
+    add(ranges, "Maximum lead score", advancedFilters.scoreMax);
+    return [
+      ["Lead details", lead],
+      ["Academic details", academic],
+      ["Communication details", communication],
+      ["Marketing campaigns", marketing],
+      ["Date filters", dates],
+      ["Range filters", ranges],
+    ].filter(([,items]) => items.length);
+  }, [search, branchFilter, stageFilter, advancedFilters, followupDateType, meta]);
+  const hasAppliedFilters = appliedFilterGroups.length > 0;
   const totalRecords = filtered.length;
   const totalPages = Math.ceil(totalRecords / pageSize);
   const startIndex = (currentPage - 1) * pageSize;
@@ -674,6 +924,7 @@ export default function LeadsPage() {
     const normalized=normalizeFilters(filters); setAdvancedFilters(normalized);
     setBranchFilter(normalized.branchId);
     setStageFilter(normalized.stage.length===1?normalized.stage[0]:"");
+    setAppliedFiltersExpanded(true);
     setFilterPanel(null);
     setMessage({ type: "success", text: "Lead filters applied" });
   }
@@ -683,12 +934,18 @@ export default function LeadsPage() {
     setStageFilter("");
     setBranchFilter([]);
     setAdvancedFilters(emptyAdvancedFilters);
+    setFollowupDateType("nextFollowup");
     setMessage({ type: "success", text: "Filters cleared — showing all accessible branches" });
   }
 
   function applyFunnel(funnel) {
     applyAdvancedFilters({ ...emptyAdvancedFilters, ...funnel.filters });
     setMessage({ type: "success", text: `View "${funnel.name}" applied` });
+  }
+
+  function selectStage(stage) {
+    setStageFilter(stage);
+    setAppliedFiltersExpanded(false);
   }
 
   async function deleteFunnel(funnel) {
@@ -702,14 +959,24 @@ export default function LeadsPage() {
     }
   }
 
-  function exportLeads() {
-    const header = ["Lead ID", "Student", "Phone", "Branch", "Class", "Curriculum", "Stage", "Counsellor"];
-    const rows = filtered.map(lead => [lead.leadId, lead.studentName, lead.phone, lead.branch, lead.applyingClass, lead.curriculum, lead.stage, lead.owner]);
-    const csv = [header, ...rows].map(row => row.map(value => `"${String(value || "").replaceAll('"', '""')}"`).join(",")).join("\n");
+  async function exportLeads(fields) {
+    const selectedFields = fields?.length ? fields : leadExportGroups.flatMap(group => group.fields).filter(field => field.defaultSelected);
+    const header = selectedFields.map(field => field.label);
+    const rows = filtered.map(lead => selectedFields.map(field => field.get(lead)));
+    const csv = [header, ...rows].map(row => row.map(csvCell).join(",")).join("\n");
+    const fileName = `crm-leads-${new Date().toISOString().slice(0, 10)}.csv`;
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-    link.download = `crm-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = fileName;
     link.click(); URL.revokeObjectURL(link.href);
+    try {
+      await api('/bulk-operations/data-export',{method:'POST',body:JSON.stringify({totalRecords:rows.length,fileName,leadIds:filtered.map(lead=>lead.id)})});
+      setMessage({ type:"success", text:`Downloaded ${rows.length} lead${rows.length === 1 ? "" : "s"} with ${header.length} field${header.length === 1 ? "" : "s"}` });
+    } catch (error) {
+      setMessage({type:'error',text:`Export downloaded, but its audit entry could not be saved: ${error.message}`});
+    } finally {
+      setDownloadDialogOpen(false);
+    }
   }
 
   function bulkNotice(action) {
@@ -766,6 +1033,10 @@ export default function LeadsPage() {
       academicYear: defaultAcademicYear,
       branchId: meta.branches[0]?.id || "",
       stageId: meta.stages[0]?.id || "",
+      substageId: meta.substages.find(item=>String(item.stageId)===String(meta.stages[0]?.id))?.id || "",
+      classId: meta.classes[0]?.id || "",
+      curriculumId: meta.curricula[0]?.id || "",
+      admissionTypeId: meta.admissionTypes[0]?.id || "",
       ownerEmployeeId: currentUser?.employeeId || "",
     });
     setDrawer({ mode: "create", title: "Add new lead" });
@@ -905,12 +1176,19 @@ export default function LeadsPage() {
   }
 
   async function openBulkRefer() {
-    if (!filtered.length) return setMessage({type:"error",text:"No visible leads to refer"});
+    const selectedVisibleIds=selectedIds.filter(id=>filtered.some(lead=>lead.id===id));
+    if (!selectedVisibleIds.length) return setMessage({type:"error",text:"Select at least one lead to refer"});
     try {
       const options=await api('/leads/referral-options/all');
       setReferralOptions(options);
       const selfOption=options.employees.find(employee=>String(employee.id)===String(options.currentEmployeeId)&&String(employee.branchId)===String(options.currentBranchId))||options.employees.find(employee=>String(employee.id)===String(options.currentEmployeeId));
-      setReferLead({bulk:true,ids:filtered.map(lead=>lead.id),studentName:`${filtered.length} visible lead${filtered.length===1?"":"s"}`,leadId:"Current filtered view",branch:""});
+      setReferLead({
+        bulk:true,
+        ids:selectedVisibleIds,
+        studentName:`${selectedVisibleIds.length} selected lead${selectedVisibleIds.length===1?"":"s"}`,
+        leadId:selectedVisibleIds.length===filtered.length?"All leads in current filtered view":"Selected leads",
+        branch:"",
+      });
       setReferBranchId(selfOption?String(selfOption.branchId):"");
       setReferEmployeeId(selfOption?String(selfOption.id):"");
     } catch(error) { setMessage({type:"error",text:error.message}); }
@@ -951,15 +1229,15 @@ export default function LeadsPage() {
   }
 
   return (
-    <main className="page leads-page">
+    <main className={`page leads-page ${hasAppliedFilters ? (appliedFiltersExpanded ? "applied-filters-open" : "applied-filters-collapsed") : ""}`}>
       <section className="lead-command-center">
         <div className="funnel-callout">
           <FunnelStrip funnels={funnels} onApply={applyFunnel} onDelete={deleteFunnel} onCreate={createFunnel} onAddLead={openCreate} onSearch={(query) => setSearch(query)} onMessages={() => navigate("/whatsapp-inbox")} unreadCount={whatsAppConversations.reduce((sum,item)=>sum+Number(item.unread_count||0),0)}/>
         </div>
         <div className="stage-tabs" role="tablist">
-          <button className={`stage-tab ${!stageFilter ? "active" : ""}`} onClick={() => setStageFilter("")}><span className="stage-name">All</span> <span className="stage-count">{totalLeads}</span></button>
-          {meta.stages.map(stage => <button key={stage.id} className={`stage-tab ${stageFilter === stage.displayName ? "active" : ""}`} onClick={() => setStageFilter(stage.displayName)}><span className="stage-name">{stage.displayName}</span> <span className="stage-count">{stageCounts[stage.displayName] || 0}</span></button>)}
-          <button className={`stage-tab ${stageFilter === "Re-enquired" ? "active" : ""}`} onClick={() => setStageFilter("Re-enquired")}><span className="stage-name">Re-enquired</span> <span className="stage-count">{stageCounts["Re-enquired"] || 0}</span></button>
+          <button className={`stage-tab ${!stageFilter ? "active" : ""}`} onClick={() => selectStage("")}><span className="stage-name">All</span> <span className="stage-count">{leadsMatchingActiveFilters.length}</span></button>
+          {meta.stages.map(stage => <button key={stage.id} className={`stage-tab ${stageFilter === stage.displayName ? "active" : ""}`} onClick={() => selectStage(stage.displayName)}><span className="stage-name">{stage.displayName}</span> <span className="stage-count">{filteredStageCounts[stage.displayName] || 0}</span></button>)}
+          <button className={`stage-tab ${stageFilter === "Re-enquired" ? "active" : ""}`} onClick={() => selectStage("Re-enquired")}><span className="stage-name">Re-enquired</span> <span className="stage-count">{filteredStageCounts["Re-enquired"] || 0}</span></button>
         </div>
         <div className="lead-control-row">
           <div className="inline-lead-filter"><span>Branch</span><MultiSearchSelect label="Branch" value={branchFilter} onChange={setBranchFilter} options={[{value:"",label:"All branches"},...meta.branches.map(branch=>({value:String(branch.id),label:branch.name}))]}/></div>
@@ -971,11 +1249,10 @@ export default function LeadsPage() {
             {quickActionsExpanded&&<>
             <BulkUploadButton/>
             <button title={`Change stage for ${selectedIds.length || "selected"} leads`} aria-label={`Change stage for selected leads`} onClick={openBulkStageChange} disabled={!selectedIds.length}><GitBranch/></button>
-            <button title={`Refer all ${filtered.length} visible leads`} aria-label={`Refer all ${filtered.length} visible leads`} onClick={openBulkRefer}><UserRoundPlus/></button>
+            <button title={`Refer ${selectedIds.length || "selected"} leads`} aria-label="Refer selected leads" onClick={openBulkRefer} disabled={!selectedIds.length}><UserRoundPlus/></button>
             <button title={`Add marketing campaign for ${filtered.length} filtered leads`} onClick={openFilteredMarketingCampaign} disabled={!filtered.length}><Megaphone/></button>
             <button title={`Send WhatsApp to ${selectedIds.length || "selected"} leads in this view`} onClick={openSelectedMessages} disabled={!selectedIds.length}><MessageCircle/></button>
-            <button title="Email selected" onClick={() => bulkNotice("Email")}><Mail/></button>
-            <button title="Export visible leads" onClick={exportLeads}><Download/></button>
+            <button title="Export visible leads" onClick={() => setDownloadDialogOpen(true)}><Download/></button>
             </>}
             <button className="quick-actions-toggle" title={quickActionsExpanded?"Collapse lead actions":"Expand lead actions"} aria-label={quickActionsExpanded?"Collapse lead actions":"Expand lead actions"} onClick={toggleQuickActions}>{quickActionsExpanded?<PanelRightClose/>:<PanelRightOpen/>}</button>
             <button title="Clear filters" aria-label="Clear filters" onClick={clearLeadFilters}><RefreshCw/></button>
@@ -983,6 +1260,7 @@ export default function LeadsPage() {
           </div></div>
         </div>
       </section>
+      {downloadDialogOpen && <DownloadFieldsDialog title="Download Data" groups={leadExportGroups} onClose={() => setDownloadDialogOpen(false)} onDownload={exportLeads}/>}
       <Toast message={message} onClose={() => setMessage(null)} />
       <article className="panel leads-panel">
         <div className="table-wrap">
@@ -1048,6 +1326,7 @@ export default function LeadsPage() {
                   <td>{lead.recentModified ? new Date(lead.recentModified).toLocaleString("en-IN", {timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}) : "—"}</td>
                   <td>
                     <div className="row-action-group">
+                    <button className="row-followup-trigger" title="Call with connected telephony provider" aria-label={`Call ${lead.studentName}`} onClick={()=>callLead(lead)}><PhoneCall size={17}/></button>
                     <button className={`row-followup-trigger ${whatsAppConversations.some(item=>cleanPhone(item.mobile)===cleanPhone(lead.phone)&&Number(item.unread_count)>0)?"has-unread":""}`} title="Send WhatsApp message" aria-label={`Send WhatsApp message to ${lead.studentName}`} onClick={()=>openLeadMessage(lead)}><MessageCircle size={17}/>{(()=>{const count=whatsAppConversations.filter(item=>cleanPhone(item.mobile)===cleanPhone(lead.phone)).reduce((sum,item)=>sum+Number(item.unread_count||0),0);return count>0?<span className="lead-message-unread">{count>99?"99+":count}</span>:null})()}</button>
                     <button className="row-followup-trigger remarks-count-trigger" title={`${Number(lead.remarksCount||0)} remarks · Lead history`} aria-label={`${Number(lead.remarksCount||0)} remarks for ${lead.studentName}. Open lead history`} onClick={()=>openHistory(lead)}><History size={17}/><span className="remarks-count-badge">{Number(lead.remarksCount||0)>99?"99+":Number(lead.remarksCount||0)}</span></button>
                     <button className="row-followup-trigger" title="Follow-up and notes" aria-label={`Follow-up and notes for ${lead.studentName}`} onClick={()=>openFollowup(lead)}><NotebookPen size={17}/></button>
@@ -1136,11 +1415,42 @@ export default function LeadsPage() {
           </div>
         )}
       </article>
+      {hasAppliedFilters && (
+        <aside className={`applied-filters-panel ${appliedFiltersExpanded ? "expanded" : "collapsed"}`} aria-label="Applied lead filters">
+          <button
+            className="applied-filter-toggle"
+            title={appliedFiltersExpanded ? "Collapse applied filters" : "Expand applied filters"}
+            aria-label={appliedFiltersExpanded ? "Collapse applied filters" : "Expand applied filters"}
+            onClick={() => setAppliedFiltersExpanded(current => !current)}
+          >
+            {appliedFiltersExpanded ? <PanelRightClose size={17}/> : <PanelRightOpen size={17}/>}
+          </button>
+          {appliedFiltersExpanded && <>
+            <header>
+              <div><Filter size={17}/><span><strong>Applied filters</strong><small>{appliedFilterGroups.reduce((sum,[,items]) => sum + items.length, 0)} active</small></span></div>
+            </header>
+            <div className="applied-filter-sections">
+              {appliedFilterGroups.map(([group,items]) => (
+                <section key={group}>
+                  <h3>{group}<b>{items.length}</b></h3>
+                  <div>
+                    {items.map(item => <article key={item.label}><span>{item.label}</span><p>{item.values.map(value => <em key={`${item.label}-${value}`}>{value}</em>)}</p></article>)}
+                  </div>
+                </section>
+              ))}
+            </div>
+            <footer>
+              <button className="secondary" onClick={clearLeadFilters}><RefreshCw size={15}/>Reset</button>
+              <button className="primary" onClick={() => setFilterPanel("filter")}><Pencil size={15}/>Edit filters</button>
+            </footer>
+          </>}
+        </aside>
+      )}
       {filterPanel && (
         <FilterWorkspace
           mode={filterPanel}
           meta={meta}
-          initialFilters={{ ...advancedFilters, branchId: branchFilter, stage: stageFilter }}
+          initialFilters={{ ...advancedFilters, branchId: branchFilter, stage: stageFilter, dateType: followupDateType }}
           onApply={applyAdvancedFilters}
           onClose={() => setFilterPanel(null)}
           onSaved={({ name, type }) => {
@@ -1154,7 +1464,7 @@ export default function LeadsPage() {
         />
       )}
       {referLead&&<><div className="drawer-backdrop" onClick={()=>setReferLead(null)}/><section className="refer-dialog" role="dialog" aria-modal="true" aria-labelledby="refer-title">
-        <div className="refer-dialog-head"><div><span className="eyebrow">{referLead.bulk?"Bulk lead referral":"Lead referral"}</span><h2 id="refer-title">Refer {referLead.studentName}</h2><p>{referLead.bulk?"Every lead currently appearing in the filtered list will be reassigned.":`${referLead.leadId} · ${referLead.branch}`}</p></div><button className="icon-btn" onClick={()=>setReferLead(null)}><X/></button></div>
+        <div className="refer-dialog-head"><div><span className="eyebrow">{referLead.bulk?"Bulk lead referral":"Lead referral"}</span><h2 id="refer-title">Refer {referLead.studentName}</h2><p>{referLead.bulk?`${referLead.leadId} will be reassigned.`:`${referLead.leadId} · ${referLead.branch}`}</p></div><button className="icon-btn" onClick={()=>setReferLead(null)}><X/></button></div>
         <form onSubmit={submitReferral}>
           <SearchSuggestion label="Referral branch" required options={referralOptions.branches.map(branch=>({id:branch.id,label:branch.name}))} value={referBranchId} onChange={(branchId)=>{setReferBranchId(String(branchId||""));setReferEmployeeId("")}} placeholder="Search and select branch…"/>
           <SearchSuggestion label="Counsellor" required options={referralOptions.employees.filter(employee=>String(employee.branchId)===String(referBranchId)).map(employee=>({id:employee.id,label:`${employee.name} · ${employee.branchName}`}))} value={referEmployeeId} onChange={setReferEmployeeId} placeholder={referBranchId?"Search counsellor…":"Select a branch first"}/>
@@ -1208,7 +1518,12 @@ export default function LeadsPage() {
             </nav>}
             <form onSubmit={save}>
               <fieldset disabled={drawer.mode === "view"}>
-                <div className={`form-section ${drawer.mode!=="create"&&drawerTab!=="student"?"tab-hidden":""}`}>
+                {drawer.mode==="create"&&<div className="form-section">
+                  <h3>Lead details</h3>
+                  <ConfiguredLeadFields fields={meta.leadFields||[]} form={form} setForm={setForm} meta={meta} availableAdmissionTypes={availableAdmissionTypes} availableCurricula={availableCurricula} availableClasses={availableClasses} inputRef={studentNameInputRef}/>
+                </div>}
+                {drawer.mode!=="create"&&<>
+                <div className={`form-section ${drawerTab!=="student"?"tab-hidden":""}`}>
                   <h3>Student and contact</h3>
                   <div className="form-grid">
                     <label>
@@ -1323,7 +1638,7 @@ export default function LeadsPage() {
                     />
                   </div>
                 </div>
-                <div className={`form-section ${drawer.mode!=="create"&&drawerTab!=="source"?"tab-hidden":""}`}>
+                <div className={`form-section ${drawerTab!=="source"?"tab-hidden":""}`}>
                   <h3>Source details</h3>
                   <div className="form-grid source-layout">
                     <section className="source-primary"><div className="source-primary-grid">
@@ -1354,7 +1669,8 @@ export default function LeadsPage() {
                     {drawer.mode!=="create"&&<div className="wide source-history"><strong>Source history</strong>{form.sourceHistory?.length?form.sourceHistory.map(item=><article key={item.id}><b>{item.isPrimary?"Primary":"Secondary"}</b><span>{item.academicYear} · {item.channel} · {item.source} · {item.campaign}</span><small>{item.addedBy} · {new Date(item.createdAt).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"})}</small></article>):<p>No source history available</p>}</div>}
                   </div>
                 </div>
-                {drawer.mode === "create" && <div className="form-section">
+                </>}
+                {false && drawer.mode === "create" && <div className="form-section">
                   <h3>Follow-up and notes</h3>
                   <div className="form-grid">
                     <label>
@@ -1450,6 +1766,7 @@ export default function LeadsPage() {
                           <strong>{item.summary}</strong>
                           <span>{item.actorName} · {new Date(item.occurredAt).toLocaleString("en-IN", {timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"})}</span>
                           {item.commentText&&<p className="activity-comment">{item.commentText}</p>}
+                          {item.details?.recordingUrl&&<audio controls preload="none" src={item.details.recordingUrl}>Your browser cannot play this call recording.</audio>}
                         </div>
                       </div>
                     ))

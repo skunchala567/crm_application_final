@@ -111,7 +111,8 @@ function BulkUploadModal({ onClose }) {
     try {
       const response = await fetch('/api/bulk-uploads/download-template', {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('crm_token')}`
+          'Authorization': `Bearer ${localStorage.getItem('crm_token')}`,
+          ...(localStorage.getItem('crm_business_unit_id') ? {'X-Business-Unit-Id':localStorage.getItem('crm_business_unit_id')} : {})
         }
       });
       if (!response.ok) throw new Error('Download failed');

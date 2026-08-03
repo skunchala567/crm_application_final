@@ -1,28 +1,45 @@
-import { useEffect, useState } from 'react';
-import { ChevronRight, Download, Eye, RotateCcw, X } from 'lucide-react';
+import { Fragment, useEffect, useState } from 'react';
+import { ChevronRight, Download, Eye, FileDown, GitBranch, PhoneCall, RefreshCw, RotateCcw, Search, UserRoundCheck, X } from 'lucide-react';
 import { api } from './api';
+import { useBusinessUnit } from './BusinessUnitContext.jsx';
+import { DateRangeFilterControl } from './FilterWorkspace.jsx';
 import './BulkActionsPage.css';
 
 export default function BulkActionsPage() {
+  const { selectedId } = useBusinessUnit();
   const [uploads, setUploads] = useState([]);
+  const [operations, setOperations] = useState([]);
+  const [dialerCampaigns,setDialerCampaigns]=useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('uploads');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [expandedOperation, setExpandedOperation] = useState(null);
   const [selectedUpload, setSelectedUpload] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
-  const [refreshInterval, setRefreshInterval] = useState(null);
 
   useEffect(() => {
-    loadUploads();
-    const interval = setInterval(loadUploads, 5000);
-    setRefreshInterval(interval);
+    setUploads([]);
+    setOperations([]);
+    setDialerCampaigns([]);
+    setSelectedUpload(null);
+    setExpandedOperation(null);
+    setLoading(true);
+    loadData();
+    const interval = setInterval(loadData, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [selectedId]);
 
-  const loadUploads = async () => {
+  const loadData = async () => {
     try {
-      const data = await api('/bulk-uploads');
-      setUploads(data.data || []);
+      const [uploadData,operationData,dialerData] = await Promise.all([api('/bulk-uploads'),api('/bulk-operations'),api('/callerdesk/campaigns').catch(()=>({data:[]}))]);
+      setUploads(uploadData.data || []);
+      setOperations(operationData.data || []);
+      setDialerCampaigns(dialerData.data||[]);
     } catch (error) {
-      console.error('Failed to load uploads:', error);
+      console.error('Failed to load bulk operation history:', error);
     } finally {
       setLoading(false);
     }
@@ -40,20 +57,52 @@ export default function BulkActionsPage() {
     }
   };
 
-  const closeDetails = () => {
-    setSelectedUpload(null);
+  const closeDetails = () => setSelectedUpload(null);
+
+  const exportAffectedLeads = async (row) => {
+    try {
+      const endpoint = activeTab === 'uploads'
+        ? `/api/bulk-uploads/${row.id}/download-successful`
+        : `/api/bulk-operations/${row.id}/export`;
+      const response = await fetch(endpoint,{headers:{Authorization:`Bearer ${localStorage.getItem('crm_token')}`,'X-Business-Unit-Id':String(selectedId)}});
+      if(!response.ok){
+        const errorBody=await response.json().catch(()=>({}));
+        throw new Error(errorBody.message||'Export failed');
+      }
+      const blob=await response.blob();
+      const url=URL.createObjectURL(blob);
+      const link=document.createElement('a');
+      link.href=url;
+      link.download=activeTab==='uploads'?`bulk-upload-${row.id}-leads.csv`:`bulk-${activeTab}-${row.id}-leads.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch(error) {
+      window.alert(error.message);
+    }
   };
 
   const getStatusColor = (status) => {
     switch (status?.toLowerCase().replace(/\s+/g, '-')) {
       case 'completed': return 'status-completed';
       case 'completed-with-errors': return 'status-warning';
+      case 'partial': return 'status-warning';
       case 'failed': return 'status-failed';
       case 'in-progress':
       case 'validating':
       case 'queued': return 'status-processing';
       default: return 'status-default';
     }
+  };
+
+  const getStatusLabel = (status) =>
+    status?.toLowerCase().replace(/[_\s]+/g, '-') === 'completed-with-errors'
+      ? 'Completed'
+      : status;
+
+  const updateDialerStatus=async campaign=>{
+    const status=campaign.status==='running'?'paused':'running';
+    try{await api.patch(`/callerdesk/campaigns/${campaign.id}/status`,{status});await loadData();}
+    catch(error){window.alert(error.message);}
   };
 
   const formatDate = (dateStr) => {
@@ -68,14 +117,6 @@ export default function BulkActionsPage() {
     });
   };
 
-  const formatDuration = (startedAt, completedAt) => {
-    if (!startedAt || !completedAt) return '-';
-    const start = new Date(startedAt);
-    const end = new Date(completedAt);
-    const minutes = Math.floor((end - start) / 60000);
-    return `${minutes}m`;
-  };
-
   if (selectedUpload) {
     return (
       <UploadDetailsView
@@ -87,6 +128,34 @@ export default function BulkActionsPage() {
     );
   }
 
+  const tabs = [
+    {id:'uploads',label:'Bulk uploads',icon:Download},
+    {id:'data_export',label:'Data exports',icon:FileDown},
+    {id:'stage_change',label:'Stage changes',icon:GitBranch},
+    {id:'referral',label:'Referrals',icon:UserRoundCheck},
+    {id:'dialer',label:'Dialling queues',icon:PhoneCall},
+  ];
+  const tabRows = activeTab === 'uploads'
+    ? uploads.map(row=>({...row,createdBy:row.uploadedBy,summary:row.fileName}))
+    : activeTab==='dialer'
+      ? dialerCampaigns.map(row=>({...row,summary:row.name,totalRecords:row.total,successfulRecords:row.connected,failedRecords:row.finished,
+          details:{mode:row.mode,pending:Number(row.pending||0),connected:Number(row.connected||0),deskphone:row.deskphone||'Default branch DID',callGroup:row.callGroup||'Default group'}}))
+      : operations.filter(row=>row.operationType===activeTab);
+  const normalizedStatus = value => value?.toLowerCase().replaceAll(' ','-');
+  const visibleRows = tabRows.filter(row => {
+    const text = `${row.summary||''} ${row.createdBy||''}`.toLowerCase();
+    const created = row.createdAt ? new Date(row.createdAt).toISOString().slice(0,10) : '';
+    return (!search || text.includes(search.toLowerCase()))
+      && (!statusFilter || normalizedStatus(row.status)===statusFilter)
+      && (!dateFrom || created>=dateFrom) && (!dateTo || created<=dateTo);
+  });
+  const totals = {
+    records:visibleRows.reduce((sum,row)=>sum+Number(row.totalRecords||0),0),
+    successful:visibleRows.reduce((sum,row)=>sum+Number(row.successfulRecords||0),0),
+    failed:visibleRows.reduce((sum,row)=>sum+Number(row.failedRecords||0),0),
+    completed:visibleRows.filter(row=>['completed','completed-with-errors','partial'].includes(normalizedStatus(row.status))).length,
+  };
+
   return (
     <div className="page bulk-actions-page">
       <div className="page-heading">
@@ -94,71 +163,74 @@ export default function BulkActionsPage() {
           <h1>Bulk Actions</h1>
           <p>Monitor and manage all bulk operations</p>
         </div>
-        <button className="refresh-btn" onClick={loadUploads} disabled={loading}>
-          Refresh
+        <button className="refresh-btn bulk-refresh" onClick={loadData} disabled={loading}>
+          <RefreshCw size={15}/> Refresh
         </button>
       </div>
 
       <div className="bulk-actions-container">
-        <div className="bulk-actions-header">
-          <h2>Bulk Uploads</h2>
-          <span className="upload-count">{uploads.length} uploads</span>
+        <div className="bulk-operation-tabs" role="tablist">
+          {tabs.map(({id,label,icon:Icon})=>(
+            <button key={id} className={activeTab===id?'active':''} onClick={()=>{setActiveTab(id);setExpandedOperation(null)}} role="tab">
+              <Icon size={16}/><span>{label}</span>
+              <b>{id==='uploads'?uploads.length:id==='dialer'?dialerCampaigns.length:operations.filter(row=>row.operationType===id).length}</b>
+            </button>
+          ))}
         </div>
 
-        {loading && (
-          <div className="empty">
-            <div className="loading-spinner"></div>
-            <p>Loading uploads...</p>
-          </div>
-        )}
+        <div className="bulk-summary-grid">
+          <div><span>Operations</span><strong>{visibleRows.length}</strong></div>
+          <div><span>Records processed</span><strong>{totals.records}</strong></div>
+          <div className="positive"><span>Successful</span><strong>{totals.successful}</strong></div>
+          <div className="negative"><span>Failed</span><strong>{totals.failed}</strong></div>
+          <div><span>Completed runs</span><strong>{totals.completed}</strong></div>
+        </div>
 
-        {!loading && uploads.length === 0 && (
-          <div className="empty">
-            <p>No bulk uploads yet. Start by clicking the <strong>Bulk Upload</strong> button on the Leads page.</p>
-          </div>
-        )}
+        <div className="bulk-history-toolbar">
+          <div className="bulk-search"><Search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search history"/></div>
+          <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} aria-label="Filter by status">
+            <option value="">All statuses</option><option value="completed">Completed</option><option value="partial">Partial success</option>
+            <option value="completed-with-errors">Completed with errors</option><option value="failed">Failed</option><option value="processing">Processing</option>
+          </select>
+          <div className="bulk-date-range-filter"><DateRangeFilterControl label="Created on" from={dateFrom} to={dateTo} onChange={(from,to)=>{setDateFrom(from);setDateTo(to)}}/></div>
+          {(search||statusFilter||dateFrom||dateTo)&&<button className="clear-history-filters" onClick={()=>{setSearch('');setStatusFilter('');setDateFrom('');setDateTo('')}}>Clear</button>}
+        </div>
 
-        {!loading && uploads.length > 0 && (
+        {loading ? <div className="empty"><div className="loading-spinner"/><p>Loading operation history...</p></div>
+        : visibleRows.length===0 ? (
+          <div className="empty bulk-empty">
+            <p>No {tabs.find(tab=>tab.id===activeTab)?.label.toLowerCase()} match the current filters.</p>
+          </div>
+        ) : (
           <div className="uploads-table-wrap">
             <table className="uploads-table">
               <thead>
-                <tr>
-                  <th>File Name</th>
-                  <th>Upload Date</th>
-                  <th>Uploaded By</th>
-                  <th>Total Records</th>
-                  <th>Success</th>
-                  <th>Failed</th>
-                  <th>Duplicates</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
+                <tr><th>{activeTab==='uploads'?'File name':'Operation details'}</th><th>Created on</th><th>Created by</th>
+                  <th>Total</th><th>Success</th><th>Failed</th>{activeTab==='uploads'&&<th>Duplicates</th>}<th>Status</th><th>Actions</th></tr>
               </thead>
               <tbody>
-                {uploads.map(upload => (
-                  <tr key={upload.id}>
-                    <td className="file-name">{upload.fileName}</td>
-                    <td className="date">{formatDate(upload.createdAt)}</td>
-                    <td className="uploaded-by">{upload.uploadedBy}</td>
-                    <td className="number">{upload.totalRecords}</td>
-                    <td className="success">{upload.successfulRecords}</td>
-                    <td className="failed">{upload.failedRecords}</td>
-                    <td className="duplicate">{upload.duplicateRecords}</td>
-                    <td>
-                      <span className={`status-badge ${getStatusColor(upload.status)}`}>
-                        {upload.status}
-                      </span>
-                    </td>
-                    <td className="actions">
-                      <button
-                        className="action-btn view-btn"
-                        title="View details"
-                        onClick={() => openDetails(upload)}
-                      >
-                        <Eye size={16} />
-                      </button>
-                    </td>
-                  </tr>
+                {visibleRows.map(row => (
+                  <Fragment key={`${activeTab}-${row.id}`}>
+                    <tr key={row.id}>
+                      <td className="file-name">{row.summary||row.fileName}</td><td className="date">{formatDate(row.createdAt)}</td>
+                      <td className="uploaded-by">{row.createdBy||row.uploadedBy}</td><td className="number">{row.totalRecords}</td>
+                      <td className="success">{row.successfulRecords}</td><td className="failed">{row.failedRecords}</td>
+                      {activeTab==='uploads'&&<td className="duplicate">{row.duplicateRecords}</td>}
+                      <td><span className={`status-badge ${getStatusColor(row.status)}`}>{getStatusLabel(row.status==='partial'?'Partial success':row.status)}</span></td>
+                      <td className="actions">
+                        <button className="action-btn view-btn" title="View details" onClick={()=>activeTab==='uploads'?openDetails(row):setExpandedOperation(expandedOperation===row.id?null:row.id)}><Eye size={16}/></button>
+                        {activeTab==='dialer'?<button className="action-btn view-btn" disabled={['completed','cancelled'].includes(row.status)} title={row.status==='running'?'Pause queue':'Start queue'} onClick={()=>updateDialerStatus(row)}><PhoneCall size={16}/></button>:<button className="action-btn view-btn" title="Export affected leads" onClick={()=>exportAffectedLeads(row)}><Download size={16}/></button>}
+                      </td>
+                    </tr>
+                    {activeTab!=='uploads'&&expandedOperation===row.id&&(
+                      <tr key={`${row.id}-details`} className="operation-detail-row"><td colSpan="8">
+                        <div><span>Summary</span><strong>{row.summary||'—'}</strong></div>
+                        {Object.entries(row.details||{}).filter(([key])=>!['failures','leadIds'].includes(key)).map(([key,value])=><div key={key}><span>{key.replace(/([A-Z])/g,' $1')}</span><strong>{String(value??'—')}</strong></div>)}
+                        {row.details?.leadIds?.length>0&&<div><span>Affected leads</span><strong>{row.details.leadIds.length} · Export available</strong></div>}
+                        {row.errorMessage&&<div className="operation-error"><span>Error</span><strong>{row.errorMessage}</strong></div>}
+                      </td></tr>
+                    )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>

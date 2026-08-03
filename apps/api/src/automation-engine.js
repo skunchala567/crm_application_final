@@ -337,7 +337,7 @@ export function createAutomationEngine(pool, options = {}) {
       const workflowClause = workflowId ? 'AND id = ?' : '';
       if (workflowId) params.push(workflowId);
       const [workflows] = await pool.execute(
-        `SELECT id, name, definition_json, created_by
+        `SELECT id, name, definition_json, created_by, business_unit_id
          FROM crm_automation_workflows
          WHERE is_active = TRUE AND start_at IS NOT NULL AND start_at <= NOW()
          ${workflowClause}
@@ -348,7 +348,7 @@ export function createAutomationEngine(pool, options = {}) {
       // Actions from an earlier workflow must not change the conditions seen
       // by another workflow during the same cycle.
       const [leadSnapshot] = await pool.query(
-        `SELECT id, stage_id, substage_id, branch_id, source_id, channel_id,
+        `SELECT id, business_unit_id, stage_id, substage_id, branch_id, source_id, channel_id,
                 student_name, phone, campaign_id, class_id, curriculum_id,
                 owner_employee_id, created_at_utc,
                 COALESCE(updated_at_utc, created_at_utc) AS modified_at_utc
@@ -359,6 +359,7 @@ export function createAutomationEngine(pool, options = {}) {
         const actions = Array.isArray(definition.actions) ? definition.actions : [];
         if (!actions.length) continue;
         for (const lead of leadSnapshot) {
+          if (Number(lead.business_unit_id) !== Number(workflow.business_unit_id)) continue;
           if (!workflowMatches(lead, definition)) continue;
           for (let actionIndex = 0; actionIndex < actions.length; actionIndex += 1) {
             const action = actions[actionIndex];

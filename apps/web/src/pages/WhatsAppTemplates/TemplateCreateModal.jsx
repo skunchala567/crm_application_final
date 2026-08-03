@@ -17,10 +17,13 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
     footer_enabled: false,
     quick_replies: [],
     buttons_expanded: false,
-    footer_expanded: false
+    footer_expanded: false,
+    visibleUserIds: []
   });
 
   const [validationErrors, setValidationErrors] = useState({});
+  const [visibilityUsers, setVisibilityUsers] = useState([]);
+  const [visibilitySearch, setVisibilitySearch] = useState('');
   const [apiError, setApiError] = useState(null);
   const [nameAvailable, setNameAvailable] = useState(null);
   const [checkingName, setCheckingName] = useState(false);
@@ -100,6 +103,13 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
 
     return () => clearInterval(timer);
   }, [unsavedChanges]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    api.get('/whatsapp/template-visibility-users')
+      .then(response => setVisibilityUsers(response.data || []))
+      .catch(() => setVisibilityUsers([]));
+  }, [isOpen]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -182,7 +192,8 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
         body: form.body,
         sample_values: form.sample_text ? { '{{1}}': form.sample_text } : undefined,
         footer: form.footer_enabled ? form.footer : null,
-        buttons: form.quick_replies && form.quick_replies.length > 0 ? form.quick_replies : undefined
+        buttons: form.quick_replies && form.quick_replies.length > 0 ? form.quick_replies : undefined,
+        visibleUserIds: form.visibleUserIds || []
       };
 
       if (editingTemplate) {
@@ -341,8 +352,12 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
               validationErrors={validationErrors}
               languages={languages}
               hasVariables={hasVariables}
+              bodyVariables={bodyVariables}
               nameAvailable={nameAvailable}
               checkingName={checkingName}
+              visibilityUsers={visibilityUsers}
+              visibilitySearch={visibilitySearch}
+              setVisibilitySearch={setVisibilitySearch}
             />
           </div>
 
@@ -449,7 +464,18 @@ export default function TemplateCreateModal({ isOpen, onClose, onSuccess, editin
   );
 }
 
-function FormContent({ form, handleChange, validationErrors, languages, hasVariables, nameAvailable, checkingName }) {
+function FormContent({ form, handleChange, validationErrors, languages, hasVariables, bodyVariables, nameAvailable, checkingName, visibilityUsers, visibilitySearch, setVisibilitySearch }) {
+  const selectedVisibility = new Set((form.visibleUserIds || []).map(String));
+  const filteredVisibilityUsers = (visibilityUsers || []).filter(user =>
+    `${user.name || ''} ${user.email || ''}`.toLowerCase().includes(String(visibilitySearch || '').toLowerCase())
+  );
+  const toggleVisibleUser = userId => {
+    const key = String(userId);
+    const next = selectedVisibility.has(key)
+      ? (form.visibleUserIds || []).filter(id => String(id) !== key)
+      : [...(form.visibleUserIds || []), Number(userId)];
+    handleChange('visibleUserIds', next);
+  };
   return (
     <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* Section 1: Basic Information */}
@@ -597,6 +623,72 @@ function FormContent({ form, handleChange, validationErrors, languages, hasVaria
               ))}
             </select>
           </FormField>
+        </div>
+      </FormSection>
+
+      <FormSection title="Template visibility">
+        <div style={{ display: 'grid', gap: '10px' }}>
+          <div style={{ fontSize: '12px', color: '#67697b', lineHeight: 1.5 }}>
+            Select the CRM users who can see this template while sending WhatsApp messages. If no user is selected, the template will not appear in send dropdowns for normal users.
+          </div>
+          <input
+            type="search"
+            value={visibilitySearch}
+            onChange={e => setVisibilitySearch(e.target.value)}
+            placeholder="Search users..."
+            style={{
+              width: '100%',
+              height: '36px',
+              border: '1px solid #d1d5db',
+              borderRadius: '6px',
+              padding: '0 10px',
+              fontSize: '13px',
+              outline: 0
+            }}
+          />
+          <div style={{
+            maxHeight: '210px',
+            overflow: 'auto',
+            border: '1px solid #e5e7eb',
+            borderRadius: '8px',
+            background: '#fff'
+          }}>
+            {filteredVisibilityUsers.map(user => (
+              <label key={user.id} style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '9px',
+                padding: '10px 12px',
+                borderBottom: '1px solid #f0f1f5',
+                cursor: 'pointer',
+                fontSize: '12px'
+              }}>
+                <input
+                  type="checkbox"
+                  checked={selectedVisibility.has(String(user.id))}
+                  onChange={() => toggleVisibleUser(user.id)}
+                  style={{ width: '15px', height: '15px', accentColor: 'var(--primary)' }}
+                />
+                <span style={{ display: 'grid', gap: '2px' }}>
+                  <strong style={{ color: '#202238' }}>{user.name || user.email}</strong>
+                  {user.email && <small style={{ color: '#77798c' }}>{user.email}</small>}
+                </span>
+              </label>
+            ))}
+            {!filteredVisibilityUsers.length && (
+              <div style={{ padding: '18px', textAlign: 'center', color: '#77798c', fontSize: '12px' }}>
+                No CRM users found
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: '#67697b' }}>
+            <span>{(form.visibleUserIds || []).length} user(s) selected</span>
+            {(form.visibleUserIds || []).length > 0 && (
+              <button type="button" onClick={() => handleChange('visibleUserIds', [])} style={{ border: 0, background: 'transparent', color: 'var(--primary)', fontWeight: 700, cursor: 'pointer' }}>
+                Clear selection
+              </button>
+            )}
+          </div>
         </div>
       </FormSection>
 

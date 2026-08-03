@@ -12,13 +12,38 @@ import {
 import { api } from "./api";
 
 const initialForm = {
+  userType: "employee",
   employeeId: "",
+  firstName: "",
+  lastName: "",
+  phone: "",
   email: "",
   roleName: "COUNSELLOR",
   branchIds: [],
   password: "",
   isActive: true,
+  callerdeskEnabled: false,
+  callerdeskMemberId: "",
+  callerdeskMemberName: "",
+  callerdeskMemberNumber: "",
+  callerdeskCallGroup: "",
+  smartfloEnabled: false,
+  smartfloUserId: "",
+  smartfloAgentId: "",
+  smartfloAgentName: "",
+  smartfloAgentNumber: "",
+  smartfloDepartmentId: "",
 };
+
+function firstOptionArray(value) {
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== "object") return [];
+  for (const key of ["data","list","result","records","member_list","members","group_list","groups","users","departments"]) {
+    const nested=value[key]; if(Array.isArray(nested))return nested;
+    const found=firstOptionArray(nested); if(found.length)return found;
+  }
+  return [];
+}
 
 function EmployeeSearch({ employees, value, onChange, disabled }) {
   const selected = employees.find(
@@ -99,6 +124,8 @@ export default function UserManagementPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [callingOptions,setCallingOptions]=useState({configured:false,members:[],groups:[]});
+  const [smartfloOptions,setSmartfloOptions]=useState({configured:false,users:[],departments:[]});
 
   async function load() {
     setLoading(true);
@@ -117,6 +144,14 @@ export default function UserManagementPage() {
   }
   useEffect(() => {
     load();
+    api('/callerdesk/config').then(result=>result.data?.configured?Promise.allSettled([api('/callerdesk/members'),api('/callerdesk/groups')]):null).then(results=>{
+      if(!results)return;
+      setCallingOptions({configured:true,members:results[0].status==='fulfilled'?firstOptionArray(results[0].value.data):[],groups:results[1].status==='fulfilled'?firstOptionArray(results[1].value.data):[]});
+    }).catch(()=>setCallingOptions({configured:false,members:[],groups:[]}));
+    api('/smartflo/config').then(result=>result.data?.configured?Promise.allSettled([api('/smartflo/users'),api('/smartflo/departments')]):null).then(results=>{
+      if(!results)return;
+      setSmartfloOptions({configured:true,users:results[0].status==='fulfilled'?firstOptionArray(results[0].value.data):[],departments:results[1].status==='fulfilled'?firstOptionArray(results[1].value.data):[]});
+    }).catch(()=>setSmartfloOptions({configured:false,users:[],departments:[]}));
   }, []);
 
   const filtered = users.filter((user) =>
@@ -135,12 +170,27 @@ export default function UserManagementPage() {
   }
   function editUser(user) {
     setForm({
+      userType: user.employeeId ? "employee" : "external",
       employeeId: user.employeeId || "",
+      firstName: user.firstName || "",
+      lastName: user.lastName || "",
+      phone: user.phone || "",
       email: user.email,
       roleName: user.roles.find((role) => role !== "ADMIN") || "CRM_ADMIN",
       branchIds: user.branchIds,
       password: "",
       isActive: user.isActive,
+      callerdeskEnabled: user.callerdeskEnabled,
+      callerdeskMemberId: user.callerdeskMemberId || "",
+      callerdeskMemberName: user.callerdeskMemberName || "",
+      callerdeskMemberNumber: user.callerdeskMemberNumber || "",
+      callerdeskCallGroup: user.callerdeskCallGroup || "",
+      smartfloEnabled: user.smartfloEnabled,
+      smartfloUserId: user.smartfloUserId || "",
+      smartfloAgentId: user.smartfloAgentId || "",
+      smartfloAgentName: user.smartfloAgentName || "",
+      smartfloAgentNumber: user.smartfloAgentNumber || "",
+      smartfloDepartmentId: user.smartfloDepartmentId || "",
     });
     setDrawer({
       mode: "edit",
@@ -173,6 +223,15 @@ export default function UserManagementPage() {
           ? [Number(employee.employeeBranchId)]
           : current.branchIds,
     }));
+  }
+  function selectCallerDeskMember(memberId){
+    const member=callingOptions.members.find(item=>String(item.member_id??item.id)===String(memberId));
+    setForm(current=>({...current,callerdeskMemberId:memberId,callerdeskMemberName:member?.member_name||member?.name||'',callerdeskMemberNumber:String(member?.member_num||member?.number||'')}));
+  }
+  function selectSmartfloUser(userId){
+    const user=smartfloOptions.users.find(item=>String(item.id??item.user_id)===String(userId));
+    const agent=user?.agent||{};
+    setForm(current=>({...current,smartfloUserId:userId,smartfloAgentId:String(agent.id??user?.agent_id??''),smartfloAgentName:agent.name??user?.agent_name??user?.name??'',smartfloAgentNumber:String(agent.follow_me_number??user?.agent_number??user?.phone??'')}));
   }
   async function save(event) {
     event.preventDefault();
@@ -213,8 +272,8 @@ export default function UserManagementPage() {
           <span className="eyebrow">CRM administration</span>
           <h1>User management</h1>
           <p>
-            Grant employees CRM roles and branch access without changing
-            Attendance permissions.
+            Grant CRM access to existing employees or create standalone CRM
+            users who are not available in the employee master.
           </p>
         </div>
         <button className="primary" onClick={createUser}>
@@ -359,7 +418,7 @@ export default function UserManagementPage() {
             <div className="empty">
               <UserCog />
               <strong>No CRM users found</strong>
-              <span>Add an employee to get started.</span>
+              <span>Add an employee-linked or standalone CRM user to get started.</span>
             </div>
           )}
         </div>
@@ -379,49 +438,61 @@ export default function UserManagementPage() {
             </div>
             <form onSubmit={save}>
               <div className="form-section">
-                <h3>Employee and login</h3>
+                <h3>User identity and login</h3>
                 <div className="form-grid">
-                  <label className="wide">
-                    Employee *
-                    <EmployeeSearch
-                      employees={meta.employees}
-                      value={form.employeeId}
-                      onChange={selectEmployee}
-                      disabled={drawer.mode === "edit"}
-                    />
-                  </label>
+                  <div className="wide account-origin-options">
+                    <span className="field-label">User source</span>
+                    <div className="crm-status-options">
+                      <button type="button" disabled={drawer.mode==="edit"} className={form.userType==="employee"?"active":""} onClick={()=>setForm({...initialForm,userType:"employee"})}><i/>Existing employee<span>Select from the active employee master.</span></button>
+                      <button type="button" disabled={drawer.mode==="edit"} className={form.userType==="external"?"active":""} onClick={()=>setForm({...initialForm,userType:"external"})}><i/>New external user<span>Create a CRM-only user not present in employees.</span></button>
+                    </div>
+                  </div>
+                  {form.userType==="employee"?<label className="wide">
+                      Employee *
+                      <EmployeeSearch
+                        employees={meta.employees}
+                        value={form.employeeId}
+                        onChange={selectEmployee}
+                        disabled={drawer.mode === "edit"}
+                      />
+                    </label>:<>
+                    <label>First name *<input required value={form.firstName} onChange={event=>setForm({...form,firstName:event.target.value})}/></label>
+                    <label>Last name *<input required value={form.lastName} onChange={event=>setForm({...form,lastName:event.target.value})}/></label>
+                    <label className="wide">Phone<input type="tel" value={form.phone} onChange={event=>setForm({...form,phone:event.target.value.replace(/[^0-9+()\-\s]/g,"").slice(0,30)})}/></label>
+                  </>}
                   <label className="wide">
                     Login email *
                     <input
                       type="email"
                       required
                       value={form.email}
-                      disabled={isExistingLogin || drawer.mode === "edit"}
+                      disabled={(form.userType==="employee"&&isExistingLogin) || drawer.mode === "edit"}
                       onChange={(event) =>
                         setForm({ ...form, email: event.target.value })
                       }
                     />
                   </label>
                   <label className="wide">
-                    {isExistingLogin || drawer.mode === "edit"
+                    {(form.userType==="employee"&&isExistingLogin) || drawer.mode === "edit"
                       ? "New password (optional)"
                       : "Initial password *"}
                     <input
                       type="password"
-                      required={!isExistingLogin && drawer.mode === "create"}
+                      required={drawer.mode === "create" && (form.userType==="external"||!isExistingLogin)}
                       minLength="8"
                       value={form.password}
                       onChange={(event) =>
                         setForm({ ...form, password: event.target.value })
                       }
                       placeholder={
-                        isExistingLogin
+                        (form.userType==="employee"&&isExistingLogin)
                           ? "Leave blank to keep current password"
                           : "Minimum 8 characters"
                       }
                     />
                   </label>
-                  {selectedEmployee && (
+                  {form.userType==="external"&&<div className="account-note wide"><strong>Standalone CRM login</strong><span>This user is not added to the employee master. Their access is limited to the CRM role and branches configured below.</span></div>}
+                  {form.userType==="employee"&&selectedEmployee && (
                     <div className="account-note wide">
                       <strong>
                         {isExistingLogin
@@ -443,6 +514,32 @@ export default function UserManagementPage() {
                   <button type="button" className={form.isActive?"active":""} onClick={()=>setForm({...form,isActive:true})}><i/> Active<span>User can sign in and access assigned CRM branches.</span></button>
                   <button type="button" className={!form.isActive?"inactive":""} onClick={()=>setForm({...form,isActive:false})}><i/> Inactive<span>CRM access is paused; assignments and Attendance access remain unchanged.</span></button>
                 </div>
+              </div>
+              <div className="form-section">
+                <h3>CallerDesk one-click calling</h3>
+                <p className="section-help">Map this CRM user to a member returned by the connected CallerDesk account.</p>
+                {!callingOptions.configured?<div className="account-note"><strong>CallerDesk is not configured</strong><span>Connect CallerDesk from Settings → Integrations before mapping members.</span></div>:<div className="form-grid">
+                  <label className="check-option wide"><input type="checkbox" checked={form.callerdeskEnabled} onChange={event=>setForm({...form,callerdeskEnabled:event.target.checked})}/>Enable one-click calling for this user</label>
+                  {form.callerdeskEnabled&&<>
+                    <label className="wide">CallerDesk member *<select required value={form.callerdeskMemberId} onChange={event=>selectCallerDeskMember(event.target.value)}><option value="">Select member</option>{form.callerdeskMemberId&&!callingOptions.members.some(item=>String(item.member_id??item.id)===String(form.callerdeskMemberId))&&<option value={form.callerdeskMemberId}>{form.callerdeskMemberName||form.callerdeskMemberNumber} (saved)</option>}{callingOptions.members.map((member,index)=><option key={member.member_id||member.id||index} value={member.member_id||member.id}>{member.member_name||member.name||member.member_num} · {member.member_num||member.number||''}</option>)}</select></label>
+                    <label>Member name<input readOnly value={form.callerdeskMemberName}/></label>
+                    <label>Member number<input readOnly value={form.callerdeskMemberNumber}/></label>
+                    <label className="wide">Call group<select value={form.callerdeskCallGroup} onChange={event=>setForm({...form,callerdeskCallGroup:event.target.value})}><option value="">Use branch/account default group</option>{form.callerdeskCallGroup&&!callingOptions.groups.some(item=>(item.group_name||item.name)===form.callerdeskCallGroup)&&<option value={form.callerdeskCallGroup}>{form.callerdeskCallGroup} (saved)</option>}{callingOptions.groups.map((group,index)=><option key={group.group_id||group.id||index} value={group.group_name||group.name}>{group.group_name||group.name}</option>)}</select></label>
+                  </>}
+                </div>}
+              </div>
+              <div className="form-section">
+                <h3>Tata Smartflo one-click calling</h3>
+                <p className="section-help">Map this CRM user to a user and agent returned by the connected Tata Smartflo account.</p>
+                {!smartfloOptions.configured?<div className="account-note"><strong>Smartflo is not configured</strong><span>Connect Tata Smartflo from Settings → Integrations before mapping agents.</span></div>:<div className="form-grid">
+                  <label className="check-option wide"><input type="checkbox" checked={form.smartfloEnabled} onChange={event=>setForm({...form,smartfloEnabled:event.target.checked})}/>Enable Smartflo one-click calling for this user</label>
+                  {form.smartfloEnabled&&<>
+                    <label className="wide">Smartflo user / agent *<select required value={form.smartfloUserId} onChange={event=>selectSmartfloUser(event.target.value)}><option value="">Select Smartflo user</option>{form.smartfloUserId&&!smartfloOptions.users.some(item=>String(item.id??item.user_id)===String(form.smartfloUserId))&&<option value={form.smartfloUserId}>{form.smartfloAgentName||form.smartfloAgentNumber} (saved)</option>}{smartfloOptions.users.map((user,index)=>{const agent=user.agent||{};return <option key={user.id||user.user_id||index} value={user.id||user.user_id}>{agent.name||user.name||user.login_id} · {agent.follow_me_number||user.phone||'No number'}</option>;})}</select></label>
+                    <label>Agent name<input readOnly value={form.smartfloAgentName}/></label>
+                    <label>Agent number<input readOnly value={form.smartfloAgentNumber}/></label>
+                    <label className="wide">Department<select value={form.smartfloDepartmentId} onChange={event=>setForm({...form,smartfloDepartmentId:event.target.value})}><option value="">Use branch/account default department</option>{form.smartfloDepartmentId&&!smartfloOptions.departments.some(item=>String(item.id??item.department_id)===String(form.smartfloDepartmentId))&&<option value={form.smartfloDepartmentId}>{form.smartfloDepartmentId} (saved)</option>}{smartfloOptions.departments.map((department,index)=><option key={department.id||department.department_id||index} value={department.id||department.department_id}>{department.name||department.department_name}</option>)}</select></label>
+                  </>}
+                </div>}
               </div>
               <div className="form-section">
                 <h3>CRM role</h3>

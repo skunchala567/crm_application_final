@@ -10,6 +10,165 @@
   box-shadow: 0 2px 5px rgba(36, 38, 76, 0.08);
 }
 
+.bulk-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.bulk-operation-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 14px 18px 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border, #dfe1ea);
+}
+
+.bulk-operation-tabs button {
+  min-height: 42px;
+  padding: 0 14px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: #66697d;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  font: 700 12px Manrope, sans-serif;
+  cursor: pointer;
+}
+
+.bulk-operation-tabs button.active {
+  color: var(--purple, #454aa2);
+  border-bottom-color: var(--purple, #454aa2);
+}
+
+.bulk-operation-tabs b {
+  min-width: 21px;
+  height: 21px;
+  padding: 0 6px;
+  border-radius: 11px;
+  background: #f0f1f6;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+}
+
+.bulk-operation-tabs button.active b {
+  background: #e9eafd;
+}
+
+.bulk-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(130px, 1fr));
+  gap: 10px;
+  padding: 16px 18px;
+  background: #fafafd;
+  border-bottom: 1px solid var(--border, #dfe1ea);
+}
+
+.bulk-summary-grid > div {
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid #e4e5ed;
+  border-radius: 9px;
+  display: grid;
+  gap: 5px;
+}
+
+.bulk-summary-grid span {
+  color: #848697;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .045em;
+}
+
+.bulk-summary-grid strong {
+  color: #222439;
+  font: 700 20px Manrope, sans-serif;
+}
+
+.bulk-summary-grid .positive strong { color: #258268; }
+.bulk-summary-grid .negative strong { color: #b84848; }
+
+.bulk-history-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border, #dfe1ea);
+}
+
+.bulk-search {
+  width: min(280px, 100%);
+  margin-right: auto;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 11px;
+  border: 1px solid #dcdee8;
+  border-radius: 7px;
+  color: #555ab1;
+  background: #fff;
+}
+
+.bulk-search input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  font: 500 12px Manrope, sans-serif;
+}
+
+.bulk-history-toolbar select,
+.bulk-history-toolbar label {
+  height: 36px;
+  border: 1px solid #dcdee8;
+  border-radius: 7px;
+  background: #fff;
+  color: #626477;
+  font: 600 11px Manrope, sans-serif;
+}
+
+.bulk-history-toolbar select { padding: 0 28px 0 10px; }
+.bulk-date-range-filter { width: 235px; flex: 0 0 235px; }
+.bulk-date-range-filter .date-range-filter-trigger { height: 36px; min-height: 36px; padding: 4px 9px; gap: 8px; border-radius: 7px; }
+.bulk-date-range-filter .date-range-filter-trigger small { font-size: 8px; }
+.bulk-date-range-filter .date-range-filter-trigger strong { font-size: 10px; }
+.clear-history-filters { height: 36px; border: 0; background: transparent; color: #555ab1; font-weight: 700; cursor: pointer; }
+.bulk-empty { min-height: 180px; display: grid; place-items: center; }
+
+.operation-detail-row td {
+  padding: 14px 18px !important;
+  background: #f8f8fc;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+
+.operation-detail-row td > div {
+  min-width: 150px;
+  display: grid;
+  gap: 4px;
+}
+
+.operation-detail-row span {
+  color: #8a8c9b;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.operation-detail-row strong {
+  color: #343648;
+  font-size: 11px;
+}
+
+.operation-detail-row .operation-error strong { color: #a63e3e; }
+
 .bulk-actions-header {
   display: flex;
   align-items: center;
@@ -674,6 +833,9 @@
 
 /* Responsive Breakpoints */
 @media (max-width: 1200px) {
+  .bulk-summary-grid { grid-template-columns: repeat(3, 1fr); }
+  .bulk-history-toolbar { flex-wrap: wrap; }
+  .bulk-search { width: 100%; flex-basis: 100%; }
   .upload-details-container > .stats-grid {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -700,6 +862,12 @@
   .uploads-table .file-name {
     max-width: 150px;
   }
+
+  .bulk-summary-grid { grid-template-columns: repeat(2, 1fr); padding: 12px; }
+  .bulk-history-toolbar { padding: 10px 12px; justify-content: flex-start; }
+  .bulk-history-toolbar select,
+  .bulk-history-toolbar label { flex: 1 1 145px; }
+  .bulk-date-range-filter { width: auto; flex: 1 1 235px; }
 
   .upload-details-container > .stats-grid {
     grid-template-columns: repeat(2, 1fr);
