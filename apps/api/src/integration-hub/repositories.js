@@ -141,6 +141,19 @@ export class IntegrationRepository {
           redirectUrl: row.google_redirect_uri || configData.redirectUrl
         };
       }
+      if ((row.provider_name || row.provider)?.toLowerCase() === 'callerdesk') {
+        configData = {
+          defaultDeskphone: configData.defaultDeskphone || '',
+          defaultGroupName: configData.defaultGroupName || '',
+          hasApiKey: Boolean(configData.apiKeyEncrypted),
+          hasApiSecret: Boolean(configData.apiSecretEncrypted),
+          hasIntegrationKey: Boolean(configData.integrationKeyEncrypted),
+          webhookConfigured: Boolean(configData.webhookSecret)
+        };
+      }
+      if ((row.provider_name || row.provider)?.toLowerCase() === 'smartflo') {
+        configData={defaultDid:configData.defaultDid||'',defaultDepartmentId:configData.defaultDepartmentId||'',hasPassword:Boolean(configData.passwordEncrypted),hasPermanentToken:Boolean(configData.permanentTokenEncrypted),webhookConfigured:Boolean(configData.webhookSecret)};
+      }
 
       // Normalize field names to support both old schema and migration 005 schema
       return {
@@ -214,6 +227,19 @@ export class IntegrationRepository {
         clientSecret: row.google_client_secret || configData.clientSecret,
         redirectUrl: row.google_redirect_uri || configData.redirectUrl
       };
+    }
+    if ((row.provider_name || row.provider)?.toLowerCase() === 'callerdesk') {
+      configData = {
+        defaultDeskphone: configData.defaultDeskphone || '',
+        defaultGroupName: configData.defaultGroupName || '',
+        hasApiKey: Boolean(configData.apiKeyEncrypted),
+        hasApiSecret: Boolean(configData.apiSecretEncrypted),
+        hasIntegrationKey: Boolean(configData.integrationKeyEncrypted),
+        webhookConfigured: Boolean(configData.webhookSecret)
+      };
+    }
+    if ((row.provider_name || row.provider)?.toLowerCase() === 'smartflo') {
+      configData={defaultDid:configData.defaultDid||'',defaultDepartmentId:configData.defaultDepartmentId||'',hasPassword:Boolean(configData.passwordEncrypted),hasPermanentToken:Boolean(configData.permanentTokenEncrypted),webhookConfigured:Boolean(configData.webhookSecret)};
     }
 
     // Normalize field names to support both old schema and migration 005 schema

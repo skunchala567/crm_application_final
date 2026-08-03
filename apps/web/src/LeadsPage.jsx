@@ -15,6 +15,7 @@ import {
   MoreVertical,
   PanelRightClose,
   PanelRightOpen,
+  PhoneCall,
   Pencil,
   Plus,
   RefreshCw,
@@ -587,6 +588,22 @@ export default function LeadsPage() {
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
   const studentNameInputRef = useRef(null);
   function toggleQuickActions(){setQuickActionsExpanded(current=>!current)}
+
+  async function callLead(lead){
+    setOpenActionId(null);
+    try{
+      const [callerdeskResult,smartfloResult]=await Promise.allSettled([api('/callerdesk/config'),api('/smartflo/config')]);
+      const providers=[];
+      if(callerdeskResult.status==='fulfilled'&&callerdeskResult.value.data?.configured&&callerdeskResult.value.data?.isActive!==false)providers.push('callerdesk');
+      if(smartfloResult.status==='fulfilled'&&smartfloResult.value.data?.configured&&smartfloResult.value.data?.isActive!==false)providers.push('smartflo');
+      if(!providers.length)throw new Error('Configure CallerDesk or Tata Smartflo in Integrations before making calls');
+      const provider=providers.length===1?providers[0]:(window.confirm('Use Tata Smartflo for this call? Select Cancel to use CallerDesk.')?'smartflo':'callerdesk');
+      const label=provider==='smartflo'?'Tata Smartflo':'CallerDesk';
+      if(!window.confirm(`Start a ${label} call to ${lead.studentName} (${lead.phone})? Your mapped phone will ring first.`))return;
+      await api.post(`/${provider}/leads/${lead.id}/call`,provider==='callerdesk'?{mode:'member'}:{});
+      setMessage({type:'success',text:`${label} is calling ${lead.studentName}. Answer your phone to connect.`});
+    }catch(error){setMessage({type:'error',text:error.message});}
+  }
 
   async function loadFunnels() {
     try {
@@ -1309,6 +1326,7 @@ export default function LeadsPage() {
                   <td>{lead.recentModified ? new Date(lead.recentModified).toLocaleString("en-IN", {timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}) : "—"}</td>
                   <td>
                     <div className="row-action-group">
+                    <button className="row-followup-trigger" title="Call with connected telephony provider" aria-label={`Call ${lead.studentName}`} onClick={()=>callLead(lead)}><PhoneCall size={17}/></button>
                     <button className={`row-followup-trigger ${whatsAppConversations.some(item=>cleanPhone(item.mobile)===cleanPhone(lead.phone)&&Number(item.unread_count)>0)?"has-unread":""}`} title="Send WhatsApp message" aria-label={`Send WhatsApp message to ${lead.studentName}`} onClick={()=>openLeadMessage(lead)}><MessageCircle size={17}/>{(()=>{const count=whatsAppConversations.filter(item=>cleanPhone(item.mobile)===cleanPhone(lead.phone)).reduce((sum,item)=>sum+Number(item.unread_count||0),0);return count>0?<span className="lead-message-unread">{count>99?"99+":count}</span>:null})()}</button>
                     <button className="row-followup-trigger remarks-count-trigger" title={`${Number(lead.remarksCount||0)} remarks · Lead history`} aria-label={`${Number(lead.remarksCount||0)} remarks for ${lead.studentName}. Open lead history`} onClick={()=>openHistory(lead)}><History size={17}/><span className="remarks-count-badge">{Number(lead.remarksCount||0)>99?"99+":Number(lead.remarksCount||0)}</span></button>
                     <button className="row-followup-trigger" title="Follow-up and notes" aria-label={`Follow-up and notes for ${lead.studentName}`} onClick={()=>openFollowup(lead)}><NotebookPen size={17}/></button>
@@ -1748,6 +1766,7 @@ export default function LeadsPage() {
                           <strong>{item.summary}</strong>
                           <span>{item.actorName} · {new Date(item.occurredAt).toLocaleString("en-IN", {timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"})}</span>
                           {item.commentText&&<p className="activity-comment">{item.commentText}</p>}
+                          {item.details?.recordingUrl&&<audio controls preload="none" src={item.details.recordingUrl}>Your browser cannot play this call recording.</audio>}
                         </div>
                       </div>
                     ))

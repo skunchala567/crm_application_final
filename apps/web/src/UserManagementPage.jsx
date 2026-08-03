@@ -22,7 +22,28 @@ const initialForm = {
   branchIds: [],
   password: "",
   isActive: true,
+  callerdeskEnabled: false,
+  callerdeskMemberId: "",
+  callerdeskMemberName: "",
+  callerdeskMemberNumber: "",
+  callerdeskCallGroup: "",
+  smartfloEnabled: false,
+  smartfloUserId: "",
+  smartfloAgentId: "",
+  smartfloAgentName: "",
+  smartfloAgentNumber: "",
+  smartfloDepartmentId: "",
 };
+
+function firstOptionArray(value) {
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== "object") return [];
+  for (const key of ["data","list","result","records","member_list","members","group_list","groups","users","departments"]) {
+    const nested=value[key]; if(Array.isArray(nested))return nested;
+    const found=firstOptionArray(nested); if(found.length)return found;
+  }
+  return [];
+}
 
 function EmployeeSearch({ employees, value, onChange, disabled }) {
   const selected = employees.find(
@@ -103,6 +124,8 @@ export default function UserManagementPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [callingOptions,setCallingOptions]=useState({configured:false,members:[],groups:[]});
+  const [smartfloOptions,setSmartfloOptions]=useState({configured:false,users:[],departments:[]});
 
   async function load() {
     setLoading(true);
@@ -121,6 +144,14 @@ export default function UserManagementPage() {
   }
   useEffect(() => {
     load();
+    api('/callerdesk/config').then(result=>result.data?.configured?Promise.allSettled([api('/callerdesk/members'),api('/callerdesk/groups')]):null).then(results=>{
+      if(!results)return;
+      setCallingOptions({configured:true,members:results[0].status==='fulfilled'?firstOptionArray(results[0].value.data):[],groups:results[1].status==='fulfilled'?firstOptionArray(results[1].value.data):[]});
+    }).catch(()=>setCallingOptions({configured:false,members:[],groups:[]}));
+    api('/smartflo/config').then(result=>result.data?.configured?Promise.allSettled([api('/smartflo/users'),api('/smartflo/departments')]):null).then(results=>{
+      if(!results)return;
+      setSmartfloOptions({configured:true,users:results[0].status==='fulfilled'?firstOptionArray(results[0].value.data):[],departments:results[1].status==='fulfilled'?firstOptionArray(results[1].value.data):[]});
+    }).catch(()=>setSmartfloOptions({configured:false,users:[],departments:[]}));
   }, []);
 
   const filtered = users.filter((user) =>
@@ -149,6 +180,17 @@ export default function UserManagementPage() {
       branchIds: user.branchIds,
       password: "",
       isActive: user.isActive,
+      callerdeskEnabled: user.callerdeskEnabled,
+      callerdeskMemberId: user.callerdeskMemberId || "",
+      callerdeskMemberName: user.callerdeskMemberName || "",
+      callerdeskMemberNumber: user.callerdeskMemberNumber || "",
+      callerdeskCallGroup: user.callerdeskCallGroup || "",
+      smartfloEnabled: user.smartfloEnabled,
+      smartfloUserId: user.smartfloUserId || "",
+      smartfloAgentId: user.smartfloAgentId || "",
+      smartfloAgentName: user.smartfloAgentName || "",
+      smartfloAgentNumber: user.smartfloAgentNumber || "",
+      smartfloDepartmentId: user.smartfloDepartmentId || "",
     });
     setDrawer({
       mode: "edit",
@@ -181,6 +223,15 @@ export default function UserManagementPage() {
           ? [Number(employee.employeeBranchId)]
           : current.branchIds,
     }));
+  }
+  function selectCallerDeskMember(memberId){
+    const member=callingOptions.members.find(item=>String(item.member_id??item.id)===String(memberId));
+    setForm(current=>({...current,callerdeskMemberId:memberId,callerdeskMemberName:member?.member_name||member?.name||'',callerdeskMemberNumber:String(member?.member_num||member?.number||'')}));
+  }
+  function selectSmartfloUser(userId){
+    const user=smartfloOptions.users.find(item=>String(item.id??item.user_id)===String(userId));
+    const agent=user?.agent||{};
+    setForm(current=>({...current,smartfloUserId:userId,smartfloAgentId:String(agent.id??user?.agent_id??''),smartfloAgentName:agent.name??user?.agent_name??user?.name??'',smartfloAgentNumber:String(agent.follow_me_number??user?.agent_number??user?.phone??'')}));
   }
   async function save(event) {
     event.preventDefault();
@@ -463,6 +514,32 @@ export default function UserManagementPage() {
                   <button type="button" className={form.isActive?"active":""} onClick={()=>setForm({...form,isActive:true})}><i/> Active<span>User can sign in and access assigned CRM branches.</span></button>
                   <button type="button" className={!form.isActive?"inactive":""} onClick={()=>setForm({...form,isActive:false})}><i/> Inactive<span>CRM access is paused; assignments and Attendance access remain unchanged.</span></button>
                 </div>
+              </div>
+              <div className="form-section">
+                <h3>CallerDesk one-click calling</h3>
+                <p className="section-help">Map this CRM user to a member returned by the connected CallerDesk account.</p>
+                {!callingOptions.configured?<div className="account-note"><strong>CallerDesk is not configured</strong><span>Connect CallerDesk from Settings → Integrations before mapping members.</span></div>:<div className="form-grid">
+                  <label className="check-option wide"><input type="checkbox" checked={form.callerdeskEnabled} onChange={event=>setForm({...form,callerdeskEnabled:event.target.checked})}/>Enable one-click calling for this user</label>
+                  {form.callerdeskEnabled&&<>
+                    <label className="wide">CallerDesk member *<select required value={form.callerdeskMemberId} onChange={event=>selectCallerDeskMember(event.target.value)}><option value="">Select member</option>{form.callerdeskMemberId&&!callingOptions.members.some(item=>String(item.member_id??item.id)===String(form.callerdeskMemberId))&&<option value={form.callerdeskMemberId}>{form.callerdeskMemberName||form.callerdeskMemberNumber} (saved)</option>}{callingOptions.members.map((member,index)=><option key={member.member_id||member.id||index} value={member.member_id||member.id}>{member.member_name||member.name||member.member_num} · {member.member_num||member.number||''}</option>)}</select></label>
+                    <label>Member name<input readOnly value={form.callerdeskMemberName}/></label>
+                    <label>Member number<input readOnly value={form.callerdeskMemberNumber}/></label>
+                    <label className="wide">Call group<select value={form.callerdeskCallGroup} onChange={event=>setForm({...form,callerdeskCallGroup:event.target.value})}><option value="">Use branch/account default group</option>{form.callerdeskCallGroup&&!callingOptions.groups.some(item=>(item.group_name||item.name)===form.callerdeskCallGroup)&&<option value={form.callerdeskCallGroup}>{form.callerdeskCallGroup} (saved)</option>}{callingOptions.groups.map((group,index)=><option key={group.group_id||group.id||index} value={group.group_name||group.name}>{group.group_name||group.name}</option>)}</select></label>
+                  </>}
+                </div>}
+              </div>
+              <div className="form-section">
+                <h3>Tata Smartflo one-click calling</h3>
+                <p className="section-help">Map this CRM user to a user and agent returned by the connected Tata Smartflo account.</p>
+                {!smartfloOptions.configured?<div className="account-note"><strong>Smartflo is not configured</strong><span>Connect Tata Smartflo from Settings → Integrations before mapping agents.</span></div>:<div className="form-grid">
+                  <label className="check-option wide"><input type="checkbox" checked={form.smartfloEnabled} onChange={event=>setForm({...form,smartfloEnabled:event.target.checked})}/>Enable Smartflo one-click calling for this user</label>
+                  {form.smartfloEnabled&&<>
+                    <label className="wide">Smartflo user / agent *<select required value={form.smartfloUserId} onChange={event=>selectSmartfloUser(event.target.value)}><option value="">Select Smartflo user</option>{form.smartfloUserId&&!smartfloOptions.users.some(item=>String(item.id??item.user_id)===String(form.smartfloUserId))&&<option value={form.smartfloUserId}>{form.smartfloAgentName||form.smartfloAgentNumber} (saved)</option>}{smartfloOptions.users.map((user,index)=>{const agent=user.agent||{};return <option key={user.id||user.user_id||index} value={user.id||user.user_id}>{agent.name||user.name||user.login_id} · {agent.follow_me_number||user.phone||'No number'}</option>;})}</select></label>
+                    <label>Agent name<input readOnly value={form.smartfloAgentName}/></label>
+                    <label>Agent number<input readOnly value={form.smartfloAgentNumber}/></label>
+                    <label className="wide">Department<select value={form.smartfloDepartmentId} onChange={event=>setForm({...form,smartfloDepartmentId:event.target.value})}><option value="">Use branch/account default department</option>{form.smartfloDepartmentId&&!smartfloOptions.departments.some(item=>String(item.id??item.department_id)===String(form.smartfloDepartmentId))&&<option value={form.smartfloDepartmentId}>{form.smartfloDepartmentId} (saved)</option>}{smartfloOptions.departments.map((department,index)=><option key={department.id||department.department_id||index} value={department.id||department.department_id}>{department.name||department.department_name}</option>)}</select></label>
+                  </>}
+                </div>}
               </div>
               <div className="form-section">
                 <h3>CRM role</h3>

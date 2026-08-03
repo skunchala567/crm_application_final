@@ -225,15 +225,31 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
          AND column_name IN ('jodo_payment_enabled','jodo_collector_code','jodo_api_key','application_amount','application_stage_id','application_payment_component')`,
     );
     const hasBranchPaymentColumns=branchPaymentColumns.length>=6;
+    const [callerDeskColumns]=await pool.execute(
+      `SELECT column_name AS columnName FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='branches'
+       AND column_name IN ('callerdesk_did_id','callerdesk_did_number','callerdesk_call_group','callerdesk_inbound_enabled','callerdesk_outbound_enabled')`,
+    );
+    const callerDeskSelect=callerDeskColumns.length>=5
+      ? `,callerdesk_did_id AS callerdeskDidId,callerdesk_did_number AS callerdeskDidNumber,callerdesk_call_group AS callerdeskCallGroup,
+           callerdesk_inbound_enabled AS callerdeskInboundEnabled,callerdesk_outbound_enabled AS callerdeskOutboundEnabled`
+      : `,NULL AS callerdeskDidId,NULL AS callerdeskDidNumber,NULL AS callerdeskCallGroup,1 AS callerdeskInboundEnabled,1 AS callerdeskOutboundEnabled`;
+    const [smartfloColumns]=await pool.execute(
+      `SELECT column_name AS columnName FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='branches'
+       AND column_name IN ('smartflo_did_id','smartflo_did_number','smartflo_ivr_id','smartflo_ivr_name','smartflo_department_id','smartflo_inbound_enabled','smartflo_outbound_enabled')`,
+    );
+    const smartfloSelect=smartfloColumns.length>=7
+      ? `,smartflo_did_id AS smartfloDidId,smartflo_did_number AS smartfloDidNumber,smartflo_ivr_id AS smartfloIvrId,smartflo_ivr_name AS smartfloIvrName,smartflo_department_id AS smartfloDepartmentId,
+           smartflo_inbound_enabled AS smartfloInboundEnabled,smartflo_outbound_enabled AS smartfloOutboundEnabled`
+      : `,NULL AS smartfloDidId,NULL AS smartfloDidNumber,NULL AS smartfloIvrId,NULL AS smartfloIvrName,NULL AS smartfloDepartmentId,1 AS smartfloInboundEnabled,1 AS smartfloOutboundEnabled`;
     const branchSelect=hasBranchPaymentColumns
       ? `SELECT id,branch_name AS name,short_name AS shortName,is_active AS isActive,
                 jodo_payment_enabled AS jodoPaymentEnabled,jodo_collector_code AS jodoCollectorCode,
                 jodo_api_key AS jodoApiKey,application_amount AS applicationAmount,
-                application_stage_id AS applicationStageId,application_payment_component AS applicationPaymentComponent
+                application_stage_id AS applicationStageId,application_payment_component AS applicationPaymentComponent ${callerDeskSelect} ${smartfloSelect}
          FROM branches WHERE is_active=TRUE ORDER BY branch_name`
       : `SELECT id,branch_name AS name,short_name AS shortName,is_active AS isActive,
                 0 AS jodoPaymentEnabled,NULL AS jodoCollectorCode,NULL AS jodoApiKey,NULL AS applicationAmount,
-                NULL AS applicationStageId,'Payable Amount' AS applicationPaymentComponent
+                NULL AS applicationStageId,'Payable Amount' AS applicationPaymentComponent ${callerDeskSelect} ${smartfloSelect}
          FROM branches WHERE is_active=TRUE ORDER BY branch_name`;
     const [[fields],[forms],[enquiryForms],[pipelines],[pipelineStages],[workflows],[operationStages],[modules],[branches],[sources],[channels],[campaigns],[employees],[academicYears]]=await Promise.all([
       pool.execute(`SELECT id,field_key AS fieldKey,display_name AS displayName,field_type AS fieldType,placeholder,help_text AS helpText,options_json AS options,validation_json AS validation,is_system AS isSystem,is_required AS isRequired,is_filterable AS isFilterable,filter_control AS filterControl,is_searchable AS isSearchable,is_importable AS isImportable,is_import_required AS isImportRequired,import_header AS importHeader,import_sample_value AS importSampleValue,show_in_list AS showInList,position,column_width AS columnWidth,is_active AS isActive FROM crm_metadata_fields WHERE business_unit_id=? ORDER BY module_key,position`,[unitId]),
@@ -336,14 +352,20 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     if(!unit)return res.status(403).json({message:'Business unit management access required'});
     const [[schema]]=await pool.execute(`SELECT COUNT(*) AS count FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='branches' AND column_name='jodo_payment_enabled'`);
     if(!Number(schema.count))return res.status(400).json({message:'Run database migration 050_branch_jodo_payment_configuration.sql before configuring branch payments'});
+    const [[callingSchema]]=await pool.execute(`SELECT COUNT(*) AS count FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='branches' AND column_name='callerdesk_did_number'`);
+    if(!Number(callingSchema.count))return res.status(400).json({message:'Run database migration 051_callerdesk_calling.sql before configuring branch calling'});
+    const [[smartfloSchema]]=await pool.execute(`SELECT COUNT(*) AS count FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='branches' AND column_name IN ('smartflo_did_number','smartflo_ivr_id')`);
+    if(Number(smartfloSchema.count)<2)return res.status(400).json({message:'Run database migrations 052_smartflo_telephony.sql and 053_smartflo_ivr_mapping.sql before configuring Tata Smartflo'});
     const name=text(req.body.name,150),shortName=text(req.body.shortName,50)||name;
     if(!name)return res.status(400).json({message:'Branch name is required'});
     try{
       const [result]=await pool.execute(
         `INSERT INTO branches
-         (branch_name,short_name,is_active,jodo_payment_enabled,jodo_api_key,jodo_secret_key,jodo_collector_code,application_amount,application_stage_id,application_payment_component)
-         VALUES (?,?,?,?,?,?,?,?,?,?)`,
-        [name,shortName,req.body.isActive===false?0:1,req.body.jodoPaymentEnabled?1:0,text(req.body.jodoApiKey,255),text(req.body.jodoSecretKey,255),text(req.body.jodoCollectorCode,100),req.body.applicationAmount?Number(req.body.applicationAmount):null,req.body.applicationStageId?Number(req.body.applicationStageId):null,text(req.body.applicationPaymentComponent,120)||'Payable Amount'],
+         (branch_name,short_name,is_active,jodo_payment_enabled,jodo_api_key,jodo_secret_key,jodo_collector_code,application_amount,application_stage_id,application_payment_component,
+          callerdesk_did_id,callerdesk_did_number,callerdesk_call_group,callerdesk_inbound_enabled,callerdesk_outbound_enabled,
+          smartflo_did_id,smartflo_did_number,smartflo_ivr_id,smartflo_ivr_name,smartflo_department_id,smartflo_inbound_enabled,smartflo_outbound_enabled)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [name,shortName,req.body.isActive===false?0:1,req.body.jodoPaymentEnabled?1:0,text(req.body.jodoApiKey,255),text(req.body.jodoSecretKey,255),text(req.body.jodoCollectorCode,100),req.body.applicationAmount?Number(req.body.applicationAmount):null,req.body.applicationStageId?Number(req.body.applicationStageId):null,text(req.body.applicationPaymentComponent,120)||'Payable Amount',text(req.body.callerdeskDidId,100),text(req.body.callerdeskDidNumber,30),text(req.body.callerdeskCallGroup,120),req.body.callerdeskInboundEnabled===false?0:1,req.body.callerdeskOutboundEnabled===false?0:1,text(req.body.smartfloDidId,100),text(req.body.smartfloDidNumber,30),text(req.body.smartfloIvrId,100),text(req.body.smartfloIvrName,150),text(req.body.smartfloDepartmentId,100),req.body.smartfloInboundEnabled===false?0:1,req.body.smartfloOutboundEnabled===false?0:1],
       );
       res.status(201).json({id:Number(result.insertId),message:'Branch created'});
     }catch(error){
@@ -357,15 +379,21 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     if(!unit)return res.status(403).json({message:'Business unit management access required'});
     const [[schema]]=await pool.execute(`SELECT COUNT(*) AS count FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='branches' AND column_name='jodo_payment_enabled'`);
     if(!Number(schema.count))return res.status(400).json({message:'Run database migration 050_branch_jodo_payment_configuration.sql before configuring branch payments'});
+    const [[callingSchema]]=await pool.execute(`SELECT COUNT(*) AS count FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='branches' AND column_name='callerdesk_did_number'`);
+    if(!Number(callingSchema.count))return res.status(400).json({message:'Run database migration 051_callerdesk_calling.sql before configuring branch calling'});
+    const [[smartfloSchema]]=await pool.execute(`SELECT COUNT(*) AS count FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='branches' AND column_name IN ('smartflo_did_number','smartflo_ivr_id')`);
+    if(Number(smartfloSchema.count)<2)return res.status(400).json({message:'Run database migrations 052_smartflo_telephony.sql and 053_smartflo_ivr_mapping.sql before configuring Tata Smartflo'});
     const name=text(req.body.name,150);
     if(!name)return res.status(400).json({message:'Branch name is required'});
     const [result]=await pool.execute(
       `UPDATE branches
        SET branch_name=?,short_name=?,is_active=?,jodo_payment_enabled=?,jodo_api_key=COALESCE(?,jodo_api_key),
            jodo_secret_key=COALESCE(?,jodo_secret_key),jodo_collector_code=?,application_amount=?,
-           application_stage_id=?,application_payment_component=?
+           application_stage_id=?,application_payment_component=?,callerdesk_did_id=?,callerdesk_did_number=?,callerdesk_call_group=?,
+           callerdesk_inbound_enabled=?,callerdesk_outbound_enabled=?,smartflo_did_id=?,smartflo_did_number=?,smartflo_ivr_id=?,smartflo_ivr_name=?,smartflo_department_id=?,
+           smartflo_inbound_enabled=?,smartflo_outbound_enabled=?
        WHERE id=?`,
-      [name,text(req.body.shortName,50)||name,req.body.isActive===false?0:1,req.body.jodoPaymentEnabled?1:0,text(req.body.jodoApiKey,255),text(req.body.jodoSecretKey,255),text(req.body.jodoCollectorCode,100),req.body.applicationAmount?Number(req.body.applicationAmount):null,req.body.applicationStageId?Number(req.body.applicationStageId):null,text(req.body.applicationPaymentComponent,120)||'Payable Amount',Number(req.params.id)],
+      [name,text(req.body.shortName,50)||name,req.body.isActive===false?0:1,req.body.jodoPaymentEnabled?1:0,text(req.body.jodoApiKey,255),text(req.body.jodoSecretKey,255),text(req.body.jodoCollectorCode,100),req.body.applicationAmount?Number(req.body.applicationAmount):null,req.body.applicationStageId?Number(req.body.applicationStageId):null,text(req.body.applicationPaymentComponent,120)||'Payable Amount',text(req.body.callerdeskDidId,100),text(req.body.callerdeskDidNumber,30),text(req.body.callerdeskCallGroup,120),req.body.callerdeskInboundEnabled===false?0:1,req.body.callerdeskOutboundEnabled===false?0:1,text(req.body.smartfloDidId,100),text(req.body.smartfloDidNumber,30),text(req.body.smartfloIvrId,100),text(req.body.smartfloIvrName,150),text(req.body.smartfloDepartmentId,100),req.body.smartfloInboundEnabled===false?0:1,req.body.smartfloOutboundEnabled===false?0:1,Number(req.params.id)],
     );
     if(!result.affectedRows)return res.status(404).json({message:'Branch not found'});
     res.json({message:'Branch/payment configuration updated'});

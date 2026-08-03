@@ -10,7 +10,8 @@ import './MetadataPlatform.css';
 const emptyUnit={name:'',industryType:'General',description:'',color:'#4A4FB1'};
 const emptyField={displayName:'',fieldType:'text',placeholder:'',options:'',isRequired:false,isFilterable:true,filterControl:'contains',isSearchable:false,isImportable:true,isImportRequired:false,importHeader:'',importSampleValue:'',showInList:true,columnWidth:180,useInLeadForm:true,useInQuickCreate:false,useInLeadDetails:true,useInReports:true,useInAutomations:false};
 const emptyEnquiryForm={displayName:'',description:'',defaultBranchId:'',defaultStageId:'',defaultSubstageId:'',defaultSourceId:'',defaultChannelId:'',defaultCampaignId:'',defaultOwnerEmployeeId:'',settings:{defaultAcademicYear:''},successMessage:'Thank you. Your enquiry has been submitted.',redirectUrl:'',isActive:true,fields:[]};
-const emptyBranchForm={name:'',shortName:'',isActive:true,jodoPaymentEnabled:false,jodoApiKey:'',jodoSecretKey:'',jodoCollectorCode:'',applicationAmount:'',applicationStageId:'',applicationPaymentComponent:'Payable Amount'};
+const emptyBranchForm={name:'',shortName:'',isActive:true,jodoPaymentEnabled:false,jodoApiKey:'',jodoSecretKey:'',jodoCollectorCode:'',applicationAmount:'',applicationStageId:'',applicationPaymentComponent:'Payable Amount',callerdeskDidId:'',callerdeskDidNumber:'',callerdeskCallGroup:'',callerdeskInboundEnabled:true,callerdeskOutboundEnabled:true,smartfloDidId:'',smartfloDidNumber:'',smartfloIvrId:'',smartfloIvrName:'',smartfloDepartmentId:'',smartfloInboundEnabled:true,smartfloOutboundEnabled:true};
+const optionArray=value=>{if(Array.isArray(value))return value;if(!value||typeof value!=='object')return[];for(const key of ['data','list','result','records','deskphone_list','deskphones','ivr_list','ivrs','group_list','groups','departments','numbers']){const nested=value[key];if(Array.isArray(nested))return nested;if(nested&&typeof nested==='object'){const found=optionArray(nested);if(found.length)return found;}}return[];};
 const fieldUsageKeys=['useInLeadForm','useInQuickCreate','useInLeadDetails','useInReports','useInAutomations'];
 const fieldUsageFromValidation=field=>{
   const usage=field?.validation?.usage||{};
@@ -60,6 +61,7 @@ export default function BusinessUnitsPage({onMessage}){
   const [fieldForm,setFieldForm]=useState(emptyField);
   const [enquiryForm,setEnquiryForm]=useState(emptyEnquiryForm);
   const [branchForm,setBranchForm]=useState(emptyBranchForm);
+  const [callingOptions,setCallingOptions]=useState({dids:[],groups:[],smartfloDids:[],smartfloDepartments:[],smartfloIvrs:[]});
   const [stageForm,setStageForm]=useState({displayName:'',stageType:'open',color:'#4A4FB1',requiresFollowup:false,isActive:true});
   const [substageForm,setSubstageForm]=useState({displayName:'',stageId:'',isActive:true});
   const [editingId,setEditingId]=useState(null);
@@ -83,6 +85,23 @@ export default function BusinessUnitsPage({onMessage}){
     if(school&&selectedId!==school.id)setSelectedId(school.id);
   },[context.units,searchParams,selectedId]);
   useEffect(()=>{loadConfig(selectedId);},[selectedId]);
+  useEffect(()=>{
+    let ignore=false;
+    api('/callerdesk/config').then(result=>result.data?.configured?Promise.allSettled([api('/callerdesk/deskphones'),api('/callerdesk/groups')]):null).then(results=>{
+      if(ignore||!results)return;
+      const dids=results[0].status==='fulfilled'?optionArray(results[0].value.data).map(item=>({id:String(item.did_id??item.deskphone_id??item.id??''),number:String(item.did_number??item.deskphone??item.ivr_number??item.number??item.virtual_number??'')})).filter(item=>item.number):[];
+      const groups=results[1].status==='fulfilled'?optionArray(results[1].value.data).map(item=>({id:String(item.group_id??item.id??item.group_name??''),name:String(item.group_name??item.name??'')})).filter(item=>item.name):[];
+      setCallingOptions(current=>({...current,dids,groups}));
+    }).catch(()=>{if(!ignore)setCallingOptions(current=>({...current,dids:[],groups:[]}));});
+    api('/smartflo/config').then(result=>result.data?.configured?Promise.allSettled([api('/smartflo/numbers'),api('/smartflo/departments'),api('/smartflo/ivrs')]):null).then(results=>{
+      if(ignore||!results)return;
+      const smartfloDids=results[0].status==='fulfilled'?optionArray(results[0].value.data).map(item=>({id:String(item.id??item.did_id??''),number:String(item.did??item.number??item.did_number??item.phone_number??'')})).filter(item=>item.number):[];
+      const smartfloDepartments=results[1].status==='fulfilled'?optionArray(results[1].value.data).map(item=>({id:String(item.id??item.department_id??''),name:String(item.name??item.department_name??'')})).filter(item=>item.id&&item.name):[];
+      const smartfloIvrs=results[2].status==='fulfilled'?optionArray(results[2].value.data).map(item=>({id:String(item.id??item.ivr_id??''),name:String(item.name??item.ivr_name??'')})).filter(item=>item.id&&item.name):[];
+      setCallingOptions(current=>({...current,smartfloDids,smartfloDepartments,smartfloIvrs}));
+    }).catch(()=>{if(!ignore)setCallingOptions(current=>({...current,smartfloDids:[],smartfloDepartments:[],smartfloIvrs:[]}));});
+    return()=>{ignore=true;};
+  },[]);
   useEffect(()=>{if(selected&&selected.compatibilityMode!=='legacy_school'&&tab==='academic')setTab('overview');},[selected?.id,selected?.compatibilityMode,tab]);
   useEffect(()=>{
     if(!unitPickerOpen)return undefined;
@@ -134,6 +153,8 @@ export default function BusinessUnitsPage({onMessage}){
     event.preventDefault();setSaving(true);
     try{
       const result=await api(editingId?`/platform/business-units/${selectedId}/branches/${editingId}`:`/platform/business-units/${selectedId}/branches`,{method:editingId?'PUT':'POST',body:JSON.stringify(branchForm)});
+      const branchId=editingId||result.id;
+      if(branchForm.smartfloDidId&&branchForm.smartfloIvrId)await api(`/smartflo/branches/${branchId}/route-ivr`,{method:'PUT',body:'{}'});
       await loadConfig(selectedId);setDialog(null);setEditingId(null);setBranchForm(emptyBranchForm);notify('success',result.message);
     }catch(error){notify('error',error.message);}finally{setSaving(false);}
   };
@@ -268,7 +289,7 @@ export default function BusinessUnitsPage({onMessage}){
         {dialog==='unit'&&<form onSubmit={createUnit}><label>Name *<input required value={unitForm.name} onChange={e=>setUnitForm({...unitForm,name:e.target.value})} placeholder="e.g. Real Estate"/></label><label>Industry type *<input required value={unitForm.industryType} onChange={e=>setUnitForm({...unitForm,industryType:e.target.value})} placeholder="e.g. Property Sales"/></label><label>Description<textarea rows="3" value={unitForm.description} onChange={e=>setUnitForm({...unitForm,description:e.target.value})}/></label><label>Theme colour<input type="color" value={unitForm.color} onChange={e=>setUnitForm({...unitForm,color:e.target.value})}/></label><DialogFooter saving={saving} onCancel={()=>setDialog(null)}/></form>}
         {dialog==='field'&&<FieldConfigurationForm fieldForm={fieldForm} setFieldForm={setFieldForm} saving={saving} onCancel={()=>setDialog(null)} onSubmit={addField}/>}
         {dialog==='enquiry-form'&&<EnquiryFormEditor form={enquiryForm} setForm={setEnquiryForm} config={config} saving={saving} onCancel={()=>setDialog(null)} onSubmit={saveEnquiryForm}/>}
-        {dialog==='branch'&&<BranchPaymentForm form={branchForm} setForm={setBranchForm} config={config} saving={saving} onCancel={()=>setDialog(null)} onSubmit={saveBranch}/>}
+        {dialog==='branch'&&<BranchPaymentForm form={branchForm} setForm={setBranchForm} config={config} callingOptions={callingOptions} saving={saving} onCancel={()=>setDialog(null)} onSubmit={saveBranch}/>}
         {['pipeline-stage','operation-stage'].includes(dialog)&&<form onSubmit={dialog==='pipeline-stage'?addPipelineStage:addOperationStage}><label>{dialog==='operation-stage'?'Status':'Stage'} name *<input required value={stageForm.displayName} onChange={e=>setStageForm({...stageForm,displayName:e.target.value})}/></label>{dialog==='operation-stage'&&<label>Status behaviour<select value={stageForm.stageType} onChange={e=>setStageForm({...stageForm,stageType:e.target.value})}><option value="open">Open / active</option><option value="on_hold">On hold</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></label>}<label>Colour<input type="color" value={stageForm.color} onChange={e=>setStageForm({...stageForm,color:e.target.value})}/></label>{dialog==='pipeline-stage'&&<label className="check-option"><input type="checkbox" checked={stageForm.requiresFollowup} onChange={e=>setStageForm({...stageForm,requiresFollowup:e.target.checked})}/>Next follow-up required</label>}{editingId&&<label className="check-option"><input type="checkbox" checked={stageForm.isActive!==false} onChange={e=>setStageForm({...stageForm,isActive:e.target.checked})}/>Active</label>}<DialogFooter saving={saving} onCancel={()=>setDialog(null)}/></form>}
         {dialog==='pipeline-substage'&&<form onSubmit={addPipelineSubstage}><label>Parent stage *<select required value={substageForm.stageId} onChange={e=>setSubstageForm({...substageForm,stageId:Number(e.target.value)})}><option value="">Select stage</option>{config.pipelineStages.map(stage=><option key={stage.id} value={stage.id}>{stage.displayName}</option>)}</select></label><label>Sub-stage name *<input required value={substageForm.displayName} onChange={e=>setSubstageForm({...substageForm,displayName:e.target.value})}/></label>{editingId&&<label className="check-option"><input type="checkbox" checked={substageForm.isActive!==false} onChange={e=>setSubstageForm({...substageForm,isActive:e.target.checked})}/>Active</label>}<DialogFooter saving={saving} onCancel={()=>setDialog(null)}/></form>}
       </section></>}
@@ -283,16 +304,29 @@ function Overview({config}){
 function BranchesPaymentPanel({config,onAdd,onEdit}){
   const branches=config.branches||[];
   return <section className="metadata-list"><header><div><h3>Branches & online application payments</h3><p>Configure branch-wise Jodo collector code, application amount, and paid application stage.</p></div><button className="primary" onClick={onAdd}><Plus size={16}/>Add branch</button></header>
-    <div>{branches.map(branch=><article key={branch.id}><i style={{background:'#ECECFB',color:'#4A4FB1'}}><CreditCard size={15}/></i><span><strong>{branch.name}</strong><small>{branch.shortName||'No short name'} · {branch.jodoPaymentEnabled?'Online payment enabled':'Payment disabled'}</small></span><div className="metadata-row-badges"><em>{branch.jodoCollectorCode||'No collector code'}</em><em>{branch.applicationAmount?`₹${Number(branch.applicationAmount).toLocaleString('en-IN')}`:'No amount'}</em><em>{config.pipelineStages.find(stage=>String(stage.id)===String(branch.applicationStageId))?.displayName||'No application stage'}</em></div><div className="metadata-row-actions"><button className="icon-btn" title="Edit branch payment configuration" onClick={()=>onEdit(branch)}><Pencil size={15}/></button></div></article>)}{!branches.length&&<div className="empty"><CreditCard/><strong>No branches available</strong><span>Add a branch or configure existing branches for online application payments.</span></div>}</div>
+    <div>{branches.map(branch=><article key={branch.id}><i style={{background:'#ECECFB',color:'#4A4FB1'}}><CreditCard size={15}/></i><span><strong>{branch.name}</strong><small>{branch.shortName||'No short name'} · {branch.jodoPaymentEnabled?'Online payment enabled':'Payment disabled'}</small></span><div className="metadata-row-badges"><em>{branch.callerdeskDidNumber?`DID ${branch.callerdeskDidNumber}`:'No calling DID'}</em><em>{branch.jodoCollectorCode||'No collector code'}</em><em>{branch.applicationAmount?`₹${Number(branch.applicationAmount).toLocaleString('en-IN')}`:'No amount'}</em><em>{config.pipelineStages.find(stage=>String(stage.id)===String(branch.applicationStageId))?.displayName||'No application stage'}</em></div><div className="metadata-row-actions"><button className="icon-btn" title="Edit branch configuration" onClick={()=>onEdit(branch)}><Pencil size={15}/></button></div></article>)}{!branches.length&&<div className="empty"><CreditCard/><strong>No branches available</strong><span>Add a branch or configure existing branches.</span></div>}</div>
   </section>;
 }
 
-function BranchPaymentForm({form,setForm,config,saving,onCancel,onSubmit}){
+function BranchPaymentForm({form,setForm,config,callingOptions,saving,onCancel,onSubmit}){
   const patch=changes=>setForm({...form,...changes});
   return <form onSubmit={onSubmit}>
     <label>Branch name *<input required value={form.name||''} onChange={e=>patch({name:e.target.value})} placeholder="e.g. Nacharam"/></label>
     <label>Short name / code<input value={form.shortName||''} onChange={e=>patch({shortName:e.target.value})} placeholder="NACHARAM"/></label>
     <label className="check-option"><input type="checkbox" checked={form.isActive!==false} onChange={e=>patch({isActive:e.target.checked})}/>Active branch</label>
+    <h3 className="wide">CallerDesk calling</h3>
+    <label>Branch DID<select value={form.callerdeskDidNumber||''} onChange={e=>{const selected=callingOptions.dids.find(item=>item.number===e.target.value);patch({callerdeskDidNumber:e.target.value,callerdeskDidId:selected?.id||''});}}><option value="">No DID assigned</option>{form.callerdeskDidNumber&&!callingOptions.dids.some(item=>item.number===form.callerdeskDidNumber)&&<option value={form.callerdeskDidNumber}>{form.callerdeskDidNumber} (saved)</option>}{callingOptions.dids.map(item=><option key={`${item.id}-${item.number}`} value={item.number}>{item.number}{item.id?` · DID ID ${item.id}`:''}</option>)}</select></label>
+    <label>Call group<select value={form.callerdeskCallGroup||''} onChange={e=>patch({callerdeskCallGroup:e.target.value})}><option value="">Use account default group</option>{form.callerdeskCallGroup&&!callingOptions.groups.some(item=>item.name===form.callerdeskCallGroup)&&<option value={form.callerdeskCallGroup}>{form.callerdeskCallGroup} (saved)</option>}{callingOptions.groups.map(item=><option key={item.id||item.name} value={item.name}>{item.name}</option>)}</select></label>
+    <label className="check-option"><input type="checkbox" checked={form.callerdeskInboundEnabled!==false} onChange={e=>patch({callerdeskInboundEnabled:e.target.checked})}/>Use DID for inbound calls</label>
+    <label className="check-option"><input type="checkbox" checked={form.callerdeskOutboundEnabled!==false} onChange={e=>patch({callerdeskOutboundEnabled:e.target.checked})}/>Use DID for outbound calls</label>
+    <p className="wide form-hint">DID options are loaded from the connected CallerDesk account. Calling and webhook routing read these values directly from the branch.</p>
+    <h3 className="wide">Tata Smartflo calling</h3>
+    <label>Smartflo DID<select value={form.smartfloDidNumber||''} onChange={e=>{const selected=callingOptions.smartfloDids.find(item=>item.number===e.target.value);patch({smartfloDidNumber:e.target.value,smartfloDidId:selected?.id||''});}}><option value="">Use account default DID</option>{form.smartfloDidNumber&&!callingOptions.smartfloDids.some(item=>item.number===form.smartfloDidNumber)&&<option value={form.smartfloDidNumber}>{form.smartfloDidNumber} (saved)</option>}{callingOptions.smartfloDids.map(item=><option key={`${item.id}-${item.number}`} value={item.number}>{item.number}</option>)}</select></label>
+    <label>Inbound IVR<select value={form.smartfloIvrId||''} onChange={e=>{const selected=callingOptions.smartfloIvrs.find(item=>item.id===e.target.value);patch({smartfloIvrId:e.target.value,smartfloIvrName:selected?.name||''});}}><option value="">Do not change Tata DID routing</option>{form.smartfloIvrId&&!callingOptions.smartfloIvrs.some(item=>item.id===String(form.smartfloIvrId))&&<option value={form.smartfloIvrId}>{form.smartfloIvrName||form.smartfloIvrId} (saved)</option>}{callingOptions.smartfloIvrs.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+    <label>Smartflo department<select value={form.smartfloDepartmentId||''} onChange={e=>patch({smartfloDepartmentId:e.target.value})}><option value="">Use account default department</option>{form.smartfloDepartmentId&&!callingOptions.smartfloDepartments.some(item=>item.id===String(form.smartfloDepartmentId))&&<option value={form.smartfloDepartmentId}>{form.smartfloDepartmentId} (saved)</option>}{callingOptions.smartfloDepartments.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+    <label className="check-option"><input type="checkbox" checked={form.smartfloInboundEnabled!==false} onChange={e=>patch({smartfloInboundEnabled:e.target.checked})}/>Use Smartflo DID for inbound calls</label>
+    <label className="check-option"><input type="checkbox" checked={form.smartfloOutboundEnabled!==false} onChange={e=>patch({smartfloOutboundEnabled:e.target.checked})}/>Use Smartflo DID for outbound calls</label>
+    <p className="wide form-hint">DIDs and departments are loaded from Tata Smartflo. Lead calls use this branch mapping before the account fallback.</p>
     <label className="check-option"><input type="checkbox" checked={Boolean(form.jodoPaymentEnabled)} onChange={e=>patch({jodoPaymentEnabled:e.target.checked})}/>Enable online application payment</label>
     <label>Jodo collector code<input value={form.jodoCollectorCode||''} onChange={e=>patch({jodoCollectorCode:e.target.value})} placeholder="NACHARAM"/></label>
     <label>Application amount<input type="number" min="0" step="0.01" value={form.applicationAmount||''} onChange={e=>patch({applicationAmount:e.target.value})} placeholder="100.00"/></label>

@@ -15,6 +15,11 @@ import { createWebhookRoutes } from './whatsapp/webhook.routes.js';
 import { createAutomationEngine, ensureAutomationRuntimeSchema } from './automation-engine.js';
 import { createMarketingCampaignEngine, ensureMarketingCampaignSchema } from './marketing-campaign-engine.js';
 import { createBusinessPlatformRoutes } from './business-platform.routes.js';
+import { createCallerDeskRoutes, createCallerDeskWebhookRoutes } from './callerdesk/callerdesk.routes.js';
+import { createSmartfloRoutes, createSmartfloWebhookRoutes } from './smartflo/smartflo.routes.js';
+import { createJodoPaymentLinkRoutes } from './jodo-payment-links.routes.js';
+import { createBranchesRoutes } from './branches.routes.js';
+import { createPaymentFormsRoutes } from './payment-forms.routes.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -33,6 +38,7 @@ if (missingDatabaseSettings.length) {
 
 app.use(cors({ origin: allowedOrigin, credentials: true }));
 app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 app.use('/media/whatsapp', express.static(whatsappMediaDirectory, {
   fallthrough: false,
   maxAge: '1d',
@@ -1331,7 +1337,7 @@ app.get('/api/leads/:id', authenticate, requireCrmAccess, async (req, res) => {
   );
   if (!rows.length) return res.status(404).json({ message: 'Lead not found' });
   const [activities] = await pool.execute(
-    `SELECT a.id,a.activity_type AS type,a.summary,a.occurred_at_utc AS occurredAt,
+    `SELECT a.id,a.activity_type AS type,a.summary,a.details_json AS details,a.occurred_at_utc AS occurredAt,
             COALESCE(actor_employee.employee_name,actor_email_employee.employee_name,'CRM user') AS actorName,
             CASE WHEN a.activity_type='followup_updated' THEN (
               SELECT c.comment_text FROM crm_lead_comments c
@@ -1366,7 +1372,7 @@ app.get('/api/leads/:id', authenticate, requireCrmAccess, async (req, res) => {
   );
   const [[latestFollowup]] = await pool.execute(`SELECT followup_type AS followupType FROM crm_followups WHERE lead_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1`, [Number(req.params.id)]);
   const legacyComment = rows[0].remarks ? [{ id:'legacy',commentText:rows[0].remarks,createdAt:rows[0].remarksUpdatedAt || null,counsellorName:rows[0].remarksAuthor }] : [];
-  res.json({ data: { ...rows[0], customValues:parseJsonValue(rows[0].customValues,{}), followupType: latestFollowup?.followupType || '', activities, comments:[...comments,...legacyComment], sourceHistory } });
+  res.json({ data: { ...rows[0], customValues:parseJsonValue(rows[0].customValues,{}), followupType: latestFollowup?.followupType || '', activities:activities.map(item=>({...item,details:parseJsonValue(item.details,{})})), comments:[...comments,...legacyComment], sourceHistory } });
 });
 
 app.post('/api/leads', authenticate, requireCrmAccess, requireLeadWrite, async (req, res) => {
@@ -1858,6 +1864,11 @@ app.get('/api/admin/users', authenticate, requireUserAdmin, async (req, res) => 
             MAX(r.normalized_name = 'ADMIN') AS isSystemAdmin,
             GROUP_CONCAT(DISTINCT cub.branch_id ORDER BY cub.branch_id) AS branchIds,
             GROUP_CONCAT(DISTINCT b.branch_name ORDER BY b.branch_name SEPARATOR ', ') AS branchNames,
+            u.callerdesk_member_id AS callerdeskMemberId,u.callerdesk_member_name AS callerdeskMemberName,
+            u.callerdesk_member_number AS callerdeskMemberNumber,u.callerdesk_call_group AS callerdeskCallGroup,
+            u.callerdesk_enabled AS callerdeskEnabled,
+            u.smartflo_user_id AS smartfloUserId,u.smartflo_agent_id AS smartfloAgentId,u.smartflo_agent_name AS smartfloAgentName,
+            u.smartflo_agent_number AS smartfloAgentNumber,u.smartflo_department_id AS smartfloDepartmentId,u.smartflo_enabled AS smartfloEnabled,
             u.last_login_at_utc AS lastLoginAt
      FROM app_users u
      LEFT JOIN employees e ON e.id = u.employee_id
@@ -1866,11 +1877,13 @@ app.get('/api/admin/users', authenticate, requireUserAdmin, async (req, res) => 
      JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id
      LEFT JOIN crm_user_branches cub ON cub.user_id = u.id LEFT JOIN branches b ON b.id = cub.branch_id
      WHERE r.normalized_name = 'ADMIN' OR r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER')
-     GROUP BY u.id, u.employee_id, u.email, u.is_active, cuas.is_active, e.employee_name,p.first_name,p.last_name,p.phone,e.employee_number, u.last_login_at_utc
+     GROUP BY u.id, u.employee_id, u.email, u.is_active, cuas.is_active, e.employee_name,p.first_name,p.last_name,p.phone,e.employee_number,
+              u.callerdesk_member_id,u.callerdesk_member_name,u.callerdesk_member_number,u.callerdesk_call_group,u.callerdesk_enabled,
+              u.smartflo_user_id,u.smartflo_agent_id,u.smartflo_agent_name,u.smartflo_agent_number,u.smartflo_department_id,u.smartflo_enabled,u.last_login_at_utc
      ORDER BY name`,
   );
   res.json({ data: rows.map((row) => ({ ...row, id: Number(row.id), employeeId: row.employeeId ? Number(row.employeeId) : null,
-    isActive: Boolean(row.isActive), isSystemAdmin: Boolean(row.isSystemAdmin),
+    isActive: Boolean(row.isActive), isSystemAdmin: Boolean(row.isSystemAdmin),callerdeskEnabled:Boolean(row.callerdeskEnabled),smartfloEnabled:Boolean(row.smartfloEnabled),
     roles: row.crmRoles ? row.crmRoles.split(',') : row.isSystemAdmin ? ['ADMIN'] : [],
     branchIds: row.branchIds ? row.branchIds.split(',').map(Number) : [] })) });
 });
@@ -1886,11 +1899,19 @@ async function saveCrmUser(req, res, existingUserId = null) {
   const branchIds = [...new Set((req.body.branchIds || []).map(Number).filter((id) => Number.isInteger(id) && id > 0))];
   const email = String(req.body.email || '').trim();
   const password = String(req.body.password || '');
+  const callerdeskEnabled=Boolean(req.body.callerdeskEnabled);
+  const callerdeskMemberId=cleanOptional(req.body.callerdeskMemberId,100);
+  const callerdeskMemberName=cleanOptional(req.body.callerdeskMemberName,150);
+  const callerdeskMemberNumber=String(req.body.callerdeskMemberNumber||'').replace(/\D/g,'').slice(-15)||null;
+  const callerdeskCallGroup=cleanOptional(req.body.callerdeskCallGroup,120);
+  const smartfloEnabled=Boolean(req.body.smartfloEnabled),smartfloUserId=cleanOptional(req.body.smartfloUserId,100),smartfloAgentId=cleanOptional(req.body.smartfloAgentId,100),smartfloAgentName=cleanOptional(req.body.smartfloAgentName,150),smartfloAgentNumber=cleanOptional(req.body.smartfloAgentNumber,30),smartfloDepartmentId=cleanOptional(req.body.smartfloDepartmentId,100);
   if (!externalUser && (!Number.isInteger(employeeId) || employeeId <= 0)) return res.status(400).json({ message: 'Select an employee' });
   if (externalUser && (!firstName || !lastName)) return res.status(400).json({ message: 'First name and last name are required' });
   if (externalUser && (!email || !/^\S+@\S+\.\S+$/.test(email))) return res.status(400).json({ message: 'Enter a valid login email' });
   if (!assignableCrmRoles.includes(roleName)) return res.status(400).json({ message: 'Select a valid CRM role' });
   if (!branchIds.length) return res.status(400).json({ message: 'Select at least one CRM branch' });
+  if(callerdeskEnabled&&(!callerdeskMemberId||!callerdeskMemberNumber))return res.status(400).json({message:'Select a CallerDesk member for one-click calling'});
+  if(smartfloEnabled&&!smartfloAgentId)return res.status(400).json({message:'Select a Smartflo agent for one-click calling'});
   for (const branchId of branchIds) {
     if (!(await accessibleBranch(req.user, branchId))) return res.status(403).json({ message: 'You cannot assign one or more selected branches' });
   }
@@ -1946,11 +1967,15 @@ async function saveCrmUser(req, res, existingUserId = null) {
       await connection.execute(`INSERT INTO crm_user_branches (user_id, branch_id, created_by_user_id) VALUES (?, ?, ?)`, [user.id, branchId, Number(req.user.id)]);
     }
     await connection.execute(`INSERT INTO crm_user_access_status(user_id,is_active,updated_by_user_id) VALUES(?,?,?) ON DUPLICATE KEY UPDATE is_active=VALUES(is_active),updated_by_user_id=VALUES(updated_by_user_id)`,[user.id,req.body.isActive===false?0:1,Number(req.user.id)]);
+    await connection.execute(`UPDATE app_users SET callerdesk_member_id=?,callerdesk_member_name=?,callerdesk_member_number=?,callerdesk_call_group=?,callerdesk_enabled=? WHERE id=?`,
+      [callerdeskEnabled?callerdeskMemberId:null,callerdeskEnabled?callerdeskMemberName:null,callerdeskEnabled?callerdeskMemberNumber:null,callerdeskEnabled?callerdeskCallGroup:null,callerdeskEnabled?1:0,user.id]);
+    await connection.execute(`UPDATE app_users SET smartflo_user_id=?,smartflo_agent_id=?,smartflo_agent_name=?,smartflo_agent_number=?,smartflo_department_id=?,smartflo_enabled=? WHERE id=?`,[smartfloEnabled?smartfloUserId:null,smartfloEnabled?smartfloAgentId:null,smartfloEnabled?smartfloAgentName:null,smartfloEnabled?smartfloAgentNumber:null,smartfloEnabled?smartfloDepartmentId:null,smartfloEnabled?1:0,user.id]);
     await connection.commit();
     res.status(existingUserId ? 200 : 201).json({ id: Number(user.id), message: existingUserId ? 'CRM user updated successfully' : 'CRM user added successfully' });
   } catch (error) {
     await connection.rollback();
     if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'That email address is already used by another account' });
+    if (error.code === 'ER_BAD_FIELD_ERROR') return res.status(400).json({message:'Run database migrations 051_callerdesk_calling.sql and 052_smartflo_telephony.sql before mapping calling users'});
     throw error;
   } finally { connection.release(); }
 }
@@ -4469,6 +4494,13 @@ async function processBulkUploadImport(uploadId, records, branchId, userId, pool
 // ============= Integration Hub Routes =============
 app.use('/api/hub', createIntegrationHubRoutes(integrationHubService, authenticate, requireCrmAccess));
 app.use('/api/platform', createBusinessPlatformRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
+app.use('/api/callerdesk', createCallerDeskRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
+app.use('/api/callerdesk', createCallerDeskWebhookRoutes(pool));
+app.use('/api/smartflo', createSmartfloRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
+app.use('/api/smartflo', createSmartfloWebhookRoutes(pool));
+app.use('/api/jodo/payment-links', createJodoPaymentLinkRoutes(pool,authenticate,requireCrmAccess,requireUserAdmin));
+app.use('/api/branches', createBranchesRoutes(pool, authenticate, requireCrmAccess));
+app.use('/api/payment-forms', createPaymentFormsRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
 
 // ============= WhatsApp Template Routes =============
 app.use('/api/whatsapp', createWhatsAppTemplateRoutes(pool, authenticate, console));

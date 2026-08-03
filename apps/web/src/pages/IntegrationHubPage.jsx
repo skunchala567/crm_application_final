@@ -22,6 +22,7 @@ export default function IntegrationHubPage() {
   const [selectedIntegration, setSelectedIntegration] = useState(null);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('');
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetchIntegrations();
@@ -55,6 +56,15 @@ export default function IntegrationHubPage() {
 
   const handleSync = async (integration) => {
     try {
+      if (String(integration.provider_name).toLowerCase() === 'callerdesk') {
+        await api.post('/callerdesk/test', {});
+        alert('CallerDesk connection is working');
+        fetchIntegrations();
+        return;
+      }
+      if (String(integration.provider_name).toLowerCase() === 'smartflo') {
+        await api.post('/smartflo/test', {}); alert('Smartflo connection is working'); fetchIntegrations(); return;
+      }
       const response = await api.post(`/hub/integrations/${integration.id}/sync/manual`);
       alert(`✅ Sync started: Job #${response.data.jobId}`);
       fetchIntegrations();
@@ -96,8 +106,8 @@ export default function IntegrationHubPage() {
 
   // Filter integrations
   const filteredIntegrations = integrations.filter(i => {
-    const matchesSearch = i.integration_name.toLowerCase().includes(search.toLowerCase()) ||
-                          i.provider_name.toLowerCase().includes(search.toLowerCase());
+    const matchesSearch = String(i.integration_name || '').toLowerCase().includes(search.toLowerCase()) ||
+                          String(i.provider_name || '').toLowerCase().includes(search.toLowerCase());
     const matchesFilter = !filter || i.status === filter;
     return matchesSearch && matchesFilter;
   });
@@ -209,7 +219,7 @@ export default function IntegrationHubPage() {
           integrations={filteredIntegrations}
           onViewDetails={setSelectedIntegration}
           onSync={handleSync}
-          onSettings={setSelectedIntegration}
+          onSettings={(integration) => String(integration.provider_name).toLowerCase()==='callerdesk' ? navigate('/settings/callerdesk') : String(integration.provider_name).toLowerCase()==='smartflo' ? navigate('/settings/smartflo') : setSelectedIntegration(integration)}
           loading={loading}
         />
       )}
@@ -221,6 +231,7 @@ export default function IntegrationHubPage() {
  * Connection Wizard - Multi-step integration setup
  */
 function ConnectionWizard({ onClose, onSuccess }) {
+  const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
     integrationName: '',
@@ -234,6 +245,8 @@ function ConnectionWizard({ onClose, onSuccess }) {
   const integrationTypes = [
     { id: 'google_sheets', name: 'Google Sheets', providers: ['Google Sheets API v4'], available: true },
     { id: 'smartping', name: 'WhatsApp (Smartping)', providers: ['AiSensy Smartping'], available: true },
+    { id: 'callerdesk', name: 'Cloud Calling', providers: ['CallerDesk'], available: true },
+    { id: 'smartflo', name: 'Tata Cloud Telephony', providers: ['Tata Smartflo'], available: true },
     { id: 'sms', name: 'SMS (Coming Soon)', providers: ['MSG91', 'TextLocal'], available: false },
     { id: 'email', name: 'Email (Coming Soon)', providers: ['SMTP', 'SendGrid', 'Mailgun'], available: false }
   ];
@@ -242,6 +255,7 @@ function ConnectionWizard({ onClose, onSuccess }) {
   const providerNameMap = {
     'Google Sheets API v4': 'google_sheets',
     'AiSensy Smartping': 'smartping'
+    ,'CallerDesk': 'callerdesk','Tata Smartflo':'smartflo'
   };
 
   const selectedType = integrationTypes.find(t => t.id === formData.integrationType);
@@ -270,6 +284,11 @@ function ConnectionWizard({ onClose, onSuccess }) {
 
     setLoading(true);
     try {
+      if (formData.integrationType === 'callerdesk' || formData.integrationType === 'smartflo') {
+        onClose();
+        navigate(formData.integrationType==='smartflo'?'/settings/smartflo':'/settings/callerdesk');
+        return;
+      }
       // Map the display provider name to backend provider name
       const backendProviderName = providerNameMap[formData.providerName] || formData.providerName;
 
@@ -365,7 +384,7 @@ function ConnectionWizard({ onClose, onSuccess }) {
                 <p><strong>Type:</strong> {selectedType?.name}</p>
                 <p><strong>Provider:</strong> {formData.providerName}</p>
               </div>
-              <p className="info-text">Next, you'll authorize {formData.providerName} to access your account.</p>
+              <p className="info-text">{formData.integrationType==='callerdesk'?'Next, enter the API credentials and map branch DIDs and CRM users.':`Next, you'll authorize ${formData.providerName} to access your account.`}</p>
             </div>
           )}
         </div>
@@ -448,7 +467,14 @@ function IntegrationDetails({ integration, onClose, onRefresh, onAuthorize }) {
                 <GoogleOAuthConfig integrationId={integration.id} onConfigSaved={onRefresh} />
               )}
 
-              {!isAuthorized && (
+              {integration.provider_name === 'callerdesk' && (
+                <div className="google-sheets-handoff">
+                  <div><strong>CallerDesk calling integration</strong><p>API credentials, branch DIDs, CRM user mappings, webhooks and dialling queues are managed from the dedicated Calling screen.</p></div>
+                  <button className="btn btn-primary" onClick={() => { onClose(); navigate('/settings/callerdesk'); }}>Open Calling</button>
+                </div>
+              )}
+
+              {!isAuthorized && integration.provider_name !== 'callerdesk' && (
                 <div style={{ marginTop: '2rem', padding: '1rem', backgroundColor: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '0.5rem' }}>
                   <p style={{ color: '#92400e', marginBottom: '1rem' }}>
                     ⚠️ This integration is not authorized. Please authorize it first to enable functionality.

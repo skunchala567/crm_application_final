@@ -19,6 +19,7 @@ import OAuthCallbackPage from "./pages/OAuthCallbackPage.jsx";
 import GlobalSearch from "./GlobalSearch.jsx";
 import ReportBuilder, { SavedReportsDashboard, ReportVisual, buildLiveReportData, canViewSavedReport, readSavedReports, writeSavedReports } from "./ReportBuilder.jsx";
 import PublicEnquiryForm from "./PublicEnquiryForm.jsx";
+import PublicPaymentPage from "./pages/PublicPaymentPage.jsx";
 import { BusinessUnitProvider, BusinessUnitSelector, useBusinessUnit } from "./BusinessUnitContext.jsx";
 import "./SidebarTogglePosition.css";
 import "./DashboardCanvas.css";
@@ -250,9 +251,14 @@ function Shell({ user, onLogout }) {
           <div id="settings-submenu" className={`settings-submenu ${settingsExpanded ? "expanded" : ""}`}>
             <NavLink to="/settings/users" className="settings-submenu-item"><span className="submenu-indent">User Management</span></NavLink>
             <NavLink to="/settings/business-units" className="settings-submenu-item"><span className="submenu-indent">Business Units</span></NavLink>
+            <NavLink to="/settings/branches" className="settings-submenu-item"><span className="submenu-indent">Branch Settings</span></NavLink>
+            <NavLink to="/settings/payment-forms" className="settings-submenu-item"><span className="submenu-indent">Payment Forms</span></NavLink>
             <NavLink to="/settings/integrations" className="settings-submenu-item"><span className="submenu-indent">Integrations</span></NavLink>
             <NavLink to="/settings/google-sheets" className="settings-submenu-item"><span className="submenu-indent">Google Sheets</span></NavLink>
             <NavLink to="/settings/whatsapp-templates" className="settings-submenu-item"><span className="submenu-indent">WhatsApp</span></NavLink>
+            <NavLink to="/settings/callerdesk" className="settings-submenu-item"><span className="submenu-indent">CallerDesk</span></NavLink>
+            <NavLink to="/settings/smartflo" className="settings-submenu-item"><span className="submenu-indent">Smartflo</span></NavLink>
+            <NavLink to="/settings/payment-links" className="settings-submenu-item"><span className="submenu-indent">Payment Links</span></NavLink>
           </div>
         </nav>
         <div className="sidebar-help">
@@ -287,6 +293,8 @@ function Shell({ user, onLogout }) {
           <Route path="/settings" element={<SettingsPage initialTab="users" />} />
           <Route path="/settings/users" element={<SettingsPage initialTab="users" />} />
           <Route path="/settings/business-units" element={<SettingsPage initialTab="business-units" />} />
+          <Route path="/settings/branches" element={<SettingsPage initialTab="branches" />} />
+          <Route path="/settings/payment-forms" element={<SettingsPage initialTab="payment-forms" />} />
           <Route path="/settings/lead-config" element={<Navigate to="/settings/business-units?tab=sources" replace />} />
           <Route path="/settings/academic-config" element={<Navigate to="/settings/business-units?tab=academic" replace />} />
           <Route path="/settings/academic-years" element={<Navigate to="/settings/business-units?tab=academic" replace />} />
@@ -294,6 +302,9 @@ function Shell({ user, onLogout }) {
           <Route path="/settings/integrations" element={<SettingsPage initialTab="integrations" />} />
           <Route path="/settings/google-sheets" element={<SettingsPage initialTab="google-sheets" />} />
           <Route path="/settings/whatsapp-templates" element={<SettingsPage initialTab="whatsapp-templates" />} />
+          <Route path="/settings/callerdesk" element={<SettingsPage initialTab="callerdesk" />} />
+          <Route path="/settings/smartflo" element={<SettingsPage initialTab="smartflo" />} />
+          <Route path="/settings/payment-links" element={<SettingsPage initialTab="payment-links" />} />
           <Route path="/integrations" element={<Navigate to="/settings/integrations" replace />} />
           <Route path="/oauth-callback" element={<OAuthCallbackPage />} />
           <Route path="/oauth-error" element={<OAuthCallbackPage />} />
@@ -787,6 +798,10 @@ export default function App() {
       <Route
         path="/public/enquiry/:formKey"
         element={<PublicEnquiryRoute />}
+      />
+      <Route
+        path="/payment/:formKey"
+        element={<PublicPaymentPage />}
       />
       <Route
         path="/login"

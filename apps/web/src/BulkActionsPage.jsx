@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
-import { ChevronRight, Download, Eye, FileDown, GitBranch, RefreshCw, RotateCcw, Search, UserRoundCheck, X } from 'lucide-react';
+import { ChevronRight, Download, Eye, FileDown, GitBranch, PhoneCall, RefreshCw, RotateCcw, Search, UserRoundCheck, X } from 'lucide-react';
 import { api } from './api';
 import { useBusinessUnit } from './BusinessUnitContext.jsx';
 import { DateRangeFilterControl } from './FilterWorkspace.jsx';
@@ -9,6 +9,7 @@ export default function BulkActionsPage() {
   const { selectedId } = useBusinessUnit();
   const [uploads, setUploads] = useState([]);
   const [operations, setOperations] = useState([]);
+  const [dialerCampaigns,setDialerCampaigns]=useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('uploads');
   const [search, setSearch] = useState('');
@@ -22,6 +23,7 @@ export default function BulkActionsPage() {
   useEffect(() => {
     setUploads([]);
     setOperations([]);
+    setDialerCampaigns([]);
     setSelectedUpload(null);
     setExpandedOperation(null);
     setLoading(true);
@@ -32,9 +34,10 @@ export default function BulkActionsPage() {
 
   const loadData = async () => {
     try {
-      const [uploadData,operationData] = await Promise.all([api('/bulk-uploads'),api('/bulk-operations')]);
+      const [uploadData,operationData,dialerData] = await Promise.all([api('/bulk-uploads'),api('/bulk-operations'),api('/callerdesk/campaigns').catch(()=>({data:[]}))]);
       setUploads(uploadData.data || []);
       setOperations(operationData.data || []);
+      setDialerCampaigns(dialerData.data||[]);
     } catch (error) {
       console.error('Failed to load bulk operation history:', error);
     } finally {
@@ -96,6 +99,12 @@ export default function BulkActionsPage() {
       ? 'Completed'
       : status;
 
+  const updateDialerStatus=async campaign=>{
+    const status=campaign.status==='running'?'paused':'running';
+    try{await api.patch(`/callerdesk/campaigns/${campaign.id}/status`,{status});await loadData();}
+    catch(error){window.alert(error.message);}
+  };
+
   const formatDate = (dateStr) => {
     if (!dateStr) return '-';
     const date = new Date(dateStr);
@@ -124,10 +133,14 @@ export default function BulkActionsPage() {
     {id:'data_export',label:'Data exports',icon:FileDown},
     {id:'stage_change',label:'Stage changes',icon:GitBranch},
     {id:'referral',label:'Referrals',icon:UserRoundCheck},
+    {id:'dialer',label:'Dialling queues',icon:PhoneCall},
   ];
   const tabRows = activeTab === 'uploads'
     ? uploads.map(row=>({...row,createdBy:row.uploadedBy,summary:row.fileName}))
-    : operations.filter(row=>row.operationType===activeTab);
+    : activeTab==='dialer'
+      ? dialerCampaigns.map(row=>({...row,summary:row.name,totalRecords:row.total,successfulRecords:row.connected,failedRecords:row.finished,
+          details:{mode:row.mode,pending:Number(row.pending||0),connected:Number(row.connected||0),deskphone:row.deskphone||'Default branch DID',callGroup:row.callGroup||'Default group'}}))
+      : operations.filter(row=>row.operationType===activeTab);
   const normalizedStatus = value => value?.toLowerCase().replaceAll(' ','-');
   const visibleRows = tabRows.filter(row => {
     const text = `${row.summary||''} ${row.createdBy||''}`.toLowerCase();
@@ -160,7 +173,7 @@ export default function BulkActionsPage() {
           {tabs.map(({id,label,icon:Icon})=>(
             <button key={id} className={activeTab===id?'active':''} onClick={()=>{setActiveTab(id);setExpandedOperation(null)}} role="tab">
               <Icon size={16}/><span>{label}</span>
-              <b>{id==='uploads'?uploads.length:operations.filter(row=>row.operationType===id).length}</b>
+              <b>{id==='uploads'?uploads.length:id==='dialer'?dialerCampaigns.length:operations.filter(row=>row.operationType===id).length}</b>
             </button>
           ))}
         </div>
@@ -206,7 +219,7 @@ export default function BulkActionsPage() {
                       <td><span className={`status-badge ${getStatusColor(row.status)}`}>{getStatusLabel(row.status==='partial'?'Partial success':row.status)}</span></td>
                       <td className="actions">
                         <button className="action-btn view-btn" title="View details" onClick={()=>activeTab==='uploads'?openDetails(row):setExpandedOperation(expandedOperation===row.id?null:row.id)}><Eye size={16}/></button>
-                        <button className="action-btn view-btn" title="Export affected leads" onClick={()=>exportAffectedLeads(row)}><Download size={16}/></button>
+                        {activeTab==='dialer'?<button className="action-btn view-btn" disabled={['completed','cancelled'].includes(row.status)} title={row.status==='running'?'Pause queue':'Start queue'} onClick={()=>updateDialerStatus(row)}><PhoneCall size={16}/></button>:<button className="action-btn view-btn" title="Export affected leads" onClick={()=>exportAffectedLeads(row)}><Download size={16}/></button>}
                       </td>
                     </tr>
                     {activeTab!=='uploads'&&expandedOperation===row.id&&(
