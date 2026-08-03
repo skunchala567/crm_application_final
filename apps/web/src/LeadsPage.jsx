@@ -279,11 +279,14 @@ function FollowupDateFilter({ from, to, onChange, dueCount = 0, dateType = "next
     const key = localDateKey(date);
     onChange(till ? "" : key, key);
   }
+  function tillToday() {
+    onChange("", localDateKey(new Date()));
+  }
   const nextMonth = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1);
   return <div className="inline-lead-filter followup-date-filter" ref={rootRef}>
     <span>Follow-ups</span>
     <button type="button" className={`followup-range-trigger ${from || to ? "active" : ""}`} aria-expanded={open} onClick={toggleOpen}><CalendarRange size={16}/><div style={{display:"flex",flexDirection:"column",alignItems:"flex-start",minWidth:0,flex:1}}><small style={{fontSize:"10px",color:"#999"}}>{dateTypeLabels[dateType]}</small><b>{label}</b></div><ChevronDown size={14}/><span className={`followup-due-badge ${dueCount>0?"has-due":""}`} title={`${dueCount} follow-ups due through today`}>{dueCount>99?"99+":dueCount}</span></button>
-    {open && <div className="followup-range-popover">
+    {open && <div className="followup-range-popover leads-date-range-popover">
       <div className="followup-range-header">
         <div className="followup-range-title"><CalendarRange size={18}/><div><strong>{dateTypeLabels[dateType]}</strong><small>Select the {dateTypeLabels[dateType].toLowerCase()} range</small></div></div>
         <select value={dateType} onChange={(e) => onDateTypeChange(e.target.value)} className="date-type-select-popover" title="Select date type to filter by">
@@ -295,7 +298,7 @@ function FollowupDateFilter({ from, to, onChange, dueCount = 0, dateType = "next
         </select>
       </div>
       <div className="range-calendar-panel">
-        <aside><strong>Choose a period</strong><button type="button" onClick={() => preset(0)}>Today</button><button type="button" onClick={() => yesterday()}>Yesterday</button><button type="button" onClick={() => yesterday(true)}>Till yesterday</button><button type="button" onClick={() => preset(1)}>Next day</button><button type="button" onClick={() => preset(7)}>Next 7 days</button><button type="button" onClick={() => preset(30)}>Next 30 days</button></aside>
+        <aside><strong>Choose a period</strong><button type="button" onClick={() => preset(0)}>Today</button><button type="button" onClick={() => yesterday()}>Yesterday</button><button type="button" onClick={tillToday}>Till today</button><button type="button" onClick={() => yesterday(true)}>Till yesterday</button><button type="button" onClick={() => preset(1)}>Next day</button><button type="button" onClick={() => preset(7)}>Next 7 days</button><button type="button" onClick={() => preset(30)}>Next 30 days</button></aside>
         <div className="range-calendar-months"><RangeCalendarMonth month={visibleMonth} from={from} to={to} onSelect={selectDate} onPrevious={() => setVisibleMonth(new Date(visibleMonth.getFullYear(),visibleMonth.getMonth()-1,1))} previous/><RangeCalendarMonth month={nextMonth} from={from} to={to} onSelect={selectDate} onNext={() => setVisibleMonth(new Date(visibleMonth.getFullYear(),visibleMonth.getMonth()+1,1))} next/></div>
       </div>
       <div className="followup-range-footer"><button type="button" className="range-clear" onClick={() => onChange("", "")}>Clear</button><button type="button" className="range-apply" onClick={() => setOpen(false)}>Apply dates</button></div>
@@ -315,6 +318,21 @@ function FunnelStrip({
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const searchInputRef = useRef(null);
+  const moreMenuRef = useRef(null);
+
+  useEffect(() => {
+    if (!moreOpen) return undefined;
+    const close = event => { if (!moreMenuRef.current?.contains(event.target)) setMoreOpen(false); };
+    const escape = event => { if (event.key === "Escape") setMoreOpen(false); };
+    document.addEventListener("mousedown", close, true);
+    document.addEventListener("touchstart", close, true);
+    document.addEventListener("keydown", escape, true);
+    return () => {
+      document.removeEventListener("mousedown", close, true);
+      document.removeEventListener("touchstart", close, true);
+      document.removeEventListener("keydown", escape, true);
+    };
+  }, [moreOpen]);
 
   return (
     <div className="funnel-strip">
@@ -340,7 +358,7 @@ function FunnelStrip({
       <div className="funnel-header-actions">
 
         {funnels.length > 0 && (
-          <div className="funnel-more-wrap">
+          <div className="funnel-more-wrap" ref={moreMenuRef}>
             <button
               className="funnel-more"
               onClick={() => setMoreOpen(!moreOpen)}
@@ -827,7 +845,6 @@ export default function LeadsPage() {
     add(lead, "Search", search);
     add(lead, "Branch", findLabels(branchFilter, meta.branches));
     add(lead, "Touch status", advancedFilters.touchStatus.map(value => value === "touched" ? "Is touched" : value === "untouched" ? "Untouched" : value));
-    add(lead, "Current stage", stageFilter || advancedFilters.stage);
     add(lead, "Sub-stage", findLabels(advancedFilters.substageId, meta.substages));
     add(lead, "Lead source", findLabels(advancedFilters.sourceId, meta.sources));
     add(lead, "Counsellor", findLabels(advancedFilters.ownerEmployeeId, meta.employees));
@@ -907,6 +924,11 @@ export default function LeadsPage() {
   function applyFunnel(funnel) {
     applyAdvancedFilters({ ...emptyAdvancedFilters, ...funnel.filters });
     setMessage({ type: "success", text: `View "${funnel.name}" applied` });
+  }
+
+  function selectStage(stage) {
+    setStageFilter(stage);
+    setAppliedFiltersExpanded(false);
   }
 
   async function deleteFunnel(funnel) {
@@ -1196,9 +1218,9 @@ export default function LeadsPage() {
           <FunnelStrip funnels={funnels} onApply={applyFunnel} onDelete={deleteFunnel} onCreate={createFunnel} onAddLead={openCreate} onSearch={(query) => setSearch(query)} onMessages={() => navigate("/whatsapp-inbox")} unreadCount={whatsAppConversations.reduce((sum,item)=>sum+Number(item.unread_count||0),0)}/>
         </div>
         <div className="stage-tabs" role="tablist">
-          <button className={`stage-tab ${!stageFilter ? "active" : ""}`} onClick={() => setStageFilter("")}><span className="stage-name">All</span> <span className="stage-count">{leadsMatchingActiveFilters.length}</span></button>
-          {meta.stages.map(stage => <button key={stage.id} className={`stage-tab ${stageFilter === stage.displayName ? "active" : ""}`} onClick={() => setStageFilter(stage.displayName)}><span className="stage-name">{stage.displayName}</span> <span className="stage-count">{filteredStageCounts[stage.displayName] || 0}</span></button>)}
-          <button className={`stage-tab ${stageFilter === "Re-enquired" ? "active" : ""}`} onClick={() => setStageFilter("Re-enquired")}><span className="stage-name">Re-enquired</span> <span className="stage-count">{filteredStageCounts["Re-enquired"] || 0}</span></button>
+          <button className={`stage-tab ${!stageFilter ? "active" : ""}`} onClick={() => selectStage("")}><span className="stage-name">All</span> <span className="stage-count">{leadsMatchingActiveFilters.length}</span></button>
+          {meta.stages.map(stage => <button key={stage.id} className={`stage-tab ${stageFilter === stage.displayName ? "active" : ""}`} onClick={() => selectStage(stage.displayName)}><span className="stage-name">{stage.displayName}</span> <span className="stage-count">{filteredStageCounts[stage.displayName] || 0}</span></button>)}
+          <button className={`stage-tab ${stageFilter === "Re-enquired" ? "active" : ""}`} onClick={() => selectStage("Re-enquired")}><span className="stage-name">Re-enquired</span> <span className="stage-count">{filteredStageCounts["Re-enquired"] || 0}</span></button>
         </div>
         <div className="lead-control-row">
           <div className="inline-lead-filter"><span>Branch</span><MultiSearchSelect label="Branch" value={branchFilter} onChange={setBranchFilter} options={[{value:"",label:"All branches"},...meta.branches.map(branch=>({value:String(branch.id),label:branch.name}))]}/></div>

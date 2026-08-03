@@ -931,13 +931,36 @@ app.get('/api/dashboard', authenticate, requireCrmAccess, async (req, res) => {
   const [[stats]] = await pool.execute(
     `SELECT COUNT(*) AS totalLeads,
        SUM(l.created_at_utc >= DATE_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)) AS newThisWeek,
+       SUM(l.created_at_utc >= DATE_SUB(CURRENT_TIMESTAMP(), INTERVAL 14 DAY)
+           AND l.created_at_utc < DATE_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)) AS newPreviousWeek,
+       SUM(l.created_at_utc < DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')) AS totalLeadsLastMonth,
        SUM(s.name = 'admitted') AS admissions
      FROM crm_leads l JOIN crm_lead_stages s ON s.id = l.stage_id
      WHERE l.deleted_at_utc IS NULL AND ${scope.sql}`, scope.params,
   );
   const [[followups]] = await pool.execute(
-    `SELECT COUNT(*) AS followupsDue FROM crm_followups f JOIN crm_leads l ON l.id = f.lead_id
+    `SELECT COUNT(*) AS followupsDue,
+            SUM(f.due_at_utc < CURRENT_DATE()) AS followupsOverdue
+     FROM crm_followups f JOIN crm_leads l ON l.id = f.lead_id
      WHERE f.status = 'pending' AND f.due_at_utc <= CURRENT_TIMESTAMP() AND l.deleted_at_utc IS NULL AND ${scope.sql}`, scope.params,
+  );
+  const [[admissionPeriods]] = await pool.execute(
+    `SELECT
+       SUM(events.admittedAt >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')) AS admissionsThisMonth,
+       SUM(events.admittedAt >= DATE_FORMAT(CURRENT_DATE() - INTERVAL 1 MONTH, '%Y-%m-01')
+           AND events.admittedAt < DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')) AS admissionsLastMonth
+     FROM (
+       SELECT l.id,
+              COALESCE(MIN(CASE WHEN admitted_stage.name = 'admitted' THEN h.changed_at_utc END),
+                       CASE WHEN current_stage.name = 'admitted' THEN l.created_at_utc END) AS admittedAt
+       FROM crm_leads l
+       JOIN crm_lead_stages current_stage ON current_stage.id = l.stage_id
+       LEFT JOIN crm_lead_stage_history h ON h.lead_id = l.id
+       LEFT JOIN crm_lead_stages admitted_stage ON admitted_stage.id = h.to_stage_id
+       WHERE l.deleted_at_utc IS NULL AND ${scope.sql}
+       GROUP BY l.id, l.created_at_utc, current_stage.name
+     ) events
+     WHERE events.admittedAt IS NOT NULL`, scope.params,
   );
   const [funnelRows] = await pool.execute(
     `SELECT s.display_name AS label, s.color_code AS color, COUNT(l.id) AS value
@@ -947,7 +970,19 @@ app.get('/api/dashboard', authenticate, requireCrmAccess, async (req, res) => {
   const recentLeads = await queryLeads(req.user, '', 4);
   res.json({
     businessUnit:{id:Number(req.businessUnit.id),name:req.businessUnit.displayName},
-    stats: { totalLeads: Number(stats.totalLeads || 0), newThisWeek: Number(stats.newThisWeek || 0), followupsDue: Number(followups.followupsDue || 0), admissions: Number(stats.admissions || 0) },
+    stats: {
+      totalLeads: Number(stats.totalLeads || 0),
+      newThisWeek: Number(stats.newThisWeek || 0),
+      followupsDue: Number(followups.followupsDue || 0),
+      admissions: Number(stats.admissions || 0),
+      comparisons: {
+        totalLeadsLastMonth: Number(stats.totalLeadsLastMonth || 0),
+        newPreviousWeek: Number(stats.newPreviousWeek || 0),
+        followupsOverdue: Number(followups.followupsOverdue || 0),
+        admissionsThisMonth: Number(admissionPeriods.admissionsThisMonth || 0),
+        admissionsLastMonth: Number(admissionPeriods.admissionsLastMonth || 0),
+      },
+    },
     funnel: funnelRows.map((row) => ({ ...row, value: Number(row.value) })), recentLeads,
   });
 });

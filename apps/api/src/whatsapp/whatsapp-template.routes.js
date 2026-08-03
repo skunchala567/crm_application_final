@@ -213,6 +213,7 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
         LEFT JOIN branches b ON b.id=l.branch_id
         WHERE i.organization_id=?
           AND i.deleted_at IS NULL
+          AND UPPER(COALESCE(m.status,'UNKNOWN')) NOT IN ('FAILED','REJECTED','ERROR')
           ${dateFilter}
           ${integrationFilter}
           ${branchFilter}
@@ -243,7 +244,6 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
         if (category === 'marketing') { summary.marketingMessages += count; summary.marketingSpend += spend; }
         if (category === 'incoming') summary.incomingMessages += count;
         if (['DELIVERED','READ','SENT','SUCCESS'].includes(status)) summary.delivered += count;
-        else if (['FAILED','REJECTED','ERROR'].includes(status)) summary.failed += count;
         else summary.pending += count;
         summary.estimatedSpend += spend;
         const dayKey = row.day instanceof Date ? row.day.toISOString().slice(0,10) : String(row.day).slice(0,10);

@@ -67,7 +67,7 @@ function FilterCalendarMonth({ month, from, to, onSelect, previous, next, move }
   </div>;
 }
 
-function DateRangeFilterControl({ label, from, to, onChange }) {
+export function DateRangeFilterControl({ label, from, to, onChange }) {
   const root = useRef(null);
   const [open, setOpen] = useState(false);
   const [month, setMonth] = useState(() => new Date());
@@ -110,6 +110,7 @@ function DateRangeFilterControl({ label, from, to, onChange }) {
   function preset(type, days = 0) {
     const today = new Date();
     if (type === "today") setRange(localDateKey(today), localDateKey(today));
+    if (type === "tillToday") setRange("", localDateKey(today));
     if (type === "yesterday") { const d = new Date(); d.setDate(d.getDate() - 1); setRange(localDateKey(d), localDateKey(d)); }
     if (type === "till") { const d = new Date(); d.setDate(d.getDate() - 1); setRange("", localDateKey(d)); }
     if (type === "next") { const d = new Date(); d.setDate(d.getDate() + days); setRange(localDateKey(today), localDateKey(d)); }
@@ -120,7 +121,7 @@ function DateRangeFilterControl({ label, from, to, onChange }) {
     {open && <div className="followup-range-popover filter-workspace-date-popover" style={popoverStyle}>
       <div className="followup-range-title"><CalendarRange size={18}/><div><strong>{label}</strong><small>Select the {label.toLowerCase()} range</small></div></div>
       <div className="range-calendar-panel">
-        <aside><strong>Choose a period</strong><button type="button" onClick={() => preset("today")}>Today</button><button type="button" onClick={() => preset("yesterday")}>Yesterday</button><button type="button" onClick={() => preset("till")}>Till yesterday</button><button type="button" onClick={() => preset("next", 1)}>Next day</button><button type="button" onClick={() => preset("next", 7)}>Next 7 days</button><button type="button" onClick={() => preset("next", 30)}>Next 30 days</button></aside>
+        <aside><strong>Choose a period</strong><button type="button" onClick={() => preset("today")}>Today</button><button type="button" onClick={() => preset("yesterday")}>Yesterday</button><button type="button" onClick={() => preset("tillToday")}>Till today</button><button type="button" onClick={() => preset("till")}>Till yesterday</button><button type="button" onClick={() => preset("next", 1)}>Next day</button><button type="button" onClick={() => preset("next", 7)}>Next 7 days</button><button type="button" onClick={() => preset("next", 30)}>Next 30 days</button></aside>
         <div className="range-calendar-months"><FilterCalendarMonth month={month} from={from} to={to} onSelect={select} previous move={amount => setMonth(new Date(month.getFullYear(), month.getMonth() + amount, 1))}/><FilterCalendarMonth month={nextMonth} from={from} to={to} onSelect={select} next move={amount => setMonth(new Date(month.getFullYear(), month.getMonth() + amount, 1))}/></div>
       </div>
       <div className="followup-range-footer"><button type="button" className="range-clear" onClick={() => setRange("", "")}>Clear</button><button type="button" className="range-apply" onClick={() => setOpen(false)}>Apply dates</button></div>
@@ -224,11 +225,17 @@ export default function FilterWorkspace({ mode="filter", meta, initialFilters, o
     } catch (error) { setNotice(error.message); } finally { setSaving(false); }
   }
 
+  const savedType = mode === "funnel" ? "funnel" : "filter";
+  const savedOptions = [
+    { value:"", label:mode === "funnel" ? "Select a saved view" : "Select a saved filter" },
+    ...saved.filter(item => item.type === savedType).map(item => ({ value:String(item.id), label:item.name })),
+  ];
+
   return <div className="filter-workspace" role="dialog" aria-modal="true" aria-label="Filter leads">
-    <header className="filter-workspace-head"><div className="filter-title"><Filter/><h2>{mode === "funnel" ? "Create lead view" : "Filter leads"}</h2></div><div className="saved-filter-loader"><select value={selectedSaved} onChange={event => loadSaved(event.target.value)}><option value="">Select and load saved filters</option>{saved.map(item => <option key={item.id} value={item.id}>{item.name} · {item.type === "funnel" ? "view" : item.type}</option>)}</select><ChevronDown/></div><button className="filter-close" onClick={onClose}><X/></button></header>
+    <header className="filter-workspace-head"><div className="filter-title"><Filter/><h2>{mode === "funnel" ? "Create lead view" : "Filter leads"}</h2></div><div className="saved-filter-loader"><SearchSelect label={mode === "funnel" ? "Load saved view" : "Load saved filter"} value={selectedSaved} options={savedOptions} onChange={loadSaved}/></div><button className="filter-close" onClick={onClose}><X/></button></header>
     <div className="filter-chip-row"><span>Lead details <b>{Object.values(filters).filter(value=>Array.isArray(value)?value.length:Boolean(value)).length}</b></span>{notice && <em>{notice}</em>}</div>
     <div className="filter-workspace-body">
-      <aside className="filter-sections"><div className="filter-section-search"><Search/><input placeholder="Search section"/></div>{sections.map(([key,label]) => <button key={key} className={activeSection === key ? "active" : ""} onClick={() => setActiveSection(key)}><i/>{label}</button>)}</aside>
+      <aside className="filter-sections">{sections.map(([key,label]) => <button key={key} className={activeSection === key ? "active" : ""} onClick={() => setActiveSection(key)}><i/>{label}</button>)}</aside>
       <main className="filter-fields"><div className="field-search"><Search/><input value={fieldSearch} onChange={event => setFieldSearch(event.target.value)} placeholder="Search filter fields"/></div>
         {activeSection === "lead" && <div className="filter-grid">
           <Field label="Touch status" searchText={fieldSearch}><select value={filters.touchStatus} onChange={event => set("touchStatus",event.target.value)}><option value="">Any touch status</option><option value="touched">Is touched</option><option value="untouched">Untouched</option></select></Field>
@@ -241,9 +248,6 @@ export default function FilterWorkspace({ mode="filter", meta, initialFilters, o
           <Field label="Campaign name" searchText={fieldSearch}><select value={filters.campaignId} onChange={event => set("campaignId",event.target.value)}><option value="">All campaigns</option>{meta.campaigns.filter(item => !filters.campaignCategory.length || filters.campaignCategory.includes(item.category)).map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></Field>
           <Field label="Channel category" searchText={fieldSearch}><select value={filters.channelCategory} onChange={event => {set("channelCategory",event.target.value);set("channelId","");}}><option value="">All channel categories</option><option>Primary</option><option>Secondary</option></select></Field>
           <Field label="Channel" searchText={fieldSearch}><select value={filters.channelId} onChange={event => set("channelId",event.target.value)}><option value="">All channels</option>{meta.channels.filter(item => !filters.channelCategory.length || filters.channelCategory.includes(item.category)).map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></Field>
-          <Field label="Is parent" searchText={fieldSearch}><select value={filters.isParent} onChange={event => set("isParent",event.target.value)}><option value="">Any</option><option value="yes">Yes</option><option value="no">No</option></select></Field>
-          <Field label="Looking for admissions" searchText={fieldSearch}><select value={filters.lookingForAdmission} onChange={event => set("lookingForAdmission",event.target.value)}><option value="">Any</option><option value="yes">Yes</option><option value="no">No</option></select></Field>
-          <Field label="WhatsApp response" searchText={fieldSearch}><select value={filters.whatsappResponse} onChange={event => set("whatsappResponse",event.target.value)}><option value="">Any response</option><option>Responded</option><option>Not Responded</option><option>Opted Out</option></select></Field>
         </div>}
         {activeSection === "academic" && <div className="filter-grid">
           <Field label="Class" searchText={fieldSearch}><select value={filters.classId} onChange={event => set("classId",event.target.value)}><option value="">All classes</option>{meta.classes.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></Field>

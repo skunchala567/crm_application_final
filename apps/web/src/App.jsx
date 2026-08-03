@@ -17,7 +17,7 @@ import WhatsAppInbox from "./WhatsAppInbox.jsx";
 import BulkActionsPage from "./BulkActionsPage.jsx";
 import OAuthCallbackPage from "./pages/OAuthCallbackPage.jsx";
 import GlobalSearch from "./GlobalSearch.jsx";
-import ReportBuilder, { SavedReportsDashboard, ReportVisual, buildLiveReportData, canViewSavedReport, readSavedReports } from "./ReportBuilder.jsx";
+import ReportBuilder, { SavedReportsDashboard, ReportVisual, buildLiveReportData, canViewSavedReport, readSavedReports, writeSavedReports } from "./ReportBuilder.jsx";
 import PublicEnquiryForm from "./PublicEnquiryForm.jsx";
 import { BusinessUnitProvider, BusinessUnitSelector, useBusinessUnit } from "./BusinessUnitContext.jsx";
 import "./SidebarTogglePosition.css";
@@ -330,17 +330,18 @@ function Dashboard({ user }) {
   }, [selectedUnit?.id]);
   if (error) return <ErrorState message={error} />;
   if (!data) return <Loading />;
+  const comparisons = data.stats.comparisons || {};
   const cards = [
-    ["Total leads", data.stats.totalLeads, "+12.4%", Users, "violet"],
-    ["New this week", data.stats.newThisWeek, "+8.2%", Target, "blue"],
+    ["Total leads", data.stats.totalLeads, comparisonLabel(data.stats.totalLeads, comparisons.totalLeadsLastMonth, "since last month", `${Math.max(0, Number(data.stats.totalLeads || 0) - Number(comparisons.totalLeadsLastMonth || 0)).toLocaleString()} added this month`), Users, "violet"],
+    ["New this week", data.stats.newThisWeek, comparisonLabel(data.stats.newThisWeek, comparisons.newPreviousWeek, "vs previous week", `${Number(data.stats.newThisWeek || 0).toLocaleString()} this week`), Target, "blue"],
     [
       "Follow-ups due",
       data.stats.followupsDue,
-      "6 overdue",
+      `${Number(comparisons.followupsOverdue || 0).toLocaleString()} overdue`,
       CalendarClock,
       "orange",
     ],
-    ["Admissions", data.stats.admissions, "+16.1%", GraduationCap, "green"],
+    ["Admissions", data.stats.admissions, comparisonLabel(comparisons.admissionsThisMonth, comparisons.admissionsLastMonth, "vs last month", `${Number(comparisons.admissionsThisMonth || 0).toLocaleString()} this month`), GraduationCap, "green"],
   ];
   return (
     <main className="page">
@@ -361,6 +362,15 @@ function Dashboard({ user }) {
       {dashboardTab === "overview" ? <DashboardOverviewCanvas data={data} leads={savedReportLeads} cards={cards} /> : <SavedReportsDashboard data={data} leads={savedReportLeads} onCreateNew={() => navigate("/saved-reports/new", { state: { createNewReportAt: Date.now(), returnTo: "dashboard-saved" } })} />}
     </main>
   );
+}
+
+function comparisonLabel(current, previous, suffix, zeroBaselineLabel) {
+  const currentValue = Number(current || 0);
+  const previousValue = Number(previous || 0);
+  if (!previousValue) return zeroBaselineLabel;
+  const change = ((currentValue - previousValue) / previousValue) * 100;
+  const sign = change > 0 ? "+" : "";
+  return `${sign}${change.toFixed(1)}% ${suffix}`;
 }
 
 const DASHBOARD_WIDGETS = [
@@ -384,7 +394,8 @@ function readDashboardLayout(unitId) {
 
 function normalizeDashboardLayout(layout) {
   const known = new Set(DASHBOARD_WIDGETS.map(widget => widget.id));
-  const cleaned = layout.filter(item => known.has(item.id) || String(item.id || "").startsWith("report:")).map(item => ({ id: item.id, size: item.size === "full" ? "full" : "half", visible: item.visible !== false }));
+  const validSizes = new Set(["quarter", "half", "three-quarter", "full"]);
+  const cleaned = layout.filter(item => known.has(item.id) || String(item.id || "").startsWith("report:")).map(item => ({ id: item.id, size: validSizes.has(item.size) ? item.size : "half", visible: item.visible !== false }));
   const existing = new Set(cleaned.map(item => item.id));
   DASHBOARD_WIDGETS.forEach(widget => { if (!existing.has(widget.id)) cleaned.push({ id: widget.id, size: widget.size, visible: true }); });
   return cleaned;
@@ -419,14 +430,22 @@ function DashboardOverviewCanvas({ data, leads = [], cards, editable = false }) 
     setLayout(normalized);
     localStorage.setItem(dashboardLayoutKey(selectedUnit?.id), JSON.stringify(normalized));
   };
-  const move = (index, direction) => {
+  const move = (id, direction) => {
+    const visible = layout.filter(item => item.visible !== false);
+    const targetId = dashboardMoveTarget(visible, id, direction);
+    if (!targetId) return;
     const next = [...layout];
-    const target = index + direction;
-    if (target < 0 || target >= next.length) return;
+    const index = next.findIndex(item => item.id === id);
+    const target = next.findIndex(item => item.id === targetId);
     [next[index], next[target]] = [next[target], next[index]];
     saveLayout(next);
   };
   const patchWidget = (id, values) => saveLayout(layout.map(item => item.id === id ? { ...item, ...values } : item));
+  const patchSavedReport = (id, values) => {
+    const next = savedReports.map(report => String(report.id) === String(id) ? { ...report, ...values, updatedAt: new Date().toISOString() } : report);
+    writeSavedReports(selectedUnit?.id, next);
+    setSavedReports(next);
+  };
   const addReportWidget = report => {
     const id = `report:${report.id}`;
     saveLayout(layout.some(item => item.id === id) ? layout.map(item => item.id === id ? { ...item, visible: true } : item) : [{ id, size: "half", visible: true }, ...layout]);
@@ -458,17 +477,21 @@ function DashboardOverviewCanvas({ data, leads = [], cards, editable = false }) 
       </div>
     </div>}
     <div className="dashboard-widget-grid">
-      {visibleLayout.map((item, index) => {
+      {visibleLayout.map(item => {
         const reportId = String(item.id || "").startsWith("report:") ? String(item.id).slice(7) : "";
         const report = reportId ? visibleSavedReports.find(saved => String(saved.id) === reportId) : null;
         const definition = report ? { title: report.title || "Saved report" } : DASHBOARD_WIDGETS.find(widget => widget.id === item.id);
         if (!definition) return null;
-        return <article key={item.id} className={`dashboard-widget ${item.size === "full" ? "wide" : ""} ${item.visible === false ? "hidden-widget" : ""}`}>
+        const moveTargets = Object.fromEntries(["left", "right", "up", "down"].map(direction => [direction, dashboardMoveTarget(visibleLayout, item.id, direction)]));
+        return <article key={item.id} className={`dashboard-widget size-${item.size} ${item.visible === false ? "hidden-widget" : ""}`}>
           {editable && <div className="dashboard-widget-actions">
             <strong>{definition.title}</strong>
-            <button onClick={() => move(index, -1)} disabled={index === 0}>↑</button>
-            <button onClick={() => move(index, 1)} disabled={index === layout.length - 1}>↓</button>
-            <button onClick={() => patchWidget(item.id, { size: item.size === "full" ? "half" : "full" })}>{item.size === "full" ? "½" : "↔"}</button>
+            <button type="button" title="Move left" aria-label={`Move ${definition.title} left`} onClick={() => move(item.id, "left")} disabled={!moveTargets.left}>←</button>
+            <button type="button" title="Move right" aria-label={`Move ${definition.title} right`} onClick={() => move(item.id, "right")} disabled={!moveTargets.right}>→</button>
+            <button type="button" title="Move up" aria-label={`Move ${definition.title} up`} onClick={() => move(item.id, "up")} disabled={!moveTargets.up}>↑</button>
+            <button type="button" title="Move down" aria-label={`Move ${definition.title} down`} onClick={() => move(item.id, "down")} disabled={!moveTargets.down}>↓</button>
+            {report?.type === "cards" && <label className="dashboard-report-columns"><span>Cards/row</span><select value={report.cardColumns || 2} onChange={event => patchSavedReport(report.id, { cardColumns: Number(event.target.value) })} aria-label={`Cards per row for ${definition.title}`}><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>}
+            <label className="dashboard-widget-size"><span className="sr-only">Width for {definition.title}</span><select value={item.size} onChange={event => patchWidget(item.id, { size: event.target.value })} aria-label={`Width for ${definition.title}`}><option value="quarter">¼</option><option value="half">½</option><option value="three-quarter">¾</option><option value="full">Full</option></select></label>
             <button onClick={() => patchWidget(item.id, { visible: false })}>Hide</button>
           </div>}
           <DashboardWidgetContent id={item.id} data={data} leads={leads} cards={cards} report={report} />
@@ -476,6 +499,35 @@ function DashboardOverviewCanvas({ data, leads = [], cards, editable = false }) 
       })}
     </div>
   </section>;
+}
+
+function dashboardGridPositions(items) {
+  const spans = { quarter: 1, half: 2, "three-quarter": 3, full: 4 };
+  let row = 0;
+  let column = 0;
+  return items.map(item => {
+    const span = spans[item.size] || 2;
+    if (column + span > 4) { row += 1; column = 0; }
+    const position = { id: item.id, row, column, span, center: column + span / 2 };
+    column += span;
+    if (column === 4) { row += 1; column = 0; }
+    return position;
+  });
+}
+
+function dashboardMoveTarget(items, id, direction) {
+  const positions = dashboardGridPositions(items);
+  const current = positions.find(position => position.id === id);
+  if (!current) return null;
+  if (direction === "left" || direction === "right") {
+    const candidates = positions.filter(position => position.row === current.row && (direction === "left" ? position.column < current.column : position.column > current.column));
+    candidates.sort((a, b) => direction === "left" ? b.column - a.column : a.column - b.column);
+    return candidates[0]?.id || null;
+  }
+  const candidates = positions.filter(position => direction === "up" ? position.row < current.row : position.row > current.row);
+  if (!candidates.length) return null;
+  const targetRow = direction === "up" ? Math.max(...candidates.map(position => position.row)) : Math.min(...candidates.map(position => position.row));
+  return candidates.filter(position => position.row === targetRow).sort((a, b) => Math.abs(a.center - current.center) - Math.abs(b.center - current.center))[0]?.id || null;
 }
 
 function DashboardWidgetContent({ id, data, leads, cards, report }) {
@@ -491,7 +543,7 @@ function DashboardWidgetContent({ id, data, leads, cards, report }) {
     {cards.map(([label, value, trend, Icon, color]) => (
       <article className="stat-card" key={label}>
         <div className={`stat-icon ${color}`}><Icon /></div>
-        <div><span>{label}</span><strong>{Number(value || 0).toLocaleString()}</strong>{trend && <small className={String(trend).includes("overdue") ? "warning" : ""}>{trend} <em>{String(trend).includes("overdue") ? "" : "vs last month"}</em></small>}</div>
+        <div><span>{label}</span><strong>{Number(value || 0).toLocaleString()}</strong>{trend && <small className={String(trend).includes("overdue") ? "warning" : ""}>{trend}</small>}</div>
       </article>
     ))}
   </section>;

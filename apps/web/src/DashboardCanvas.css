@@ -3,9 +3,21 @@
   gap: 16px;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .dashboard-widget-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 18px;
   align-items: start;
 }
@@ -14,9 +26,10 @@
   min-width: 0;
 }
 
-.dashboard-widget.wide {
-  grid-column: 1 / -1;
-}
+.dashboard-widget.size-quarter { grid-column: span 1; }
+.dashboard-widget.size-half { grid-column: span 2; }
+.dashboard-widget.size-three-quarter { grid-column: span 3; }
+.dashboard-widget.size-full { grid-column: 1 / -1; }
 
 .dashboard-widget > .panel,
 .dashboard-widget > .stats-grid {
@@ -119,7 +132,9 @@
   border-radius: 8px;
   background: transparent;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 3px;
+  justify-content: stretch;
   text-align: left;
   justify-items: start;
   padding: 10px 11px;
@@ -169,6 +184,10 @@
 
 .dashboard-widget-actions strong {
   margin-right: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 10px;
   color: #5559a9;
   text-transform: uppercase;
@@ -184,6 +203,40 @@
   color: #454aa2;
   font-size: 10px;
   font-weight: 800;
+}
+
+.dashboard-widget-size select {
+  height: 27px;
+  min-width: 58px;
+  padding: 0 22px 0 9px;
+  border: 1px solid #dfe1ee;
+  border-radius: 7px;
+  background: #fff;
+  color: #454aa2;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.dashboard-report-columns {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #777a8d;
+  font-size: 9px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.dashboard-report-columns select {
+  width: 44px;
+  height: 27px;
+  border: 1px solid #dfe1ee;
+  border-radius: 7px;
+  background: #fff;
+  color: #454aa2;
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
 }
 
 .dashboard-widget-actions button:disabled {

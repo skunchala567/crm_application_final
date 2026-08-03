@@ -134,8 +134,10 @@
 }
 
 .bulk-history-toolbar select { padding: 0 28px 0 10px; }
-.bulk-history-toolbar label { padding-left: 9px; display: flex; align-items: center; gap: 5px; }
-.bulk-history-toolbar input[type="date"] { height: 32px; border: 0; outline: 0; color: #45475a; font: inherit; }
+.bulk-date-range-filter { width: 235px; flex: 0 0 235px; }
+.bulk-date-range-filter .date-range-filter-trigger { height: 36px; min-height: 36px; padding: 4px 9px; gap: 8px; border-radius: 7px; }
+.bulk-date-range-filter .date-range-filter-trigger small { font-size: 8px; }
+.bulk-date-range-filter .date-range-filter-trigger strong { font-size: 10px; }
 .clear-history-filters { height: 36px; border: 0; background: transparent; color: #555ab1; font-weight: 700; cursor: pointer; }
 .bulk-empty { min-height: 180px; display: grid; place-items: center; }
 
@@ -865,6 +867,7 @@
   .bulk-history-toolbar { padding: 10px 12px; justify-content: flex-start; }
   .bulk-history-toolbar select,
   .bulk-history-toolbar label { flex: 1 1 145px; }
+  .bulk-date-range-filter { width: auto; flex: 1 1 235px; }
 
   .upload-details-container > .stats-grid {
     grid-template-columns: repeat(2, 1fr);

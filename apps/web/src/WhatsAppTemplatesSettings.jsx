@@ -284,7 +284,7 @@ function WhatsAppDashboard({ integrations }) {
       <div className="whatsapp-chart-legend">
         <span><i className="utility" /> Utility messages</span>
         <span><i className="marketing" /> Marketing messages</span>
-        <small>Spend excludes failed and pending messages.</small>
+        <small>All metrics exclude failed messages. Spend also excludes pending messages.</small>
       </div>
       <section className="whatsapp-dashboard-grid">
         <article className="whatsapp-usage-card">

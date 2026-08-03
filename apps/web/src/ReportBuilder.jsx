@@ -222,7 +222,7 @@ export function readSavedReports(unitId) {
     return Array.isArray(reports) ? reports.filter(report => report.generatedAt && report.generatedData) : [];
   } catch { return []; }
 }
-function writeSavedReports(unitId, reports) {
+export function writeSavedReports(unitId, reports) {
   localStorage.setItem(savedReportsKey(unitId), JSON.stringify(reports));
   window.dispatchEvent(new CustomEvent("crm:saved-reports-changed", { detail: { unitId } }));
 }
@@ -237,7 +237,8 @@ export function ReportVisual({ report, data, compact = false }) {
   const total = values.reduce((sum, item) => sum + item.value, 0) || 1;
   if (!values.length) return <div className="report-empty">No data matches these filters.</div>;
 
-  if (report.type === "cards") return <div className={`report-cards-visual ${compact ? "compact" : ""}`}>
+  const cardColumns = Math.min(4, Math.max(1, Number(report.cardColumns || (compact ? 2 : 4))));
+  if (report.type === "cards") return <div className={`report-cards-visual ${compact ? "compact" : ""}`} style={{ "--report-card-columns": cardColumns }}>
     <article><span>Total</span><strong>{total.toLocaleString()}</strong><small>{report.values?.[0]?.aggregation || "Count"}</small></article>
     {values.slice(0, compact ? 3 : 7).map(item => <article key={item.label}><i style={{ background: item.color }} /><span>{item.label}</span><strong>{item.value.toLocaleString()}</strong><small>{Math.round(item.value / total * 100)}% share</small></article>)}
   </div>;
@@ -753,7 +754,7 @@ export default function ReportBuilder({ data, leads = [], leadFields = [], onMod
     }));
     return uniqueReportFields([...catalog, ...generated]);
   }, [leadFields, leads]);
-  const defaultReport = { type: "", title: "Untitled report", description: "", dateRange: "All time", dateField: "addedAt", dateFrom: "", dateTo: "", stages: [], filters: [], rows: [], columns: [], values: [], dateGroups: {}, calculatedFields: [], fieldCatalog: configuredFields, showLabels: true, showLegend: true, showRowTotals: true, showColumnTotals: false };
+  const defaultReport = { type: "", title: "Untitled report", description: "", dateRange: "All time", dateField: "addedAt", dateFrom: "", dateTo: "", stages: [], filters: [], rows: [], columns: [], values: [], dateGroups: {}, calculatedFields: [], fieldCatalog: configuredFields, cardColumns: 4, showLabels: true, showLegend: true, showRowTotals: true, showColumnTotals: false };
   const [report, setReport] = useState(defaultReport);
   const [saved, setSaved] = useState(() => readSavedReports(selectedUnit.id));
   const [notice, setNotice] = useState("");
@@ -1036,6 +1037,7 @@ export default function ReportBuilder({ data, leads = [], leadFields = [], onMod
         </div>)}
       </div>
       <p className="settings-builder-note">Choose Rows, Columns and Values, then generate the report.</p>
+      {report.type === "cards" && <label className="report-card-columns-setting">Cards per row<select value={report.cardColumns || 4} onChange={event => patch({ cardColumns: Number(event.target.value) })}><option value="1">1 per row</option><option value="2">2 per row</option><option value="3">3 per row</option><option value="4">4 per row</option></select></label>}
       {report.type === "map" && <div className="map-field-options">
         <label>Latitude field<select value={report.mapLatitudeField || ""} onChange={event => patch({ mapLatitudeField: event.target.value })}><option value="">Auto detect latitude</option>{configuredFields.map(field => <option key={field.id} value={field.id}>{field.label}</option>)}</select></label>
         <label>Longitude field<select value={report.mapLongitudeField || ""} onChange={event => patch({ mapLongitudeField: event.target.value })}><option value="">Auto detect longitude</option>{configuredFields.map(field => <option key={field.id} value={field.id}>{field.label}</option>)}</select></label>

@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from 'react';
 import { ChevronRight, Download, Eye, FileDown, GitBranch, RefreshCw, RotateCcw, Search, UserRoundCheck, X } from 'lucide-react';
 import { api } from './api';
 import { useBusinessUnit } from './BusinessUnitContext.jsx';
+import { DateRangeFilterControl } from './FilterWorkspace.jsx';
 import './BulkActionsPage.css';
 
 export default function BulkActionsPage() {
@@ -178,8 +179,7 @@ export default function BulkActionsPage() {
             <option value="">All statuses</option><option value="completed">Completed</option><option value="partial">Partial success</option>
             <option value="completed-with-errors">Completed with errors</option><option value="failed">Failed</option><option value="processing">Processing</option>
           </select>
-          <label>From<input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/></label>
-          <label>To<input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)}/></label>
+          <div className="bulk-date-range-filter"><DateRangeFilterControl label="Created on" from={dateFrom} to={dateTo} onChange={(from,to)=>{setDateFrom(from);setDateTo(to)}}/></div>
           {(search||statusFilter||dateFrom||dateTo)&&<button className="clear-history-filters" onClick={()=>{setSearch('');setStatusFilter('');setDateFrom('');setDateTo('')}}>Clear</button>}
         </div>
 
