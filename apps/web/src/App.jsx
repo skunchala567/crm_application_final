@@ -27,6 +27,7 @@ import Header from "./components/Header.jsx";
 import DashboardPage from "./components/DashboardPage.jsx";
 import SettingsPageModern from "./components/SettingsPageModern.jsx";
 import OperationsPageModern from "./components/OperationsPageModern.jsx";
+import BulkActionsPageModern from "./components/BulkActionsPageModern.jsx";
 import { Button, Input } from "./components/ui/index.js";
 import "./SidebarTogglePosition.css";
 import "./DashboardCanvas.css";
@@ -249,7 +250,7 @@ function Shell({ user, onLogout }) {
             <Route path="/tracker" element={<OperationsPageModern key={activeBusinessUnitId} />} />
             <Route path="/operations" element={<Navigate to="/tracker" replace />} />
             <Route path="/whatsapp-inbox" element={<WhatsAppInbox />} />
-            <Route path="/bulk-actions" element={<BulkActionsPage key={activeBusinessUnitId} />} />
+            <Route path="/bulk-actions" element={<BulkActionsPageModern key={activeBusinessUnitId} />} />
             <Route path="/reports" element={<ReportsPage key={activeBusinessUnitId} />} />
             <Route path="/saved-reports/new" element={<SavedReportCreatePage key={activeBusinessUnitId} />} />
             <Route path="/settings" element={<SettingsPageModern />} />
