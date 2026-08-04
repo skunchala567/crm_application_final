@@ -25,6 +25,7 @@ import AuthLayout from "./components/AuthLayout.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import Header from "./components/Header.jsx";
 import DashboardPage from "./components/DashboardPage.jsx";
+import SettingsPageModern from "./components/SettingsPageModern.jsx";
 import { Button, Input } from "./components/ui/index.js";
 import "./SidebarTogglePosition.css";
 import "./DashboardCanvas.css";
@@ -250,20 +251,20 @@ function Shell({ user, onLogout }) {
             <Route path="/bulk-actions" element={<BulkActionsPage key={activeBusinessUnitId} />} />
             <Route path="/reports" element={<ReportsPage key={activeBusinessUnitId} />} />
             <Route path="/saved-reports/new" element={<SavedReportCreatePage key={activeBusinessUnitId} />} />
-            <Route path="/settings" element={<SettingsPage initialTab="users" />} />
-            <Route path="/settings/users" element={<SettingsPage initialTab="users" />} />
-            <Route path="/settings/business-units" element={<SettingsPage initialTab="business-units" />} />
-            <Route path="/settings/branches" element={<SettingsPage initialTab="branches" />} />
-            <Route path="/settings/payment-forms" element={<SettingsPage initialTab="payment-forms" />} />
+            <Route path="/settings" element={<SettingsPageModern />} />
+            <Route path="/settings/users" element={<SettingsPageModern />} />
+            <Route path="/settings/business-units" element={<SettingsPageModern />} />
+            <Route path="/settings/branches" element={<SettingsPageModern />} />
+            <Route path="/settings/payment-forms" element={<SettingsPageModern />} />
             <Route path="/settings/lead-config" element={<Navigate to="/settings/business-units?tab=sources" replace />} />
             <Route path="/settings/academic-config" element={<Navigate to="/settings/business-units?tab=academic" replace />} />
             <Route path="/settings/academic-years" element={<Navigate to="/settings/business-units?tab=academic" replace />} />
             <Route path="/settings/admission-classes" element={<Navigate to="/settings/business-units?tab=academic&section=classes" replace />} />
-            <Route path="/settings/integrations" element={<SettingsPage initialTab="integrations" />} />
-            <Route path="/settings/google-sheets" element={<SettingsPage initialTab="google-sheets" />} />
-            <Route path="/settings/whatsapp-templates" element={<SettingsPage initialTab="whatsapp-templates" />} />
-            <Route path="/settings/callerdesk" element={<SettingsPage initialTab="callerdesk" />} />
-            <Route path="/settings/smartflo" element={<SettingsPage initialTab="smartflo" />} />
+            <Route path="/settings/integrations" element={<SettingsPageModern />} />
+            <Route path="/settings/google-sheets" element={<SettingsPageModern />} />
+            <Route path="/settings/whatsapp-templates" element={<SettingsPageModern />} />
+            <Route path="/settings/callerdesk" element={<SettingsPageModern />} />
+            <Route path="/settings/smartflo" element={<SettingsPageModern />} />
             <Route path="/integrations" element={<Navigate to="/settings/integrations" replace />} />
             <Route path="/oauth-callback" element={<OAuthCallbackPage />} />
             <Route path="/oauth-error" element={<OAuthCallbackPage />} />
