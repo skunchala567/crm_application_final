@@ -36,6 +36,7 @@ import { BulkStageChangeConfirm } from "./BulkStageChangeConfirm.jsx";
 import Toast from "./Toast.jsx";
 import { WhatsAppSendPanel } from "./components/WhatsAppSendPanel.jsx";
 import { MarketingCampaignBuilder } from "./MarketingCampaigns.jsx";
+import ActivityTimeline from "./components/ActivityTimeline.jsx";
 import "./LeadsUnread.css";
 import "./LeadsStickyLayout.css";
 import "./ProjectPagination.css";
@@ -1758,21 +1759,7 @@ export default function LeadsPage() {
               {drawer.mode === "view" && drawerTab === "activity" && (
                 <div className="activity-section modal-activity">
                   <h3>Activity</h3>
-                  {drawer.activities?.length ? (
-                    drawer.activities.map((item) => (
-                      <div className="activity" key={item.id}>
-                        <i />
-                        <div>
-                          <strong>{item.summary}</strong>
-                          <span>{item.actorName} · {new Date(item.occurredAt).toLocaleString("en-IN", {timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"})}</span>
-                          {item.commentText&&<p className="activity-comment">{item.commentText}</p>}
-                          {item.details?.recordingUrl&&<audio controls preload="none" src={item.details.recordingUrl}>Your browser cannot play this call recording.</audio>}
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p>No activity recorded.</p>
-                  )}
+                  <ActivityTimeline activities={drawer.activities || []} />
                 </div>
               )}
               <div className="drawer-actions">

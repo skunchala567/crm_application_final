@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Plus, Copy, Eye, Trash2, X } from 'lucide-react';
 import { api } from '../api.js';
+import FormFieldBuilder from '../components/FormFieldBuilder.jsx';
 import '../styles/PaymentForms.css';
 
 export default function PaymentFormsPage({ onMessage }) {
@@ -12,6 +13,7 @@ export default function PaymentFormsPage({ onMessage }) {
     description: '',
     branchId: '',
     selectionType: 'single',
+    fields: [],
     categories: [{ name: '', amount: '' }],
     successMessage: '',
     redirectUrl: '',
@@ -58,6 +60,7 @@ export default function PaymentFormsPage({ onMessage }) {
         description: formData.description,
         branchId: Number(formData.branchId),
         selectionType: formData.selectionType,
+        fields: formData.fields,
         categories: validCategories.map(c => ({
           name: c.name,
           amount: Number(c.amount),
@@ -73,6 +76,7 @@ export default function PaymentFormsPage({ onMessage }) {
         description: '',
         branchId: '',
         selectionType: 'single',
+        fields: [],
         categories: [{ name: '', amount: '' }],
         successMessage: '',
         redirectUrl: '',
@@ -202,9 +206,14 @@ export default function PaymentFormsPage({ onMessage }) {
                 </small>
               </div>
 
+              <FormFieldBuilder
+                fields={formData.fields}
+                onChange={fields => setFormData({ ...formData, fields })}
+              />
+
               <fieldset className="categories-section">
                 <legend>Payment Categories *</legend>
-                <p className="legend-text">Define categories customers can select from</p>
+                <p className="legend-text">Define payment options customers can select from</p>
                 {formData.categories.map((cat, idx) => (
                   <div key={idx} className="category-row">
                     <input
