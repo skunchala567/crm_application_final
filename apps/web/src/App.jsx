@@ -26,6 +26,7 @@ import Sidebar from "./components/Sidebar.jsx";
 import Header from "./components/Header.jsx";
 import DashboardPage from "./components/DashboardPage.jsx";
 import SettingsPageModern from "./components/SettingsPageModern.jsx";
+import OperationsPageModern from "./components/OperationsPageModern.jsx";
 import { Button, Input } from "./components/ui/index.js";
 import "./SidebarTogglePosition.css";
 import "./DashboardCanvas.css";
@@ -245,7 +246,7 @@ function Shell({ user, onLogout }) {
           <Routes location={location}>
             <Route path="/" element={<DashboardPage key={activeBusinessUnitId} user={user} />} />
             <Route path="/leads" element={<BusinessUnitLeadRouter key={activeBusinessUnitId} />} />
-            <Route path="/tracker" element={<OperationsPage key={activeBusinessUnitId} />} />
+            <Route path="/tracker" element={<OperationsPageModern key={activeBusinessUnitId} />} />
             <Route path="/operations" element={<Navigate to="/tracker" replace />} />
             <Route path="/whatsapp-inbox" element={<WhatsAppInbox />} />
             <Route path="/bulk-actions" element={<BulkActionsPage key={activeBusinessUnitId} />} />
