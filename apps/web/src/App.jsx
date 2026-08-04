@@ -24,6 +24,7 @@ import { BusinessUnitProvider, BusinessUnitSelector, useBusinessUnit } from "./B
 import AuthLayout from "./components/AuthLayout.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import Header from "./components/Header.jsx";
+import DashboardPage from "./components/DashboardPage.jsx";
 import { Button, Input } from "./components/ui/index.js";
 import "./SidebarTogglePosition.css";
 import "./DashboardCanvas.css";
@@ -241,7 +242,7 @@ function Shell({ user, onLogout }) {
 
         <main className="flex-1 overflow-y-auto">
           <Routes location={location}>
-            <Route path="/" element={<Dashboard key={activeBusinessUnitId} user={user} />} />
+            <Route path="/" element={<DashboardPage key={activeBusinessUnitId} user={user} />} />
             <Route path="/leads" element={<BusinessUnitLeadRouter key={activeBusinessUnitId} />} />
             <Route path="/tracker" element={<OperationsPage key={activeBusinessUnitId} />} />
             <Route path="/operations" element={<Navigate to="/tracker" replace />} />
