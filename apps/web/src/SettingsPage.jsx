@@ -10,7 +10,6 @@ import BusinessUnitsPage from './BusinessUnitsPage.jsx';
 import Toast from './Toast.jsx';
 import CallerDeskSettings from './pages/CallerDeskSettings.jsx';
 import SmartfloSettings from './pages/SmartfloSettings.jsx';
-import JodoPaymentLinksSettings from './pages/JodoPaymentLinksSettings.jsx';
 import BranchSettingsPage from './pages/BranchSettingsPage.jsx';
 import PaymentFormsPage from './pages/PaymentFormsPage.jsx';
 
@@ -24,7 +23,6 @@ const settingsTabs = [
   { id: 'whatsapp-templates', path: '/settings/whatsapp-templates', label: 'WhatsApp', icon: MessageCircle, component: WhatsAppTemplatesSettings },
   { id: 'callerdesk', path: '/settings/callerdesk', label: 'Calling', icon: PhoneCall, component: CallerDeskSettings },
   { id: 'smartflo', path: '/settings/smartflo', label: 'Smartflo', icon: PhoneCall, component: SmartfloSettings },
-  { id: 'payment-links', path: '/settings/payment-links', label: 'Payment Links', icon: Link2, component: JodoPaymentLinksSettings },
 ];
 
 export default function SettingsPage(){
@@ -44,7 +42,6 @@ export default function SettingsPage(){
       '/settings/whatsapp-templates': 'whatsapp-templates',
       '/settings/callerdesk': 'callerdesk',
       '/settings/smartflo': 'smartflo',
-      '/settings/payment-links': 'payment-links',
       '/settings': 'users', // default
     };
 

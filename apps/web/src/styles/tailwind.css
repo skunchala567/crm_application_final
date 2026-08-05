@@ -1,0 +1,228 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap');
+
+@import "tailwindcss";
+@config "../../tailwind.config.js";
+
+@layer base {
+  html,
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "kern" 1;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    @apply font-sans;
+  }
+
+  code {
+    @apply font-mono;
+  }
+}
+
+@layer components {
+  /* Primary Button */
+  .btn-primary {
+    @apply px-4 py-3 rounded-lg font-semibold text-white bg-primary-600 hover:bg-primary-700 active:bg-primary-800 disabled:opacity-60 disabled:cursor-not-allowed transition-colors;
+  }
+
+  /* Secondary Button */
+  .btn-secondary {
+    @apply px-4 py-3 rounded-lg font-semibold text-secondary-700 bg-white border border-border hover:bg-secondary-50 active:bg-secondary-100 disabled:opacity-60 disabled:cursor-not-allowed transition-colors;
+  }
+
+  /* Ghost Button */
+  .btn-ghost {
+    @apply px-4 py-3 rounded-lg font-semibold text-secondary-700 hover:bg-secondary-100 active:bg-secondary-200 disabled:opacity-60 disabled:cursor-not-allowed transition-colors;
+  }
+
+  /* Danger Button */
+  .btn-danger {
+    @apply px-4 py-3 rounded-lg font-semibold text-white bg-red-600 hover:bg-red-700 active:bg-red-800 disabled:opacity-60 disabled:cursor-not-allowed transition-colors;
+  }
+
+  /* Card Component */
+  .card {
+    @apply bg-card border border-border rounded-xl p-6 shadow-xs;
+  }
+
+  /* Card Header */
+  .card-header {
+    @apply pb-4 border-b border-border mb-4;
+  }
+
+  /* Card Title */
+  .card-title {
+    @apply text-xl font-bold text-foreground;
+  }
+
+  /* Form Input */
+  .input {
+    @apply w-full px-3 py-2 rounded-md border border-border bg-white text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent disabled:bg-secondary-50 disabled:cursor-not-allowed;
+  }
+
+  /* Form Label */
+  .label {
+    @apply block text-sm font-semibold text-foreground mb-2;
+  }
+
+  /* Form Group */
+  .form-group {
+    @apply mb-4 flex flex-col gap-2;
+  }
+
+  /* Badge */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-primary-100 text-primary-700;
+  }
+
+  /* Badge Secondary */
+  .badge-secondary {
+    @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-secondary-100 text-secondary-700;
+  }
+
+  /* Status Badge */
+  .badge-status {
+    @apply inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold;
+  }
+
+  .badge-status.success {
+    @apply bg-emerald-100 text-emerald-700;
+  }
+
+  .badge-status.warning {
+    @apply bg-amber-100 text-amber-700;
+  }
+
+  .badge-status.error {
+    @apply bg-red-100 text-red-700;
+  }
+
+  .badge-status.info {
+    @apply bg-blue-100 text-blue-700;
+  }
+
+  /* Table */
+  .table {
+    @apply w-full border-collapse;
+  }
+
+  .table thead th {
+    @apply bg-secondary-50 px-4 py-3 text-left text-xs font-semibold text-secondary-700 border-b border-border;
+  }
+
+  .table tbody td {
+    @apply px-4 py-3 border-b border-border text-sm text-foreground;
+  }
+
+  .table tbody tr:hover {
+    @apply bg-secondary-50;
+  }
+
+  /* Divider */
+  .divider {
+    @apply border-t border-border;
+  }
+
+  /* Text Utilities */
+  .text-muted {
+    @apply text-secondary-600;
+  }
+
+  .text-subtle {
+    @apply text-secondary-500;
+  }
+
+  .text-caption {
+    @apply text-xs text-secondary-600;
+  }
+
+  /* Scrollbar Styling */
+  ::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-secondary-300 rounded-full hover:bg-secondary-400;
+  }
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.animate-slideIn {
+  animation: slideIn 0.3s ease-in-out;
+}
+
+/* Utility for truncating text */
+.truncate-line {
+  @apply overflow-hidden text-ellipsis whitespace-nowrap;
+}
+
+.truncate-lines-2 {
+  @apply line-clamp-2;
+}
+
+.truncate-lines-3 {
+  @apply line-clamp-3;
+}
+
+/* Focus visible ring */
+.focus-ring {
+  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2;
+}
+
+/* ---------------------------------------------------------------------
+   Business unit selector, light-sidebar retheme.
+
+   MetadataPlatform.css styles .business-unit-selector for the old DARK
+   sidebar: color #e7e8ff on background #ffffff0d. The sidebar is white now,
+   so that renders as near-white text on white -- effectively invisible.
+   Scoped to `aside` (element + class) so it outranks the legacy single-class
+   rule no matter which stylesheet loads last.
+   --------------------------------------------------------------------- */
+aside .business-unit-selector {
+  margin: 0; /* the wrapper already provides padding */
+  min-height: 40px;
+  color: #374151;
+  background: #f9fafb;
+  border-color: #e5e7eb;
+  font-size: 12px;
+}
+
+aside .business-unit-selector:hover {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+aside .business-unit-selector > svg {
+  color: #6b7280;
+}

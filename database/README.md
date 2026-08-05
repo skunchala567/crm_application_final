@@ -6,6 +6,27 @@
 
 Create schema changes as a new numbered file in `mysql/`. Do not edit an already-applied migration.
 
+## Which file do I want?
+
+| Goal | Use |
+| --- | --- |
+| Evolve an existing database | `mysql/` — add a new numbered migration |
+| Provision a brand-new database | `reference/FULL_SCHEMA_MYSQL.sql` |
+| Read the current shape of a table | `reference/FULL_SCHEMA_MYSQL.sql` |
+
+`reference/FULL_SCHEMA_MYSQL.sql` is a complete `CREATE TABLE IF NOT EXISTS`
+snapshot of all 124 objects (98 CRM tables, 7 shared identity/master tables,
+18 attendance-only tables, 1 view), generated from the live schema so it
+reflects every migration including their `ALTER TABLE` statements. It is safe
+to re-run, but because every statement is `IF NOT EXISTS` it cannot upgrade a
+table that already exists — it provisions, it does not migrate.
+
+`reference/DATABASE_SCHEMA_MYSQL.sql` is **deprecated — do not run it.** It is
+an early design sketch that was never reconciled with `mysql/`. 25 of the 32
+tables it declares do not exist in the application, and it uses pre-namespace
+names (`leads`, `users`) instead of the real `crm_leads`, `app_users`. It is
+kept only as a historical record.
+
 ## CRM table namespace
 
 Every table owned by this CRM uses the `crm_` prefix because the application

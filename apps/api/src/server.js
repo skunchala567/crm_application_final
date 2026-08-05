@@ -20,6 +20,8 @@ import { createSmartfloRoutes, createSmartfloWebhookRoutes } from './smartflo/sm
 import { createJodoPaymentLinkRoutes } from './jodo-payment-links.routes.js';
 import { createBranchesRoutes } from './branches.routes.js';
 import { createPaymentFormsRoutes } from './payment-forms.routes.js';
+import { createMetaRoutes } from './meta/meta.routes.js';
+import { createMetaWebhookRoutes } from './meta/meta-webhook.routes.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -37,7 +39,16 @@ if (missingDatabaseSettings.length) {
 }
 
 app.use(cors({ origin: allowedOrigin, credentials: true }));
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({
+  limit: '1mb',
+  // Meta signs the exact bytes it sent, so the HMAC must be computed over the
+  // raw buffer -- re-serialising req.body would not reproduce them. Scoped to
+  // the Meta webhook so other routes do not retain a second copy of the body.
+  verify: (req, _res, buf) => {
+    const url = req.originalUrl || req.url || '';
+    if (url.startsWith('/api/meta/')) req.rawBody = buf;
+  },
+}));
 app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 app.use('/media/whatsapp', express.static(whatsappMediaDirectory, {
   fallthrough: false,
@@ -4501,6 +4512,12 @@ app.use('/api/smartflo', createSmartfloWebhookRoutes(pool));
 app.use('/api/jodo/payment-links', createJodoPaymentLinkRoutes(pool,authenticate,requireCrmAccess,requireUserAdmin));
 app.use('/api/branches', createBranchesRoutes(pool, authenticate, requireCrmAccess));
 app.use('/api/payment-forms', createPaymentFormsRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
+
+// ============= Meta Lead Ads =============
+// Webhook first: it is public, and mounting it ahead of the authenticated
+// router keeps Meta's unauthenticated callbacks from hitting the JWT gate.
+app.use('/api/meta', createMetaWebhookRoutes(pool, console));
+app.use('/api/meta', createMetaRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin, console));
 
 // ============= WhatsApp Template Routes =============
 app.use('/api/whatsapp', createWhatsAppTemplateRoutes(pool, authenticate, console));

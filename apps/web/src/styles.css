@@ -3,7 +3,7 @@
 @media(max-width:1050px){.stats-grid{grid-template-columns:repeat(2,1fr)}.dashboard-grid{grid-template-columns:1fr}.login-brand{padding:45px}.login-copy h1{font-size:43px}}
 @media(max-width:760px){.login-shell{grid-template-columns:1fr}.login-brand{display:none}.login-panel{min-height:100vh;padding:25px}.mobile-logo{display:flex;align-items:center;gap:10px;font:800 22px Manrope;margin-bottom:22px}.app-shell{display:block}.workspace{margin:0}.sidebar{transform:translateX(-100%);transition:.2s}.sidebar.open{transform:translateX(0);box-shadow:8px 0 30px #14152e44}.mobile-only{display:grid}.workspace header{padding:0 14px;height:60px}.header-profile span:not(.avatar),.header-profile svg{display:none}.header-search input::placeholder{color:transparent}.page{padding:24px 14px}.page-heading{align-items:flex-start}.page-heading .primary{font-size:0;padding:11px}.page-heading .primary svg{margin:0}.page-heading h1{font-size:24px}.stats-grid{grid-template-columns:1fr 1fr;gap:10px}.stat-card{padding:14px;gap:10px}.stat-icon{width:36px;height:36px}.stat-card strong{font-size:20px}.funnel-row{grid-template-columns:80px 1fr}.funnel-row small{display:none}.panel-title{padding:15px}.recent{margin-bottom:30px}.table-tools{flex-wrap:wrap}.local-search{max-width:none;flex-basis:100%}}
 @media(max-width:430px){.stats-grid{grid-template-columns:1fr}.login-form h2{font-size:27px}}
-.password-input{position:relative;display:block}.login-form .password-input input{width:100%;padding-right:48px}.password-input button{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:34px;height:34px;display:grid;place-items:center;border:0;border-radius:7px;background:transparent;color:#6f7185}.password-input button:hover{background:#f0f1f7;color:var(--purple)}
+.password-input{position:relative;display:block}.login-form .password-input input{width:100%;padding-right:48px}.password-input button{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:34px;height:34px;display:grid;place-items:center;border:0;border-radius:7px;background:transparent;color:#6f7185}.password-input button:hover{background:#f0f1f7;color:var(--purple)}.login-form .primary{min-height:48px;font-size:15px;visibility:visible;display:flex}
 .login-panel{position:relative}.login-footer{position:absolute;left:28px;right:28px;bottom:20px;display:flex;align-items:center;justify-content:center;min-height:46px;color:#858799;font-size:11px}.login-whatsapp{position:absolute;right:0;width:44px;height:44px;display:grid;place-items:center;border-radius:50%;background:#25d366;color:#fff;box-shadow:0 7px 18px #128c7e40;transition:transform .16s ease,box-shadow .16s ease}.login-whatsapp:hover{transform:translateY(-2px);box-shadow:0 10px 24px #128c7e55}.login-whatsapp svg{fill:currentColor;stroke-width:1.8}@media(max-width:600px){.login-panel{padding-bottom:100px}.login-footer{left:18px;right:18px;bottom:16px;justify-content:flex-start}.login-footer span{max-width:calc(100% - 58px);line-height:1.4}}
 
 /* Functional lead management */
@@ -75,6 +75,231 @@ table th{background:#f8f8fc}.avatar.muted{background:var(--accent-soft);color:va
 /* Remarks count action and read-only lead history popup */
 .remarks-count-trigger{position:relative}.remarks-count-badge{position:absolute;top:-7px;right:-8px;display:grid;place-items:center;min-width:18px;height:18px;padding:0 4px;border:2px solid #fff;border-radius:10px;background:var(--purple);color:#fff;font:700 9px Manrope;line-height:1;box-shadow:0 1px 3px #31345a2e}
 .lead-history-dialog{position:fixed;z-index:42;top:50%;left:50%;transform:translate(-50%,-50%);width:min(820px,calc(100vw - 32px));max-height:calc(100vh - 40px);overflow:auto;background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:0 24px 70px #17182c38}.lead-history-dialog>header{display:flex;justify-content:space-between;align-items:flex-start;padding:20px 22px;border-bottom:1px solid var(--line)}.lead-history-dialog h2{margin:5px 0 2px;font:800 22px Manrope}.lead-history-dialog header p{margin:0;color:var(--muted);font-size:11px}.history-current-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:18px 22px;background:#f7f8fc;border-bottom:1px solid var(--line)}.history-current-grid>div{display:grid;gap:5px;padding:12px;border:1px solid #e0e2ec;border-radius:9px;background:#fff}.history-current-grid span{font-size:10px;color:var(--muted)}.history-current-grid strong{font-size:12px;color:var(--ink);white-space:normal}.history-comments{padding:20px 22px}.history-comments h3{margin:0 0 10px;font:700 14px Manrope}.history-comments .comment-history{max-height:320px}.lead-history-dialog>footer{display:flex;justify-content:flex-end;padding:14px 22px;border-top:1px solid var(--line)}@media(max-width:700px){.history-current-grid{grid-template-columns:1fr 1fr}.lead-history-dialog{width:calc(100vw - 20px)}}
+/* Activity Timeline - Card Based Design */
+.activity-timeline-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.timeline-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.timeline-item {
+  display: flex;
+  gap: 16px;
+  position: relative;
+  padding-left: 12px;
+  border-left: 3px solid transparent;
+  padding-bottom: 8px;
+}
+
+.timeline-marker {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.activity-card {
+  flex: 1;
+  border-radius: 10px;
+  padding: 16px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  transition: all 0.2s ease;
+  min-width: 0;
+}
+
+.activity-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.activity-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.activity-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.activity-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2937;
+  line-height: 1.3;
+}
+
+.activity-time {
+  font-size: 12px;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.activity-summary {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  color: #374151;
+  line-height: 1.5;
+}
+
+.view-more-btn {
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  color: #7c3aed;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.view-more-btn:hover {
+  background: rgba(124, 58, 237, 0.1);
+}
+
+.activity-details {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.detail-text {
+  margin: 0;
+  font-size: 13px;
+  color: #4b5563;
+  line-height: 1.6;
+}
+
+.detail-item {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.detail-key {
+  font-weight: 600;
+  color: #374151;
+  min-width: 100px;
+}
+
+.detail-value {
+  color: #4b5563;
+  flex: 1;
+  word-break: break-word;
+}
+
+.detail-footer {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.detail-footer .actor-label {
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.detail-footer .actor-name {
+  color: #374151;
+  font-weight: 600;
+}
+
+.activity-audio {
+  width: 100%;
+  height: 32px;
+  margin-top: 8px;
+  border-radius: 6px;
+}
+
+.activity-timeline-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+  color: #9ca3af;
+  background: #f9fafb;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+}
+
+.activity-timeline-empty p {
+  margin: 0;
+  font-size: 14px;
+}
+
+@media (max-width: 760px) {
+  .timeline-item {
+    gap: 12px;
+    padding-left: 8px;
+  }
+
+  .timeline-marker {
+    width: 40px;
+    height: 40px;
+  }
+
+  .activity-card {
+    padding: 12px;
+  }
+
+  .activity-title {
+    font-size: 14px;
+  }
+
+  .activity-time {
+    font-size: 11px;
+  }
+
+  .activity-card-header {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .view-more-btn {
+    align-self: flex-start;
+  }
+}
+
 /* Lead date tracking section */
 .lead-dates-section{margin:20px;background:#f9f9fd;border:1px solid #e6e8f0;border-radius:10px}.dates-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:15px;padding:16px}.date-item{display:grid;gap:6px}.date-label{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em}.date-item strong{font-size:12px;color:var(--ink);font-weight:600}@media(max-width:700px){.dates-grid{grid-template-columns:1fr;gap:12px}}
 /* Lead filter width reduction - fit 7 filters in one row */
@@ -272,4 +497,9 @@ table th{background:#f8f8fc}.avatar.muted{background:var(--accent-soft);color:va
 @media(max-width:980px){.whatsapp-date-popover{left:14px;right:14px;top:84px;max-height:calc(100vh - 110px);overflow:auto}.whatsapp-date-popover .range-calendar-months{min-width:560px;overflow:auto}}
 @media(max-width:840px){.whatsapp-metric-grid{grid-template-columns:1fr}.whatsapp-dashboard-grid{grid-template-columns:1fr}.whatsapp-dashboard-filter-row{grid-template-columns:1fr 1fr;gap:10px}.whatsapp-usage-card-header{flex-direction:column;align-items:flex-start}.whatsapp-usage-card-header>div{width:100%;justify-content:flex-start}.whatsapp-day-row,.whatsapp-breakdown-row{grid-template-columns:1fr;gap:6px;padding:8px 0}.whatsapp-day-row strong,.whatsapp-day-row small,.whatsapp-breakdown-row strong,.whatsapp-breakdown-row small{text-align:left}.whatsapp-account-row{grid-template-columns:1fr auto;gap:8px;padding:10px 0}.whatsapp-account-row small{grid-column:1/-1;text-align:left}.whatsapp-dashboard-hero{padding:14px;grid-template-columns:1fr;gap:12px}.whatsapp-dashboard-filter-row{width:100%}.whatsapp-dashboard-hero select{height:40px;font-size:12px;width:100%}.whatsapp-metric-grid article{padding:14px}.whatsapp-usage-card{padding:14px}.whatsapp-usage-card h2{font-size:13px;margin-bottom:10px}.whatsapp-date-range>button,.whatsapp-export-btn{height:32px;font-size:9px;padding:0 8px}}
 @media(max-width:720px){.whatsapp-settings-shell{padding:12px}.whatsapp-settings-tabs{overflow-x:auto;gap:4px}.whatsapp-settings-tabs button{padding:0 12px;height:40px}.whatsapp-metric-grid article{padding:12px;gap:4px}.whatsapp-metric-grid i{width:32px;height:32px}.whatsapp-metric-grid strong{font-size:22px}.whatsapp-usage-card{padding:12px;min-height:auto}.whatsapp-chart-legend{font-size:10px;gap:10px}.whatsapp-usage-card h2{font-size:12px}.whatsapp-date-range>button{max-width:100%}.whatsapp-dashboard-hero{gap:10px;grid-template-columns:1fr}.whatsapp-dashboard-filter-row{grid-template-columns:1fr 1fr;gap:8px}.whatsapp-dashboard-filter-row select{font-size:12px}.whatsapp-status-strip{gap:8px}.whatsapp-status-strip span{padding:8px 10px;font-size:10px}}
+
+/* Activity Timeline */
+.activity-timeline-container{display:grid;gap:12px}.activity-filter-bar{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--surface);flex-wrap:wrap}.filter-label{font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}.activity-filter-chips{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}.filter-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--border);border-radius:20px;background:var(--surface);color:var(--muted);font-size:11px;font-weight:600;cursor:pointer;transition:all .15s ease}.filter-chip.active{border-color:var(--purple);background:var(--accent-soft);color:var(--purple)}.filter-chip:hover{border-color:var(--purple)}.chip-icon{font-size:13px;line-height:1}.chip-close{border:0;background:none;padding:0 2px;color:inherit;cursor:pointer;font-size:16px;line-height:1;display:inline-flex;align-items:center;opacity:.6;transition:opacity .15s ease}.chip-close:hover{opacity:1}.activity-timeline{display:grid;gap:8px}.activity-date-group{border:1px solid var(--border);border-radius:10px;background:var(--surface);overflow:hidden}.date-group-header{width:100%;border:0;background:transparent;padding:12px 14px;display:flex;align-items:center;gap:10px;justify-content:space-between;cursor:pointer;transition:background .15s ease;text-align:left}.date-group-header:hover{background:var(--accent-softer)}.date-label{font-size:13px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:8px;min-width:0}.date-label::before{content:'';width:8px;height:8px;background:var(--purple);border-radius:50%;flex-shrink:0}.activity-count{font-size:11px;color:var(--muted);background:#f0f0f5;padding:2px 8px;border-radius:12px;margin-left:auto;font-weight:700}.activity-list{display:grid;gap:0;border-top:1px solid var(--border);padding:8px 0}.activity-item{display:grid;grid-template-columns:auto 1fr;gap:12px;padding:12px 14px;border-bottom:1px solid #f5f5fa}.activity-item:last-child{border-bottom:0}.activity-icon{width:32px;height:32px;border-radius:8px;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}.activity-content{display:grid;gap:6px;min-width:0}.activity-header{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;min-width:0}.activity-type{font-size:12px;font-weight:700;color:var(--ink);line-height:1.4}.activity-time{font-size:10px;color:var(--muted);white-space:nowrap;flex-shrink:0}.activity-description{margin:0;font-size:11px;color:#45475b;line-height:1.5;white-space:pre-wrap;word-break:break-word}.activity-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.actor-name{font-size:10px;color:var(--muted);font-weight:600}.activity-audio{width:100%;height:28px;margin-top:6px;border-radius:6px;background:#f5f5fa}
+.activity-timeline.empty{padding:20px;text-align:center;color:var(--muted);font-size:12px}
+@media(max-width:760px){.activity-filter-bar{flex-direction:column;align-items:flex-start}.activity-filter-chips{width:100%}.activity-item{grid-template-columns:auto 1fr;gap:10px;padding:10px 12px}.activity-icon{width:28px;height:28px;font-size:14px}.activity-type{font-size:11px}.date-label{font-size:12px}}
 @media(max-width:480px){.whatsapp-settings-shell{padding:8px}.whatsapp-dashboard-hero{padding:12px}.whatsapp-dashboard-filter-row{gap:6px}.whatsapp-metric-grid article{padding:10px;gap:3px}.whatsapp-metric-grid strong{font-size:18px}.whatsapp-metric-grid span{font-size:10px}.whatsapp-metric-grid small{font-size:9px}.whatsapp-usage-card{padding:10px}.whatsapp-usage-card h2{font-size:11px}.whatsapp-day-row,.whatsapp-breakdown-row{gap:4px;font-size:10px}.whatsapp-account-row{gap:6px}.whatsapp-status-strip span{padding:6px 8px;font-size:9px}}

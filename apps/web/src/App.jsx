@@ -21,6 +21,14 @@ import ReportBuilder, { SavedReportsDashboard, ReportVisual, buildLiveReportData
 import PublicEnquiryForm from "./PublicEnquiryForm.jsx";
 import PublicPaymentPage from "./pages/PublicPaymentPage.jsx";
 import { BusinessUnitProvider, BusinessUnitSelector, useBusinessUnit } from "./BusinessUnitContext.jsx";
+import AuthLayout from "./components/AuthLayout.jsx";
+import Sidebar from "./components/Sidebar.jsx";
+import Header from "./components/Header.jsx";
+import DashboardPage from "./components/DashboardPage.jsx";
+import SettingsPageModern from "./components/SettingsPageModern.jsx";
+import OperationsPageModern from "./components/OperationsPageModern.jsx";
+import BulkActionsPageModern from "./components/BulkActionsPageModern.jsx";
+import { Button, Input } from "./components/ui/index.js";
 import "./SidebarTogglePosition.css";
 import "./DashboardCanvas.css";
 import {
@@ -119,199 +127,156 @@ function Login({ onLogin }) {
   }
 
   return (
-    <main className="login-shell">
-      <section className="login-brand">
-        <div className="brand-lockup">
-          <span className="brand-mark">
-            <Sparkles size={25} />
-          </span>
-          <span>Orbit</span>
-        </div>
-        <div className="login-copy">
-          <span className="eyebrow light">
-            Admissions intelligence, simplified
-          </span>
-          <h1>Turn every enquiry into a meaningful student journey.</h1>
-          <p>
-            One focused workspace for admissions teams to manage leads,
-            follow-ups, applications, and enrolments.
-          </p>
-        </div>
-        <div className="quote-card">
-          <p>
-            “We know a CRM isn't just about managing contacts—it's about enabling teams, improving customer experiences, and driving business growth.”
-          </p>
-          <span>Kunchala Srikanth - Market Farmer</span>
-        </div>
-      </section>
-      <section className="login-panel">
-        <form className="login-form" onSubmit={submit}>
-          <span className="mobile-logo">
-            <span className="brand-mark">
-              <Sparkles size={22} />
-            </span>{" "}
-            Orbit
-          </span>
-          <div>
-            <span className="eyebrow">Welcome back</span>
-            <h2>Sign in to your CRM</h2>
-            <p>Use your existing Attendance application account.</p>
+    <AuthLayout>
+      <form onSubmit={submit} className="space-y-6">
+        {/* Logo for mobile */}
+        <div className="md:hidden flex items-center gap-2 mb-8">
+          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 text-white">
+            <Sparkles size={16} />
           </div>
-          <label>
+          <span className="font-bold text-lg font-display">Orbit</span>
+        </div>
+
+        {/* Form Header */}
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-wider text-blue-600 mb-2">
+            Welcome back
+          </p>
+          <h2 className="text-3xl font-bold text-foreground font-display mb-1">
+            Sign in to your CRM
+          </h2>
+          <p className="text-sm text-secondary-600">
+            Use your existing Attendance application account.
+          </p>
+        </div>
+
+        {/* Email Field */}
+        <div className="space-y-2">
+          <label className="text-sm font-semibold text-foreground">
             Email address
-            <input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              type="email"
-              required
-            />
           </label>
-          <label>
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="your@email.com"
+            required
+          />
+        </div>
+
+        {/* Password Field */}
+        <div className="space-y-2">
+          <label className="text-sm font-semibold text-foreground">
             Password
-            <span className="password-input">
-              <input
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                type={showPassword ? "text" : "password"}
-                required
-              />
-              <button type="button" aria-label={showPassword ? "Hide password" : "Show password"} title={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword(value => !value)}>
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </span>
           </label>
-          {error && <div className="form-error">{error}</div>}
-          <button className="primary full" disabled={loading}>
-            {loading ? "Signing in…" : "Sign in"}
-          </button>
-        </form>
-        <footer className="login-footer">
-          <span>© {new Date().getFullYear()} All rights reserved by KK Associates</span>
-          <a className="login-whatsapp" href="https://wa.me/+919966369102" target="_blank" rel="noreferrer" aria-label="Contact KK Associates on WhatsApp" title="Contact us on WhatsApp">
-            <MessageCircle size={22}/>
-          </a>
-        </footer>
-      </section>
-    </main>
+          <div className="relative">
+            <Input
+              type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              required
+              className="pr-10"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-secondary-500 hover:text-foreground transition-colors"
+              aria-label={showPassword ? "Hide password" : "Show password"}
+            >
+              {showPassword ? (
+                <EyeOff size={18} />
+              ) : (
+                <Eye size={18} />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        {/* Submit Button */}
+        <Button
+          type="submit"
+          disabled={loading}
+          className="w-full"
+          size="lg"
+        >
+          {loading ? "Signing in…" : "Sign in"}
+        </Button>
+      </form>
+    </AuthLayout>
   );
 }
 
 function Shell({ user, onLogout }) {
   const { selectedId: activeBusinessUnitId } = useBusinessUnit();
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("crm_sidebar_collapsed") === "true");
-  const [settingsExpanded, setSettingsExpanded] = useState(false);
-  const [sessionSeconds, setSessionSeconds] = useState(0);
   const navigate = useNavigate();
   const location = useLocation();
-  useEffect(() => {
-    if (location.pathname.startsWith("/settings")) setSettingsExpanded(true);
-  }, [location.pathname]);
-  useEffect(() => {
-    const timer = setInterval(() => setSessionSeconds((value) => value + 1), 1000);
-    return () => clearInterval(timer);
-  }, []);
-  const sessionTime = [Math.floor(sessionSeconds / 3600), Math.floor((sessionSeconds % 3600) / 60), sessionSeconds % 60]
-    .map((value) => String(value).padStart(2, "0"))
-    .join(":");
-  function toggleSidebar() {
-    setSidebarCollapsed(current => { const next=!current; localStorage.setItem("crm_sidebar_collapsed",String(next)); return next; });
-  }
+
+  const settingsMenu = [
+    { label: 'User Management', path: '/settings/users' },
+    { label: 'Business Units', path: '/settings/business-units' },
+    { label: 'Branch Settings', path: '/settings/branches' },
+    { label: 'Payment Forms', path: '/settings/payment-forms' },
+    { label: 'Integrations', path: '/settings/integrations' },
+    { label: 'Google Sheets', path: '/settings/google-sheets' },
+    { label: 'Meta Lead Ads', path: '/settings/meta-lead-ads' },
+    { label: 'WhatsApp', path: '/settings/whatsapp-templates' },
+    { label: 'CallerDesk', path: '/settings/callerdesk' },
+    { label: 'Smartflo', path: '/settings/smartflo' },
+  ];
+
   return (
-    <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
-      <aside className={`${mobileOpen ? "sidebar open" : "sidebar"} ${sidebarCollapsed ? "collapsed" : ""}`}>
-        <button className="icon-btn mobile-only sidebar-close" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X/></button>
-        <button className="sidebar-toggle" onClick={toggleSidebar} aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}>{sidebarCollapsed?<PanelLeftOpen/>:<PanelLeftClose/>}</button>
-        <BusinessUnitSelector/>
-        <nav>
-          {menu.map(([label, path, Icon]) => (
-            <NavLink
-              onClick={() => setMobileOpen(false)}
-              key={label}
-              to={path}
-              end={path === "/"}
-              className={({ isActive }) => isActive || (label === "Dashboard" && location.pathname.startsWith("/saved-reports")) ? "active" : ""}
-            >
-              <Icon size={19} />
-              <span>{label}</span>
-              {label === "Follow-ups" && <b>24</b>}
-            </NavLink>
-          ))}
-          <button
-            type="button"
-            className={`settings-nav-trigger ${settingsExpanded ? "expanded" : ""} ${location.pathname.startsWith("/settings") ? "active" : ""}`}
-            onClick={() => setSettingsExpanded(current => !current)}
-            aria-expanded={settingsExpanded}
-            aria-controls="settings-submenu"
-          >
-            <Settings size={19} />
-            <span>Settings</span>
-            <ChevronDown className="settings-chevron" size={16} />
-          </button>
-          <div id="settings-submenu" className={`settings-submenu ${settingsExpanded ? "expanded" : ""}`}>
-            <NavLink to="/settings/users" className="settings-submenu-item"><span className="submenu-indent">User Management</span></NavLink>
-            <NavLink to="/settings/business-units" className="settings-submenu-item"><span className="submenu-indent">Business Units</span></NavLink>
-            <NavLink to="/settings/branches" className="settings-submenu-item"><span className="submenu-indent">Branch Settings</span></NavLink>
-            <NavLink to="/settings/payment-forms" className="settings-submenu-item"><span className="submenu-indent">Payment Forms</span></NavLink>
-            <NavLink to="/settings/integrations" className="settings-submenu-item"><span className="submenu-indent">Integrations</span></NavLink>
-            <NavLink to="/settings/google-sheets" className="settings-submenu-item"><span className="submenu-indent">Google Sheets</span></NavLink>
-            <NavLink to="/settings/whatsapp-templates" className="settings-submenu-item"><span className="submenu-indent">WhatsApp</span></NavLink>
-            <NavLink to="/settings/callerdesk" className="settings-submenu-item"><span className="submenu-indent">CallerDesk</span></NavLink>
-            <NavLink to="/settings/smartflo" className="settings-submenu-item"><span className="submenu-indent">Smartflo</span></NavLink>
-            <NavLink to="/settings/payment-links" className="settings-submenu-item"><span className="submenu-indent">Payment Links</span></NavLink>
-          </div>
-        </nav>
-        <div className="sidebar-help">
-          <CircleHelp size={19} />
-          <div>
-            <strong>Need a hand?</strong>
-            <span>Visit the help centre</span>
-          </div>
-        </div>
-        <button className="profile" onClick={onLogout}>
-          <span className="avatar">AR</span>
-          <span>
-            <strong>{user.name}</strong>
-            <small>{user.role}</small>
-          </span>
-          <span className="session-clock">{sessionTime}</span>
-          <LogOut size={17} />
-        </button>
-      </aside>
-      <section className="workspace">
+    <div className="flex h-screen bg-background overflow-hidden">
+      <Sidebar
+        user={user}
+        onLogout={onLogout}
+        menu={menu}
+        settings={settingsMenu}
+      />
+
+      <div className="flex flex-col flex-1 overflow-hidden">
         <GlobalSearch />
-        <button className="mobile-nav-trigger mobile-only" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu/></button>
-        <Routes location={location}>
-          <Route path="/" element={<Dashboard key={activeBusinessUnitId} user={user} />} />
-          <Route path="/leads" element={<BusinessUnitLeadRouter key={activeBusinessUnitId} />} />
-          <Route path="/tracker" element={<OperationsPage key={activeBusinessUnitId} />} />
-          <Route path="/operations" element={<Navigate to="/tracker" replace />} />
-          <Route path="/whatsapp-inbox" element={<WhatsAppInbox />} />
-          <Route path="/bulk-actions" element={<BulkActionsPage key={activeBusinessUnitId} />} />
-          <Route path="/reports" element={<ReportsPage key={activeBusinessUnitId} />} />
-          <Route path="/saved-reports/new" element={<SavedReportCreatePage key={activeBusinessUnitId} />} />
-          <Route path="/settings" element={<SettingsPage initialTab="users" />} />
-          <Route path="/settings/users" element={<SettingsPage initialTab="users" />} />
-          <Route path="/settings/business-units" element={<SettingsPage initialTab="business-units" />} />
-          <Route path="/settings/branches" element={<SettingsPage initialTab="branches" />} />
-          <Route path="/settings/payment-forms" element={<SettingsPage initialTab="payment-forms" />} />
-          <Route path="/settings/lead-config" element={<Navigate to="/settings/business-units?tab=sources" replace />} />
-          <Route path="/settings/academic-config" element={<Navigate to="/settings/business-units?tab=academic" replace />} />
-          <Route path="/settings/academic-years" element={<Navigate to="/settings/business-units?tab=academic" replace />} />
-          <Route path="/settings/admission-classes" element={<Navigate to="/settings/business-units?tab=academic&section=classes" replace />} />
-          <Route path="/settings/integrations" element={<SettingsPage initialTab="integrations" />} />
-          <Route path="/settings/google-sheets" element={<SettingsPage initialTab="google-sheets" />} />
-          <Route path="/settings/whatsapp-templates" element={<SettingsPage initialTab="whatsapp-templates" />} />
-          <Route path="/settings/callerdesk" element={<SettingsPage initialTab="callerdesk" />} />
-          <Route path="/settings/smartflo" element={<SettingsPage initialTab="smartflo" />} />
-          <Route path="/settings/payment-links" element={<SettingsPage initialTab="payment-links" />} />
-          <Route path="/integrations" element={<Navigate to="/settings/integrations" replace />} />
-          <Route path="/oauth-callback" element={<OAuthCallbackPage />} />
-          <Route path="/oauth-error" element={<OAuthCallbackPage />} />
-          <Route path="/automations" element={<AutomationPage key={activeBusinessUnitId} />} />
-          <Route path="*" element={<ComingSoon />} />
-        </Routes>
-      </section>
+
+        <main className="flex-1 overflow-y-auto">
+          <Routes location={location}>
+            <Route path="/" element={<DashboardPage key={activeBusinessUnitId} user={user} />} />
+            <Route path="/leads" element={<BusinessUnitLeadRouter key={activeBusinessUnitId} />} />
+            <Route path="/tracker" element={<OperationsPageModern key={activeBusinessUnitId} />} />
+            <Route path="/operations" element={<Navigate to="/tracker" replace />} />
+            <Route path="/whatsapp-inbox" element={<WhatsAppInbox />} />
+            <Route path="/bulk-actions" element={<BulkActionsPageModern key={activeBusinessUnitId} />} />
+            <Route path="/reports" element={<ReportsPage key={activeBusinessUnitId} />} />
+            <Route path="/saved-reports/new" element={<SavedReportCreatePage key={activeBusinessUnitId} />} />
+            <Route path="/settings" element={<SettingsPageModern />} />
+            <Route path="/settings/users" element={<SettingsPageModern />} />
+            <Route path="/settings/business-units" element={<SettingsPageModern />} />
+            <Route path="/settings/branches" element={<SettingsPageModern />} />
+            <Route path="/settings/payment-forms" element={<SettingsPageModern />} />
+            <Route path="/settings/lead-config" element={<Navigate to="/settings/business-units?tab=sources" replace />} />
+            <Route path="/settings/academic-config" element={<Navigate to="/settings/business-units?tab=academic" replace />} />
+            <Route path="/settings/academic-years" element={<Navigate to="/settings/business-units?tab=academic" replace />} />
+            <Route path="/settings/admission-classes" element={<Navigate to="/settings/business-units?tab=academic&section=classes" replace />} />
+            <Route path="/settings/integrations" element={<SettingsPageModern />} />
+            <Route path="/settings/google-sheets" element={<SettingsPageModern />} />
+            <Route path="/settings/meta-lead-ads" element={<SettingsPageModern />} />
+            <Route path="/settings/whatsapp-templates" element={<SettingsPageModern />} />
+            <Route path="/settings/callerdesk" element={<SettingsPageModern />} />
+            <Route path="/settings/smartflo" element={<SettingsPageModern />} />
+            <Route path="/integrations" element={<Navigate to="/settings/integrations" replace />} />
+            <Route path="/oauth-callback" element={<OAuthCallbackPage />} />
+            <Route path="/oauth-error" element={<OAuthCallbackPage />} />
+            <Route path="/automations" element={<AutomationPage key={activeBusinessUnitId} />} />
+            <Route path="*" element={<ComingSoon />} />
+          </Routes>
+        </main>
+      </div>
     </div>
   );
 }
