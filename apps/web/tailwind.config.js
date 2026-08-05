@@ -73,16 +73,10 @@ export default {
         lg: "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)",
         xl: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
       },
-      spacing: {
-        xs: "4px",
-        sm: "8px",
-        md: "12px",
-        lg: "16px",
-        xl: "20px",
-        "2xl": "24px",
-        "3xl": "32px",
-        "4xl": "40px",
-      },
+      // NOTE: do not add t-shirt-sized keys (xs/sm/md/lg/xl/2xl…) to `spacing`.
+      // The spacing scale also feeds width/max-width, so those keys shadow the
+      // container scale and turn `max-w-sm` into 8px instead of 24rem.
+      // Use the numeric scale (p-1, gap-4, …) for spacing instead.
     },
   },
   plugins: [],

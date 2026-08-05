@@ -1,8 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap');
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../../tailwind.config.js";
 
 @layer base {
   html,
@@ -199,4 +198,31 @@
 /* Focus visible ring */
 .focus-ring {
   @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2;
+}
+
+/* ---------------------------------------------------------------------
+   Business unit selector, light-sidebar retheme.
+
+   MetadataPlatform.css styles .business-unit-selector for the old DARK
+   sidebar: color #e7e8ff on background #ffffff0d. The sidebar is white now,
+   so that renders as near-white text on white -- effectively invisible.
+   Scoped to `aside` (element + class) so it outranks the legacy single-class
+   rule no matter which stylesheet loads last.
+   --------------------------------------------------------------------- */
+aside .business-unit-selector {
+  margin: 0; /* the wrapper already provides padding */
+  min-height: 40px;
+  color: #374151;
+  background: #f9fafb;
+  border-color: #e5e7eb;
+  font-size: 12px;
+}
+
+aside .business-unit-selector:hover {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+aside .business-unit-selector > svg {
+  color: #6b7280;
 }

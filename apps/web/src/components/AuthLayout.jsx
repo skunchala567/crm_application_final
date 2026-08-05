@@ -39,7 +39,7 @@ export function AuthLayout({ children }) {
       </section>
 
       {/* Right Auth Section */}
-      <section className="flex flex-col items-center justify-center p-8 md:p-12 bg-white">
+      <section className="relative flex flex-col items-center justify-center p-8 md:p-12 bg-white">
         <div className="w-full max-w-sm">
           {children}
         </div>
