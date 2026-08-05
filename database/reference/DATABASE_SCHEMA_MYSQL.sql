@@ -1,5 +1,41 @@
 -- =====================================================
--- ADMISSIONS CRM - COMPLETE DATABASE SCHEMA
+-- DEPRECATED - DO NOT USE - DO NOT RUN
+-- =====================================================
+--
+-- This file is an early design sketch, NOT the schema of this application.
+-- It was never reconciled with the migrations in database/mysql/ and is now
+-- badly wrong. Verified against the live database:
+--
+--   * It declares 32 tables. The real schema has 124 objects.
+--   * 25 of its 32 tables DO NOT EXIST anywhere in the application:
+--       users, leads, lead_stages, lead_sub_stages, lead_sources,
+--       lead_activities, lead_history, lead_duplicates, followups,
+--       communications, communication_templates, documents, tasks,
+--       applications, payments, workflows, workflow_executions, meta_leads,
+--       login_history, saved_reports, report_snapshots, webhooks,
+--       webhook_delivery_logs, api_tokens, jobs
+--   * Only 7 of its table names are real, and it is missing 117 that are.
+--   * The names predate migration 000_crm_table_namespace.sql, which moved
+--     every CRM-owned table under the crm_ prefix. The real tables are
+--     crm_leads, crm_lead_stages, crm_followups, app_users - not the above.
+--   * It also models `branches` as a CRM-owned table. It is not; `branches`
+--     belongs to the Attendance system, which shares this database.
+--
+-- Running this against any database would create 25 orphan tables that no
+-- application code reads or writes.
+--
+-- USE INSTEAD:
+--   database/reference/FULL_SCHEMA_MYSQL.sql
+--       Complete CREATE TABLE IF NOT EXISTS snapshot of all 124 objects,
+--       generated from the live schema. Use this to provision a new database.
+--   database/mysql/
+--       The authoritative ordered migration set. Use this to evolve an
+--       existing database. Add changes as a new numbered file.
+--
+-- Retained only as a historical record of the original design.
+--
+-- =====================================================
+-- ADMISSIONS CRM - COMPLETE DATABASE SCHEMA  (superseded)
 -- MySQL 8.0+
 -- =====================================================
 
