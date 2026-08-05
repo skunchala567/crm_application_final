@@ -101,23 +101,23 @@ function getTokenExpiry() {
 }
 
 function Login({ onLogin }) {
-  const [email, setEmail] = useState(“”);
-  const [password, setPassword] = useState(“”);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState(“”);
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function submit(event) {
     event.preventDefault();
-    setError(“”);
+    setError("");
     setLoading(true);
     try {
-      const result = await api(“/auth/login”, {
-        method: “POST”,
+      const result = await api("/auth/login", {
+        method: "POST",
         body: JSON.stringify({ email, password }),
       });
-      localStorage.setItem(“crm_token”, result.token);
-      localStorage.setItem(“crm_user”, JSON.stringify(result.user));
+      localStorage.setItem("crm_token", result.token);
+      localStorage.setItem("crm_user", JSON.stringify(result.user));
       onLogin(result.user);
     } catch (err) {
       setError(err.message);
@@ -128,61 +128,61 @@ function Login({ onLogin }) {
 
   return (
     <AuthLayout>
-      <form onSubmit={submit} className=”space-y-6”>
+      <form onSubmit={submit} className="space-y-6">
         {/* Logo for mobile */}
-        <div className=”md:hidden flex items-center gap-2 mb-8”>
-          <div className=”flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 text-white”>
+        <div className="md:hidden flex items-center gap-2 mb-8">
+          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 text-white">
             <Sparkles size={16} />
           </div>
-          <span className=”font-bold text-lg font-display”>Orbit</span>
+          <span className="font-bold text-lg font-display">Orbit</span>
         </div>
 
         {/* Form Header */}
         <div>
-          <p className=”text-sm font-semibold uppercase tracking-wider text-blue-600 mb-2”>
+          <p className="text-sm font-semibold uppercase tracking-wider text-blue-600 mb-2">
             Welcome back
           </p>
-          <h2 className=”text-3xl font-bold text-foreground font-display mb-1”>
+          <h2 className="text-3xl font-bold text-foreground font-display mb-1">
             Sign in to your CRM
           </h2>
-          <p className=”text-sm text-secondary-600”>
+          <p className="text-sm text-secondary-600">
             Use your existing Attendance application account.
           </p>
         </div>
 
         {/* Email Field */}
-        <div className=”space-y-2”>
-          <label className=”text-sm font-semibold text-foreground”>
+        <div className="space-y-2">
+          <label className="text-sm font-semibold text-foreground">
             Email address
           </label>
           <Input
-            type=”email”
+            type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder=”your@email.com”
+            placeholder="your@email.com"
             required
           />
         </div>
 
         {/* Password Field */}
-        <div className=”space-y-2”>
-          <label className=”text-sm font-semibold text-foreground”>
+        <div className="space-y-2">
+          <label className="text-sm font-semibold text-foreground">
             Password
           </label>
-          <div className=”relative”>
+          <div className="relative">
             <Input
-              type={showPassword ? “text” : “password”}
+              type={showPassword ? "text" : "password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder=”••••••••”
+              placeholder="••••••••"
               required
-              className=”pr-10”
+              className="pr-10"
             />
             <button
-              type=”button”
+              type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className=”absolute right-3 top-1/2 -translate-y-1/2 text-secondary-500 hover:text-foreground transition-colors”
-              aria-label={showPassword ? “Hide password” : “Show password”}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-secondary-500 hover:text-foreground transition-colors"
+              aria-label={showPassword ? "Hide password" : "Show password"}
             >
               {showPassword ? (
                 <EyeOff size={18} />
@@ -195,19 +195,19 @@ function Login({ onLogin }) {
 
         {/* Error Message */}
         {error && (
-          <div className=”p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700”>
+          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
             {error}
           </div>
         )}
 
         {/* Submit Button */}
         <Button
-          type=”submit”
+          type="submit"
           disabled={loading}
-          className=”w-full”
-          size=”lg”
+          className="w-full"
+          size="lg"
         >
-          {loading ? “Signing in…” : “Sign in”}
+          {loading ? "Signing in…" : "Sign in"}
         </Button>
       </form>
     </AuthLayout>
@@ -226,6 +226,7 @@ function Shell({ user, onLogout }) {
     { label: 'Payment Forms', path: '/settings/payment-forms' },
     { label: 'Integrations', path: '/settings/integrations' },
     { label: 'Google Sheets', path: '/settings/google-sheets' },
+    { label: 'Meta Lead Ads', path: '/settings/meta-lead-ads' },
     { label: 'WhatsApp', path: '/settings/whatsapp-templates' },
     { label: 'CallerDesk', path: '/settings/callerdesk' },
     { label: 'Smartflo', path: '/settings/smartflo' },
@@ -264,6 +265,7 @@ function Shell({ user, onLogout }) {
             <Route path="/settings/admission-classes" element={<Navigate to="/settings/business-units?tab=academic&section=classes" replace />} />
             <Route path="/settings/integrations" element={<SettingsPageModern />} />
             <Route path="/settings/google-sheets" element={<SettingsPageModern />} />
+            <Route path="/settings/meta-lead-ads" element={<SettingsPageModern />} />
             <Route path="/settings/whatsapp-templates" element={<SettingsPageModern />} />
             <Route path="/settings/callerdesk" element={<SettingsPageModern />} />
             <Route path="/settings/smartflo" element={<SettingsPageModern />} />

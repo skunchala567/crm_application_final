@@ -247,6 +247,7 @@ function ConnectionWizard({ onClose, onSuccess }) {
     { id: 'smartping', name: 'WhatsApp (Smartping)', providers: ['AiSensy Smartping'], available: true },
     { id: 'callerdesk', name: 'Cloud Calling', providers: ['CallerDesk'], available: true },
     { id: 'smartflo', name: 'Tata Cloud Telephony', providers: ['Tata Smartflo'], available: true },
+    { id: 'meta_lead_ads', name: 'Meta Lead Ads', providers: ['Facebook / Instagram Lead Ads'], available: true },
     { id: 'sms', name: 'SMS (Coming Soon)', providers: ['MSG91', 'TextLocal'], available: false },
     { id: 'email', name: 'Email (Coming Soon)', providers: ['SMTP', 'SendGrid', 'Mailgun'], available: false }
   ];
@@ -256,6 +257,7 @@ function ConnectionWizard({ onClose, onSuccess }) {
     'Google Sheets API v4': 'google_sheets',
     'AiSensy Smartping': 'smartping'
     ,'CallerDesk': 'callerdesk','Tata Smartflo':'smartflo'
+    ,'Facebook / Instagram Lead Ads': 'meta_lead_ads'
   };
 
   const selectedType = integrationTypes.find(t => t.id === formData.integrationType);

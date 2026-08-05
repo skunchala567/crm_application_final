@@ -1,10 +1,11 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
-import { Building2, Settings, Users, MessageCircle, PhoneCall, MapPin, Zap } from 'lucide-react';
+import { Building2, Settings, Users, MessageCircle, PhoneCall, MapPin, Zap, Facebook } from 'lucide-react';
 import UserManagementPage from '../UserManagementPage.jsx';
 import WhatsAppTemplatesSettings from '../WhatsAppTemplatesSettings.jsx';
 import IntegrationHubPage from '../pages/IntegrationHubPage.jsx';
 import GoogleSheetsSettings from '../pages/GoogleSheetsSettings.jsx';
+import MetaLeadAdsSettings from '../pages/MetaLeadAdsSettings.jsx';
 import BusinessUnitsPage from '../BusinessUnitsPage.jsx';
 import Toast from '../Toast.jsx';
 import CallerDeskSettings from '../pages/CallerDeskSettings.jsx';
@@ -58,6 +59,13 @@ const settingsTabs = [
     component: GoogleSheetsSettings,
   },
   {
+    id: 'meta-lead-ads',
+    path: '/settings/meta-lead-ads',
+    label: 'Meta Lead Ads',
+    icon: Facebook,
+    component: MetaLeadAdsSettings,
+  },
+  {
     id: 'whatsapp-templates',
     path: '/settings/whatsapp-templates',
     label: 'WhatsApp',
@@ -80,21 +88,11 @@ const settingsTabs = [
   },
 ];
 
+// Derived from settingsTabs rather than a parallel hardcoded map, so adding a
+// tab can never leave the route silently falling back to User Management.
 const getActiveTabFromPath = (pathname) => {
-  const pathToTabMap = {
-    '/settings/users': 'users',
-    '/settings/business-units': 'business-units',
-    '/settings/branches': 'branches',
-    '/settings/payment-forms': 'payment-forms',
-    '/settings/integrations': 'integrations',
-    '/settings/google-sheets': 'google-sheets',
-    '/settings/whatsapp-templates': 'whatsapp-templates',
-    '/settings/callerdesk': 'callerdesk',
-    '/settings/smartflo': 'smartflo',
-    '/settings': 'users',
-  };
-
-  return pathToTabMap[pathname] || 'users';
+  const match = settingsTabs.find((tab) => tab.path === pathname);
+  return match ? match.id : 'users';
 };
 
 export default function SettingsPageModern() {
@@ -128,28 +126,26 @@ export default function SettingsPageModern() {
       {/* Settings Tabs and Content */}
       <PageContainer className="py-8">
         <Tabs value={activeTabId} onValueChange={handleTabChange} className="w-full">
-          {/* Tabs List - Scrollable on mobile */}
-          <div className="overflow-x-auto pb-4 mb-8 -mx-6 px-6 md:mx-0 md:px-0">
-            <TabsList className="w-full justify-start md:justify-start inline-flex md:flex">
+          {/* Tabs list - wraps onto multiple rows instead of scrolling
+              horizontally, so every tab stays reachable without dragging. */}
+          <div className="mb-8">
+            <TabsList className="flex flex-wrap w-full h-auto justify-start gap-1">
               {settingsTabs.map((tab) => {
                 const Icon = tab.icon;
                 return (
                   <TabsTrigger key={tab.id} value={tab.id} className="whitespace-nowrap">
                     <Icon size={16} className="mr-2" />
-                    <span className="hidden sm:inline">{tab.label}</span>
-                    <span className="sm:hidden text-xs">{tab.label.split(' ')[0]}</span>
+                    {tab.label}
                   </TabsTrigger>
                 );
               })}
             </TabsList>
           </div>
 
-          {/* Tabs Content */}
-          {settingsTabs.map((tab) => (
-            <TabsContent key={tab.id} value={tab.id} className="mt-0">
-              {ActiveComponent && <ActiveComponent onMessage={setMessage} />}
-            </TabsContent>
-          ))}
+          {/* Only the active panel is mounted; activeTabId always matches. */}
+          <TabsContent value={activeTabId} className="mt-0">
+            {ActiveComponent && <ActiveComponent onMessage={setMessage} />}
+          </TabsContent>
         </Tabs>
       </PageContainer>
     </div>

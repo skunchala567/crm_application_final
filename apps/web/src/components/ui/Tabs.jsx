@@ -11,8 +11,23 @@ const useTabsContext = () => {
   return context;
 };
 
-const Tabs = ({ defaultValue, children, className, ...props }) => {
-  const [value, setValue] = useState(defaultValue);
+/**
+ * Supports both modes:
+ *   uncontrolled -> <Tabs defaultValue="a">
+ *   controlled   -> <Tabs value={x} onValueChange={fn}>   (e.g. URL-driven)
+ *
+ * `value` and `onValueChange` are destructured out so they never land on the
+ * DOM node as invalid attributes.
+ */
+const Tabs = ({ value: controlledValue, defaultValue, onValueChange, children, className, ...props }) => {
+  const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue);
+  const isControlled = controlledValue !== undefined;
+  const value = isControlled ? controlledValue : uncontrolledValue;
+
+  const setValue = (nextValue) => {
+    if (!isControlled) setUncontrolledValue(nextValue);
+    onValueChange?.(nextValue);
+  };
 
   return (
     <TabsContext.Provider value={{ value, setValue }}>
