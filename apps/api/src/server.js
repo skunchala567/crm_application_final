@@ -417,7 +417,7 @@ const FOLLOWUP_OVERDUE_SQL = 'DATE(l.next_followup_at_utc) < CURRENT_DATE()';
  * @param widerScope optional scope that may replace the list scope when it
  *   grants more -- used by search, which has a permission of its own.
  */
-function leadScopedWhere(user, widerScope = null) {
+function leadScopedWhere(user, widerScope = null, options = {}) {
   const branchIds = Array.isArray(user.branchIds) ? user.branchIds.map(Number).filter(Number.isFinite) : [];
   const unitId=Number(user.businessUnitId);
   const unitSql=Number.isInteger(unitId)&&unitId>0?'l.business_unit_id=?':'1=1';
@@ -449,10 +449,37 @@ function leadScopedWhere(user, widerScope = null) {
 
   if (branchIds.length === 0) return { sql: '1=0', params: [] };
   const placeholders = branchIds.map(() => '?').join(',');
-  return compose({
-    sql: `${unitSql} AND (l.branch_id IN (${placeholders}) OR l.referred_to_branch_id IN (${placeholders}))`,
-    params: [...unitParams, ...branchIds, ...branchIds],
+  const restricted = compose({
+    sql: `(l.branch_id IN (${placeholders}) OR l.referred_to_branch_id IN (${placeholders}))`,
+    params: [...branchIds, ...branchIds],
   });
+
+  /*
+   * Leads this user referred to someone else.
+   *
+   * An 'own' grant keys on owner_employee_id, and referring a lead hands that
+   * column to the new counsellor -- so the moment a counsellor refers a lead
+   * away it drops out of their list entirely, and the "Referred by me" filter
+   * on the Leads screen had nothing left to match. The referrer is recorded on
+   * the lead itself, so add it back as an alternative to the branch and owner
+   * test. Only the business unit still bounds it: a lead referred on to a
+   * third branch is no longer in any branch this user reads, and hiding it
+   * would put the filter right back where it started.
+   *
+   * Opt-in per call site: this is for reading the Leads list and opening a
+   * lead from it, not for the routes that edit, refer or delete -- those stay
+   * with the current owner. A 'none' grant is not widened; it is no access.
+   */
+  const referrerEmployeeId = Number(user.employeeId) || 0;
+  if (!options.includeReferredAway || !referrerEmployeeId || narrow.sql === '1=0') return {
+    sql: unitSql === '1=1' ? restricted.sql : `${unitSql} AND ${restricted.sql}`,
+    params: [...unitParams, ...restricted.params],
+  };
+  const body = `((${restricted.sql}) OR l.referred_by_employee_id = ?)`;
+  return {
+    sql: unitSql === '1=1' ? body : `${unitSql} AND ${body}`,
+    params: [...unitParams, ...restricted.params, referrerEmployeeId],
+  };
 }
 
 async function loadDatabaseUser(email) {
@@ -1276,7 +1303,7 @@ app.get('/api/dashboard', authenticate, requireCrmAccess, async (req, res) => {
   });
 });
 
-async function queryLeads(user, search, limit = null) {
+async function queryLeads(user, search, limit = null, options = {}) {
   search = String(search || '').trim();
   /*
    * A search uses the Global Search scope when that is the wider of the two.
@@ -1290,7 +1317,7 @@ async function queryLeads(user, search, limit = null) {
    * It only ever widens, and only while a search term is present -- an empty
    * search is a browse, and stays on the list scope.
    */
-  const scope = leadScopedWhere(user, search ? user.rbacSearchScope : null);
+  const scope = leadScopedWhere(user, search ? user.rbacSearchScope : null, options);
   let whereClause = `(? = '' OR l.student_name LIKE ? OR l.phone LIKE ? OR l.lead_number LIKE ?)`;
   let params = [search, `%${search}%`, `%${search}%`, `%${search}%`];
 
@@ -1615,7 +1642,10 @@ app.get('/api/leads/meta', authenticate, requireCrmAccess, async (req, res) => {
 });
 
 app.get('/api/leads/:id', authenticate, requireCrmAccess, async (req, res) => {
-  const scope = leadScopedWhere(req.user);
+  // Reading a lead this user referred away is allowed: it is listed for them
+  // on the Leads screen, so opening it must not 404. Editing it still is not
+  // -- the write routes below stay on the unwidened scope.
+  const scope = leadScopedWhere(req.user, null, { includeReferredAway: true });
   const [rows] = await pool.execute(
     `SELECT l.id, l.lead_number AS leadId, l.branch_id AS branchId, l.student_name AS studentName,
       l.phone, l.alternate_phone AS alternatePhone, l.email, l.class_id AS classId,
@@ -3014,7 +3044,13 @@ app.get('/api/leads', authenticate, requireCrmAccess, async (req, res) => {
   // The current Leads UI applies stage and advanced filters client-side, so it
   // needs the complete scoped result set. Explicit lightweight callers such as
   // Global Search can still request a bounded result set.
-  const rows = await queryLeads(req.user, search, limit);
+  //
+  // includeReferred asks for the leads this user referred to someone else,
+  // which an 'own' scope drops as soon as the owner changes. Only the Leads
+  // screen sets it -- it is the one place with a filter for them, and the
+  // dashboards counting off this route must keep counting owned work.
+  const includeReferredAway = ['1','true','yes'].includes(String(req.query.includeReferred || '').toLowerCase());
+  const rows = await queryLeads(req.user, search, limit, { includeReferredAway });
   const scope=leadScopedWhere(req.user);
 
   // Get actual total count from database (not page size)

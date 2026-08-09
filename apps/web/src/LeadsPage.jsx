@@ -767,7 +767,10 @@ export default function LeadsPage() {
   async function loadLeads(term = search) {
     setLoading(true);
     try {
-      const result = await api(`/leads?search=${encodeURIComponent(term)}`);
+      // includeReferred keeps the leads this user referred to someone else in
+      // the result set. Ownership moves with a referral, so without it the
+      // "Referred by me" filter below has nothing to match on.
+      const result = await api(`/leads?search=${encodeURIComponent(term)}&includeReferred=1`);
       setLeads(result.data);
       setTotalLeads(Number(result.total||0));
       setStageCounts(result.stageCounts||{});
