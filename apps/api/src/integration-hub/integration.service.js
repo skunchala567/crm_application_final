@@ -15,9 +15,8 @@ import {
 
 import axios from 'axios';
 import crypto from 'node:crypto';
-import { BaseIntegrationProvider, IntegrationError } from './base-provider.js';
 import { encryptToken, decryptToken, getMasterKey } from './crypto-utils.js';
-import { stateManager, flowDataManager } from './oauth-state-manager.js';
+import { stateManager } from './oauth-state-manager.js';
 import { SyncEngine } from './sync-engine.js';
 
 export class IntegrationHubService {

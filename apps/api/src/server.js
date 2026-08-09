@@ -6,9 +6,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import jwt from 'jsonwebtoken';
 import mysql from 'mysql2/promise';
-import ExcelJS from 'exceljs';
 import axios from 'axios';
-import { demoLeads, demoUser } from './data.js';
 import { IntegrationHubService, createIntegrationHubRoutes } from './integration-hub/index.js';
 import { createWhatsAppTemplateRoutes } from './whatsapp/whatsapp-template.routes.js';
 import { createWebhookRoutes } from './whatsapp/webhook.routes.js';
@@ -1132,41 +1130,9 @@ app.get('/api/employees', authenticate, requireCrmAccess, async (req, res) => {
 });
 
 app.get('/api/dashboard', authenticate, requireCrmAccess, async (req, res) => {
-  if(false&&req.businessUnit.compatibilityMode==='metadata'){
-    const unitId=Number(req.businessUnit.id);
-    const [statsResult,funnelResult,recentResult]=await Promise.all([
-      pool.execute(
-        `SELECT COUNT(*) AS totalLeads,
-                SUM(created_at_utc>=DATE_SUB(CURRENT_TIMESTAMP(),INTERVAL 7 DAY)) AS newThisWeek,
-                SUM(status_key IN ('won','converted','completed')) AS admissions,
-                SUM(next_followup_at_utc IS NOT NULL AND next_followup_at_utc<=CURRENT_TIMESTAMP()) AS followupsDue
-         FROM crm_dynamic_leads WHERE business_unit_id=? AND deleted_at_utc IS NULL`,[unitId]),
-      pool.execute(
-        `SELECT ps.display_name AS label,ps.color_code AS color,COUNT(dl.id) AS value
-         FROM crm_metadata_pipeline_stages ps
-         JOIN crm_metadata_pipelines p ON p.id=ps.pipeline_id
-         LEFT JOIN crm_dynamic_leads dl ON dl.stage_id=ps.id AND dl.business_unit_id=p.business_unit_id AND dl.deleted_at_utc IS NULL
-         WHERE p.business_unit_id=? AND p.is_active=TRUE AND ps.is_active=TRUE
-         GROUP BY ps.id,ps.display_name,ps.color_code,ps.position ORDER BY ps.position`,[unitId]),
-      pool.execute(
-        `SELECT dl.id,dl.lead_number AS leadId,dl.display_name AS studentName,dl.primary_phone AS phone,
-                COALESCE(JSON_UNQUOTE(JSON_EXTRACT(dl.custom_values_json,'$.applying_class')),'—') AS applyingClass,
-                ps.display_name AS stage,0 AS score,COALESCE(e.employee_name,'Unassigned') AS owner,
-                dl.next_followup_at_utc AS nextFollowup
-         FROM crm_dynamic_leads dl
-         JOIN crm_metadata_pipeline_stages ps ON ps.id=dl.stage_id
-         LEFT JOIN employees e ON e.id=dl.owner_employee_id
-         WHERE dl.business_unit_id=? AND dl.deleted_at_utc IS NULL
-         ORDER BY dl.created_at_utc DESC LIMIT 4`,[unitId]),
-    ]);
-    const stats=statsResult[0][0]||{},funnelRows=funnelResult[0],recentRows=recentResult[0];
-    return res.json({
-      businessUnit:{id:unitId,name:req.businessUnit.displayName},
-      stats:{totalLeads:Number(stats.totalLeads||0),newThisWeek:Number(stats.newThisWeek||0),followupsDue:Number(stats.followupsDue||0),admissions:Number(stats.admissions||0)},
-      funnel:funnelRows.map(row=>({...row,value:Number(row.value||0)})),
-      recentLeads:recentRows,
-    });
-  }
+  /* The metadata-mode dashboard that used to sit here was disabled with
+     `if (false && ...)` and superseded by the query below, which serves
+     metadata units correctly. Removed as unreachable. */
   const scope = leadScopedWhere(req.user);
   const [[stats]] = await pool.execute(
     `SELECT COUNT(*) AS totalLeads,
@@ -4467,8 +4433,6 @@ app.post('/api/bulk-leads/import', authenticate, requireCrmAccess, requireLeadWr
     const records = Array.isArray(req.body.records) ? req.body.records : [];
     const userId = Number(req.user.id);
 
-    // LOG: Received records from frontend
-    console.log(`[BULK-IMPORT] Received ${records.length} records. Sample record:`, JSON.stringify(records[0], null, 2));
 
     if (!fileName) return res.status(400).json({ message: 'File name is required' });
     if (records.length === 0) return res.status(400).json({ message: 'No records to import' });
@@ -4499,14 +4463,12 @@ app.post('/api/bulk-leads/import', authenticate, requireCrmAccess, requireLeadWr
     let failureCount = 0;
     let duplicateCount = 0;
 
-    console.log(`[BULK-IMPORT-VALIDATION] Starting validation loop for ${records.length} records`);
 
     for (let i = 0; i < records.length; i++) {
       const record = records[i];
       const rowNum = i + 1;
       const errors = [];
 
-      console.log(`[BULK-IMPORT-VALIDATION] START Row ${rowNum}`);
 
       // ==== STEP 1: Validate Class ID (Master Key) ====
       if (!record.classId) {
@@ -4620,8 +4582,6 @@ app.post('/api/bulk-leads/import', authenticate, requireCrmAccess, requireLeadWr
         }
       }
 
-      // LOG: After sourceId and channelId validation
-      if (rowNum === 1) console.log(`[BULK-IMPORT] Row ${rowNum} after validation: sourceId=${record.sourceId}, channelId=${record.channelId}`);
 
       // ==== STEP 5: Validate Assign To (email) and derive owner_employee_id ====
       if (!record.assignTo) {
@@ -4696,7 +4656,6 @@ app.post('/api/bulk-leads/import', authenticate, requireCrmAccess, requireLeadWr
       // STEP 3: Persist validation result to database
       if (errors.length === 0) {
         successCount++;
-        console.log(`[BULK-IMPORT-VALIDATION] END Row ${rowNum} - PASSED validation (status=Pending)`);
         await connection.execute(
           `INSERT INTO crm_bulk_upload_records (bulk_upload_id, \`row_number\`, \`status\`)
            VALUES (?, ?, 'Pending')`,
@@ -4704,7 +4663,6 @@ app.post('/api/bulk-leads/import', authenticate, requireCrmAccess, requireLeadWr
         );
       } else {
         failureCount++;
-        console.log(`[BULK-IMPORT-VALIDATION] END Row ${rowNum} - FAILED validation (status=Failed, errors: ${JSON.stringify(errors)})`);
         await connection.execute(
           `INSERT INTO crm_bulk_upload_records (bulk_upload_id, \`row_number\`, validation_errors, \`status\`)
            VALUES (?, ?, ?, 'Failed')`,
@@ -4713,7 +4671,6 @@ app.post('/api/bulk-leads/import', authenticate, requireCrmAccess, requireLeadWr
       }
     }
 
-    console.log(`[BULK-IMPORT-VALIDATION] Validation loop completed: ${successCount} passed, ${failureCount} failed`);
 
     // STEP 4: Update upload status based on validation results
     let uploadStatus = 'Completed';
@@ -4796,12 +4753,9 @@ app.post('/api/bulk-leads/import', authenticate, requireCrmAccess, requireLeadWr
 
 // Helper function to process lead creation during import
 async function processBulkUploadImport(uploadId, records, branchId, userId, pool) {
-  console.log(`[BULK-IMPORT-PROCESS] START: processBulkUploadImport called for upload ${uploadId}, records count: ${records.length}`);
   const connection = await pool.getConnection();
   try {
-    console.log(`[BULK-IMPORT-PROCESS] Got database connection`);
     await connection.execute(`UPDATE crm_bulk_uploads SET processing_started_at_utc=CURRENT_TIMESTAMP(6) WHERE id=?`, [uploadId]);
-    console.log(`[BULK-IMPORT-PROCESS] Updated processing_started_at_utc`);
 
     // Query database for records with status='Pending' (validation passed)
     const [pendingRecords] = await connection.execute(
@@ -4809,19 +4763,16 @@ async function processBulkUploadImport(uploadId, records, branchId, userId, pool
       [uploadId]
     );
 
-    console.log(`[BULK-IMPORT-PROCESS] Found ${pendingRecords.length} pending records for processing`);
 
     let successCount = 0, failureCount = 0, duplicateCount = 0;
     const errors = [];
 
     // Process only records that passed validation
-    console.log(`[BULK-IMPORT-LOOP] Starting to process ${pendingRecords.length} pending records`);
 
     for (const pendingRecord of pendingRecords) {
       const rowNum = pendingRecord.row_number;
       const record = records[rowNum - 1]; // records array is 0-indexed, row_number is 1-indexed
 
-      console.log(`[BULK-IMPORT-LOOP] START Row ${rowNum}`);
 
       if (!record) {
         console.error(`[BULK-IMPORT-ERROR] Row ${rowNum}: Record data not found in memory`);
@@ -4831,7 +4782,6 @@ async function processBulkUploadImport(uploadId, records, branchId, userId, pool
            WHERE bulk_upload_id=? AND \`row_number\`=?`,
           [JSON.stringify({ error: 'Internal error: record data not found' }), uploadId, rowNum]
         );
-        console.log(`[BULK-IMPORT-LOOP] END Row ${rowNum} (record not found, continuing to next)`);
         continue;
       }
 
@@ -4894,8 +4844,6 @@ async function processBulkUploadImport(uploadId, records, branchId, userId, pool
         // Convert undefined to null for MySQL compatibility
         const safeParams = params.map(p => p === undefined ? null : p);
 
-        // LOG: Before INSERT with full params
-        if (rowNum === 1) console.log(`[BULK-IMPORT-LEAD] Row ${rowNum} params:`, JSON.stringify(safeParams.map((p, i) => `[${i}]=${p===null?'NULL':p}`), null, 2));
 
         const sqlInsert = `INSERT INTO crm_leads (business_unit_id,lead_number, branch_id, student_name, phone, normalized_phone,
            class_id, curriculum_id, academic_year, stage_id, source_id,
@@ -4903,12 +4851,6 @@ async function processBulkUploadImport(uploadId, records, branchId, userId, pool
            remarks, next_followup_at_utc, created_by_user_id)
            VALUES ((SELECT business_unit_id FROM crm_bulk_uploads WHERE id=?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
-        if (rowNum === 1) {
-          console.log(`[SQL-EXACT] Complete SQL string:\n${sqlInsert}`);
-          console.log(`[SQL-EXACT] Column count: 17`);
-          console.log(`[SQL-EXACT] Parameter count: ${params.length}`);
-          console.log(`[SQL-EXACT] Parameters:`, params);
-        }
 
         const [leadResult] = await connection.execute(sqlInsert, safeParams);
 
@@ -4948,7 +4890,6 @@ async function processBulkUploadImport(uploadId, records, branchId, userId, pool
         // Commit transaction for this row
         await connection.commit();
         successCount++;
-        console.log(`[BULK-IMPORT-LOOP] END Row ${rowNum} (success, lead created)`);
       } catch (error) {
         failureCount++;
         console.error(`[BULK-IMPORT-ERROR] Row ${rowNum} failed:`);
@@ -5143,15 +5084,7 @@ const runMarketingCampaignCycle = async () => {
 setInterval(runMarketingCampaignCycle, 30_000).unref();
 runMarketingCampaignCycle();
 
-app.listen(port, async () => {
+app.listen(port, () => {
   console.log(`Admissions CRM API running at http://localhost:${port}`);
   console.log(`Data mode: ${process.env.MYSQL_DATABASE} MySQL (required)`);
-
-  // Log crm_leads table structure for debugging
-  try {
-    const [[tableInfo]] = await pool.query(`SHOW CREATE TABLE crm_leads`);
-    console.log(`\n[TABLE-SCHEMA] crm_leads CREATE statement:\n${tableInfo['Create Table']}\n`);
-  } catch (err) {
-    console.error('[TABLE-SCHEMA] Error fetching crm_leads schema:', err.message);
-  }
 });

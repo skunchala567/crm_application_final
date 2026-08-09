@@ -7,7 +7,7 @@
  */
 import { Router } from 'express';
 import {
-  loadUserPermissions, invalidatePermissionCache, invalidateSettingsCache,
+  loadUserPermissions, invalidatePermissionCache,
   getEnforcementMode, writeAudit,
 } from './permission-service.js';
 import { DATA_SCOPES, ACTIONS } from './permission-registry.js';
