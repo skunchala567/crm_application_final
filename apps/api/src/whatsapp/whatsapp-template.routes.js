@@ -13,6 +13,189 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
   let visibilitySchemaReady = false;
   let pricingSchemaReady = false;
 
+  /**
+   * The WhatsApp accounts this user may send from.
+   *
+   * An administrator sees every connected account. Everyone else sees the
+   * accounts mapped to the branches they are assigned to -- which is what
+   * gives a counsellor an account to pick at all, rather than an empty
+   * selector and a send that cannot be attributed.
+   *
+   * A branch with no mapping yields nothing rather than everything: sending
+   * from an arbitrary school's WhatsApp number is worse than being told the
+   * branch has not been set up.
+   */
+  router.get('/accounts', authenticate, async (req, res, next) => {
+    try {
+      const isAdmin = req.user.roles?.some((role) =>
+        ['CRM_ADMIN', 'SUPER_ADMIN'].includes(String(role).toUpperCase()));
+
+      const [rows] = isAdmin
+        ? await pool.query(
+          `SELECT i.id, i.name, NULL AS branchId, NULL AS branchName, FALSE AS isDefault
+             FROM crm_integrations i
+            WHERE i.provider IN ('smartping','whatsapp','aisensy')
+            ORDER BY i.name`)
+        : await pool.execute(
+          `SELECT DISTINCT i.id, i.name, b.id AS branchId, b.branch_name AS branchName,
+                  bwa.is_default AS isDefault
+             FROM crm_branch_whatsapp_accounts bwa
+             JOIN crm_integrations i ON i.id = bwa.integration_id
+             JOIN branches b ON b.id = bwa.branch_id AND b.is_active = 1
+             JOIN crm_user_branches cub ON cub.branch_id = bwa.branch_id AND cub.user_id = ?
+            ORDER BY bwa.is_default DESC, i.name`,
+          [Number(req.user.id)]);
+
+      res.json({
+        data: rows.map((row) => ({
+          id: Number(row.id),
+          name: row.name,
+          branchId: row.branchId ? Number(row.branchId) : null,
+          branchName: row.branchName || null,
+          isDefault: Boolean(Number(row.isDefault)),
+        })),
+      });
+    } catch (error) { next(error); }
+  });
+
+  /** Which branches an account serves. Administration only. */
+  router.get('/accounts/:id/branches', authenticate, async (req, res, next) => {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT branch_id AS branchId, is_default AS isDefault
+           FROM crm_branch_whatsapp_accounts WHERE integration_id = ?`,
+        [Number(req.params.id)]);
+      res.json({ data: rows.map((r) => ({ branchId: Number(r.branchId), isDefault: Boolean(Number(r.isDefault)) })) });
+    } catch (error) { next(error); }
+  });
+
+  /** Replace the branches an account serves. */
+  router.put('/accounts/:id/branches', authenticate, async (req, res, next) => {
+    const isAdmin = req.user.roles?.some((role) =>
+      ['CRM_ADMIN', 'SUPER_ADMIN'].includes(String(role).toUpperCase()));
+    if (!isAdmin) return res.status(403).json({ message: 'Only a CRM administrator can map WhatsApp accounts to branches' });
+
+    const integrationId = Number(req.params.id);
+    const branchIds = [...new Set((req.body?.branchIds || [])
+      .map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.execute('DELETE FROM crm_branch_whatsapp_accounts WHERE integration_id = ?', [integrationId]);
+      for (const branchId of branchIds) {
+        // A branch sends from one account by default; assigning it here makes
+        // this that default and clears any other for the same branch.
+        await connection.execute('UPDATE crm_branch_whatsapp_accounts SET is_default = FALSE WHERE branch_id = ?', [branchId]);
+        await connection.execute(
+          `INSERT INTO crm_branch_whatsapp_accounts (branch_id, integration_id, is_default, created_by_user_id)
+           VALUES (?,?,TRUE,?)`,
+          [branchId, integrationId, Number(req.user.id) || null]);
+      }
+      await connection.commit();
+      res.json({ message: `Account mapped to ${branchIds.length} branch(es)` });
+    } catch (error) {
+      await connection.rollback();
+      next(error);
+    } finally { connection.release(); }
+  });
+
+  /** The whole branch -> accounts mapping, for the settings screen. */
+  router.get('/branch-accounts', authenticate, async (_req, res, next) => {
+    try {
+      const [rows] = await pool.query(
+        `SELECT branch_id AS branchId, integration_id AS integrationId, is_default AS isDefault
+           FROM crm_branch_whatsapp_accounts
+          ORDER BY branch_id, is_default DESC, integration_id`);
+      res.json({
+        data: rows.map((r) => ({
+          branchId: Number(r.branchId),
+          integrationId: Number(r.integrationId),
+          isDefault: Boolean(Number(r.isDefault)),
+        })),
+      });
+    } catch (error) { next(error); }
+  });
+
+  /**
+   * Replace the mapping for the branches supplied.
+   *
+   * Saved per branch rather than per account so the default is deterministic:
+   * the first account listed for a branch is its default. Writing account by
+   * account made the default depend on which account happened to be saved
+   * last, which is not something the screen can control.
+   *
+   * Only the branches in the payload are touched, so two administrators
+   * editing different branches do not overwrite each other.
+   */
+  router.put('/branch-accounts', authenticate, async (req, res, next) => {
+    const isAdmin = req.user.roles?.some((role) =>
+      ['CRM_ADMIN', 'SUPER_ADMIN'].includes(String(role).toUpperCase()));
+    if (!isAdmin) return res.status(403).json({ message: 'Only a CRM administrator can map WhatsApp accounts to branches' });
+
+    const entries = Array.isArray(req.body?.branches) ? req.body.branches : [];
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      let written = 0;
+      for (const entry of entries) {
+        const branchId = Number(entry?.branchId);
+        if (!Number.isInteger(branchId) || branchId <= 0) continue;
+        const integrationIds = [...new Set((entry?.integrationIds || [])
+          .map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+
+        await connection.execute('DELETE FROM crm_branch_whatsapp_accounts WHERE branch_id = ?', [branchId]);
+        for (const [index, integrationId] of integrationIds.entries()) {
+          await connection.execute(
+            `INSERT INTO crm_branch_whatsapp_accounts (branch_id, integration_id, is_default, created_by_user_id)
+             VALUES (?,?,?,?)`,
+            [branchId, integrationId, index === 0 ? 1 : 0, Number(req.user.id) || null]);
+          written += 1;
+        }
+      }
+      await connection.commit();
+      res.json({ message: `Saved ${written} branch/account link(s)` });
+    } catch (error) {
+      await connection.rollback();
+      next(error);
+    } finally { connection.release(); }
+  });
+
+  /** Who may use a template. Empty means nobody but administrators. */
+  router.get('/templates/:id/users', authenticate, async (req, res, next) => {
+    try {
+      const [rows] = await pool.execute(
+        'SELECT user_id AS userId FROM crm_whatsapp_template_user_visibility WHERE template_id = ?',
+        [Number(req.params.id)]);
+      res.json({ data: rows.map((r) => Number(r.userId)) });
+    } catch (error) { next(error); }
+  });
+
+  router.put('/templates/:id/users', authenticate, async (req, res, next) => {
+    const isAdmin = req.user.roles?.some((role) =>
+      ['CRM_ADMIN', 'SUPER_ADMIN'].includes(String(role).toUpperCase()));
+    if (!isAdmin) return res.status(403).json({ message: 'Only a CRM administrator can assign templates' });
+
+    const templateId = Number(req.params.id);
+    const userIds = [...new Set((req.body?.userIds || [])
+      .map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.execute('DELETE FROM crm_whatsapp_template_user_visibility WHERE template_id = ?', [templateId]);
+      for (const userId of userIds) {
+        await connection.execute(
+          'INSERT IGNORE INTO crm_whatsapp_template_user_visibility (template_id, user_id) VALUES (?,?)',
+          [templateId, userId]);
+      }
+      await connection.commit();
+      res.json({ message: `Template shared with ${userIds.length} user(s)` });
+    } catch (error) {
+      await connection.rollback();
+      next(error);
+    } finally { connection.release(); }
+  });
+
   async function ensureWhatsAppPricingSchema() {
     if (pricingSchemaReady) return;
     const [columns] = await pool.query(`
@@ -50,7 +233,7 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
     visibilitySchemaReady = true;
   }
 
-  const templateAdmin = user => (user?.roles || []).some(role => ['ADMIN','CRM_ADMIN'].includes(String(role).toUpperCase()));
+  const templateAdmin = user => (user?.roles || []).some(role => ['CRM_ADMIN','SUPER_ADMIN'].includes(String(role).toUpperCase()));
 
   async function attachAndFilterTemplateVisibility(templates, user) {
     await ensureTemplateVisibilitySchema();
@@ -82,6 +265,24 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
         visibleUserIds: (map.get(Number(template.id)) || []).map(item => item.id),
       }))
       .filter(template => canSeeAll || template.visibleUserIds.includes(Number(user?.id)));
+  }
+
+  /**
+   * Resolve a template by whichever identifier the caller has.
+   *
+   * The list screen sends the internal id, while these routes were written to
+   * look up by aisensy_template_id -- so Edit answered "Template not found"
+   * for every template. A template created locally and not yet synced has no
+   * aisensy id at all, so accepting both is the only thing that works for all
+   * of them.
+   */
+  async function resolveTemplateKey(integrationId, key) {
+    const [[row]] = await pool.execute(
+      `SELECT aisensy_template_id AS aisensyId FROM crm_whatsapp_templates
+        WHERE integration_id = ? AND deleted_at IS NULL AND (aisensy_template_id = ? OR id = ?)
+        LIMIT 1`,
+      [integrationId, String(key), Number(key) || 0]);
+    return row?.aisensyId ?? key;
   }
 
   async function saveTemplateVisibility(templateId, userIds) {
@@ -296,7 +497,7 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
         LEFT JOIN employees e ON e.id=u.employee_id
         LEFT JOIN crm_user_profiles p ON p.user_id=u.id
         WHERE u.is_active=TRUE
-          AND r.normalized_name IN ('ADMIN','CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER')
+          AND r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER','SUPER_ADMIN')
         ORDER BY name
       `);
       res.json({ success: true, data: users.map(user => ({ id: Number(user.id), name: user.name || user.email, email: user.email })) });
@@ -352,12 +553,27 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
    */
   router.get('/integrations/:integrationId/templates', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
       const integrationId = parseInt(req.params.integrationId);
 
       if (isNaN(integrationId)) {
         return res.status(400).json({ success: false, message: 'Invalid integration ID' });
       }
+
+      /*
+       * The organisation comes from the integration, not from the caller.
+       *
+       * This read `req.user?.id`, treating a user id as an organisation id.
+       * Every account and template here belongs to organisation 1, so only
+       * user 1 ever saw a template: a counsellor got an empty list however
+       * their branch was mapped. Which templates a user may actually use is
+       * decided below by attachAndFilterTemplateVisibility, which is the
+       * mechanism intended for it.
+       */
+      const [[owner]] = await pool.execute(
+        'SELECT organization_id AS organizationId FROM crm_integrations WHERE id = ? LIMIT 1',
+        [integrationId]);
+      if (!owner) return res.status(404).json({ success: false, message: 'WhatsApp account not found' });
+      const organizationId = Number(owner.organizationId) || 1;
 
       const { status, category, search, limit = 20, offset = 0 } = req.query;
 
@@ -398,13 +614,14 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
    */
   router.get('/integrations/:integrationId/templates/:aisensy_template_id', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
       const integrationId = parseInt(req.params.integrationId);
-      const aisensy_template_id = req.params.aisensy_template_id;
-
       if (isNaN(integrationId)) {
         return res.status(400).json({ success: false, message: 'Invalid integration ID' });
       }
+      const [[owner]] = await pool.execute(
+        'SELECT organization_id AS organizationId FROM crm_integrations WHERE id = ? LIMIT 1', [integrationId]);
+      const organizationId = Number(owner?.organizationId) || 1;
+      const aisensy_template_id = await resolveTemplateKey(integrationId, req.params.aisensy_template_id);
 
       const template = await service.getTemplate(organizationId, integrationId, aisensy_template_id);
 
@@ -428,8 +645,15 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
    */
   router.post('/integrations/:integrationId/templates', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
       const integrationId = parseInt(req.params.integrationId);
+      // Same as the listing: the organisation belongs to the account, not to
+      // whoever happens to be creating the template. Filing it under the
+      // creator's user id would hide it from the list, which resolves the
+      // organisation from the integration.
+      const [[templateOwner]] = await pool.execute(
+        'SELECT organization_id AS organizationId FROM crm_integrations WHERE id = ? LIMIT 1',
+        [integrationId]);
+      const organizationId = Number(templateOwner?.organizationId) || 1;
 
       if (isNaN(integrationId)) {
         return res.status(400).json({ success: false, message: 'Invalid integration ID' });
@@ -473,13 +697,14 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
    */
   router.delete('/integrations/:integrationId/templates/:aisensy_template_id', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
       const integrationId = parseInt(req.params.integrationId);
-      const aisensy_template_id = req.params.aisensy_template_id;
-
       if (isNaN(integrationId)) {
         return res.status(400).json({ success: false, message: 'Invalid integration ID' });
       }
+      const [[owner]] = await pool.execute(
+        'SELECT organization_id AS organizationId FROM crm_integrations WHERE id = ? LIMIT 1', [integrationId]);
+      const organizationId = Number(owner?.organizationId) || 1;
+      const aisensy_template_id = await resolveTemplateKey(integrationId, req.params.aisensy_template_id);
 
       await service.deleteTemplate(organizationId, integrationId, aisensy_template_id);
 

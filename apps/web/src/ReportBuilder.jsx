@@ -1,11 +1,9 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  ArrowDown, ArrowLeft, ArrowUp, BarChart3, Calculator, CalendarRange, ChartLine, Check, ChevronDown, ChevronLeft, Columns3, Donut, Filter, Funnel, GripVertical, LayoutGrid, LayoutList,
-  ChevronRight, Edit3, MapPinned, Maximize2, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PieChart, Plus, Save, Search, Trash2, X,
-} from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, BarChart3, Calculator, CalendarRange, ChartLine, Check, ChevronDown, ChevronLeft, Columns3, Database, Donut, Filter, Funnel, GripVertical, LayoutGrid, LayoutList, ChevronRight, Edit3, MapPinned, Maximize2, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PieChart, Plus, RefreshCw, Save, Search, Table2, Trash2, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { api } from "./api";
 import { useBusinessUnit } from "./BusinessUnitContext.jsx";
+import { CALCULATION_FUNCTIONS, detectCircularDependency, evaluateFormula, validateFormula } from "./lib/calculationEngine.js";
 import "./ReportBuilder.css";
 
 const TYPES = [
@@ -56,7 +54,7 @@ const APPLICATION_FIELDS = [
   { id: "reEnquiredAt", label: "Re-Enquired", type: "date" }, { id: "touchedAt", label: "Touched Date", type: "date" },
   { id: "latitude", label: "Latitude", type: "number" }, { id: "longitude", label: "Longitude", type: "number" },
 ];
-const AGGREGATIONS = ["Count", "Distinct count", "Sum", "Average", "Percentage"];
+const AGGREGATIONS = ["Don't summarize", "Count", "Distinct count", "Sum", "Average", "Percentage"];
 const LEAD_FIELD_KEYS = {
   stage: "stage", stage_id: "stage", owner: "owner", owner_employee_id: "owner", source: "source", source_id: "source",
   campaign: "campaignCategory", campaign_id: "campaignCategory", campaignId: "campaignCategory",
@@ -80,7 +78,10 @@ function uniqueReportFields(fields) {
     return true;
   });
 }
-function reportFieldCatalog(report) { return uniqueReportFields([...(report.fieldCatalog?.length ? report.fieldCatalog : FIELDS)]); }
+function reportFieldCatalog(report) {
+  const fields = [...(report.fieldCatalog?.length ? report.fieldCatalog : FIELDS)];
+  return String(report.dataSourceId || "leads") === "leads" ? uniqueReportFields(fields) : [...new Map(fields.map(field => [field.id, field])).values()];
+}
 function leadFieldValue(lead, fieldId) {
   if (!lead) return undefined;
   if (["latitude", "longitude"].includes(fieldId)) {
@@ -113,16 +114,29 @@ function displayFieldValue(lead, fieldId, report, dateGrouping = "month") {
 function numericFieldValue(lead, fieldId, report) {
   const calculated = (report.calculatedFields || []).find(item => item.id === fieldId);
   if (!calculated) return Number(leadFieldValue(lead, fieldId)) || 0;
-  const expression = calculated.formula.replace(/\[([^\]]+)\]/g, (_, label) => {
-    const field = reportFieldCatalog(report).find(item => item.label.toLowerCase() === label.trim().toLowerCase());
-    return String(field ? numericFieldValue(lead, field.id, report) : 0);
-  });
-  if (!/^[\d+\-*/().\s]+$/.test(expression)) return 0;
-  try { return Number(Function(`"use strict";return (${expression})`)()) || 0; } catch { return 0; }
+  try {
+    return Number(evaluateFormula(calculated.formula, {
+      record: lead, rows: [lead], fields: reportFieldCatalog(report), calculatedFields: report.calculatedFields || [],
+      getFieldValue: leadFieldValue, stack: [calculated.id],
+    })) || 0;
+  } catch { return 0; }
 }
 function aggregateLeads(items, measure, report, grandTotal) {
   const aggregation = measure?.aggregation || "Count";
   const field = measure?.field || "leadId";
+  if (aggregation === "Don't summarize") {
+    const values = items.map(item => leadFieldValue(item, field)).filter(value => value !== null && value !== undefined && value !== "");
+    return [...new Map(values.map(value => [value instanceof Date ? value.toISOString() : String(value), value])).values()];
+  }
+  const calculated = (report.calculatedFields || []).find(item => item.id === field);
+  if (calculated?.calculationType === "measure") {
+    try {
+      return Number(evaluateFormula(calculated.formula, {
+        rows: items, record: items[0], fields: reportFieldCatalog(report), calculatedFields: report.calculatedFields || [],
+        getFieldValue: leadFieldValue, stack: [calculated.id],
+      })) || 0;
+    } catch { return 0; }
+  }
   if (aggregation === "Count") return items.length;
   if (aggregation === "Distinct count") return new Set(items.map(item => displayFieldValue(item, field, report))).size;
   if (aggregation === "Percentage") return grandTotal ? items.length / grandTotal * 100 : 0;
@@ -130,21 +144,43 @@ function aggregateLeads(items, measure, report, grandTotal) {
   if (aggregation === "Average") return numbers.length ? numbers.reduce((sum, value) => sum + value, 0) / numbers.length : 0;
   return numbers.reduce((sum, value) => sum + value, 0);
 }
+function reportMeasureFormat(report, measure = report?.values?.[0]) {
+  const calculated = (report?.calculatedFields || []).find(item => item.id === measure?.field);
+  return { outputType: measure?.outputType || calculated?.outputType || (measure?.aggregation === "Percentage" ? "Percentage" : "Number"), percentageIsWhole: !calculated && measure?.aggregation === "Percentage" };
+}
+function formatReportValue(value, format = {}) {
+  if (Array.isArray(value)) return value.length ? value.map(item => formatReportValue(item, format)).join(", ") : "Blank";
+  const numeric = Number(value);
+  if (format.outputType === "Percentage") return new Intl.NumberFormat("en-IN", { style: "percent", maximumFractionDigits: 2 }).format((Number.isFinite(numeric) ? numeric : 0) / (format.percentageIsWhole ? 100 : 1));
+  if (format.outputType === "Currency") return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 }).format(Number.isFinite(numeric) ? numeric : 0);
+  if (format.outputType === "Integer") return Math.round(Number.isFinite(numeric) ? numeric : 0).toLocaleString("en-IN");
+  if (format.outputType === "Boolean") return value ? "True" : "False";
+  if (["Date", "Date & Time"].includes(format.outputType)) { const date = new Date(value); return Number.isNaN(date.getTime()) ? "Blank" : date.toLocaleString("en-IN", format.outputType === "Date" ? { dateStyle: "medium" } : { dateStyle: "medium", timeStyle: "short" }); }
+  return Number.isFinite(numeric) ? Number(numeric.toFixed(2)).toLocaleString("en-IN") : String(value ?? "Blank");
+}
 function buildPivotData(leads, report) {
   const rowFields = report.rows || [];
   const columnFields = report.columns || [];
-  const measure = report.values?.[0] || { field: "leadId", aggregation: "Count" };
+  const measures = report.values?.length ? report.values : [{ field: "leadId", aggregation: "Count" }];
+  const measure = measures[0];
   const columnParts = lead => columnFields.map((field, index) => displayFieldValue(lead, field, report, report.dateGroups?.[`columns:${index}`] || "month"));
   const columnLabel = lead => columnParts(lead).join(" / ");
   const columnPaths = columnFields.length ? [...new Map(leads.map(lead => [columnLabel(lead), columnParts(lead)])).values()] : [["Value"]];
   const columnNames = columnPaths.map(path => path.join(" / "));
+  const topColumnNames = [...new Set(columnPaths.map(path => path[0]))];
   const makeRow = (rowName, rowLeads, level, path, index) => {
-    const cells = columnNames.map(columnName => aggregateLeads(columnFields.length ? rowLeads.filter(lead => columnLabel(lead) === columnName) : rowLeads, measure, report, leads.length));
+    const measureCells = measures.map(currentMeasure => columnNames.map(columnName => aggregateLeads(columnFields.length ? rowLeads.filter(lead => columnLabel(lead) === columnName) : rowLeads, currentMeasure, report, leads.length)));
+    const cells = measureCells[0];
     const nextField = rowFields[level + 1];
     const nextDateGrouping = report.dateGroups?.[`rows:${level + 1}`] || "month";
     const childNames = nextField ? [...new Set(rowLeads.map(lead => displayFieldValue(lead, nextField, report, nextDateGrouping)))] : [];
+    const columnGroupMeasureCells = measures.map(currentMeasure => topColumnNames.map(topName => aggregateLeads(
+      columnFields.length ? rowLeads.filter(lead => columnParts(lead)[0] === topName) : rowLeads,
+      currentMeasure, report, leads.length,
+    )));
     return {
-      label: rowName, level, path, cells, total: cells.reduce((sum, value) => sum + value, 0),
+      label: rowName, level, path, cells, measureCells, measureTotals: measures.map(currentMeasure => aggregateLeads(rowLeads, currentMeasure, report, leads.length)), total: cells.reduce((sum, value) => sum + (Number.isFinite(Number(value)) ? Number(value) : 0), 0),
+      columnGroupMeasureCells,
       color: PALETTE[index % PALETTE.length],
       children: childNames.map((childName, childIndex) => makeRow(childName, rowLeads.filter(lead => displayFieldValue(lead, nextField, report, nextDateGrouping) === childName), level + 1, `${path}/${childName}`, childIndex)),
     };
@@ -153,10 +189,22 @@ function buildPivotData(leads, report) {
   const firstDateGrouping = report.dateGroups?.["rows:0"] || "month";
   const rowNames = firstField ? [...new Set(leads.map(lead => displayFieldValue(lead, firstField, report, firstDateGrouping)))] : ["All leads"];
   const rows = rowNames.map((rowName, index) => makeRow(rowName, firstField ? leads.filter(lead => displayFieldValue(lead, firstField, report, firstDateGrouping) === rowName) : leads, 0, rowName, index));
+  const measureDefinitions = measures.map(currentMeasure => ({
+    field: currentMeasure.field,
+    aggregation: currentMeasure.aggregation,
+    label: currentMeasure.label?.trim() || reportFieldCatalog(report).find(field => field.id === currentMeasure.field)?.label || (report.calculatedFields || []).find(field => field.id === currentMeasure.field)?.name || currentMeasure.field,
+    valueFormat: reportMeasureFormat(report, currentMeasure),
+  }));
+  const grandMeasureCells = measures.map(currentMeasure => columnNames.map(columnName => aggregateLeads(columnFields.length ? leads.filter(lead => columnLabel(lead) === columnName) : leads, currentMeasure, report, leads.length)));
+  const grandColumnGroupMeasureCells = measures.map(currentMeasure => topColumnNames.map(topName => aggregateLeads(
+    columnFields.length ? leads.filter(lead => columnParts(lead)[0] === topName) : leads,
+    currentMeasure, report, leads.length,
+  )));
+  const grandMeasureTotals = measures.map(currentMeasure => aggregateLeads(leads, currentMeasure, report, leads.length));
   return {
     leads,
     funnel: rows.map(row => ({ label: row.label, value: row.total, color: row.color })),
-    pivot: { rowLabel: rowFields.map(id => reportFieldCatalog(report).find(field => field.id === id)?.label || id).join(" / ") || "Summary", columns: columnNames, columnPaths, columnLabels: columnFields.map(id => reportFieldCatalog(report).find(field => field.id === id)?.label || id), rows, aggregation: measure.aggregation, showRowTotals: report.showRowTotals !== false, showColumnTotals: report.showColumnTotals === true, valueLabel: reportFieldCatalog(report).find(field => field.id === measure.field)?.label || (report.calculatedFields || []).find(field => field.id === measure.field)?.name || measure.field },
+    pivot: { rowLabel: rowFields.map(id => reportFieldCatalog(report).find(field => field.id === id)?.label || id).join(" / ") || "Summary", columns: columnNames, columnPaths, columnLabels: columnFields.map(id => reportFieldCatalog(report).find(field => field.id === id)?.label || id), topColumnNames, rows, measures: measureDefinitions, grandMeasureCells, grandColumnGroupMeasureCells, grandMeasureTotals, aggregation: measure.aggregation, valueFormat: reportMeasureFormat(report, measure), showRowTotals: report.showRowTotals !== false && !(measures.length === 1 && measure.aggregation === "Don't summarize"), showColumnTotals: report.showColumnTotals === true, valueLabel: measureDefinitions[0].label },
   };
 }
 function filterReportLeads(leads, report) {
@@ -205,7 +253,7 @@ function filterOperators(type) {
   return [["equals", "Equals"], ["not_equals", "Does not equal"], ["contains", "Contains"], ["not_contains", "Does not contain"], ["is_blank", "Is blank"], ["is_not_blank", "Is not blank"]];
 }
 
-export function savedReportsKey(unitId) { return `crm_saved_reports_${unitId}`; }
+function savedReportsKey(unitId) { return `crm_saved_reports_${unitId}`; }
 function currentCrmUser() {
   try { return JSON.parse(localStorage.getItem("crm_user") || "null"); } catch { return null; }
 }
@@ -235,20 +283,25 @@ export function ReportVisual({ report, data, compact = false }) {
   const stages = (data?.funnel || []).filter(item => !report?.stages?.length || report.stages.includes(item.label));
   const values = stages.map((item, index) => ({ ...item, value: Number(item.value || 0), color: report?.colors?.[index] || item.color || PALETTE[index % PALETTE.length] }));
   const total = values.reduce((sum, item) => sum + item.value, 0) || 1;
+  const valueFormat = reportMeasureFormat(report);
+  const formatValue = value => formatReportValue(value, valueFormat);
   if (!values.length) return <div className="report-empty">No data matches these filters.</div>;
 
   const cardColumns = Math.min(4, Math.max(1, Number(report.cardColumns || (compact ? 2 : 4))));
   if (report.type === "cards") return <div className={`report-cards-visual ${compact ? "compact" : ""}`} style={{ "--report-card-columns": cardColumns }}>
-    <article><span>Total</span><strong>{total.toLocaleString()}</strong><small>{report.values?.[0]?.aggregation || "Count"}</small></article>
-    {values.slice(0, compact ? 3 : 7).map(item => <article key={item.label}><i style={{ background: item.color }} /><span>{item.label}</span><strong>{item.value.toLocaleString()}</strong><small>{Math.round(item.value / total * 100)}% share</small></article>)}
+    <article><span>Total</span><strong>{formatValue(total)}</strong><small>{valueFormat.outputType === "Percentage" ? "Percentage" : report.values?.[0]?.aggregation || "Count"}</small></article>
+    {values.slice(0, compact ? 3 : 7).map(item => <article key={item.label}><i style={{ background: item.color }} /><span>{item.label}</span><strong>{formatValue(item.value)}</strong><small>{Math.round(item.value / total * 100)}% share</small></article>)}
   </div>;
-  if (report.type === "table" && data?.pivot) return <PivotTableVisual pivot={data.pivot} />;
+  if (report.type === "table" && data?.pivot) {
+    const pivot = { ...data.pivot, valueFormat: data.pivot.valueFormat || valueFormat };
+    return pivot.measures?.length > 1 ? <MultiMeasurePivotTable pivot={pivot} /> : <PivotTableVisual pivot={pivot} />;
+  }
   if (report.type === "table") return (
     <ResizableReportTable
       headers={["Stage", "Lead count", "Share"]}
       rows={values.map(item => [
         <><i style={{ background: item.color }} />{item.label}</>,
-        item.value.toLocaleString(),
+        formatValue(item.value),
         `${Math.round(item.value / total * 100)}%`,
       ])}
     />
@@ -256,9 +309,9 @@ export function ReportVisual({ report, data, compact = false }) {
   if (report.type === "pie" || report.type === "donut") {
     let cursor = 0;
     const gradient = values.map(item => { const start = cursor; cursor += item.value / total * 100; return `${item.color} ${start}% ${cursor}%`; }).join(",");
-    return <div className={`pie-report ${report.type === "donut" ? "donut-report" : ""} ${compact ? "compact" : ""}`}><div className="pie-ring" style={{ background: `conic-gradient(${gradient})` }}><span>{total.toLocaleString()}<small>Leads</small></span></div><ChartLegend values={values} total={total} /></div>;
+    return <div className={`pie-report ${report.type === "donut" ? "donut-report" : ""} ${compact ? "compact" : ""}`}><div className="pie-ring" style={{ background: `conic-gradient(${gradient})` }}><span>{formatValue(total)}<small>{valueFormat.outputType}</small></span></div><ChartLegend values={values} total={total} /></div>;
   }
-  if (report.type === "line") return <LineReport values={values} compact={compact} showLabels={report.showLabels !== false} />;
+  if (report.type === "line") return <LineReport values={values} compact={compact} showLabels={report.showLabels !== false} formatValue={formatValue} />;
   if (report.type === "map") return <MapReport report={report} leads={data?.leads || []} values={values} compact={compact} />;
   if (report.type === "funnel") {
     const segmentHeight = 48;
@@ -277,19 +330,19 @@ export function ReportVisual({ report, data, compact = false }) {
           const points = `${center - topWidth / 2},${top} ${center + topWidth / 2},${top} ${center + bottomWidth / 2},${bottom} ${center - bottomWidth / 2},${bottom}`;
           return <g key={item.label}>
             <polygon points={points} fill={item.color} />
-            {report.showLabels !== false && <text x={center} y={top + segmentHeight / 2 + 5} textAnchor="middle">{item.value.toLocaleString()}</text>}
+            {report.showLabels !== false && <text x={center} y={top + segmentHeight / 2 + 5} textAnchor="middle">{formatValue(item.value)}</text>}
           </g>;
         })}
       </svg>
-      <div className="funnel-legend">{values.map(item => <div key={item.label}><i style={{ background: item.color }} /><span>{item.label}: <strong>{item.value.toLocaleString()}</strong></span></div>)}</div>
+      <div className="funnel-legend">{values.map(item => <div key={item.label}><i style={{ background: item.color }} /><span>{item.label}: <strong>{formatValue(item.value)}</strong></span></div>)}</div>
     </div>;
   }
   if (report.type === "stacked-column") {
-    return <StackedColumnReport pivot={data?.pivot} fallbackValues={values} showLabels={report.showLabels !== false} />;
+    return <StackedColumnReport pivot={data?.pivot} fallbackValues={values} showLabels={report.showLabels !== false} formatValue={formatValue} />;
   }
-  if (report.type === "stacked-bar") return <StackedBarReport pivot={data?.pivot} fallbackValues={values} showLabels={report.showLabels !== false} />;
+  if (report.type === "stacked-bar") return <StackedBarReport pivot={data?.pivot} fallbackValues={values} showLabels={report.showLabels !== false} formatValue={formatValue} />;
   const max = Math.max(...values.map(item => item.value), 1);
-  return <div className="bar-report">{values.map(item => <div className="bar-report-row" key={item.label}><span>{item.label}</span><div><i style={{ width: `${Math.max(2, item.value / max * 100)}%`, background: item.color }} /></div>{report.showLabels !== false && <strong>{item.value}</strong>}</div>)}</div>;
+  return <div className="bar-report">{values.map(item => <div className="bar-report-row" key={item.label}><span>{item.label}</span><div><i style={{ width: `${Math.max(2, item.value / max * 100)}%`, background: item.color }} /></div>{report.showLabels !== false && <strong>{formatValue(item.value)}</strong>}</div>)}</div>;
 }
 
 function buildStackedMatrix(pivot) {
@@ -316,14 +369,14 @@ function StackedLegend({ columns }) {
   </div>;
 }
 
-function StackedBarReport({ pivot, fallbackValues, showLabels = true }) {
+function StackedBarReport({ pivot, fallbackValues, showLabels = true, formatValue = value => value.toLocaleString() }) {
   const matrix = buildStackedMatrix(pivot);
   if (!matrix) {
     const total = fallbackValues.reduce((sum, item) => sum + item.value, 0) || 1;
     return <div className="stacked-bar-report">
       {fallbackValues.map(item => <div className="stacked-bar-row" key={item.label}>
         <span>{item.label}</span>
-        <div className="stacked-bar-track"><i className="stacked-bar-single" style={{ width: `${Math.max(4, item.value / total * 100)}%`, background: item.color }} />{showLabels && <b className="stacked-bar-value">{item.value.toLocaleString()}</b>}</div>
+        <div className="stacked-bar-track"><i className="stacked-bar-single" style={{ width: `${Math.max(4, item.value / total * 100)}%`, background: item.color }} />{showLabels && <b className="stacked-bar-value">{formatValue(item.value)}</b>}</div>
         <small>{Math.round(item.value / total * 100)}%</small>
       </div>)}
     </div>;
@@ -336,32 +389,32 @@ function StackedBarReport({ pivot, fallbackValues, showLabels = true }) {
         {row.cells.map((value, index) => value > 0 ? <i
           className="stacked-bar-segment"
           key={`${row.label}-${matrix.columns[index]}`}
-          title={`${matrix.columns[index]}: ${value.toLocaleString()}`}
+          title={`${matrix.columns[index]}: ${formatValue(value)}`}
           style={{ width: `${Math.max(2, value / Math.max(row.total, 1) * 100)}%`, background: PALETTE[index % PALETTE.length] }}
-        >{showLabels && value / Math.max(row.total, 1) >= 0.14 ? <b>{value.toLocaleString()}</b> : null}</i> : null)}
+        >{showLabels && value / Math.max(row.total, 1) >= 0.14 ? <b>{formatValue(value)}</b> : null}</i> : null)}
       </div>
-      <small>{row.total.toLocaleString()}</small>
+      <small>{formatValue(row.total)}</small>
     </div>)}
   </div>;
 }
 
-function StackedColumnReport({ pivot, fallbackValues, showLabels = true }) {
+function StackedColumnReport({ pivot, fallbackValues, showLabels = true, formatValue = value => value.toLocaleString() }) {
   const matrix = buildStackedMatrix(pivot);
   if (!matrix) {
     const max = Math.max(...fallbackValues.map(item => item.value), 1);
-    return <div className="column-chart"><div className="column-plot">{fallbackValues.map(item => <div className="column-item" key={item.label}><div className="column-value">{showLabels && <b>{item.value}</b>}<i style={{ height: `${Math.max(4, item.value / max * 100)}%`, background: item.color }} /></div><span>{item.label}</span></div>)}</div></div>;
+    return <div className="column-chart"><div className="column-plot">{fallbackValues.map(item => <div className="column-item" key={item.label}><div className="column-value">{showLabels && <b>{formatValue(item.value)}</b>}<i style={{ height: `${Math.max(4, item.value / max * 100)}%`, background: item.color }} /></div><span>{item.label}</span></div>)}</div></div>;
   }
   return <div className="stacked-column-chart">
     <StackedLegend columns={matrix.columns} />
     <div className="stacked-column-plot">
       {matrix.rows.map(row => <div className="stacked-column-item" key={row.label}>
-        {showLabels && <b className="stacked-column-total">{row.total.toLocaleString()}</b>}
+        {showLabels && <b className="stacked-column-total">{formatValue(row.total)}</b>}
         <div className="stacked-column-shell">
           <div className="stacked-column-stack" style={{ height: `${Math.max(4, row.total / matrix.max * 100)}%` }}>
             {row.cells.map((value, index) => value > 0 ? <i
               className="stacked-column-segment"
               key={`${row.label}-${matrix.columns[index]}`}
-              title={`${matrix.columns[index]}: ${value.toLocaleString()}`}
+              title={`${matrix.columns[index]}: ${formatValue(value)}`}
               style={{ height: `${Math.max(3, value / Math.max(row.total, 1) * 100)}%`, background: PALETTE[index % PALETTE.length] }}
             /> : null)}
           </div>
@@ -372,7 +425,7 @@ function StackedColumnReport({ pivot, fallbackValues, showLabels = true }) {
   </div>;
 }
 
-function LineReport({ values, compact = false, showLabels = true }) {
+function LineReport({ values, compact = false, showLabels = true, formatValue = value => value.toLocaleString() }) {
   const width = 620;
   const height = compact ? 210 : 280;
   const pad = 34;
@@ -390,7 +443,7 @@ function LineReport({ values, compact = false, showLabels = true }) {
       <path d={path} />
       {points.map(point => <g key={point.label}>
         <circle cx={point.x} cy={point.y} r="5" fill={point.color} />
-        {showLabels && <text x={point.x} y={point.y - 10} textAnchor="middle">{point.value.toLocaleString()}</text>}
+        {showLabels && <text x={point.x} y={point.y - 10} textAnchor="middle">{formatValue(point.value)}</text>}
         <text className="axis-label" x={point.x} y={height - 10} textAnchor="middle">{point.label}</text>
       </g>)}
     </svg>
@@ -523,17 +576,87 @@ function ResizableReportTable({ headers, rows, className = "" }) {
   };
   const normalizedRows = rows.map((row, index) => Array.isArray(row) ? { key: index, cells: row } : row);
   return <div className="report-table-wrap"><table className={`report-table pivot-result resizable-report-table ${className}`}>
-    <colgroup>{headers.map((header, index) => <col key={header || index} style={{ width: `${widths[index] || 135}px` }} />)}</colgroup>
-    <thead><tr>{headers.map((header, index) => <th key={header || index}><span>{header}</span><button type="button" className="column-resizer" aria-label={`Resize ${header} column`} onMouseDown={event => startResize(event, index)} /></th>)}</tr></thead>
+    <colgroup>{headers.map((_, index) => <col key={index} style={{ width: `${widths[index] || 135}px` }} />)}</colgroup>
+    <thead><tr>{headers.map((header, index) => <th key={index}><span>{header}</span><button type="button" className="column-resizer" aria-label={`Resize column ${index + 1}`} onMouseDown={event => startResize(event, index)} /></th>)}</tr></thead>
     <tbody>{normalizedRows.map((row, rowIndex) => <tr key={row.key || rowIndex} className={row.className || ""}>{row.cells.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody>
   </table></div>;
+}
+
+function MultiMeasurePivotTable({ pivot }) {
+  const [expanded, setExpanded] = useState(() => new Set());
+  const [expandedColumns, setExpandedColumns] = useState(() => new Set());
+  const hasColumnDimension = pivot.columns.length > 1 || pivot.columns[0] !== "Value";
+  const hasColumnHierarchy = (pivot.columnPaths || []).some(path => path.length > 1);
+  const topColumnNames = pivot.topColumnNames || [...new Set((pivot.columnPaths || []).map(path => path[0]))];
+  const columnDescriptors = hasColumnHierarchy
+    ? topColumnNames.flatMap((topName, groupIndex) => {
+      const childColumns = (pivot.columnPaths || []).map((path, columnIndex) => ({ path, columnIndex })).filter(item => item.path[0] === topName);
+      if (!expandedColumns.has(topName)) return pivot.measures.map((measure, measureIndex) => ({ measure, measureIndex, groupIndex, groupKey: topName, collapsedGroup: true, label: `${topName} · ${measure.label}` }));
+      return childColumns.flatMap(child => pivot.measures.map((measure, measureIndex) => ({ measure, measureIndex, columnIndex: child.columnIndex, groupKey: topName, label: `${child.path.slice(1).join(" / ")} · ${measure.label}` })));
+    })
+    : pivot.measures.flatMap((measure, measureIndex) => pivot.columns.map((column, columnIndex) => ({ measure, measureIndex, columnIndex, label: hasColumnDimension ? `${column} · ${measure.label}` : measure.label })));
+  const descriptors = [
+    ...columnDescriptors,
+    ...pivot.measures.flatMap((measure, measureIndex) => [
+    ...(hasColumnDimension && pivot.showRowTotals && measure.aggregation !== "Don't summarize" ? [{ measure, measureIndex, total: true, label: `Total · ${measure.label}` }] : []),
+    ]),
+  ];
+  const toggle = path => setExpanded(current => {
+    const next = new Set(current);
+    if (next.has(path)) next.delete(path); else next.add(path);
+    return next;
+  });
+  const toggleColumn = group => setExpandedColumns(current => {
+    const next = new Set(current);
+    if (next.has(group)) next.delete(group); else next.add(group);
+    return next;
+  });
+  const descriptorValue = (source, descriptor, grand = false) => {
+    if (descriptor.total) return grand ? pivot.grandMeasureTotals?.[descriptor.measureIndex] : source.measureTotals?.[descriptor.measureIndex];
+    if (descriptor.collapsedGroup) return grand
+      ? pivot.grandColumnGroupMeasureCells?.[descriptor.measureIndex]?.[descriptor.groupIndex]
+      : source.columnGroupMeasureCells?.[descriptor.measureIndex]?.[descriptor.groupIndex];
+    return grand ? pivot.grandMeasureCells?.[descriptor.measureIndex]?.[descriptor.columnIndex] : source.measureCells?.[descriptor.measureIndex]?.[descriptor.columnIndex];
+  };
+  const renderRows = rows => rows.flatMap(row => {
+    const hasChildren = Boolean(row.children?.length);
+    const isExpanded = expanded.has(row.path);
+    const cells = descriptors.map(descriptor => formatReportValue(
+      descriptorValue(row, descriptor),
+      descriptor.measure.valueFormat,
+    ));
+    const rendered = [{
+      key: row.path,
+      className: `pivot-level-${row.level} ${hasChildren ? "pivot-parent" : ""}`,
+      cells: [
+        <div className="pivot-row-label" style={{ paddingLeft: `${row.level * 22}px` }}>
+          {hasChildren ? <button onClick={() => toggle(row.path)} aria-label={`${isExpanded ? "Collapse" : "Expand"} ${row.label}`}>{isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button> : <span className="pivot-indent" />}
+          <i style={{ background: row.color }} /><span>{row.label}</span>{hasChildren && <small>({row.children.length})</small>}
+        </div>,
+        ...cells,
+      ],
+    }];
+    if (hasChildren && isExpanded) rendered.push(...renderRows(row.children));
+    return rendered;
+  });
+  const rows = renderRows(pivot.rows);
+  if (pivot.showColumnTotals) rows.push({
+    key: "grand-total",
+    className: "pivot-grand-total",
+    cells: [<strong>Grand total</strong>, ...descriptors.map(descriptor => <strong>{formatReportValue(
+      descriptorValue(null, descriptor, true),
+      descriptor.measure.valueFormat,
+    )}</strong>)],
+  });
+  const headers = descriptors.map(descriptor => descriptor.groupKey ? <button type="button" className="pivot-column-toggle" onClick={() => toggleColumn(descriptor.groupKey)}>{expandedColumns.has(descriptor.groupKey) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}{descriptor.label}</button> : descriptor.label);
+  return <ResizableReportTable headers={[pivot.rowLabel, ...headers]} className="pivot-hierarchy-table multi-measure-pivot" rows={rows} />;
 }
 
 function PivotTableVisual({ pivot }) {
   const [expanded, setExpanded] = useState(() => new Set());
   const [expandedColumns, setExpandedColumns] = useState(() => new Set());
   const [groupedWidths, setGroupedWidths] = useState([]);
-  const format = value => pivot.aggregation === "Percentage" ? `${value.toFixed(1)}%` : Number(value.toFixed(2)).toLocaleString();
+  const format = value => formatReportValue(value, pivot.valueFormat || { outputType: pivot.aggregation === "Percentage" ? "Percentage" : "Number", percentageIsWhole: pivot.aggregation === "Percentage" });
   const startGroupedResize = (event, index) => {
     event.preventDefault();
     event.stopPropagation();
@@ -732,10 +855,158 @@ function FilterValueSelect({ field, value, leads, onChange }) {
   return <div className="filter-value-select" ref={root}><button className={selected.length ? "active" : ""} onClick={() => setOpen(current => !current)}><span>{selected.length ? selected.length === 1 ? label(selected[0]) : `${selected.length} values selected` : "Select values"}</span><ChevronDown size={13} /></button>{open && <div className="filter-values-popover" style={popoverStyle}><div><Search size={12} /><input autoFocus value={search} onChange={event => setSearch(event.target.value)} placeholder="Search values..." /></div><section>{options.filter(option => label(option).toLowerCase().includes(search.toLowerCase())).map(option => <button key={option} onClick={() => toggle(option)}><i>{selected.includes(option) && <Check size={11} />}</i><span>{label(option)}</span></button>)}{!options.length && <p>No values available</p>}</section>{selected.length > 0 && <footer><button onClick={() => onChange([])}>Clear selections</button><span>{selected.length} selected</span></footer>}</div>}</div>;
 }
 
+const OUTPUT_TYPES = ["Number", "Integer", "Decimal", "Currency", "Percentage", "Text", "Date", "Date & Time", "Boolean"];
+const makeCondition = () => ({ id: `${Date.now()}_${Math.random()}`, kind: "condition", field: "", operator: "=", value: "" });
+const makeGroup = (logic = "AND") => ({ id: `${Date.now()}_${Math.random()}`, kind: "group", logic, children: [makeCondition()] });
+function quoteConditionValue(value, type) {
+  if (["number", "currency", "decimal", "integer"].includes(type) && value !== "") return String(Number(value));
+  return `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+function conditionExpression(node, fields) {
+  if (node.kind === "group") return `(${node.children.map(child => conditionExpression(child, fields)).filter(Boolean).join(` ${node.logic === "OR" ? "||" : "&&"} `)})`;
+  const field = fields.find(item => item.id === node.field); if (!field) return "";
+  const ref = `[${field.label}]`; const value = quoteConditionValue(node.value, field.type);
+  if (node.operator === "is_blank") return `ISBLANK(${ref})`;
+  if (node.operator === "is_not_blank") return `NOT(ISBLANK(${ref}))`;
+  if (node.operator === "contains") return `CONTAINSSTRING(${ref}, ${value})`;
+  if (node.operator === "not_contains") return `NOT(CONTAINSSTRING(${ref}, ${value}))`;
+  if (node.operator === "starts_with") return `STARTSWITH(${ref}, ${value})`;
+  if (node.operator === "ends_with") return `ENDSWITH(${ref}, ${value})`;
+  if (["in", "not_in"].includes(node.operator)) { const values = Array.isArray(node.value) ? node.value : String(node.value || "").split(",").map(item => item.trim()).filter(Boolean); return `${ref} ${node.operator === "not_in" ? "NOT IN" : "IN"} {${values.map(item => quoteConditionValue(item, field.type)).join(", ")}}`; }
+  if (node.operator === "today") return `${ref} = TODAY()`;
+  if (node.operator === "yesterday") return `${ref} = TODAY() - 1`;
+  if (node.operator === "last_x_days") return `${ref} >= TODAY() - ${Number(node.value) || 0}`;
+  return `${ref} ${{ equals: "=", not_equals: "<>", greater_than: ">", greater_equal: ">=", less_than: "<", less_equal: "<=", before: "<", after: ">", on_or_before: "<=", on_or_after: ">=" }[node.operator] || node.operator} ${value}`;
+}
+function conditionOperators(type) {
+  if (["number", "currency", "decimal", "integer", "percentage"].includes(type)) return [["in", "Include"], ["not_in", "Exclude"], ["equals", "Equals"], ["not_equals", "Not equals"], ["greater_than", "Greater than"], ["greater_equal", "Greater than or equal"], ["less_than", "Less than"], ["less_equal", "Less than or equal"], ["is_blank", "Is blank"], ["is_not_blank", "Is not blank"]];
+  if (["date", "datetime", "date & time"].includes(type)) return [["in", "Include"], ["not_in", "Exclude"], ["equals", "On"], ["before", "Before"], ["after", "After"], ["on_or_before", "On or before"], ["on_or_after", "On or after"], ["today", "Today"], ["yesterday", "Yesterday"], ["last_x_days", "Last X days"], ["is_blank", "Is blank"], ["is_not_blank", "Is not blank"]];
+  if (type === "boolean") return [["in", "Include"], ["not_in", "Exclude"], ["equals", "Is"], ["not_equals", "Is not"], ["is_blank", "Is blank"], ["is_not_blank", "Is not blank"]];
+  return [["in", "Include"], ["not_in", "Exclude"], ["equals", "Equals"], ["not_equals", "Not equals"], ["contains", "Contains"], ["not_contains", "Does not contain"], ["starts_with", "Starts with"], ["ends_with", "Ends with"], ["is_blank", "Is blank"], ["is_not_blank", "Is not blank"]];
+}
+function ConditionMultiSelect({ values, selected, onChange, label }) {
+  const selectedValues = Array.isArray(selected) ? selected : [];
+  const root = useRef(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return undefined;
+    const closeOutside = event => { if (!root.current?.contains(event.target)) setOpen(false); };
+    const closeOnEscape = event => { if (event.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", closeOutside, true);
+    document.addEventListener("touchstart", closeOutside, true);
+    document.addEventListener("keydown", closeOnEscape, true);
+    return () => {
+      document.removeEventListener("mousedown", closeOutside, true);
+      document.removeEventListener("touchstart", closeOutside, true);
+      document.removeEventListener("keydown", closeOnEscape, true);
+    };
+  }, [open]);
+  const toggle = item => onChange(selectedValues.includes(item) ? selectedValues.filter(value => value !== item) : [...selectedValues, item]);
+  return <details ref={root} className="condition-multi-select" open={open} onToggle={event => setOpen(event.currentTarget.open)}><summary aria-label={`Select values for ${label}`}>{selectedValues.length ? `${selectedValues.length} selected` : "Select values"}<ChevronDown size={13} /></summary><div className="condition-multi-menu"><div className="condition-multi-actions"><button type="button" onClick={() => onChange(values)}>Select all</button><button type="button" onClick={() => onChange([])}>Clear</button></div>{values.length ? values.map(item => <label key={item}><input type="checkbox" checked={selectedValues.includes(item)} onChange={() => toggle(item)} /><span>{item}</span></label>) : <p>No existing values</p>}</div></details>;
+}
+function conditionFieldValues(field, rows) {
+  if (!field) return [];
+  const values = rows.map(record => leadFieldValue(record, field.id)).filter(value => value !== null && value !== undefined && value !== "").map(value => {
+    if (field.type === "date") return String(value).slice(0, 10);
+    if (field.type === "datetime") return String(value).replace(" ", "T").slice(0, 16);
+    if (typeof value === "boolean") return value ? "true" : "false";
+    return String(value);
+  });
+  return [...new Set(values)].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).slice(0, 250);
+}
+function ConditionGroup({ group, fields, rows, onChange, depth = 0 }) {
+  const updateChild = (index, child) => onChange({ ...group, children: group.children.map((item, itemIndex) => itemIndex === index ? child : item) });
+  return <div className={`condition-group depth-${Math.min(depth, 2)}`}>
+    <div className="condition-group-head"><strong>WHERE group</strong><select value={group.logic} onChange={event => onChange({ ...group, logic: event.target.value })}><option>AND</option><option>OR</option></select></div>
+    {group.children.map((child, index) => child.kind === "group"
+      ? <div className="condition-child" key={child.id}><ConditionGroup group={child} fields={fields} rows={rows} depth={depth + 1} onChange={value => updateChild(index, value)} /><button className="condition-remove" onClick={() => onChange({ ...group, children: group.children.filter((_, itemIndex) => itemIndex !== index) })}>Remove group</button></div>
+      : (() => { const selectedField = fields.find(item => item.id === child.field); const fieldType = String(selectedField?.type || "text").toLowerCase(); const availableValues = fieldType === "boolean" ? ["true", "false"] : conditionFieldValues(selectedField, rows); const multiValue = ["in", "not_in"].includes(child.operator); const noValue = ["is_blank", "is_not_blank", "today", "yesterday"].includes(child.operator); const isDate = fieldType === "date"; const isDateTime = fieldType === "datetime" || fieldType === "date & time"; const isNumber = ["number", "currency", "decimal", "integer", "percentage"].includes(fieldType); const isBoolean = fieldType === "boolean"; const isFreeTextOperator = ["contains", "not_contains", "starts_with", "ends_with"].includes(child.operator); const inputType = child.operator === "last_x_days" || isNumber ? "number" : isDate ? "date" : isDateTime ? "datetime-local" : fieldType === "email" ? "email" : fieldType === "phone" ? "tel" : "text"; const listId = `condition-values-${String(child.id).replace(/[^a-z0-9_-]/gi, "")}`; return <div className="condition-row" key={child.id}>
+          <select value={child.field} onChange={event => { const field = fields.find(item => item.id === event.target.value); const operator = conditionOperators(field?.type)[0][0]; updateChild(index, { ...child, field: event.target.value, operator, value: ["in", "not_in"].includes(operator) ? [] : "" }); }}><option value="">Field</option>{fields.map(field => <option value={field.id} key={field.id}>{field.label}</option>)}</select>
+          <select value={child.operator} onChange={event => { const operator = event.target.value; updateChild(index, { ...child, operator, value: ["in", "not_in"].includes(operator) ? (Array.isArray(child.value) ? child.value : child.value ? [child.value] : []) : (Array.isArray(child.value) ? child.value[0] || "" : child.value) }); }}>{conditionOperators(fields.find(item => item.id === child.field)?.type).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>
+          {!noValue && multiValue && <ConditionMultiSelect values={availableValues} selected={child.value} onChange={selected => updateChild(index, { ...child, value: selected })} label={selectedField?.label || "condition"} />}
+          {!noValue && !multiValue && isBoolean && <select value={child.value ?? ""} onChange={event => updateChild(index, { ...child, value: event.target.value })}><option value="">Select value</option><option value="true">True</option><option value="false">False</option></select>}
+          {!noValue && !multiValue && !isBoolean && !isDate && !isDateTime && !isNumber && !isFreeTextOperator && availableValues.length > 0 && <select value={child.value ?? ""} onChange={event => updateChild(index, { ...child, value: event.target.value })}><option value="">Select value</option>{availableValues.map(value => <option value={value} key={value}>{value}</option>)}</select>}
+          {!noValue && !multiValue && !isBoolean && (isDate || isDateTime || isNumber || isFreeTextOperator || !availableValues.length) && <><input type={inputType} step={isNumber || isDateTime ? "any" : undefined} min={child.operator === "last_x_days" ? "0" : undefined} list={availableValues.length && (isNumber || isFreeTextOperator) ? listId : undefined} value={child.value ?? ""} onChange={event => updateChild(index, { ...child, value: event.target.value })} placeholder={child.operator === "last_x_days" ? "Number of days" : isDate ? "Select date" : isDateTime ? "Select date and time" : "Value"} />{availableValues.length && (isNumber || isFreeTextOperator) ? <datalist id={listId}>{availableValues.map(value => <option value={value} key={value} />)}</datalist> : null}</>}
+          <button title="Remove condition" onClick={() => onChange({ ...group, children: group.children.filter((_, itemIndex) => itemIndex !== index) })}><X size={14} /></button>
+        </div>; })())}
+    <div className="condition-actions"><button onClick={() => onChange({ ...group, children: [...group.children, makeCondition()] })}><Plus size={12} />Add condition</button><button onClick={() => onChange({ ...group, children: [...group.children, makeGroup("AND")] })}><Plus size={12} />Add group</button></div>
+  </div>;
+}
+
+function CalculatedFieldEditor({ value, onChange, fields, existing, rows, onCancel, onSave }) {
+  const isEditing = Boolean(value.id);
+  const [result, setResult] = useState(null); const [message, setMessage] = useState(null);
+  const [measureFieldSearch, setMeasureFieldSearch] = useState(() => fields.find(field => field.id === value.aggregationField)?.label || "");
+  const [measureFieldSuggestionsOpen, setMeasureFieldSuggestionsOpen] = useState(false);
+  const textareaRef = useRef(null); const formula = value.formula || "";
+  const measureFunctions = ["SUM", "AVERAGE", "MIN", "MAX", "COUNT", "COUNTA", "DISTINCTCOUNT"];
+  const measureFieldOptions = ["SUM", "AVERAGE", "MIN", "MAX"].includes(value.aggregationFunction) ? fields.filter(field => ["number", "currency", "decimal", "integer", "percentage"].includes(String(field.type).toLowerCase())) : fields;
+  const validation = useMemo(() => validateFormula(formula, { fields, calculatedFields: existing, calculationType: value.calculationType }), [formula, fields, existing, value.calculationType]);
+  const insert = textValue => {
+    const element = textareaRef.current; const start = element?.selectionStart ?? formula.length; const end = element?.selectionEnd ?? formula.length;
+    onChange({ ...value, formula: `${formula.slice(0, start)}${textValue}${formula.slice(end)}` });
+    requestAnimationFrame(() => { element?.focus(); element?.setSelectionRange(start + textValue.length, start + textValue.length); });
+  };
+  const test = () => {
+    if (!validation.valid) { setMessage({ ok: false, text: validation.errors[0] }); return; }
+    try {
+      const calculatedFields = [...existing, { ...value, id: value.id || "__preview" }];
+      const answer = evaluateFormula(formula, { record: rows[0], rows: value.calculationType === "measure" ? rows : rows.slice(0, 1), fields, calculatedFields, getFieldValue: leadFieldValue, stack: [value.id || "__preview"] });
+      setResult({ answer, records: value.calculationType === "measure" ? rows.length : Math.min(rows.length, 1) }); setMessage({ ok: true, text: "Formula is valid." });
+    } catch (error) { setMessage({ ok: false, text: error.message }); }
+  };
+  const applyWhere = () => {
+    const expression = conditionExpression(value.conditions, fields); if (!expression || expression === "()") return;
+    onChange({ ...value, formula: value.calculationType === "measure" ? `CALCULATE(\n  ${formula || "SUM([Lead Score])"},\n  ${expression}\n)` : `IF(\n  ${expression},\n  ${formula || "0"},\n  0\n)` });
+  };
+  useEffect(() => {
+    if (value.calculationType !== "measure" || value.formulaMode === "manual" || !value.aggregationFunction || !value.aggregationField) return;
+    const field = fields.find(item => item.id === value.aggregationField);
+    if (!field) return;
+    const base = `${value.aggregationFunction}([${field.label}])`;
+    const where = conditionExpression(value.conditions, fields);
+    const filtered = where && where !== "()" ? `CALCULATE(\n    ${base},\n    ${where}\n  )` : base;
+    const nextFormula = value.outputType === "Percentage" && where && where !== "()"
+      ? `DIVIDE(\n  ${filtered},\n  ${base},\n  0\n)`
+      : filtered.replace(/^CALCULATE\(\n    /, "CALCULATE(\n  ").replace(/,\n    /g, ",\n  ").replace(/\n  \)$/, "\n)");
+    if (nextFormula !== value.formula) onChange(current => ({ ...current, formula: nextFormula }));
+  }, [value.calculationType, value.formulaMode, value.aggregationFunction, value.aggregationField, value.conditions, value.outputType, value.formula, fields, onChange]);
+  const prefix = formula.slice(0, textareaRef.current?.selectionStart ?? formula.length).match(/([A-Za-z_]*)$/)?.[1]?.toUpperCase();
+  const suggestions = prefix ? CALCULATION_FUNCTIONS.filter(item => item.name.startsWith(prefix)).slice(0, 5) : [];
+  const measureFieldSuggestions = measureFieldOptions.filter(field => `${field.label} ${field.type}`.toLocaleLowerCase().includes(measureFieldSearch.trim().toLocaleLowerCase())).slice(0, 12);
+  return <div className="calculated-modal calculation-engine-modal" onMouseDown={event => event.stopPropagation()}>
+    <div className="calculated-head"><div><Calculator size={18} /><span><strong>{isEditing ? "Edit calculation" : "Create calculation"}</strong><small>Secure row formulas and filter-aware measures</small></span></div><button onClick={onCancel}><X size={17} /></button></div>
+    <div className="calculation-basics"><label>Field name<input value={value.name} onChange={event => onChange({ ...value, name: event.target.value })} placeholder="e.g. Won revenue" /></label><label>Calculation type<select value={value.calculationType} onChange={event => onChange({ ...value, calculationType: event.target.value })}><option value="row">Row-level calculated field</option><option value="measure">Measure</option></select></label><label>Output data type<select value={value.outputType} onChange={event => onChange({ ...value, outputType: event.target.value })}>{OUTPUT_TYPES.map(type => <option key={type}>{type}</option>)}</select></label></div>
+    <div className="calculation-workspace">
+      <div className="formula-main">
+        {value.calculationType === "measure" && <section className="measure-builder"><div><strong>Measure calculation</strong><small>Select the aggregation and search for a field. The formula is generated automatically.</small></div><div className="measure-builder-controls"><label>Aggregation<select value={value.aggregationFunction || ""} onChange={event => { const aggregationFunction = event.target.value; const currentFieldAllowed = !["SUM", "AVERAGE", "MIN", "MAX"].includes(aggregationFunction) || fields.find(field => field.id === value.aggregationField && ["number", "currency", "decimal", "integer", "percentage"].includes(String(field.type).toLowerCase())); if (!currentFieldAllowed) setMeasureFieldSearch(""); onChange({ ...value, aggregationFunction, aggregationField: currentFieldAllowed ? value.aggregationField : "" }); }}><option value="">Select calculation</option>{measureFunctions.map(name => <option key={name} value={name}>{CALCULATION_FUNCTIONS.find(item => item.name === name)?.signature || name}</option>)}</select></label><label>Field<div className={`measure-field-combobox ${!value.aggregationFunction ? "disabled" : ""}`}><Search size={13} /><input disabled={!value.aggregationFunction} value={measureFieldSearch} onFocus={() => setMeasureFieldSuggestionsOpen(true)} onBlur={() => window.setTimeout(() => setMeasureFieldSuggestionsOpen(false), 120)} onChange={event => { setMeasureFieldSearch(event.target.value); setMeasureFieldSuggestionsOpen(true); if (value.aggregationField) onChange({ ...value, aggregationField: "" }); }} placeholder="Search and select a field..." role="combobox" aria-expanded={measureFieldSuggestionsOpen} />{measureFieldSearch && <button type="button" onMouseDown={event => event.preventDefault()} onClick={() => { setMeasureFieldSearch(""); onChange({ ...value, aggregationField: "" }); }} aria-label="Clear selected field"><X size={12} /></button>}{measureFieldSuggestionsOpen && value.aggregationFunction && <div className="measure-field-suggestions">{measureFieldSuggestions.length ? measureFieldSuggestions.map(field => <button type="button" key={field.id} onMouseDown={event => event.preventDefault()} onClick={() => { setMeasureFieldSearch(field.label); setMeasureFieldSuggestionsOpen(false); onChange({ ...value, aggregationField: field.id }); }}><span>{field.label}</span><small>{field.type}</small></button>) : <p>No matching fields</p>}</div>}</div></label></div></section>}
+        <section className="where-builder"><div className="where-builder-title"><div><strong>Visual WHERE conditions</strong><small>Conditions narrow the current authorized report context.</small></div>{value.calculationType !== "measure" && <button onClick={applyWhere}>Apply to formula</button>}</div><ConditionGroup group={value.conditions} fields={fields} rows={rows} onChange={conditions => onChange({ ...value, conditions })} /></section>
+        <div className="formula-editor-heading"><strong>Formula</strong>{value.calculationType === "measure" && <div className="formula-mode-toggle"><button type="button" className={(value.formulaMode || "auto") === "auto" ? "active" : ""} onClick={() => onChange({ ...value, formulaMode: "auto" })}>Selection builder</button><button type="button" className={value.formulaMode === "manual" ? "active" : ""} onClick={() => onChange({ ...value, formulaMode: "manual" })}>Advanced formula</button></div>}</div>
+        <label className="formula-editor-label">{value.calculationType === "measure" && <small className="generated-formula-note">{value.formulaMode === "manual" ? "Editable · supports multiple and nested calculations" : "Automatically generated from the selections above"}</small>}<textarea ref={textareaRef} readOnly={value.calculationType === "measure" && value.formulaMode !== "manual"} spellCheck="false" value={formula} onChange={event => { onChange({ ...value, formula: event.target.value }); setMessage(null); setResult(null); }} placeholder={value.calculationType === "measure" ? "Select an aggregation and field, or switch to Advanced formula" : 'IF([Lead Score] >= 80, "Hot", "Normal")'} /></label>
+        {suggestions.length > 0 && <div className="formula-suggestions">{suggestions.map(item => <button key={item.name} onClick={() => insert(`${item.signature.slice(prefix.length)}`)}><strong>{item.name}</strong><span>{item.signature}</span></button>)}</div>}
+        <div className="editor-actions"><button onClick={() => { setMessage(validation.valid ? { ok: true, text: "Formula is valid." } : { ok: false, text: validation.errors[0] }); }}>Validate formula</button><button onClick={test}>Test formula</button></div>
+        {message && <div className={`formula-message ${message.ok ? "success" : "error"}`}>{message.ok ? <Check size={14} /> : <X size={14} />}{message.text}</div>}
+        {result && <div className="formula-preview"><span>Preview result</span><strong>{result.answer instanceof Date ? result.answer.toLocaleString("en-IN") : formatReportValue(result.answer, { outputType: value.outputType })}</strong><small>Records evaluated: {result.records.toLocaleString()}</small></div>}
+      </div>
+    </div>
+    <div className="calculated-footer"><button className="secondary" onClick={onCancel}>Cancel</button><button className="primary" disabled={!value.name.trim() || !validation.valid} onClick={() => onSave(validation)}>{isEditing ? "Save changes" : "Create calculation"}</button></div>
+  </div>;
+}
+
 export default function ReportBuilder({ data, leads = [], leadFields = [], onModeChange, createNewSignal, returnTo }) {
   const { selectedUnit } = useBusinessUnit();
   const navigate = useNavigate();
+  const [reportSources, setReportSources] = useState([]);
+  const [activeSourceId, setActiveSourceId] = useState("leads");
+  const [sourceRows, setSourceRows] = useState([]);
+  const [sourceFields, setSourceFields] = useState([]);
+  const [sourceLoading, setSourceLoading] = useState(false);
+  const [sourceNameDraft, setSourceNameDraft] = useState("");
+  const [sourceDisplayNameDraft, setSourceDisplayNameDraft] = useState("");
+  const [sourceMessage, setSourceMessage] = useState("");
+  const reportRows = activeSourceId === "leads" ? leads : sourceRows;
   const configuredFields = useMemo(() => {
+    if (activeSourceId !== "leads") return [...new Map(sourceFields.map(field => [field.id, { ...field }])).values()];
     const configured = leadFields.map(field => ({
       id: canonicalReportFieldId(field.fieldKey),
       label: field.displayName,
@@ -747,14 +1018,14 @@ export default function ReportBuilder({ data, leads = [], leadFields = [], onMod
     const catalog = uniqueReportFields([...uniqueConfigured, ...application]);
     const catalogIds = new Set(catalog.map(field => canonicalReportFieldId(field.id)));
     const ignored = new Set(["marketingDeliveries", "marketingDeliveryPairs"]);
-    const generated = Object.keys(leads[0] || {}).filter(key => !catalogIds.has(canonicalReportFieldId(key)) && !ignored.has(key) && typeof leads[0]?.[key] !== "object").map(key => ({
+    const generated = Object.keys(reportRows[0] || {}).filter(key => !catalogIds.has(canonicalReportFieldId(key)) && !ignored.has(key) && typeof reportRows[0]?.[key] !== "object").map(key => ({
       id: canonicalReportFieldId(key),
       label: key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/_/g, " ").replace(/\b\w/g, letter => letter.toUpperCase()),
-      type: typeof leads[0]?.[key] === "number" ? "number" : /(?:At|Date)$/i.test(key) ? "date" : "text",
+      type: typeof reportRows[0]?.[key] === "number" ? "number" : /(?:At|Date)$/i.test(key) ? "date" : "text",
     }));
     return uniqueReportFields([...catalog, ...generated]);
-  }, [leadFields, leads]);
-  const defaultReport = { type: "", title: "Untitled report", description: "", dateRange: "All time", dateField: "addedAt", dateFrom: "", dateTo: "", stages: [], filters: [], rows: [], columns: [], values: [], dateGroups: {}, calculatedFields: [], fieldCatalog: configuredFields, cardColumns: 4, showLabels: true, showLegend: true, showRowTotals: true, showColumnTotals: false };
+  }, [leadFields, reportRows, sourceFields, activeSourceId]);
+  const defaultReport = { type: "", title: "Untitled report", description: "", dataSourceId: "leads", dateRange: "All time", dateField: "addedAt", dateFrom: "", dateTo: "", stages: [], filters: [], rows: [], columns: [], values: [], dateGroups: {}, calculatedFields: [], fieldCatalog: configuredFields, cardColumns: 4, showLabels: true, showLegend: true, showRowTotals: true, showColumnTotals: false };
   const [report, setReport] = useState(defaultReport);
   const [saved, setSaved] = useState(() => readSavedReports(selectedUnit.id));
   const [notice, setNotice] = useState("");
@@ -764,7 +1035,10 @@ export default function ReportBuilder({ data, leads = [], leadFields = [], onMod
   const [filterSearch, setFilterSearch] = useState("");
   const filterPickerRef = useRef(null);
   const [calculatedOpen, setCalculatedOpen] = useState(false);
-  const [calculated, setCalculated] = useState({ name: "", formula: "" });
+  const emptyCalculation = () => ({ name: "", formula: "", formulaMode: "auto", calculationType: "row", outputType: "Number", conditions: makeGroup("AND") });
+  const [calculated, setCalculated] = useState(emptyCalculation);
+  const [renamingValueIndex, setRenamingValueIndex] = useState(null);
+  const [valueAliasDraft, setValueAliasDraft] = useState("");
   const [generatedReport, setGeneratedReport] = useState(null);
   const [generatedData, setGeneratedData] = useState(null);
   const [generating, setGenerating] = useState(false);
@@ -776,6 +1050,42 @@ export default function ReportBuilder({ data, leads = [], leadFields = [], onMod
   const [visibilityUserIds, setVisibilityUserIds] = useState([]);
   const [visibilityUsers, setVisibilityUsers] = useState([]);
   const [pendingSaveItem, setPendingSaveItem] = useState(null);
+  const loadReportSource = async sourceId => {
+    if (String(sourceId) === "leads") { setActiveSourceId("leads"); setSourceRows([]); setSourceFields([]); return; }
+    setSourceLoading(true); setSourceMessage("");
+    try {
+      const result = await api(`/report-data-sources/${Number(sourceId)}/rows?limit=5000`);
+      setSourceRows(result.data || []); setSourceFields(result.fields || []); setActiveSourceId(String(sourceId));
+      if (result.truncated) setSourceMessage(`Showing the first ${result.limit.toLocaleString()} rows.`);
+    } catch (error) { setSourceMessage(error.message); }
+    finally { setSourceLoading(false); }
+  };
+  useEffect(() => {
+    if (!selectedUnit?.id) return;
+    api("/report-data-sources").then(result => setReportSources(result.data || [])).catch(error => setSourceMessage(error.message));
+  }, [selectedUnit?.id]);
+  useEffect(() => {
+    const requested = String(report.dataSourceId || "leads");
+    if (requested !== activeSourceId) loadReportSource(requested);
+  }, [report.dataSourceId]);
+  const chooseReportSource = sourceId => {
+    const nextId = String(sourceId || "leads");
+    setReport(current => ({ ...current, dataSourceId: nextId, rows: [], columns: [], values: [], filters: [], dateField: nextId === "leads" ? "addedAt" : "", fieldCatalog: [] }));
+    setGeneratedReport(null); setGeneratedData(null);
+  };
+  const registerReportSource = async () => {
+    if (!sourceNameDraft.trim()) return;
+    setSourceLoading(true); setSourceMessage("");
+    try {
+      await api.post("/report-data-sources", { sourceName: sourceNameDraft.trim(), displayName: sourceDisplayNameDraft.trim() });
+      const result = await api("/report-data-sources");
+      setReportSources(result.data || []);
+      const created = (result.data || []).find(source => source.sourceName.toLocaleLowerCase() === sourceNameDraft.trim().toLocaleLowerCase());
+      setSourceNameDraft(""); setSourceDisplayNameDraft(""); setSourceMessage("Report source saved for future use.");
+      if (created) chooseReportSource(created.id);
+    } catch (error) { setSourceMessage(error.message); }
+    finally { setSourceLoading(false); }
+  };
   useEffect(() => { onModeChange?.(viewMode === "builder"); }, [onModeChange, viewMode]);
   useEffect(() => {
     let ignore = false;
@@ -872,7 +1182,7 @@ export default function ReportBuilder({ data, leads = [], leadFields = [], onMod
   const editSavedReport = item => {
     setReport(item);
     setGeneratedReport(item);
-    setGeneratedData(buildLiveReportData(item, leads));
+    setGeneratedData(buildLiveReportData(item, reportRows));
     setViewMode("builder");
   };
   const deleteSavedReport = item => {
@@ -895,11 +1205,24 @@ export default function ReportBuilder({ data, leads = [], leadFields = [], onMod
     writeSavedReports(selectedUnit.id, next);
     setSaved(next);
   };
-  const fieldLabel = id => [...configuredFields, ...(report.calculatedFields || []).map(item => ({ id: item.id, label: item.name }))].find(field => field.id === canonicalReportFieldId(id))?.label || id;
+  const reportFieldId = id => activeSourceId === "leads" ? canonicalReportFieldId(id) : id;
+  const fieldLabel = id => [...configuredFields, ...(report.calculatedFields || []).map(item => ({ id: item.id, label: item.name }))].find(field => field.id === reportFieldId(id))?.label || id;
+  const defaultValueOutputType = (fieldId, aggregation = "Count") => {
+    if (["Count", "Distinct count"].includes(aggregation)) return "Integer";
+    if (aggregation === "Percentage") return "Percentage";
+    const calculatedField = (report.calculatedFields || []).find(item => item.id === fieldId);
+    if (calculatedField?.outputType) return calculatedField.outputType;
+    const type = String(configuredFields.find(item => item.id === reportFieldId(fieldId))?.type || "number").toLowerCase();
+    if (type === "boolean") return "Boolean";
+    if (type === "date") return "Date";
+    if (["datetime", "date & time"].includes(type)) return "Date & Time";
+    if (["text", "email", "phone", "select", "lookup"].includes(type) && !["Sum", "Average"].includes(aggregation)) return "Text";
+    return "Number";
+  };
   const addField = (shelf, field) => {
     if (!field) return;
-    field = canonicalReportFieldId(field);
-    if (shelf === "values") patch({ values: [...(report.values || []), { field, aggregation: "Count" }] });
+    field = reportFieldId(field);
+    if (shelf === "values") patch({ values: [...(report.values || []), { field, aggregation: "Count", outputType: defaultValueOutputType(field, "Count") }] });
     else if (!(report[shelf] || []).includes(field)) patch({ [shelf]: [...(report[shelf] || []), field] });
     setFieldPicker(""); setFieldSearch("");
   };
@@ -935,15 +1258,52 @@ export default function ReportBuilder({ data, leads = [], leadFields = [], onMod
     moveField(shelf, draggedField.index, toIndex);
     setDraggedField(null);
   };
-  const saveCalculated = () => {
+  const saveCalculated = validation => {
     if (!calculated.name.trim() || !calculated.formula.trim()) return;
-    const field = { id: `calc_${Date.now()}`, name: calculated.name.trim(), formula: calculated.formula.trim() };
-    patch({ calculatedFields: [...(report.calculatedFields || []), field], values: [...(report.values || []), { field: field.id, aggregation: "Sum" }] });
-    setCalculated({ name: "", formula: "" }); setCalculatedOpen(false);
+    const field = { ...calculated, id: calculated.id || `calc_${Date.now()}`, name: calculated.name.trim(), formula: calculated.formula.trim(), dependencies: validation.dependencies };
+    const cycle = detectCircularDependency(field, report.calculatedFields || []);
+    if (cycle) { setNotice(`Circular dependency detected: ${cycle.join(" → ")}`); return; }
+    const isEditing = (report.calculatedFields || []).some(item => item.id === field.id);
+    const calculatedFields = isEditing
+      ? (report.calculatedFields || []).map(item => item.id === field.id ? field : item)
+      : [...(report.calculatedFields || []), field];
+    const values = isEditing
+      ? (report.values || []).map(item => item.field === field.id ? { ...item, aggregation: field.calculationType === "measure" ? "Measure" : (item.aggregation === "Measure" ? "Sum" : item.aggregation), outputType: item.outputTypeCustomized ? item.outputType : field.outputType || item.outputType || "Number" } : item)
+      : [...(report.values || []), { field: field.id, aggregation: field.calculationType === "measure" ? "Measure" : "Sum", outputType: field.outputType || "Number", outputTypeCustomized: false }];
+    patch({ calculatedFields, values });
+    setCalculated(emptyCalculation()); setCalculatedOpen(false);
+  };
+  const editCalculatedField = fieldId => {
+    const field = (report.calculatedFields || []).find(item => item.id === fieldId);
+    if (!field) return;
+    const inferredMeasure = String(field.formula || "").match(/(?:CALCULATE\s*\(\s*)?(SUM|AVERAGE|MIN|MAX|COUNT|COUNTA|DISTINCTCOUNT)\s*\(\s*\[([^\]]+)\]/i);
+    const inferredField = inferredMeasure ? configuredFields.find(item => item.label.toLocaleLowerCase() === inferredMeasure[2].trim().toLocaleLowerCase() || item.id.toLocaleLowerCase() === inferredMeasure[2].trim().toLocaleLowerCase()) : null;
+    setCalculated({
+      ...field,
+      calculationType: field.calculationType || "row",
+      outputType: field.outputType || "Number",
+      formulaMode: field.formulaMode || (field.aggregationFunction || field.conditions?.kind === "group" ? "auto" : "manual"),
+      aggregationFunction: field.aggregationFunction || inferredMeasure?.[1]?.toUpperCase() || "",
+      aggregationField: field.aggregationField || inferredField?.id || "",
+      conditions: field.conditions?.kind === "group" ? structuredClone(field.conditions) : makeGroup("AND"),
+    });
+    setCalculatedOpen(true);
+  };
+  const beginValueRename = (index, item) => {
+    setRenamingValueIndex(index);
+    setValueAliasDraft(item.label || fieldLabel(item.field));
+  };
+  const finishValueRename = (index, saveAlias = true) => {
+    if (saveAlias) {
+      const alias = valueAliasDraft.trim();
+      patch({ values: (report.values || []).map((item, itemIndex) => itemIndex === index ? { ...item, label: alias || undefined } : item) });
+    }
+    setRenamingValueIndex(null);
+    setValueAliasDraft("");
   };
   const addFilter = field => {
-    field = canonicalReportFieldId(field);
-    const definition = configuredFields.find(item => item.id === canonicalReportFieldId(field));
+    field = reportFieldId(field);
+    const definition = configuredFields.find(item => item.id === reportFieldId(field));
     patch({ filters: [...(report.filters || []), { id: `${Date.now()}`, field, operator: "equals", value: [], type: definition?.type || "text" }] });
     setFilterPickerOpen(false); setFilterSearch("");
   };
@@ -953,18 +1313,19 @@ export default function ReportBuilder({ data, leads = [], leadFields = [], onMod
     window.setTimeout(() => {
       const snapshot = JSON.parse(JSON.stringify(report));
       if (!snapshot.type) snapshot.type = "table";
+      snapshot.fieldCatalog = configuredFields;
       snapshot.generatedAt = new Date().toISOString();
       setGeneratedReport(snapshot);
-      const filteredLeads = filterReportLeads(leads, snapshot);
-      setGeneratedData(leads.length ? buildPivotData(filteredLeads, snapshot) : data);
+      const filteredLeads = filterReportLeads(reportRows, snapshot);
+      setGeneratedData(reportRows.length ? buildPivotData(filteredLeads, snapshot) : data);
       setGenerating(false);
-      setNotice(`Report generated from ${filteredLeads.length.toLocaleString()} leads`);
+      setNotice(`Report generated from ${filteredLeads.length.toLocaleString()} records`);
       setTimeout(() => setNotice(""), 2600);
     }, 180);
   };
   const liveSavedReports = saved
     .filter(item => `${item.title || ""} ${item.description || ""}`.toLowerCase().includes(reportSearch.toLowerCase().trim()))
-    .map(item => ({ ...item, liveData: buildLiveReportData(item, leads) }));
+    .map(item => ({ ...item, liveData: String(item.dataSourceId || "leads") === activeSourceId ? buildLiveReportData(item, reportRows) : item.generatedData }));
   if (viewMode === "list") return <section className="reports-home">
     <div className="reports-home-head">
       <label className="report-search"><Search size={15} /><input value={reportSearch} onChange={event => setReportSearch(event.target.value)} placeholder="Search reports..." /></label>
@@ -1012,24 +1373,34 @@ export default function ReportBuilder({ data, leads = [], leadFields = [], onMod
       <article className="report-preview panel">{generatedReport && generatedData ? <><div className="preview-heading"><div><h2>{generatedReport.title || "Untitled report"}</h2><p>{generatedReport.description}</p></div><span>Generated preview · {generatedReport.dateRange}</span></div><ReportVisual report={generatedReport} data={generatedData} /></> : selectedType ? <div className="blank-report-preview chart-type-preview"><div className="sample-preview-heading"><SelectedPreviewIcon size={18} /><span><strong>{selectedType.label} preview</strong><small>Sample view only. Add fields and click Generate report to see live data.</small></span></div><ReportVisual report={previewReport} data={SAMPLE_REPORT_DATA} compact={false} /></div> : <div className="blank-report-preview"><BarChart3 /><h3>Start creating your pivot report</h3><p>Select a chart type, add fields to Rows and Values, then click <strong>Generate report</strong>.</p></div>}</article>
     </section>
     <aside className="report-settings"><div className="settings-title"><Filter size={17} /><strong>Options & filters</strong></div>
+      <section className="report-data-source-panel">
+        <div className="report-source-title"><Database size={14} /><span><strong>Data source</strong><small>Approved database tables and views</small></span></div>
+        <label>Active source<div className="report-source-select"><Table2 size={13} /><select value={String(report.dataSourceId || "leads")} onChange={event => chooseReportSource(event.target.value)}><option value="leads">CRM Leads (default)</option>{reportSources.map(source => <option key={source.id} value={source.id}>{source.displayName} · {source.sourceType.toLowerCase()}</option>)}</select><button type="button" disabled={sourceLoading || activeSourceId === "leads"} onClick={() => loadReportSource(activeSourceId)} title="Refresh source rows"><RefreshCw size={12} /></button></div></label>
+        <div className="report-source-add"><label>Table or view<input list="report-source-suggestions" value={sourceNameDraft} onChange={event => setSourceNameDraft(event.target.value)} placeholder="e.g. reporting_admissions" /></label><datalist id="report-source-suggestions">{reportSources.map(source => <option key={source.id} value={source.sourceName}>{source.displayName}</option>)}</datalist><label>Display name<input value={sourceDisplayNameDraft} onChange={event => setSourceDisplayNameDraft(event.target.value)} placeholder="Optional label" /></label><button type="button" disabled={!sourceNameDraft.trim() || sourceLoading} onClick={registerReportSource}><Plus size={12} />Add source</button></div>
+        <p className={sourceMessage && !sourceMessage.includes("saved") && !sourceMessage.includes("Showing") ? "error" : ""}>{sourceLoading ? "Loading source…" : sourceMessage || `${configuredFields.length.toLocaleString()} fields available`}</p>
+      </section>
       <div className="pivot-shelves settings-pivot-shelves">
         {["rows", "columns", "values"].map(shelf => <div className="pivot-shelf" key={shelf}>
           <label>{shelf === "values" ? "Values / Measures" : shelf}</label>
           <div className="shelf-box">
             {(report[shelf] || []).map((item, index) => {
               const field = shelf === "values" ? item.field : item;
-              const definition = configuredFields.find(candidate => candidate.id === canonicalReportFieldId(field));
+              const definition = configuredFields.find(candidate => candidate.id === reportFieldId(field));
+              const calculatedDefinition = (report.calculatedFields || []).find(candidate => candidate.id === field);
               const isDateDimension = shelf !== "values" && ["date", "datetime"].includes(definition?.type);
-              return <div className={`field-chip ${draggedField?.shelf === shelf && draggedField.index === index ? "dragging" : ""}`} key={`${field}-${index}`} draggable onDragStart={() => setDraggedField({ shelf, index })} onDragOver={event => event.preventDefault()} onDrop={() => dropField(shelf, index)} onDragEnd={() => setDraggedField(null)}><GripVertical className="field-drag-handle" size={13} /><span>{fieldLabel(field)}</span>
-                {shelf === "values" && <select value={item.aggregation} onChange={event => patch({ values: report.values.map((value, valueIndex) => valueIndex === index ? { ...value, aggregation: event.target.value } : value) })}>{AGGREGATIONS.map(option => <option key={option}>{option}</option>)}</select>}
+              return <div className={`field-chip ${shelf === "values" ? "value-field-chip" : ""} ${draggedField?.shelf === shelf && draggedField.index === index ? "dragging" : ""}`} key={`${field}-${index}`} draggable={renamingValueIndex !== index} onDragStart={() => setDraggedField({ shelf, index })} onDragOver={event => event.preventDefault()} onDrop={() => dropField(shelf, index)} onDragEnd={() => setDraggedField(null)}><GripVertical className="field-drag-handle" size={13} />{shelf === "values" && renamingValueIndex === index ? <input className="value-alias-input" autoFocus value={valueAliasDraft} onChange={event => setValueAliasDraft(event.target.value)} onBlur={() => finishValueRename(index)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } if (event.key === "Escape") { event.preventDefault(); setValueAliasDraft(item.label || fieldLabel(field)); event.currentTarget.blur(); } }} aria-label={`Report label for ${fieldLabel(field)}`} /> : <span title={shelf === "values" && item.label ? `Source field: ${fieldLabel(field)}` : undefined}>{shelf === "values" ? item.label || fieldLabel(field) : fieldLabel(field)}</span>}
+                {shelf === "values" && <select className="value-aggregation-select" value={item.aggregation} disabled={(report.calculatedFields || []).some(field => field.id === item.field && field.calculationType === "measure")} onChange={event => { const aggregation = event.target.value; patch({ values: report.values.map((value, valueIndex) => valueIndex === index ? { ...value, aggregation, outputType: value.outputTypeCustomized ? value.outputType : defaultValueOutputType(value.field, aggregation) } : value) }); }}>{[...AGGREGATIONS, ...(item.aggregation === "Measure" ? ["Measure"] : [])].map(option => <option key={option}>{option}</option>)}</select>}
+                {shelf === "values" && <select className="value-output-type-select" title="Output data type for this report" aria-label={`Output data type for ${fieldLabel(field)}`} value={item.outputType || defaultValueOutputType(field, item.aggregation)} onChange={event => patch({ values: report.values.map((value, valueIndex) => valueIndex === index ? { ...value, outputType: event.target.value, outputTypeCustomized: true } : value) })}>{OUTPUT_TYPES.map(type => <option key={type}>{type}</option>)}</select>}
                 {isDateDimension && <select className="date-group-select" value={report.dateGroups?.[`${shelf}:${index}`] || "month"} onChange={event => patch({ dateGroups: { ...(report.dateGroups || {}), [`${shelf}:${index}`]: event.target.value } })} aria-label={`Group ${fieldLabel(field)}`}><option value="month">By month</option><option value="date">By date</option></select>}
-                <button className="field-move-btn" disabled={index === 0} onClick={() => moveField(shelf, index, index - 1)} aria-label={`Move ${fieldLabel(field)} up`}><ArrowUp size={11} /></button>
-                <button className="field-move-btn" disabled={index === (report[shelf] || []).length - 1} onClick={() => moveField(shelf, index, index + 1)} aria-label={`Move ${fieldLabel(field)} down`}><ArrowDown size={11} /></button>
-                <button onClick={() => removeField(shelf, index)} aria-label={`Remove ${fieldLabel(field)}`}><X size={12} /></button>
+                {shelf === "values" && renamingValueIndex !== index && <button className="field-alias-btn" onClick={() => beginValueRename(index, item)} title="Rename for this report" aria-label={`Rename ${fieldLabel(field)} for this report`}><Edit3 size={11} /></button>}
+                {calculatedDefinition && <button className="field-edit-btn" onClick={() => editCalculatedField(field)} title={`Edit formula for ${fieldLabel(field)}`} aria-label={`Edit formula for ${fieldLabel(field)}`}><Calculator size={11} /></button>}
+                <button className="field-move-btn move-up" disabled={index === 0} onClick={() => moveField(shelf, index, index - 1)} aria-label={`Move ${fieldLabel(field)} up`}><ArrowUp size={11} /></button>
+                <button className="field-move-btn move-down" disabled={index === (report[shelf] || []).length - 1} onClick={() => moveField(shelf, index, index + 1)} aria-label={`Move ${fieldLabel(field)} down`}><ArrowDown size={11} /></button>
+                <button className="field-remove-btn" onClick={() => removeField(shelf, index)} aria-label={`Remove ${fieldLabel(field)}`}><X size={12} /></button>
               </div>;
             })}
             <button className="add-field" onClick={() => setFieldPicker(fieldPicker === shelf ? "" : shelf)}><Plus size={13} />Add field</button>
-            {shelf === "values" && <button className="calculated-icon-btn" onClick={() => setCalculatedOpen(true)} title="Calculated field" aria-label="Calculated field"><Calculator size={14} /></button>}
+            {shelf === "values" && <button className="calculated-icon-btn" onClick={() => { setCalculated(emptyCalculation()); setCalculatedOpen(true); }} title="Create calculated field" aria-label="Create calculated field"><Calculator size={14} /></button>}
             {fieldPicker === shelf && <div className="field-picker"><div><Search size={13} /><input autoFocus value={fieldSearch} onChange={event => setFieldSearch(event.target.value)} placeholder="Search fields..." /></div>
               <section>{[...configuredFields, ...(report.calculatedFields || []).map(item => ({ id: item.id, label: item.name, type: "calculated" }))].filter(field => field.label.toLowerCase().includes(fieldSearch.toLowerCase())).map(field => <button key={field.id} onClick={() => addField(shelf, field.id)}><span>{field.label}</span><small>{field.type}</small></button>)}</section>
             </div>}
@@ -1045,11 +1416,11 @@ export default function ReportBuilder({ data, leads = [], leadFields = [], onMod
       <ReportDateRange report={report} patch={patch} />
       <div className="dynamic-report-filters"><div className="filter-section-head"><span>Report filters</span><b>{(report.filters || []).length}</b></div>
         {(report.filters || []).map((filter, index) => {
-          const definition = configuredFields.find(field => field.id === canonicalReportFieldId(filter.field)) || { label: filter.field, type: filter.type || "text" };
+          const definition = configuredFields.find(field => field.id === reportFieldId(filter.field)) || { label: filter.field, type: filter.type || "text" };
           const noValue = ["is_blank", "is_not_blank"].includes(filter.operator);
           return <div className="report-filter-card" key={filter.id || `${filter.field}-${index}`}><div><strong>{definition.label}</strong><button onClick={() => patch({ filters: report.filters.filter((_, filterIndex) => filterIndex !== index) })} aria-label={`Remove ${definition.label} filter`}><X size={13} /></button></div>
             <select value={filter.operator} onChange={event => updateFilter(index, { operator: event.target.value })}>{filterOperators(definition.type).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-            {!noValue && <FilterValueSelect field={definition} value={filter.value} leads={leads} onChange={value => updateFilter(index, { value })} />}
+            {!noValue && <FilterValueSelect field={definition} value={filter.value} leads={reportRows} onChange={value => updateFilter(index, { value })} />}
           </div>;
         })}
         <div className="add-filter-wrap" ref={filterPickerRef}><button className="add-report-filter" onClick={() => setFilterPickerOpen(value => !value)}><Plus size={14} />Add filter</button>
@@ -1061,13 +1432,7 @@ export default function ReportBuilder({ data, leads = [], leadFields = [], onMod
       <div className="option-toggle"><span><strong>Column totals</strong><small>Show grand total row on table reports</small></span><button className={report.showColumnTotals ? "on" : ""} onClick={() => patch({ showColumnTotals: !report.showColumnTotals })}><i /></button></div>
       <button className="danger-link" disabled={!report.id} onClick={() => deleteSavedReport(report)}><Trash2 size={15} />Delete saved report</button>
     </aside>
-    {calculatedOpen && <div className="calculated-backdrop" onMouseDown={() => setCalculatedOpen(false)}><div className="calculated-modal" onMouseDown={event => event.stopPropagation()}>
-      <div className="calculated-head"><div><Calculator size={18} /><span><strong>Create calculated field</strong><small>Define a reusable value using report fields</small></span></div><button onClick={() => setCalculatedOpen(false)}><X size={17} /></button></div>
-      <label>Field name<input value={calculated.name} onChange={event => setCalculated(current => ({ ...current, name: event.target.value }))} placeholder="e.g. Conversion rate" /></label>
-      <label>Formula<textarea value={calculated.formula} onChange={event => setCalculated(current => ({ ...current, formula: event.target.value }))} placeholder="e.g. [Admission Done] / [Total Leads] * 100" /></label>
-      <div className="formula-fields"><span>Available fields</span><div>{configuredFields.map(field => <button key={field.id} onClick={() => setCalculated(current => ({ ...current, formula: `${current.formula}${current.formula ? " " : ""}[${field.label}]` }))}>{field.label}</button>)}</div></div>
-      <div className="calculated-footer"><button className="secondary" onClick={() => setCalculatedOpen(false)}>Cancel</button><button className="primary" disabled={!calculated.name.trim() || !calculated.formula.trim()} onClick={saveCalculated}>Create field</button></div>
-    </div></div>}
+    {calculatedOpen && <div className="calculated-backdrop" onMouseDown={() => setCalculatedOpen(false)}><CalculatedFieldEditor value={calculated} onChange={setCalculated} fields={configuredFields} existing={report.calculatedFields || []} rows={filterReportLeads(reportRows, report)} onCancel={() => setCalculatedOpen(false)} onSave={saveCalculated} /></div>}
     {visibilityOpen && <div className="calculated-backdrop" onMouseDown={() => setVisibilityOpen(false)}><div className="calculated-modal report-visibility-modal" onMouseDown={event => event.stopPropagation()}>
       <div className="calculated-head"><div><Filter size={18} /><span><strong>Saved report visibility</strong><small>Select who can view this report in Dashboard Saved Reports</small></span></div><button onClick={() => setVisibilityOpen(false)}><X size={17} /></button></div>
       <div className="visibility-user-list">

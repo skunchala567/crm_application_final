@@ -10,13 +10,13 @@
   margin: 0 0 0.5rem 0;
   font-size: 1.2rem;
   font-weight: 700;
-  color: #0f172a;
+  color: #0d1a15;
 }
 
 .sync-subtitle {
   margin: 0;
   font-size: 0.95rem;
-  color: #64748b;
+  color: #5d7167;
 }
 
 .sync-actions {
@@ -44,25 +44,25 @@
 }
 
 .import-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #12915f 0%, #07603f 100%);
   color: white;
 }
 
 .import-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+  background: linear-gradient(135deg, #07603f 0%, #12915f 100%);
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 6px 20px rgba(18, 145, 95, 0.4);
 }
 
 .export-btn {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  background: linear-gradient(135deg, #0b7a4f 0%, #0b7a4f 100%);
   color: white;
 }
 
 .export-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+  background: linear-gradient(135deg, #0b7a4f 0%, #0b7a4f 100%);
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+  box-shadow: 0 6px 20px rgba(11, 122, 79, 0.4);
 }
 
 .sync-btn:active:not(:disabled) {
@@ -80,7 +80,7 @@
   align-items: center;
   gap: 1.5rem;
   padding: 2rem;
-  background: linear-gradient(135deg, #f0f9ff 0%, #f1f5f9 100%);
+  background: linear-gradient(135deg, #f0f9ff 0%, #f2f7f4 100%);
   border: 2px solid #93c5fd;
   border-radius: 10px;
   margin-bottom: 2rem;
@@ -89,13 +89,13 @@
 .progress-title {
   margin: 0 0 0.5rem 0;
   font-weight: 600;
-  color: #0f172a;
+  color: #0d1a15;
   font-size: 1.05rem;
 }
 
 .progress-subtitle {
   margin: 0;
-  color: #64748b;
+  color: #5d7167;
   font-size: 0.9rem;
 }
 
@@ -104,7 +104,7 @@
   align-items: center;
   gap: 1rem;
   padding: 1.5rem;
-  background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+  background: linear-gradient(135deg, #fdeeed 0%, #fecaca 100%);
   border: 2px solid #fca5a5;
   border-radius: 10px;
   color: #7f1d1d;
@@ -113,7 +113,7 @@
 
 .sync-error svg {
   flex-shrink: 0;
-  color: #dc2626;
+  color: #c33d35;
 }
 
 .sync-error p {
@@ -123,7 +123,7 @@
 }
 
 .retry-link {
-  background: #dc2626;
+  background: #c33d35;
   color: white;
   border: none;
   padding: 0.5rem 1rem;
@@ -136,13 +136,13 @@
 }
 
 .retry-link:hover {
-  background: #b91c1c;
+  background: #a33028;
   transform: translateY(-1px);
 }
 
 .sync-success {
   padding: 2rem;
-  background: linear-gradient(135deg, #f0fdf4 0%, #f1f5f9 100%);
+  background: linear-gradient(135deg, #f0fdf4 0%, #f2f7f4 100%);
   border: 2px solid #86efac;
   border-radius: 10px;
   margin-bottom: 2rem;
@@ -158,7 +158,7 @@
 }
 
 .success-header svg {
-  color: #10b981;
+  color: #0b7a4f;
   flex-shrink: 0;
 }
 
@@ -166,7 +166,7 @@
   margin: 0;
   font-weight: 700;
   font-size: 1.1rem;
-  color: #0f172a;
+  color: #0d1a15;
 }
 
 .sync-stats {
@@ -183,24 +183,24 @@
   padding: 1rem;
   background: white;
   border-radius: 8px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #e4ece8;
   transition: all 0.2s ease;
 }
 
 .stat-item:hover {
-  border-color: #10b981;
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.1);
+  border-color: #0b7a4f;
+  box-shadow: 0 2px 8px rgba(11, 122, 79, 0.1);
 }
 
 .stat-item svg {
-  color: #10b981;
+  color: #0b7a4f;
   flex-shrink: 0;
 }
 
 .stat-label {
   margin: 0;
   font-size: 0.8rem;
-  color: #64748b;
+  color: #5d7167;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   font-weight: 600;
@@ -210,7 +210,7 @@
   margin: 0.25rem 0 0 0;
   font-size: 1.5rem;
   font-weight: 700;
-  color: #0f172a;
+  color: #0d1a15;
 }
 
 .sync-message {
@@ -218,15 +218,15 @@
   padding: 1rem;
   background: white;
   border-radius: 6px;
-  color: #475569;
+  color: #42544b;
   font-size: 0.95rem;
-  border-left: 4px solid #10b981;
+  border-left: 4px solid #0b7a4f;
 }
 
 .sync-close-btn {
   width: 100%;
   padding: 0.875rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #12915f 0%, #07603f 100%);
   color: white;
   border: none;
   border-radius: 8px;
@@ -238,13 +238,13 @@
 }
 
 .sync-close-btn:hover {
-  background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+  background: linear-gradient(135deg, #07603f 0%, #12915f 100%);
   transform: translateY(-2px);
 }
 
 .sync-info {
   padding: 1rem;
-  background: linear-gradient(135deg, #fef3c7 0%, #fef08a 100%);
+  background: linear-gradient(135deg, #fdf4e3 0%, #fef08a 100%);
   border: 1px solid #fde047;
   border-radius: 8px;
   color: #854d0e;

@@ -45,6 +45,10 @@ export function useBusinessUnit(){
 export function BusinessUnitSelector({ compact=false }){
   const {units,selectedId,selectUnit,loading}=useBusinessUnit();
   const selected=units.find(unit=>unit.id===selectedId);
+  // Nothing to choose between: a picker offering one option, or none, is a
+  // control that cannot do anything. Hidden rather than disabled so the
+  // sidebar does not carry a dead row.
+  if(!loading && units.length<=1) return null;
   const Icon=selected?.compatibilityMode==='legacy_school'?GraduationCap:Building2;
   return (
     <label className={`business-unit-selector ${compact?'compact':''}`} title="Active business unit">

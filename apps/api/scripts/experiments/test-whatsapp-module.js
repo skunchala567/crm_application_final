@@ -169,8 +169,7 @@ async function testComponentsWiring() {
   console.log('\n2. Components:');
   const components = [
     'apps/web/src/components/TemplateFormBuilder.jsx',
-    'apps/web/src/components/TemplatePreviewPanel.jsx',
-    'apps/web/src/components/StatusTabs.jsx'
+    'apps/web/src/components/TemplatePreviewPanel.jsx'
   ];
 
   for (const comp of components) {

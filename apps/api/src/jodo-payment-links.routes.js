@@ -18,7 +18,10 @@ function providerError(error){
 async function branchConfig(pool,id){
   const [[branch]]=await pool.execute(`SELECT id,branch_name AS name,jodo_payment_enabled AS enabled,jodo_api_key AS apiKey,jodo_secret_key AS secretKey,jodo_collector_code AS collectorCode FROM branches WHERE id=? AND is_active=1 LIMIT 1`,[id]);
   if(!branch)throw Object.assign(new Error('Active branch not found'),{status:404});
-  if(!branch.enabled||!branch.apiKey||!branch.secretKey)throw Object.assign(new Error('Enable Jodo and configure its API key and secret for this branch'),{status:400});
+  // Capability is now credentials alone: the per-branch enable flag is no
+  // longer editable, so requiring it here would strand every branch that
+  // happened to have it off.
+  if(!branch.apiKey||!branch.secretKey)throw Object.assign(new Error('Configure the Jodo API key and secret for this branch in Business Units > Branches & payments'),{status:400});
   return branch;
 }
 
@@ -38,7 +41,7 @@ export function createJodoPaymentLinkRoutes(pool,authenticate,requireCrmAccess,r
   const router=Router();
   router.use(authenticate,requireCrmAccess,requireUserAdmin);
 
-  router.get('/branches',wrap(async(req,res)=>{const [rows]=await pool.execute(`SELECT id,branch_name AS name,jodo_payment_enabled AS enabled,jodo_collector_code AS collectorCode,(jodo_api_key IS NOT NULL AND jodo_secret_key IS NOT NULL) AS configured FROM branches WHERE is_active=1 ORDER BY branch_name`);res.json({data:rows.map(row=>({...row,enabled:Boolean(row.enabled),configured:Boolean(row.configured)}))});}));
+  router.get('/branches',wrap(async(req,res)=>{const [rows]=await pool.execute(`SELECT id,branch_name AS name,jodo_payment_enabled AS enabled,jodo_collector_code AS collectorCode,(jodo_api_key IS NOT NULL AND jodo_secret_key IS NOT NULL) AS configured FROM branches WHERE is_active=1 ORDER BY branch_name`);res.json({data:rows.map(row=>({...row,configured:Boolean(row.configured),enabled:Boolean(row.configured)}))});}));
 
   router.get('/',wrap(async(req,res)=>{const [rows]=await pool.execute(`SELECT p.id,p.order_id AS orderId,p.redirect_url AS redirectUrl,p.environment,p.payer_name AS payerName,p.payer_phone AS payerPhone,p.payer_email AS payerEmail,p.student_name AS studentName,p.identifier,p.amount,p.status,p.transaction_id AS transactionId,p.expires_at_utc AS expiresAt,p.paid_at_utc AS paidAt,p.settlement_utr AS settlementUtr,p.created_at_utc AS createdAt,p.branch_id AS branchId,b.branch_name AS branchName,p.lead_id AS leadId,l.lead_number AS leadNumber FROM crm_jodo_payment_links p JOIN branches b ON b.id=p.branch_id LEFT JOIN crm_leads l ON l.id=p.lead_id WHERE p.business_unit_id=? ORDER BY p.created_at_utc DESC LIMIT 250`,[req.businessUnit.id]);res.json({data:rows});}));
 

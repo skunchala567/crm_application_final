@@ -1,8 +1,7 @@
 import { Fragment, useEffect, useState } from 'react';
-import { ChevronRight, Download, Eye, FileDown, GitBranch, PhoneCall, RefreshCw, RotateCcw, Search, UserRoundCheck, X, Upload, CheckCircle, AlertCircle, Clock } from 'lucide-react';
+import { ChevronRight, Download, Eye, GitBranch, PhoneCall, RefreshCw, RotateCcw, Search, X, Upload, CheckCircle, AlertCircle, Clock } from 'lucide-react';
 import { api } from '../api';
 import { useBusinessUnit } from '../BusinessUnitContext';
-import { DateRangeFilterControl } from '../FilterWorkspace.jsx';
 import { Button, Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Select, Tabs, TabsList, TabsTrigger, TabsContent, Badge, Skeleton } from './ui';
 import PageContainer from './PageContainer';
 import { cn } from '../lib/utils';
@@ -126,32 +125,12 @@ export default function BulkActionsPageModern() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Page Header */}
-      <div className="bg-white border-b border-border sticky top-0 z-10">
-        <PageContainer className="py-6 flex items-start justify-between gap-6">
-          <div>
-            <h1 className="text-3xl font-bold text-foreground font-display mb-2">Bulk Actions</h1>
-            <p className="text-secondary-600">
-              Manage bulk uploads, operations, and campaigns
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Button onClick={loadData} variant="secondary">
-              <RefreshCw size={16} />
-              <span className="hidden sm:inline ml-2">Refresh</span>
-            </Button>
-            <Button onClick={() => { setSearch(''); setStatusFilter(''); }} variant="secondary">
-              <RotateCcw size={16} />
-              <span className="hidden sm:inline ml-2">Reset</span>
-            </Button>
-          </div>
-        </PageContainer>
-      </div>
-
-      {/* Content */}
+      {/* Content starts directly below the universal bar; page actions moved
+          in beside the tabs. */}
       <PageContainer className="py-8">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3 mb-8">
+          <div className="flex items-center gap-3 mb-8">
+            <TabsList className="grid flex-1 grid-cols-3">
             <TabsTrigger value="uploads">
               <Upload size={18} className="mr-2" />
               <span>Uploads</span>
@@ -173,7 +152,18 @@ export default function BulkActionsPageModern() {
                 {dialerCampaigns.length}
               </span>
             </TabsTrigger>
-          </TabsList>
+            </TabsList>
+            <div className="flex gap-2 flex-shrink-0">
+              <Button onClick={loadData} variant="secondary">
+                <RefreshCw size={16} />
+                <span className="hidden sm:inline ml-2">Refresh</span>
+              </Button>
+              <Button onClick={() => { setSearch(''); setStatusFilter(''); }} variant="secondary">
+                <RotateCcw size={16} />
+                <span className="hidden sm:inline ml-2">Reset</span>
+              </Button>
+            </div>
+          </div>
 
           {/* Search & Filters */}
           <Card className="mb-6">

@@ -37,7 +37,7 @@
 }
 
 .btn-danger {
-  background: #dc2626;
+  background: #c33d35;
   color: white;
   padding: 10px 16px;
   border: none;
@@ -51,7 +51,7 @@
 }
 
 .btn-danger:hover:not(:disabled) {
-  background: #b91c1c;
+  background: #a33028;
 }
 
 .btn-danger:disabled {
@@ -199,15 +199,15 @@
 }
 
 .rejection {
-  border-top: 2px solid #dc2626;
+  border-top: 2px solid #c33d35;
 }
 
 .rejection-reason {
   padding: 12px;
-  background: rgba(220, 38, 38, 0.05);
-  border: 1px solid rgba(220, 38, 38, 0.2);
+  background: rgba(195, 61, 53, 0.05);
+  border: 1px solid rgba(195, 61, 53, 0.2);
   border-radius: 4px;
-  color: #dc2626;
+  color: #c33d35;
   font-size: 13px;
   line-height: 1.5;
 }

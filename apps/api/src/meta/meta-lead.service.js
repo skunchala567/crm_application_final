@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { decryptToken, getMasterKey } from '../integration-hub/crypto-utils.js';
 import { getLead } from './meta-client.js';
+import { recordLeadAttribution } from '../attribution/attribution-contract.js';
 
 /**
  * Turns a Meta leadgen event into a CRM lead.
@@ -507,11 +508,40 @@ export async function importMetaLead(pool, {
         formId: resolvedFormId,
         pageId: resolvedPage?.page_id || pageId,
         adId: adId || payload?.ad_id || null,
+        adgroupId: adgroupId || payload?.adset_id || null,
         campaignMetaId: campaignMetaId || payload?.campaign_id || null,
         isOrganic: payload?.is_organic,
       },
       logger,
     });
+
+    /*
+     * Attribution for a Meta lead.
+     *
+     * There is no click identifier to capture here: these leads are filled in
+     * on Meta's own form inside Facebook or Instagram and never land on our
+     * website, so no fbclid is ever generated. The advertisement is instead
+     * identified by the ids Meta hands us in the webhook, and the lead itself
+     * by leadgen_id -- which is also what the Conversions API expects back
+     * when we report an enrolment, so no personal data needs to be matched.
+     *
+     * Organic page submissions arrive with no ad ids at all; those record as
+     * a touch with origin meta_lead_ads and no platform, which is honest --
+     * the lead came from Meta but no advertisement paid for it.
+     */
+    if (result?.leadId && result.outcome !== 'duplicate') {
+      await recordLeadAttribution(pool, result.leadId, {
+        origin: 'meta_lead_ads',
+        platformCode: 'meta',
+        channelGroup: payload?.is_organic ? 'organic_social' : 'paid_social',
+        platformLeadId: leadgenId,
+        platformAdId: adId || payload?.ad_id || null,
+        platformAdgroupId: adgroupId || payload?.adset_id || null,
+        platformCampaignId: campaignMetaId || payload?.campaign_id || null,
+        campaignName: resolvedForm?.form_name || null,
+        capturedAt: createdTime || payload?.created_time || null,
+      }, { origin: 'meta_lead_ads', logger });
+    }
 
     const ledgerStatus = result.outcome === 'imported' ? 'imported'
       : result.outcome === 'reenquired' ? 'imported'

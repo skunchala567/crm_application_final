@@ -2,7 +2,7 @@ import { AlertCircle } from 'lucide-react';
 import '../styles/TemplateFormBuilder.css';
 import '../styles/BasicInfoGrid.css';
 
-export default function TemplateFormBuilder({ formData, onChange, errors = {} }) {
+export default function TemplateFormBuilder({ formData, onChange, errors = {}, lockLabel = false }) {
   // ✅ FIXED: Updated enum values to match AiSensy API
   const categories = ['MARKETING', 'TRANSACTIONAL', 'OTP'];
   const languages = ['English', 'Spanish', 'French', 'German', 'Portuguese', 'Italian', 'Russian', 'Chinese', 'Japanese', 'Korean', 'Arabic', 'Hindi'];
@@ -81,15 +81,19 @@ export default function TemplateFormBuilder({ formData, onChange, errors = {} })
         <div className="grid-field">
           <label htmlFor="label">
             Label *
-            <span className="field-hint">(display name)</span>
+            <span className="field-hint">{lockLabel ? '(WhatsApp account)' : '(display name)'}</span>
           </label>
+          {/* When locked, the label is the account the template belongs to, so
+              it is filled in and left alone rather than typed by hand. */}
           <input
             id="label"
             type="text"
             value={formData.label}
             onChange={(e) => onChange('label', e.target.value)}
             placeholder="My Template"
-            className={errors.label ? 'field-error' : ''}
+            readOnly={lockLabel}
+            title={lockLabel ? 'Taken from the WhatsApp account this template is created on' : undefined}
+            className={`${errors.label ? 'field-error' : ''}${lockLabel ? ' is-readonly' : ''}`}
           />
           {errors.label && <span className="field-error-msg">{errors.label}</span>}
         </div>
@@ -174,13 +178,13 @@ export default function TemplateFormBuilder({ formData, onChange, errors = {} })
       <div className="form-group full-width">
         <label htmlFor="body">
           Message Body *
-          <span className="help-text">(Use {'{'}1{'}'}, {'{'}2{'}'} for parameters)</span>
+          <span className="help-text">{"(Use {{1}}, {{2}} for parameters)"}</span>
         </label>
         <textarea
           id="body"
           value={formData.body}
           onChange={(e) => onChange('body', e.target.value)}
-          placeholder="Hello {'{'}1{'}'}, welcome to {'{'}2{'}'}!"
+          placeholder={"Hello {{1}}, welcome to {{2}}!"}
           rows={6}
           className={errors.body ? 'error' : ''}
         />

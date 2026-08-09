@@ -5,7 +5,7 @@ import "./FilterWorkspaceCampaign.css";
 
 const multiKeys = ["branchId","stage","substageId","sourceId","channelId","channelCategory","campaignId","campaignCategory","marketingCampaignId","marketingDeliveryStatus","ownerEmployeeId","classId","curriculumId","admissionTypeId","referredByEmployeeId","touchStatus","isParent","lookingForAdmission","whatsappResponse","contactAvailability"];
 const dateRangeKeys = ["addedFrom","addedTo","updatedFrom","updatedTo","referredFrom","referredTo","nextFollowupFrom","nextFollowupTo","reEnquiredFrom","reEnquiredTo"];
-export const emptyAdvancedFilters = { ...Object.fromEntries([...multiKeys.map(key => [key,[]]),...["studentName","primaryPhone","alternatePhone","email","parentName","followupFrom","followupTo","scoreMin","scoreMax",...dateRangeKeys].map(key => [key,""])]), dateType:"nextFollowup" };
+export const emptyAdvancedFilters = { ...Object.fromEntries([...multiKeys.map(key => [key,[]]),...["studentName","primaryPhone","alternatePhone","email","parentName","followupFrom","followupTo","scoreMin","scoreMax","isReferred",...dateRangeKeys].map(key => [key,""])]), dateType:"nextFollowup", isReferred:"no" };
 const legacyDateMap = { addedAt:["addedFrom","addedTo"], updatedAt:["updatedFrom","updatedTo"], referredAt:["referredFrom","referredTo"], nextFollowup:["nextFollowupFrom","nextFollowupTo"], reEnquiredAt:["reEnquiredFrom","reEnquiredTo"] };
 export function normalizeFilters(filters={}) {
   const normalized = { ...emptyAdvancedFilters, ...filters, ...Object.fromEntries(multiKeys.map(key => [key, Array.isArray(filters[key]) ? filters[key].map(String) : filters[key] ? [String(filters[key])] : []])) };
@@ -67,7 +67,7 @@ function FilterCalendarMonth({ month, from, to, onSelect, previous, next, move }
   </div>;
 }
 
-export function DateRangeFilterControl({ label, from, to, onChange }) {
+function DateRangeFilterControl({ label, from, to, onChange }) {
   const root = useRef(null);
   const [open, setOpen] = useState(false);
   const [month, setMonth] = useState(() => new Date());
@@ -194,7 +194,13 @@ export function MultiSearchSelect({ label, value=[], options, onChange, disabled
   </div>;
 }
 
-export default function FilterWorkspace({ mode="filter", meta, initialFilters, onApply, onClose, onSaved }) {
+export default function FilterWorkspace({
+  mode="filter", meta, initialFilters, onApply, onClose, onSaved,
+  // "Is referred" answers a counsellor's question about their own desk, so it
+  // is only offered where it means something. Off by default: a caller that
+  // does not know about it should not surface it.
+  showReferredFilter=false,
+}) {
   const [filters, setFilters] = useState(normalizeFilters(initialFilters));
   const [activeSection, setActiveSection] = useState("lead");
   const [fieldSearch, setFieldSearch] = useState("");
@@ -274,7 +280,7 @@ export default function FilterWorkspace({ mode="filter", meta, initialFilters, o
             <DateRangeFilterControl label={label} from={filters[fromKey]} to={filters[toKey]} onChange={(from, to) => setRange(fromKey, toKey, from, to)}/>
           </section>)}
         </div>}
-        {activeSection === "range" && <div className="filter-grid"><Field label="Minimum lead score" searchText={fieldSearch}><input type="number" min="0" max="100" value={filters.scoreMin} onChange={event => set("scoreMin",event.target.value)}/></Field><Field label="Maximum lead score" searchText={fieldSearch}><input type="number" min="0" max="100" value={filters.scoreMax} onChange={event => set("scoreMax",event.target.value)}/></Field></div>}
+        {activeSection === "range" && <div className="filter-grid">{showReferredFilter && <Field label="Is referred" searchText={fieldSearch}><select value={filters.isReferred ?? "no"} onChange={event => set("isReferred",event.target.value)}><option value="no">No · with me</option><option value="yes">Yes · referred by me</option><option value="">Any</option></select></Field>}<Field label="Minimum lead score" searchText={fieldSearch}><input type="number" min="0" max="100" value={filters.scoreMin} onChange={event => set("scoreMin",event.target.value)}/></Field><Field label="Maximum lead score" searchText={fieldSearch}><input type="number" min="0" max="100" value={filters.scoreMax} onChange={event => set("scoreMax",event.target.value)}/></Field></div>}
       </main>
     </div>
     <footer className="filter-workspace-footer"><div className={`filter-name-control ${nameError ? "invalid" : ""}`}><input className="filter-save-name" aria-invalid={Boolean(nameError)} aria-describedby="filter-name-error" value={name} onChange={event => {setName(event.target.value);if(event.target.value.trim())setNameError("");}} placeholder="Name this filter or view"/>{nameError && <span id="filter-name-error">{nameError}</span>}</div><button className="filter-secondary" onClick={() => {setFilters(emptyAdvancedFilters);setName("");setNameError("");setNotice("");}}><RotateCcw/> Reset</button><button className="filter-secondary" disabled={saving} onClick={() => save("filter")}><Save/> Save filter</button><button className="filter-secondary" disabled={saving} onClick={() => save("funnel")}><ListFilter/> Save view</button><button className="filter-apply" onClick={() => onApply(filters)}>Apply filter</button></footer>

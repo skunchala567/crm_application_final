@@ -64,7 +64,7 @@ const DialogOverlay = forwardRef(({ className, onClick, ...props }, ref) => {
     <div
       ref={ref}
       className={cn(
-        'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm',
+        'fixed inset-0 z-50 bg-black/50',
         className
       )}
       onClick={(e) => {
@@ -181,6 +181,4 @@ export {
   DialogTitle,
   DialogDescription,
   DialogClose,
-  DialogOverlay,
-  DialogPortal,
 };

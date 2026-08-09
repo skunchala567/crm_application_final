@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Upload, Download, Loader, CheckCircle, AlertCircle, TrendingUp } from 'lucide-react';
 import { api } from '../api';
 import './SyncDataPanel.css';
@@ -73,7 +73,7 @@ export default function SyncDataPanel({ integrationId, provider }) {
 
       {syncInProgress && (
         <div className="sync-progress">
-          <Loader size={32} style={{ animation: 'spin 1s linear infinite', color: '#667eea' }} />
+          <Loader size={32} style={{ animation: 'spin 1s linear infinite', color: '#12915f' }} />
           <div>
             <p className="progress-title">
               {syncType === 'import' ? 'Importing data...' : 'Exporting data...'}

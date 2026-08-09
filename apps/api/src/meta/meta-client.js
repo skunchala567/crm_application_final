@@ -108,14 +108,29 @@ async function graphPaginate(startUrl, { params, logger = console, maxPages = 20
 }
 
 /**
- * Pages the system user can manage. Each entry carries that Page's OWN
- * token, which is what every downstream leadgen call must use.
+ * Pages the given user/system token can manage. Each entry carries that
+ * Page's OWN token, which is what every downstream leadgen call must use.
+ *
+ * Pass a token belonging to a different Facebook account to discover that
+ * account's Pages; the Page tokens it returns are self-contained afterwards.
  */
-export async function listPages(systemUserToken, { logger = console } = {}) {
+export async function listPages(userToken, { logger = console } = {}) {
   return graphPaginate(`${GRAPH_BASE}/me/accounts`, {
-    params: { limit: 100, fields: 'id,name,access_token,category', access_token: systemUserToken },
+    params: { limit: 100, fields: 'id,name,access_token,category', access_token: userToken },
     logger,
   });
+}
+
+/**
+ * Who a token belongs to. Used to label Pages with the Facebook account they
+ * were connected through, so several accounts stay distinguishable.
+ */
+export async function getTokenOwner(userToken, { logger = console } = {}) {
+  const body = await graphRequest('GET', `${GRAPH_BASE}/me`, {
+    params: { fields: 'id,name', access_token: userToken },
+    logger,
+  });
+  return { id: body?.id ? String(body.id) : null, name: body?.name || null };
 }
 
 /** Subscribe a Page to leadgen webhook notifications. */

@@ -1,29 +1,24 @@
-import { useEffect, useMemo, useState } from "react";
-import {
-  Navigate,
-  NavLink,
-  Route,
-  Routes,
-  useLocation,
-  useNavigate,
-  useParams,
-} from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api } from "./api";
 import BusinessUnitLeadRouter from "./DynamicLeadsPage.jsx";
-import SettingsPage from "./SettingsPage.jsx";
 import AutomationPage from "./AutomationPage.jsx";
-import OperationsPage from "./OperationsPage.jsx";
 import WhatsAppInbox from "./WhatsAppInbox.jsx";
-import BulkActionsPage from "./BulkActionsPage.jsx";
 import OAuthCallbackPage from "./pages/OAuthCallbackPage.jsx";
 import GlobalSearch from "./GlobalSearch.jsx";
 import ReportBuilder, { SavedReportsDashboard, ReportVisual, buildLiveReportData, canViewSavedReport, readSavedReports, writeSavedReports } from "./ReportBuilder.jsx";
 import PublicEnquiryForm from "./PublicEnquiryForm.jsx";
 import PublicPaymentPage from "./pages/PublicPaymentPage.jsx";
-import { BusinessUnitProvider, BusinessUnitSelector, useBusinessUnit } from "./BusinessUnitContext.jsx";
+import { BusinessUnitProvider, useBusinessUnit } from "./BusinessUnitContext.jsx";
+import { LeadQuickActionsProvider } from "./LeadQuickActionsContext.jsx";
+import { PermissionProvider, usePermissions } from "./PermissionContext.jsx";
+import { RequirePermission } from "./components/Can.jsx";
+import { DASHBOARD_WIDGETS, dashboardMoveTarget, defaultDashboardLayout, isSameDashboardLayout, normalizeDashboardLayout, readDashboardLayout, writeDashboardLayout } from "./lib/dashboardLayout.js";
+import { useDailyUsage } from "./lib/useDailyUsage.js";
 import AuthLayout from "./components/AuthLayout.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import Header from "./components/Header.jsx";
+import IdleWarning from "./components/IdleWarning.jsx";
 import DashboardPage from "./components/DashboardPage.jsx";
 import SettingsPageModern from "./components/SettingsPageModern.jsx";
 import OperationsPageModern from "./components/OperationsPageModern.jsx";
@@ -31,43 +26,22 @@ import BulkActionsPageModern from "./components/BulkActionsPageModern.jsx";
 import { Button, Input } from "./components/ui/index.js";
 import "./SidebarTogglePosition.css";
 import "./DashboardCanvas.css";
-import {
-  BarChart3,
-  Bell,
-  CalendarClock,
-  ChevronDown,
-  CircleHelp,
-  Eye,
-  EyeOff,
-  GraduationCap,
-  LayoutDashboard,
-  LogOut,
-  MessageCircle,
-  Menu,
-  PanelLeftClose,
-  PanelLeftOpen,
-  PhoneCall,
-  Plus,
-  Search,
-  Settings2,
-  Settings,
-  Sparkles,
-  Target,
-  UploadCloud,
-  UserRound,
-  Users,
-  Zap,
-  Workflow,
-  X,
-} from "lucide-react";
+// Must stay the last stylesheet imported: it applies the reference design
+// language over every legacy sheet above.
+import "./styles/design-system.css";
+import { BarChart3, CalendarClock, ChevronDown, CircleHelp, Eye, EyeOff, GraduationCap, LayoutDashboard, Plus, Search, Settings2, Settings, Sparkles, Target, UploadCloud, UserRound, Users, Zap, Workflow } from "lucide-react";
 
+// [label, path, icon, section, permission]
+// `section` drives the sidebar's group headers; `permission` decides whether
+// the entry is shown at all. Navigation and routing read the same key, so a
+// hidden link and a blocked route can never disagree.
 const menu = [
-  ["Dashboard", "/", LayoutDashboard],
-  ["Leads", "/leads", Users],
-  ["Tracker", "/tracker", Workflow],
-  ["Bulk Actions", "/bulk-actions", UploadCloud],
-  ["Reports", "/reports", BarChart3],
-  ["Automations", "/automations", Zap],
+  ["Dashboard", "/", LayoutDashboard, "Main", "dashboard.overview.view"],
+  ["Leads", "/leads", Users, "Main", "leads.list.view"],
+  ["Tracker", "/tracker", Workflow, "Main", "tracker.board.view"],
+  ["Bulk Actions", "/bulk-actions", UploadCloud, "Operations", "bulk_actions.workspace.view"],
+  ["Reports", "/reports", BarChart3, "Operations", "reports.list.view"],
+  ["Automations", "/automations", Zap, "Operations", "automations.workflows.view"],
 ];
 
 function loadStoredUser() {
@@ -216,63 +190,127 @@ function Login({ onLogin }) {
 
 function Shell({ user, onLogout }) {
   const { selectedId: activeBusinessUnitId } = useBusinessUnit();
+  const { can } = usePermissions();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  // Counts active time for the calendar day and signs out after 10 minutes
+  // of inactivity, warning for the last 2. Signing out flushes first: logout clears the auth token, so
+  // a pending delta posted afterwards would be rejected and the time lost.
+  const {
+    formatted: usageTime, flushNow, persisting: usageSaved,
+    stayActive, secondsUntilLogout, idleSeconds, idleLimit,
+  } = useDailyUsage({ onIdleLogout: () => onLogout() });
+
+  // Append ?idledebug=1 to any URL to watch the idle clock live.
+  // window.location, not the router's `location`, which is declared below.
+  const showIdleDebug = new URLSearchParams(window.location.search).get('idledebug') === '1';
+  const signOut = async () => {
+    try { await flushNow(); } finally { onLogout(); }
+  };
+  const [navCollapsed, setNavCollapsed] = useState(
+    () => localStorage.getItem("crm_sidebar_collapsed") === "true"
+  );
+
+  // The topbar button beside the screen name drives the sidebar: on desktop it
+  // collapses/expands, on mobile it opens and closes the drawer. It used to
+  // only ever open on mobile, so the button became inert once the drawer was
+  // showing and the scrim was the only way back.
+  const toggleNav = () => {
+    if (window.matchMedia("(min-width: 768px)").matches) {
+      setNavCollapsed((current) => {
+        const next = !current;
+        localStorage.setItem("crm_sidebar_collapsed", String(next));
+        return next;
+      });
+    } else {
+      setMobileNavOpen((current) => !current);
+    }
+  };
   const navigate = useNavigate();
   const location = useLocation();
 
+  // Branch Settings, Meta Lead Ads, CallerDesk and Smartflo are deliberately
+  // absent: they are reached from Integrations, or from Business Units >
+  // Branches & payments. Their routes still exist and still work.
+  // Nav is filtered by the same permissions that guard the routes, so a link
+  // is never shown to a screen the user would be refused.
   const settingsMenu = [
-    { label: 'User Management', path: '/settings/users' },
-    { label: 'Business Units', path: '/settings/business-units' },
-    { label: 'Branch Settings', path: '/settings/branches' },
-    { label: 'Payment Forms', path: '/settings/payment-forms' },
-    { label: 'Integrations', path: '/settings/integrations' },
-    { label: 'Google Sheets', path: '/settings/google-sheets' },
-    { label: 'Meta Lead Ads', path: '/settings/meta-lead-ads' },
-    { label: 'WhatsApp', path: '/settings/whatsapp-templates' },
-    { label: 'CallerDesk', path: '/settings/callerdesk' },
-    { label: 'Smartflo', path: '/settings/smartflo' },
-  ];
+    { label: 'User Management', path: '/settings/users', permission: 'settings.users.view' },
+    { label: 'Business Units', path: '/settings/business-units', permission: 'settings.business_units.view' },
+    { label: 'Payment Forms', path: '/settings/payment-forms', permission: 'settings.payment_forms.view' },
+    { label: 'Integrations', path: '/settings/integrations', permission: 'integrations.hub.view' },
+    { label: 'Google Sheets', path: '/settings/google-sheets', permission: 'integrations.google_sheets.view' },
+    { label: 'WhatsApp', path: '/settings/whatsapp-templates', permission: 'whatsapp.templates.view' },
+  ].filter((item) => can(item.permission));
+
+  const visibleMenu = menu.filter(([, , , , permission]) => can(permission));
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
+      {showIdleDebug && (
+        <div className="fixed bottom-3 left-3 z-[400] px-3 py-2 rounded-lg bg-secondary-900 text-white text-xs font-mono shadow-lg">
+          idle {idleSeconds}s / {idleLimit}s
+          {secondsUntilLogout !== null && ` · warning ${secondsUntilLogout}s`}
+        </div>
+      )}
+
+      {secondsUntilLogout !== null && (
+        <IdleWarning
+          secondsLeft={secondsUntilLogout}
+          onStay={stayActive}
+          onSignOut={signOut}
+        />
+      )}
+
       <Sidebar
-        user={user}
-        onLogout={onLogout}
-        menu={menu}
+        menu={visibleMenu}
         settings={settingsMenu}
+        mobileOpen={mobileNavOpen}
+        onMobileOpenChange={setMobileNavOpen}
+        collapsed={navCollapsed}
+        onToggle={toggleNav}
       />
 
       <div className="flex flex-col flex-1 overflow-hidden">
-        <GlobalSearch />
+        {/* One topbar for every screen. GlobalSearch is passed through so the
+            search field sits inside it rather than in a bar of its own. */}
+        <Header user={user} onLogout={signOut} onMenuClick={toggleNav} navCollapsed={navCollapsed} mobileNavOpen={mobileNavOpen} usageTime={usageTime} usageSaved={usageSaved}>
+          {/* Search reads across every lead the user may see, so it is gated
+              like any other lead view. The API refuses /api/search without
+              this permission regardless; hiding the field stops a counsellor
+              typing into a box that can only answer with an error. */}
+          {can('leads.search.view') && <GlobalSearch />}
+        </Header>
 
         <main className="flex-1 overflow-y-auto">
           <Routes location={location}>
-            <Route path="/" element={<DashboardPage key={activeBusinessUnitId} user={user} />} />
-            <Route path="/leads" element={<BusinessUnitLeadRouter key={activeBusinessUnitId} />} />
-            <Route path="/tracker" element={<OperationsPageModern key={activeBusinessUnitId} />} />
+            <Route path="/" element={<RequirePermission do="dashboard.overview.view"><DashboardPage key={activeBusinessUnitId} user={user} /></RequirePermission>} />
+            <Route path="/leads" element={<RequirePermission do="leads.list.view"><BusinessUnitLeadRouter key={activeBusinessUnitId} /></RequirePermission>} />
+            <Route path="/tracker" element={<RequirePermission do="tracker.board.view"><OperationsPageModern key={activeBusinessUnitId} /></RequirePermission>} />
             <Route path="/operations" element={<Navigate to="/tracker" replace />} />
-            <Route path="/whatsapp-inbox" element={<WhatsAppInbox />} />
-            <Route path="/bulk-actions" element={<BulkActionsPageModern key={activeBusinessUnitId} />} />
-            <Route path="/reports" element={<ReportsPage key={activeBusinessUnitId} />} />
-            <Route path="/saved-reports/new" element={<SavedReportCreatePage key={activeBusinessUnitId} />} />
+            <Route path="/whatsapp-inbox" element={<RequirePermission do="whatsapp.inbox.view"><WhatsAppInbox /></RequirePermission>} />
+            <Route path="/bulk-actions" element={<RequirePermission do="bulk_actions.workspace.view"><BulkActionsPageModern key={activeBusinessUnitId} /></RequirePermission>} />
+            <Route path="/reports" element={<RequirePermission do="reports.list.view"><ReportsPage key={activeBusinessUnitId} /></RequirePermission>} />
+            <Route path="/saved-reports/new" element={<RequirePermission do="reports.builder.view"><SavedReportCreatePage key={activeBusinessUnitId} /></RequirePermission>} />
             <Route path="/settings" element={<SettingsPageModern />} />
-            <Route path="/settings/users" element={<SettingsPageModern />} />
-            <Route path="/settings/business-units" element={<SettingsPageModern />} />
-            <Route path="/settings/branches" element={<SettingsPageModern />} />
-            <Route path="/settings/payment-forms" element={<SettingsPageModern />} />
+            <Route path="/settings/users" element={<RequirePermission do="settings.users.view"><SettingsPageModern /></RequirePermission>} />
+            <Route path="/settings/business-units" element={<RequirePermission do="settings.business_units.view"><SettingsPageModern /></RequirePermission>} />
+            <Route path="/settings/branches" element={<RequirePermission do="settings.branches.view"><SettingsPageModern /></RequirePermission>} />
+            <Route path="/settings/payment-forms" element={<RequirePermission do="settings.payment_forms.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/lead-config" element={<Navigate to="/settings/business-units?tab=sources" replace />} />
             <Route path="/settings/academic-config" element={<Navigate to="/settings/business-units?tab=academic" replace />} />
             <Route path="/settings/academic-years" element={<Navigate to="/settings/business-units?tab=academic" replace />} />
             <Route path="/settings/admission-classes" element={<Navigate to="/settings/business-units?tab=academic&section=classes" replace />} />
-            <Route path="/settings/integrations" element={<SettingsPageModern />} />
-            <Route path="/settings/google-sheets" element={<SettingsPageModern />} />
-            <Route path="/settings/meta-lead-ads" element={<SettingsPageModern />} />
-            <Route path="/settings/whatsapp-templates" element={<SettingsPageModern />} />
-            <Route path="/settings/callerdesk" element={<SettingsPageModern />} />
-            <Route path="/settings/smartflo" element={<SettingsPageModern />} />
+            <Route path="/settings/integrations" element={<RequirePermission do="integrations.hub.view"><SettingsPageModern /></RequirePermission>} />
+            <Route path="/settings/google-sheets" element={<RequirePermission do="integrations.google_sheets.view"><SettingsPageModern /></RequirePermission>} />
+            <Route path="/settings/meta-lead-ads" element={<RequirePermission do="integrations.meta_lead_ads.view"><SettingsPageModern /></RequirePermission>} />
+            <Route path="/settings/whatsapp-templates" element={<RequirePermission do="whatsapp.templates.view"><SettingsPageModern /></RequirePermission>} />
+            <Route path="/settings/callerdesk" element={<RequirePermission do="integrations.callerdesk.view"><SettingsPageModern /></RequirePermission>} />
+            <Route path="/settings/smartflo" element={<RequirePermission do="integrations.smartflo.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/integrations" element={<Navigate to="/settings/integrations" replace />} />
             <Route path="/oauth-callback" element={<OAuthCallbackPage />} />
             <Route path="/oauth-error" element={<OAuthCallbackPage />} />
-            <Route path="/automations" element={<AutomationPage key={activeBusinessUnitId} />} />
+            <Route path="/automations" element={<RequirePermission do="automations.workflows.view"><AutomationPage key={activeBusinessUnitId} /></RequirePermission>} />
             <Route path="*" element={<ComingSoon />} />
           </Routes>
         </main>
@@ -349,41 +387,21 @@ function comparisonLabel(current, previous, suffix, zeroBaselineLabel) {
   return `${sign}${change.toFixed(1)}% ${suffix}`;
 }
 
-const DASHBOARD_WIDGETS = [
-  { id: "stats", title: "Performance cards", size: "full" },
-  { id: "funnel", title: "Admissions funnel", size: "half" },
-  { id: "tasks", title: "Today’s priorities", size: "half" },
-  { id: "recent", title: "Recent leads", size: "full" },
-];
-
-function dashboardLayoutKey(unitId) {
-  return `crm_dashboard_overview_layout_${unitId || "default"}`;
-}
-
-function readDashboardLayout(unitId) {
-  try {
-    const saved = JSON.parse(localStorage.getItem(dashboardLayoutKey(unitId)) || "null");
-    if (Array.isArray(saved) && saved.length) return normalizeDashboardLayout(saved);
-  } catch {}
-  return DASHBOARD_WIDGETS.map(widget => ({ id: widget.id, size: widget.size, visible: true }));
-}
-
-function normalizeDashboardLayout(layout) {
-  const known = new Set(DASHBOARD_WIDGETS.map(widget => widget.id));
-  const validSizes = new Set(["quarter", "half", "three-quarter", "full"]);
-  const cleaned = layout.filter(item => known.has(item.id) || String(item.id || "").startsWith("report:")).map(item => ({ id: item.id, size: validSizes.has(item.size) ? item.size : "half", visible: item.visible !== false }));
-  const existing = new Set(cleaned.map(item => item.id));
-  DASHBOARD_WIDGETS.forEach(widget => { if (!existing.has(widget.id)) cleaned.push({ id: widget.id, size: widget.size, visible: true }); });
-  return cleaned;
-}
-
 function DashboardOverviewCanvas({ data, leads = [], cards, editable = false }) {
   const { selectedUnit } = useBusinessUnit();
-  const [layout, setLayout] = useState(() => readDashboardLayout(selectedUnit?.id));
+  const [savedLayout, setSavedLayout] = useState(() => readDashboardLayout(selectedUnit?.id));
+  const [layout, setLayout] = useState(savedLayout);
   const [savedReports, setSavedReports] = useState(() => readSavedReports(selectedUnit?.id));
+  const [reportColumnDrafts, setReportColumnDrafts] = useState({});
   const [widgetPickerOpen, setWidgetPickerOpen] = useState(false);
   const [widgetSearch, setWidgetSearch] = useState("");
-  useEffect(() => setLayout(readDashboardLayout(selectedUnit?.id)), [selectedUnit?.id]);
+  const [justSaved, setJustSaved] = useState(false);
+  useEffect(() => {
+    const stored = readDashboardLayout(selectedUnit?.id);
+    setSavedLayout(stored);
+    setLayout(stored);
+    setReportColumnDrafts({});
+  }, [selectedUnit?.id]);
   useEffect(() => {
     const loadReports = () => setSavedReports(readSavedReports(selectedUnit?.id));
     loadReports();
@@ -401,10 +419,34 @@ function DashboardOverviewCanvas({ data, leads = [], cards, editable = false }) 
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [widgetPickerOpen]);
-  const saveLayout = next => {
-    const normalized = normalizeDashboardLayout(next);
-    setLayout(normalized);
-    localStorage.setItem(dashboardLayoutKey(selectedUnit?.id), JSON.stringify(normalized));
+  useEffect(() => {
+    if (!justSaved) return undefined;
+    const timer = setTimeout(() => setJustSaved(false), 2600);
+    return () => clearTimeout(timer);
+  }, [justSaved]);
+  // Edits stay local until Save changes is pressed, so the Dashboard overview
+  // never shows a half-finished layout.
+  const stageLayout = next => {
+    setLayout(normalizeDashboardLayout(next));
+    setJustSaved(false);
+  };
+  const dirty = !isSameDashboardLayout(layout, savedLayout) || Object.keys(reportColumnDrafts).length > 0;
+  const commit = () => {
+    setSavedLayout(writeDashboardLayout(selectedUnit?.id, layout));
+    if (Object.keys(reportColumnDrafts).length) {
+      const next = savedReports.map(report => (reportColumnDrafts[report.id] === undefined
+        ? report
+        : { ...report, cardColumns: reportColumnDrafts[report.id], updatedAt: new Date().toISOString() }));
+      writeSavedReports(selectedUnit?.id, next);
+      setSavedReports(next);
+      setReportColumnDrafts({});
+    }
+    setJustSaved(true);
+  };
+  const discard = () => {
+    setLayout(savedLayout);
+    setReportColumnDrafts({});
+    setJustSaved(false);
   };
   const move = (id, direction) => {
     const visible = layout.filter(item => item.visible !== false);
@@ -414,17 +456,17 @@ function DashboardOverviewCanvas({ data, leads = [], cards, editable = false }) 
     const index = next.findIndex(item => item.id === id);
     const target = next.findIndex(item => item.id === targetId);
     [next[index], next[target]] = [next[target], next[index]];
-    saveLayout(next);
+    stageLayout(next);
   };
-  const patchWidget = (id, values) => saveLayout(layout.map(item => item.id === id ? { ...item, ...values } : item));
-  const patchSavedReport = (id, values) => {
-    const next = savedReports.map(report => String(report.id) === String(id) ? { ...report, ...values, updatedAt: new Date().toISOString() } : report);
-    writeSavedReports(selectedUnit?.id, next);
-    setSavedReports(next);
+  const patchWidget = (id, values) => stageLayout(layout.map(item => item.id === id ? { ...item, ...values } : item));
+  const stageReportColumns = (id, cardColumns) => {
+    setReportColumnDrafts(drafts => ({ ...drafts, [id]: cardColumns }));
+    setJustSaved(false);
   };
+  const reportColumnsFor = report => reportColumnDrafts[report.id] ?? report.cardColumns ?? 2;
   const addReportWidget = report => {
     const id = `report:${report.id}`;
-    saveLayout(layout.some(item => item.id === id) ? layout.map(item => item.id === id ? { ...item, visible: true } : item) : [{ id, size: "half", visible: true }, ...layout]);
+    stageLayout(layout.some(item => item.id === id) ? layout.map(item => item.id === id ? { ...item, visible: true } : item) : [{ id, size: "half", visible: true }, ...layout]);
   };
   const available = DASHBOARD_WIDGETS.filter(widget => !layout.some(item => item.id === widget.id && item.visible !== false));
   const visibleSavedReports = savedReports.filter(report => canViewSavedReport(report));
@@ -436,8 +478,10 @@ function DashboardOverviewCanvas({ data, leads = [], cards, editable = false }) 
   const visibleLayout = layout.filter(item => item.visible !== false);
   return <section className={`dashboard-canvas ${editable ? "editing" : ""}`}>
     {editable && <div className="dashboard-designer-toolbar panel">
-      <div><Settings2 size={17} /><span><strong>Dashboard layout editor</strong><small>Add widgets and adjust how the Dashboard overview appears for this business unit.</small></span></div>
+      <div><Settings2 size={17} /><span><strong>Dashboard layout editor</strong><small>Add widgets and adjust how the Dashboard overview appears for this business unit.{dirty ? " You have unsaved changes." : ""}</small></span></div>
       <div className="dashboard-widget-picker-wrap">
+        {dirty && <span className="dashboard-layout-status unsaved">Unsaved changes</span>}
+        {!dirty && justSaved && <span className="dashboard-layout-status saved">Saved to Dashboard</span>}
         <button type="button" className="secondary dashboard-widget-picker-trigger" onClick={() => setWidgetPickerOpen(value => !value)}><Plus size={14} />Add widget / report<ChevronDown size={14} /></button>
         {widgetPickerOpen && <div className="dashboard-widget-picker">
           <label><Search size={14} /><input autoFocus value={widgetSearch} onChange={event => setWidgetSearch(event.target.value)} placeholder="Search widgets or saved reports..." /></label>
@@ -449,7 +493,9 @@ function DashboardOverviewCanvas({ data, leads = [], cards, editable = false }) 
             {!availableItems.length && <p>No hidden widgets or saved reports found.</p>}
           </section>
         </div>}
-        <button type="button" className="secondary" onClick={() => { setWidgetPickerOpen(false); saveLayout(DASHBOARD_WIDGETS.map(widget => ({ id: widget.id, size: widget.size, visible: true }))); }}>Reset layout</button>
+        <button type="button" className="secondary" onClick={() => { setWidgetPickerOpen(false); stageLayout(defaultDashboardLayout()); }}>Reset layout</button>
+        <button type="button" className="secondary" onClick={discard} disabled={!dirty}>Discard</button>
+        <button type="button" onClick={commit} disabled={!dirty}>Save changes</button>
       </div>
     </div>}
     <div className="dashboard-widget-grid">
@@ -466,44 +512,15 @@ function DashboardOverviewCanvas({ data, leads = [], cards, editable = false }) 
             <button type="button" title="Move right" aria-label={`Move ${definition.title} right`} onClick={() => move(item.id, "right")} disabled={!moveTargets.right}>→</button>
             <button type="button" title="Move up" aria-label={`Move ${definition.title} up`} onClick={() => move(item.id, "up")} disabled={!moveTargets.up}>↑</button>
             <button type="button" title="Move down" aria-label={`Move ${definition.title} down`} onClick={() => move(item.id, "down")} disabled={!moveTargets.down}>↓</button>
-            {report?.type === "cards" && <label className="dashboard-report-columns"><span>Cards/row</span><select value={report.cardColumns || 2} onChange={event => patchSavedReport(report.id, { cardColumns: Number(event.target.value) })} aria-label={`Cards per row for ${definition.title}`}><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>}
+            {report?.type === "cards" && <label className="dashboard-report-columns"><span>Cards/row</span><select value={reportColumnsFor(report)} onChange={event => stageReportColumns(report.id, Number(event.target.value))} aria-label={`Cards per row for ${definition.title}`}><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>}
             <label className="dashboard-widget-size"><span className="sr-only">Width for {definition.title}</span><select value={item.size} onChange={event => patchWidget(item.id, { size: event.target.value })} aria-label={`Width for ${definition.title}`}><option value="quarter">¼</option><option value="half">½</option><option value="three-quarter">¾</option><option value="full">Full</option></select></label>
             <button onClick={() => patchWidget(item.id, { visible: false })}>Hide</button>
           </div>}
-          <DashboardWidgetContent id={item.id} data={data} leads={leads} cards={cards} report={report} />
+          <DashboardWidgetContent id={item.id} data={data} leads={leads} cards={cards} report={report ? { ...report, cardColumns: reportColumnsFor(report) } : null} />
         </article>;
       })}
     </div>
   </section>;
-}
-
-function dashboardGridPositions(items) {
-  const spans = { quarter: 1, half: 2, "three-quarter": 3, full: 4 };
-  let row = 0;
-  let column = 0;
-  return items.map(item => {
-    const span = spans[item.size] || 2;
-    if (column + span > 4) { row += 1; column = 0; }
-    const position = { id: item.id, row, column, span, center: column + span / 2 };
-    column += span;
-    if (column === 4) { row += 1; column = 0; }
-    return position;
-  });
-}
-
-function dashboardMoveTarget(items, id, direction) {
-  const positions = dashboardGridPositions(items);
-  const current = positions.find(position => position.id === id);
-  if (!current) return null;
-  if (direction === "left" || direction === "right") {
-    const candidates = positions.filter(position => position.row === current.row && (direction === "left" ? position.column < current.column : position.column > current.column));
-    candidates.sort((a, b) => direction === "left" ? b.column - a.column : a.column - b.column);
-    return candidates[0]?.id || null;
-  }
-  const candidates = positions.filter(position => direction === "up" ? position.row < current.row : position.row > current.row);
-  if (!candidates.length) return null;
-  const targetRow = direction === "up" ? Math.max(...candidates.map(position => position.row)) : Math.min(...candidates.map(position => position.row));
-  return candidates.filter(position => position.row === targetRow).sort((a, b) => Math.abs(a.center - current.center) - Math.abs(b.center - current.center))[0]?.id || null;
 }
 
 function DashboardWidgetContent({ id, data, leads, cards, report }) {
@@ -523,13 +540,24 @@ function DashboardWidgetContent({ id, data, leads, cards, report }) {
       </article>
     ))}
   </section>;
+  if (id === "activity") return <DashboardActivityPreview trends={data.activityTrends || []} />;
   if (id === "funnel") return <article className="panel funnel-panel">
     <PanelTitle title="Admissions view" subtitle="Lead movement this academic year" action="Live" />
-    <div className="funnel">{(data.funnel || []).map((item, index) => {
-      const previous = Number(data.funnel?.[index - 1]?.value || 0);
-      const conversion = index && previous ? Math.round((Number(item.value || 0) / previous) * 100) : 100;
-      return <div className="funnel-row" key={item.label}><div className="funnel-label"><span>{item.label}</span><strong>{item.value}</strong></div><div className="track"><span style={{ width: `${Math.max(7, 100 - index * 14)}%`, background: item.color }} /></div><small>{index ? `${conversion}% conversion` : "100% of enquiries"}</small></div>;
-    })}</div>
+    <div className="funnel">{(() => {
+      const funnel = data.funnel || [];
+      const values = funnel.map(item => Math.max(0, Number(item.value) || 0));
+      const maximum = Math.max(...values, 0);
+      const total = values.reduce((sum, value) => sum + value, 0);
+      return funnel.map((item, index) => {
+        const value = values[index];
+        const previous = values[index - 1] || 0;
+        const width = maximum ? value / maximum * 100 : 0;
+        const share = total ? Math.round(value / total * 100) : 0;
+        const conversion = previous ? Math.round(value / previous * 100) : null;
+        const label = index > 0 && conversion !== null ? `${conversion}% conversion from ${funnel[index - 1].label}` : `${share}% of current leads`;
+        return <div className="funnel-row" key={item.label}><div className="funnel-label"><span>{item.label}</span><strong>{item.value}</strong></div><div className="track"><span style={{ width: `${width}%`, background: item.color }} /></div><small>{label}</small></div>;
+      });
+    })()}</div>
   </article>;
   if (id === "tasks") {
     const due = (leads || []).filter(lead => lead.nextFollowup || lead.followupAt).slice(0, 6);
@@ -539,6 +567,16 @@ function DashboardWidgetContent({ id, data, leads, cards, report }) {
   return null;
 }
 
+function DashboardActivityPreview({ trends }) {
+  const [metric, setMetric] = useState("crmHours");
+  const options = { crmHours: ["CRM hours", "h", "#0b7a4f"], leadsAssigned: ["Leads added to me", "", "#4e8bd8"], followupsDone: ["Follow-ups done", "", "#d9823b"] };
+  const [label, suffix, color] = options[metric];
+  const values = trends.map(item => Number(item[metric]) || 0);
+  const maximum = Math.max(...values, 1);
+  const points = values.map((value, index) => `${30 + index * (580 / Math.max(values.length - 1, 1))},${175 - value / maximum * 130}`).join(" ");
+  return <article className="panel dashboard-report-widget"><div className="dashboard-report-widget-head"><span>Personal report</span><h3>My Daily CRM Activity</h3><select className="dashboard-activity-select" value={metric} onChange={event => setMetric(event.target.value)}>{Object.entries(options).map(([key, item]) => <option key={key} value={key}>{item[0]}</option>)}</select></div><div className="dashboard-activity-chart"><svg viewBox="0 0 640 210"><polyline points={points} fill="none" stroke={color} strokeWidth="3" />{values.map((value, index) => { const x=30+index*(580/Math.max(values.length-1,1)),y=175-value/maximum*130; return <g key={index}><circle cx={x} cy={y} r="4" fill="#fff" stroke={color} strokeWidth="3"/><text x={x} y={y-10} textAnchor="middle" className="activity-value-label">{`${metric==="crmHours"?value.toFixed(1):value}${suffix}`}</text></g>; })}</svg></div><div className="dashboard-activity-legend"><i style={{background:color}}/><span>{label}</span></div></article>;
+}
+
 function ReportsPage() {
   const { selectedUnit } = useBusinessUnit();
   const location = useLocation();
@@ -546,7 +584,7 @@ function ReportsPage() {
   const [reportLeads, setReportLeads] = useState([]);
   const [reportMeta, setReportMeta] = useState(null);
   const [builderActive, setBuilderActive] = useState(false);
-  const [reportsTab, setReportsTab] = useState("library");
+  const [reportsTab, setReportsTab] = useState(location.state?.reportsTab === "dashboard" ? "dashboard" : "library");
   const [error, setError] = useState("");
   useEffect(() => {
     if (!selectedUnit?.id) return;
@@ -570,13 +608,6 @@ function ReportsPage() {
   ];
   return (
     <main className={`page report-page ${builderActive ? "builder-active" : ""}`}>
-      {!builderActive && <div className="page-heading">
-        <div>
-          <span className="eyebrow">{selectedUnit.name}</span>
-          <h1>Reports</h1>
-          <p>Build, customize and save reusable business intelligence reports.</p>
-        </div>
-      </div>}
       {!builderActive && <div className="report-page-tabs" role="tablist" aria-label="Reports workspace">
         <button type="button" className={reportsTab === "library" ? "active" : ""} onClick={() => setReportsTab("library")}>Reports library</button>
         <button type="button" className={reportsTab === "dashboard" ? "active" : ""} onClick={() => setReportsTab("dashboard")}>Dashboard layout</button>
@@ -776,7 +807,13 @@ export default function App() {
         path="/*"
         element={
           user ? (
-            <BusinessUnitProvider><Shell user={user} onLogout={logout} /></BusinessUnitProvider>
+            <BusinessUnitProvider>
+              <PermissionProvider>
+                <LeadQuickActionsProvider>
+                  <Shell user={user} onLogout={logout} />
+                </LeadQuickActionsProvider>
+              </PermissionProvider>
+            </BusinessUnitProvider>
           ) : (
             <Navigate to="/login" />
           )

@@ -54,10 +54,24 @@ export function WhatsAppSendPanel({ open, onClose, initialRecipients = [], initi
     setNotice(null);
     setConversation(null);
     setConversationMessages([]);
-    api.get('/whatsapp/integrations?provider=SMARTPING').then(result => {
-      const ready = (result.data || []).filter(item => item.has_credentials);
-      setIntegrations(ready);
-      setIntegrationId(current => current || String(ready[0]?.id || ''));
+    /*
+     * The accounts this user may send from.
+     *
+     * Previously read from /whatsapp/integrations, which filters on
+     * organization_id = the caller's own user id. Every account was created
+     * under user 1, so only that user ever saw one and the selector was empty
+     * for everybody else -- whatever their branch mapping said.
+     *
+     * /whatsapp/accounts resolves them from the branches the user is assigned
+     * to (all accounts for administrators), which is the question actually
+     * being asked here.
+     */
+    api('/whatsapp/accounts').then(result => {
+      const available = result.data || [];
+      setIntegrations(available);
+      // The branch default, else the first available.
+      const preferred = available.find(item => item.isDefault) || available[0];
+      setIntegrationId(current => current || String(preferred?.id || ''));
     }).catch(error => setNotice({ type: 'error', text: error.message }));
     // Recipient arrays are assembled by the parent during render. Depending on
     // their reference would reset this form after every keystroke or tab click.
@@ -283,7 +297,7 @@ export function WhatsAppSendPanel({ open, onClose, initialRecipients = [], initi
           </div>)}
         </div>}
         <div className="wa-send-grid">
-          <label><span>WhatsApp account *</span><select value={integrationId} onChange={event => setIntegrationId(event.target.value)}><option value="">Select account</option>{integrations.map(item => <option key={item.id} value={item.id}>{item.integration_name}</option>)}</select></label>
+          <label><span>WhatsApp account *</span><select value={integrationId} onChange={event => setIntegrationId(event.target.value)}><option value="">Select account</option>{integrations.map(item => <option key={item.id} value={item.id}>{item.name || item.integration_name}{item.branchName ? ` · ${item.branchName}` : ''}</option>)}</select></label>
           <label><span>Approved template *</span><select value={templateId} onChange={event => chooseTemplate(event.target.value)}><option value="">Select template</option>{templates.map(item => <option key={item.id || item.aisensy_template_id} value={item.id || item.aisensy_template_id}>{item.label || item.template_name || item.name}</option>)}</select></label>
         </div>
         {mode === 'single' && <label className="wa-send-field"><span>Mobile number *</span><input value={phone} onChange={event => setPhone(event.target.value)} placeholder="10-digit mobile number"/></label>}

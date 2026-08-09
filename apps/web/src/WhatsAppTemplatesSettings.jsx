@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { AlertCircle, BarChart3, CalendarRange, ChevronLeft, ChevronRight, Download, IndianRupee, Loader, MessageCircle, Send, TrendingUp, X } from 'lucide-react';
+import { AlertCircle, BarChart3, Building2, CalendarRange, ChevronLeft, ChevronRight, Download, IndianRupee, Loader, MessageCircle, Send, TrendingUp, X } from 'lucide-react';
 import { api } from './api';
 import SettingsWhatsAppTemplates from './pages/SettingsWhatsAppTemplates';
 import SettingsWhatsAppTemplatesCreate from './pages/SettingsWhatsAppTemplatesCreate';
 import SettingsWhatsAppTemplatesView from './pages/SettingsWhatsAppTemplatesView';
 import { WhatsAppMessageHistory, WhatsAppSendPanel } from './components/WhatsAppSendPanel';
 import { MultiSearchSelect } from './FilterWorkspace';
+import WhatsAppBranchMapping from './components/WhatsAppBranchMapping.jsx';
 
 export default function WhatsAppTemplatesSettings({ onMessage }) {
   const [integrationId, setIntegrationId] = useState('');
@@ -45,7 +46,13 @@ export default function WhatsAppTemplatesSettings({ onMessage }) {
     }
   };
 
-  const handleNavigate = (page, templateId = null, targetIntegrationId = null) => {
+  // Duplicating opens the create form prefilled, rather than writing a copy
+  // straight to the account. A duplicate is a starting point, not a template
+  // anyone asked to publish.
+  const [prefillTemplate, setPrefillTemplate] = useState(null);
+
+  const handleNavigate = (page, templateId = null, targetIntegrationId = null, prefill = null) => {
+    setPrefillTemplate(prefill);
     if (page === 'create' && !targetIntegrationId) {
       setShowAccountPicker(true);
       return;
@@ -90,16 +97,16 @@ export default function WhatsAppTemplatesSettings({ onMessage }) {
           alignItems: 'flex-start',
           gap: '12px',
           padding: '16px',
-          background: '#fee2e2',
+          background: '#fdeeed',
           border: '1px solid #fca5a5',
           borderRadius: '6px',
         }}>
-          <AlertCircle size={20} style={{ color: '#dc2626', flexShrink: 0, marginTop: '2px' }} />
+          <AlertCircle size={20} style={{ color: '#c33d35', flexShrink: 0, marginTop: '2px' }} />
           <div>
-            <h3 style={{ margin: '0 0 4px 0', color: '#dc2626', fontSize: '14px', fontWeight: 600 }}>
+            <h3 style={{ margin: '0 0 4px 0', color: '#c33d35', fontSize: '14px', fontWeight: 600 }}>
               Configuration Required
             </h3>
-            <p style={{ margin: 0, color: '#991b1b', fontSize: '13px' }}>
+            <p style={{ margin: 0, color: '#a33028', fontSize: '13px' }}>
               {error}
             </p>
           </div>
@@ -113,6 +120,7 @@ export default function WhatsAppTemplatesSettings({ onMessage }) {
     case 'create':
       return (
         <SettingsWhatsAppTemplatesCreate
+              initialTemplate={prefillTemplate}
           integrationId={integrationId}
           onBack={handleBack}
           onSuccess={handleSuccess}
@@ -134,8 +142,10 @@ export default function WhatsAppTemplatesSettings({ onMessage }) {
             <nav className="whatsapp-settings-tabs">
               <button className={activeTab === 'dashboard' ? 'active' : ''} onClick={() => setActiveTab('dashboard')}><BarChart3 size={16}/> Dashboard</button>
               <button className={activeTab === 'templates' ? 'active' : ''} onClick={() => setActiveTab('templates')}><MessageCircle size={16}/> Templates</button>
+              <button className={activeTab === 'branches' ? 'active' : ''} onClick={() => setActiveTab('branches')}><Building2 size={16}/> Branch mapping</button>
             </nav>
-            {activeTab === 'dashboard' ? <WhatsAppDashboard integrations={integrations} /> : <SettingsWhatsAppTemplates
+            {activeTab === 'branches' ? <WhatsAppBranchMapping onMessage={onMessage} />
+              : activeTab === 'dashboard' ? <WhatsAppDashboard integrations={integrations} /> : <SettingsWhatsAppTemplates
               key={refreshKey}
               integrationId={integrationId}
               integrations={integrations}

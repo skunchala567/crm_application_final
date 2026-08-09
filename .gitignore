@@ -6,3 +6,7 @@ dist/
 .logs/
 .runtime/
 apps/api/uploads/
+
+# Generated database exports: real lead PII, password hashes and integration
+# credentials. Regenerate with apps/api/scripts/export/export-mariadb.js.
+database/exports/

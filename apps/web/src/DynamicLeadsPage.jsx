@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Filter, Plus, RefreshCw, Search, Settings2, SlidersHorizontal, X } from 'lucide-react';
+import { Filter, Plus, RefreshCw, Search, SlidersHorizontal, X } from 'lucide-react';
 import { api } from './api';
 import { useBusinessUnit } from './BusinessUnitContext.jsx';
 import LeadsPage from './LeadsPage.jsx';

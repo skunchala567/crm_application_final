@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap');
 
 @import "tailwindcss";
 @config "../../tailwind.config.js";
@@ -212,17 +212,17 @@
 aside .business-unit-selector {
   margin: 0; /* the wrapper already provides padding */
   min-height: 40px;
-  color: #374151;
-  background: #f9fafb;
-  border-color: #e5e7eb;
+  color: #2a3b33;
+  background: #fbfdfc;
+  border-color: #e4ece8;
   font-size: 12px;
 }
 
 aside .business-unit-selector:hover {
-  background: #f3f4f6;
-  border-color: #d1d5db;
+  background: #f2f7f4;
+  border-color: #d5dfd9;
 }
 
 aside .business-unit-selector > svg {
-  color: #6b7280;
+  color: #5d7167;
 }

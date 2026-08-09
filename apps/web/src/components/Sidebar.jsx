@@ -1,17 +1,109 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { NavLink, useLocation } from 'react-router-dom';
-import { ChevronDown, LogOut, HelpCircle, Menu, X, PanelLeftOpen, PanelLeftClose, Sparkles, Settings } from 'lucide-react';
+import { ChevronDown, ChevronRight, HelpCircle, PanelLeft, Sparkles, Settings, X } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { Avatar, AvatarFallback } from './ui';
-import { BusinessUnitSelector } from '../BusinessUnitContext';
+import { useIsDesktop } from '../lib/useMediaQuery';
+import { BusinessUnitSelector, useBusinessUnit } from '../BusinessUnitContext';
+import './Sidebar.css';
 
-export function Sidebar({ user, onLogout, menu = [], settings = [] }) {
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
-    localStorage.getItem('crm_sidebar_collapsed') === 'true'
+/**
+ * A label that appears beside a rail icon on hover or keyboard focus.
+ *
+ * Rendered into document.body rather than inside the nav: the nav scrolls,
+ * and an element with `overflow-y: auto` gets `overflow-x: auto` too, so
+ * anything positioned outside its box is clipped or pushes a scrollbar.
+ *
+ * Native `title` was doing this job before. It carries about a second of
+ * delay, cannot be styled, and -- because the collapsed item has no text --
+ * left every nav link with an empty accessible name.
+ */
+function RailTooltip({ label, active, children }) {
+  const [anchor, setAnchor] = useState(null);
+  const ref = useRef(null);
+
+  const show = useCallback(() => {
+    if (!active || !ref.current) return;
+    const row = ref.current.getBoundingClientRect();
+    // Measured against the sidebar's edge, not the row's: the nav is padded,
+    // so a row-relative offset put the label on top of the rail.
+    const edge = ref.current.closest('aside')?.getBoundingClientRect().right ?? row.right;
+    setAnchor({ top: row.top, height: row.height, left: edge });
+  }, [active]);
+  const hide = useCallback(() => setAnchor(null), []);
+
+  // A rail that stops being a rail mid-hover would otherwise strand the label.
+  useEffect(() => { if (!active) setAnchor(null); }, [active]);
+
+  return (
+    <div
+      ref={ref}
+      className="relative"
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      onFocus={show}
+      onBlur={hide}
+    >
+      {children}
+      {anchor && createPortal(
+        <span
+          role="tooltip"
+          className={cn(
+            'sidebar-tooltip fixed z-[120] -translate-y-1/2 px-2.5 py-1.5 rounded-lg pointer-events-none',
+            'bg-secondary-900 text-white text-[12px] font-semibold whitespace-nowrap shadow-lg',
+          )}
+          style={{ top: anchor.top + anchor.height / 2, left: anchor.left + 10 }}
+        >
+          {label}
+        </span>,
+        document.body,
+      )}
+    </div>
   );
+}
+
+/**
+ * Sidebar laid out to the reference shell: brand block, user card, grouped
+ * nav, and a footer carrying the per-unit support card.
+ *
+ * Three states, not two. On desktop it is either full width or a 82px icon
+ * rail; below the md breakpoint it is an overlay drawer and always shows its
+ * full contents, because a 82px drawer on a phone is a column of unlabelled
+ * icons covering the screen for no gain.
+ */
+export function Sidebar({
+  menu = [],
+  settings = [],
+  // The topbar owns both toggles, so open/collapsed state lives in the shell.
+  mobileOpen = false,
+  onMobileOpenChange = () => {},
+  collapsed = false,
+  // Collapses the rail on desktop, closes the drawer on mobile.
+  onToggle = () => {},
+}) {
+  const setMobileOpen = onMobileOpenChange;
+  const isDesktop = useIsDesktop();
+  // The collapsed rail is a desktop affordance. The same stored preference
+  // must not turn the mobile drawer into an icon strip.
+  const rail = collapsed && isDesktop;
+  const { selectedUnit } = useBusinessUnit();
+
+  // Branding falls back to the product lockup when a unit has none set.
+  const brandTitle = selectedUnit?.brandTitle?.trim() || 'Orbit';
+  const brandSubtitle = selectedUnit?.brandSubtitle?.trim() || 'Admissions CRM';
+  const brandLogo = selectedUnit?.brandLogo || '';
+
+  // Support card, configured per business unit under Business Units settings.
+  // Only https, mailto: and tel: survive the server's validator, so this is
+  // never a javascript: or data: destination.
+  const helpUrl = selectedUnit?.helpUrl?.trim() || '';
+  const helpTitle = selectedUnit?.helpTitle?.trim() || 'Need a hand?';
+  const helpSubtitle = selectedUnit?.helpSubtitle?.trim() || 'Visit the help centre';
   const [settingsExpanded, setSettingsExpanded] = useState(false);
-  const [sessionSeconds, setSessionSeconds] = useState(0);
+  // Where the rail's settings flyout is anchored; null when it is closed.
+  const [flyout, setFlyout] = useState(null);
+  const settingsButtonRef = useRef(null);
+  const flyoutRef = useRef(null);
   const location = useLocation();
 
   useEffect(() => {
@@ -20,219 +112,374 @@ export function Sidebar({ user, onLogout, menu = [], settings = [] }) {
     }
   }, [location.pathname]);
 
+  // Collapsing the rail while the flyout is open would leave it floating
+  // beside a sidebar that no longer has anything to anchor it to.
+  useEffect(() => { if (!rail) setFlyout(null); }, [rail]);
+
+  // The flyout is a menu: Escape and a click elsewhere close it.
   useEffect(() => {
-    const timer = setInterval(() => setSessionSeconds((value) => value + 1), 1000);
-    return () => clearInterval(timer);
-  }, []);
+    if (!flyout) return undefined;
+    const onKey = (event) => { if (event.key === 'Escape') { setFlyout(null); settingsButtonRef.current?.focus(); } };
+    const onDown = (event) => {
+      if (flyoutRef.current?.contains(event.target)) return;
+      if (settingsButtonRef.current?.contains(event.target)) return;
+      setFlyout(null);
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onDown);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onDown);
+    };
+  }, [flyout]);
 
-  const sessionTime = [
-    Math.floor(sessionSeconds / 3600),
-    Math.floor((sessionSeconds % 3600) / 60),
-    sessionSeconds % 60
-  ]
-    .map((value) => String(value).padStart(2, '0'))
-    .join(':');
+  // Preserve the incoming order while collecting items under their section.
+  const sections = [];
+  for (const entry of menu) {
+    const [label, path, Icon, section = 'Main'] = entry;
+    let group = sections.find((s) => s.title === section);
+    if (!group) { group = { title: section, items: [] }; sections.push(group); }
+    group.items.push({ label, path, Icon });
+  }
 
-  const toggleSidebar = () => {
-    const next = !sidebarCollapsed;
-    setSidebarCollapsed(next);
-    localStorage.setItem('crm_sidebar_collapsed', String(next));
-  };
+  const settingsActive = location.pathname.startsWith('/settings');
+
+  /** The unit's logo, or the product lockup when it has none set. */
+  const brandMark = brandLogo ? (
+    <img
+      src={brandLogo}
+      alt=""
+      className="w-[42px] h-[42px] flex-none rounded-[13px] object-contain bg-white border border-border"
+    />
+  ) : (
+    <div className="grid place-items-center w-[42px] h-[42px] flex-none rounded-[13px] bg-gradient-to-br from-primary-500 to-primary-700 text-white font-display font-extrabold text-[15px] tracking-tight shadow-brand">
+      <Sparkles size={18} />
+    </div>
+  );
+
+  /** Shared by every nav row so the rail and the full width stay in step. */
+  const rowClass = (isActive) => cn(
+    'relative flex items-center py-[9.5px] rounded-[11px]',
+    'text-[13.2px] font-medium whitespace-nowrap transition-colors duration-200',
+    rail ? 'justify-center gap-0 px-0' : 'gap-[11px] px-[11px]',
+    isActive
+      // The marker hanging off the left edge is dropped in the rail: at 82px
+      // it lands on the sidebar's own border as a stray sliver, and the
+      // filled pill already says which item is active.
+      ? cn(
+        'bg-primary-600 text-white font-semibold shadow-brand',
+        !rail && 'before:absolute before:-left-3 before:top-1/2 before:-translate-y-1/2 before:h-5 before:w-[3px] before:rounded-r before:bg-primary-600',
+      )
+      : 'text-secondary-600 hover:bg-surface-3 hover:text-foreground',
+  );
+
+  /** Text beside an icon: fades and gives up its width as the rail closes.
+      Clipped rather than unmounted, so the label slides away with the width
+      instead of vanishing a frame before the sidebar starts moving. The
+      clipping lives here and not on the row, which has to stay overflow-
+      visible for the active marker hanging off its left edge. */
+  const labelClass = cn(
+    'overflow-hidden transition-[opacity,width] duration-200 ease-out',
+    rail ? 'w-0 opacity-0' : 'w-auto opacity-100',
+  );
 
   return (
     <>
-      {/* Mobile Toggle */}
-      <button
-        className="md:hidden fixed top-4 left-4 z-40 p-2 rounded-lg hover:bg-secondary-100"
-        onClick={() => setMobileOpen(true)}
-        aria-label="Open navigation"
-      >
-        <Menu size={24} className="text-foreground" />
-      </button>
-
-      {/* Mobile Overlay */}
+      {/* Mobile scrim. The opener lives in the topbar; closing happens here,
+          on the drawer's own close button, or by following a nav link. */}
+      {/* Above the topbar, not below it. At z-30 the scrim sat under the
+          sticky header, which then covered the drawer's own brand block and
+          close button and stayed undimmed while the drawer was open. */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-30 md:hidden"
+          className="fixed inset-0 bg-secondary-900/50 z-50 md:hidden"
           onClick={() => setMobileOpen(false)}
         />
       )}
 
       {/* Sidebar */}
       <aside
+        id="app-sidebar"
         className={cn(
-          'fixed top-0 left-0 h-screen z-40 flex flex-col bg-white border-r border-border transition-all duration-300',
+          'app-sidebar fixed top-0 left-0 h-screen z-[60] flex flex-col bg-white border-r border-border',
+          'transition-[width,transform] duration-300 ease-out',
           'md:relative md:z-0 md:translate-x-0',
-          sidebarCollapsed ? 'w-20' : 'w-64',
-          mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+          rail ? 'w-[82px]' : 'w-[270px]',
+          mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
         )}
+        data-collapsed={rail ? 'true' : 'false'}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border">
-          {!sidebarCollapsed && (
-            <div className="flex items-center gap-2">
-              <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary-600 text-white">
-                <Sparkles size={16} />
+        {/* ---------- Brand ---------- */}
+        {/* Title, subtitle and logo come from the selected business unit's
+            settings; the built-in lockup is the fallback.
+            The collapse control lives here, at the end of the brand row,
+            rather than out in the topbar -- the button that closes a panel
+            belongs to the panel. */}
+        <div className={cn(
+          'flex items-center gap-3 px-[18px] pt-5 pb-[18px]',
+          rail && 'justify-center px-0',
+        )}>
+          {rail ? (
+            // In the rail the logo IS the control: hovering it turns it into
+            // the panel icon and clicking it opens the sidebar. A separate
+            // expand button underneath was a second thing to aim at in a
+            // strip that exists to be narrow.
+            <RailTooltip label="Expand navigation" active>
+              <button
+                type="button"
+                onClick={onToggle}
+                className="sidebar-brand-btn"
+                aria-label="Expand navigation"
+                aria-expanded={false}
+                aria-controls="app-sidebar"
+              >
+                <span className="brand-swap-mark">{brandMark}</span>
+                <span className="brand-swap-icon"><PanelLeft size={18} /></span>
+              </button>
+            </RailTooltip>
+          ) : (
+            <>
+              {brandMark}
+              <div className="min-w-0 flex-1">
+                <h1 className="font-display font-extrabold text-[15px] text-foreground truncate">{brandTitle}</h1>
+                <span className="block text-[11.5px] text-secondary-400 font-medium truncate">{brandSubtitle}</span>
               </div>
-              <span className="font-bold text-lg text-foreground font-display">Orbit</span>
+              {/* On a phone this closes the drawer, which is what the panel
+                  icon would do there anyway -- but an X says it plainly. */}
+              <button
+                type="button"
+                onClick={onToggle}
+                className="sidebar-toggle-btn grid place-items-center flex-none rounded-[10px] text-secondary-500 hover:bg-surface-3 hover:text-primary-600 active:scale-95 transition-all"
+                aria-label={isDesktop ? 'Collapse navigation' : 'Close navigation'}
+                aria-expanded={isDesktop ? true : mobileOpen}
+                aria-controls="app-sidebar"
+                title={isDesktop ? 'Collapse navigation' : 'Close navigation'}
+              >
+                {isDesktop ? <PanelLeft size={18} /> : <X size={18} />}
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Business unit scope */}
+        <div className="px-3 pb-3 border-b border-border">
+          <BusinessUnitSelector compact={rail} />
+        </div>
+
+        {/* ---------- Navigation ---------- */}
+        <nav className="flex-1 overflow-y-auto overflow-x-hidden px-3 pt-1 pb-[14px] flex flex-col gap-0.5" aria-label="Primary">
+          {sections.map((section) => (
+            <div key={section.title} className="contents">
+              {rail ? (
+                // A rule stands in for the group heading, so the rail keeps
+                // the same grouping without a column of clipped words.
+                <div className="mx-auto my-2 h-px w-7 bg-border" aria-hidden="true" />
+              ) : (
+                <div className="px-2.5 pt-4 pb-[7px] text-[10px] font-bold tracking-[.1em] uppercase text-secondary-400">
+                  {section.title}
+                </div>
+              )}
+              {section.items.map(({ label, path, Icon }) => (
+                <RailTooltip key={label} label={label} active={rail}>
+                  <NavLink
+                    to={path}
+                    end={path === '/'}
+                    onClick={() => setMobileOpen(false)}
+                    // The label is hidden in the rail, so the accessible name
+                    // has to come from somewhere.
+                    aria-label={rail ? label : undefined}
+                    className={({ isActive }) =>
+                      rowClass(isActive || (label === 'Dashboard' && location.pathname.startsWith('/saved-reports')))
+                    }
+                  >
+                    <Icon size={18} className="flex-shrink-0" />
+                    <span className={labelClass}>{label}</span>
+                    {label === 'Follow-ups' && !rail && (
+                      <span className="ml-auto text-[10.5px] font-bold px-[7px] py-0.5 rounded-full bg-danger-bg text-danger">
+                        24
+                      </span>
+                    )}
+                  </NavLink>
+                </RailTooltip>
+              ))}
+            </div>
+          ))}
+
+          {/* System group: Settings + submenu.
+              The whole group is dropped when the user has no settings screen
+              to reach -- the caller filters the list by permission, so an
+              empty list means every entry was denied. Showing the header and
+              an empty expander would only advertise screens they cannot open. */}
+          {settings.length > 0 && (<>
+          {rail ? (
+            <div className="mx-auto my-2 h-px w-7 bg-border" aria-hidden="true" />
+          ) : (
+            <div className="px-2.5 pt-4 pb-[7px] text-[10px] font-bold tracking-[.1em] uppercase text-secondary-400">
+              System
             </div>
           )}
-          <button
-            onClick={toggleSidebar}
-            className="p-1 hover:bg-secondary-100 rounded-lg transition-colors"
-            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            {sidebarCollapsed ? (
-              <PanelLeftOpen size={18} />
+          <RailTooltip label="Settings" active={rail && !flyout}>
+            <button
+              ref={settingsButtonRef}
+              onClick={() => {
+                if (rail) {
+                  // In the rail the submenu has nowhere to expand into, so it
+                  // opens as a flyout beside the icon instead of silently
+                  // toggling a list nobody can see.
+                  //
+                  // Measured here rather than inside the updater: React nulls
+                  // out the event's currentTarget once the handler returns,
+                  // and a state updater runs after that.
+                  const button = settingsButtonRef.current;
+                  const row = button?.getBoundingClientRect();
+                  const edge = button?.closest('aside')?.getBoundingClientRect().right ?? row?.right ?? 0;
+                  setFlyout((current) => (current ? null : { top: row?.top ?? 0, left: edge }));
+                  return;
+                }
+                setSettingsExpanded((current) => !current);
+              }}
+              aria-label={rail ? 'Settings' : undefined}
+              className={cn(rowClass(settingsActive), 'w-full')}
+              aria-expanded={rail ? Boolean(flyout) : settingsExpanded}
+              aria-haspopup={rail ? 'menu' : undefined}
+            >
+              <Settings size={18} className="flex-shrink-0" />
+              <span className={labelClass}>Settings</span>
+              {!rail && (
+                <ChevronDown
+                  size={16}
+                  className={cn('ml-auto transition-transform', settingsExpanded ? 'rotate-180' : '')}
+                />
+              )}
+            </button>
+          </RailTooltip>
+
+          {settingsExpanded && !rail && (
+            <div className="mt-1 ml-6 flex flex-col gap-0.5">
+              {settings.map(({ label, path }) => (
+                <NavLink
+                  key={path}
+                  to={path}
+                  onClick={() => setMobileOpen(false)}
+                  className={({ isActive }) =>
+                    cn(
+                      'block px-3 py-2 rounded-[10px] text-[12.5px] transition-colors duration-200',
+                      isActive
+                        ? 'text-primary-700 bg-primary-50 font-semibold'
+                        : 'text-secondary-600 hover:text-foreground hover:bg-surface-3'
+                    )
+                  }
+                >
+                  {label}
+                </NavLink>
+              ))}
+            </div>
+          )}
+          </>)}
+
+        </nav>
+
+        {/* ---------- Footer ---------- */}
+        {/* Support card. Its destination and wording belong to the business
+            unit, so one unit can point at a WhatsApp chat and another at a
+            Zoom room. With no URL configured it stays a plain card rather
+            than a link that goes nowhere. In the rail it shrinks to its icon
+            so help does not disappear entirely. */}
+        {rail ? (
+          <RailTooltip label={helpTitle} active>
+            {helpUrl ? (
+              <a
+                href={helpUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={helpTitle}
+                className="mx-auto mb-3 grid place-items-center w-10 h-10 rounded-[11px] bg-primary-50 border border-border text-primary-600 hover:bg-primary-100 hover:border-primary-300 transition-colors"
+              >
+                <HelpCircle size={18} />
+              </a>
             ) : (
-              <PanelLeftClose size={18} />
+              <div
+                aria-label={helpTitle}
+                className="mx-auto mb-3 grid place-items-center w-10 h-10 rounded-[11px] bg-primary-50 border border-border text-primary-600"
+              >
+                <HelpCircle size={18} />
+              </div>
             )}
-          </button>
-        </div>
+          </RailTooltip>
+        ) : (
+          helpUrl ? (
+            <a
+              href={helpUrl}
+              target="_blank"
+              // noopener/noreferrer because the destination is administrator-
+              // supplied and opens in a tab that would otherwise get a handle
+              // back to the CRM.
+              rel="noopener noreferrer"
+              className="mx-3 mb-3 p-3 rounded-lg bg-primary-50 border border-border block hover:bg-primary-100 hover:border-primary-300 transition-colors"
+            >
+              <div className="flex items-start gap-3">
+                <HelpCircle size={18} className="text-primary-600 flex-shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <p className="font-semibold text-sm text-foreground">{helpTitle}</p>
+                  <p className="text-xs text-secondary-600">{helpSubtitle}</p>
+                </div>
+              </div>
+            </a>
+          ) : (
+            <div className="mx-3 mb-3 p-3 rounded-lg bg-primary-50 border border-border">
+              <div className="flex items-start gap-3">
+                <HelpCircle size={18} className="text-primary-600 flex-shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <p className="font-semibold text-sm text-foreground">{helpTitle}</p>
+                  <p className="text-xs text-secondary-600">{helpSubtitle}</p>
+                </div>
+              </div>
+            </div>
+          )
+        )}
 
-        {/* Business Unit Selector */}
-        <div className="px-3 py-3 border-b border-border">
-          <BusinessUnitSelector compact={sidebarCollapsed} />
-        </div>
+      </aside>
 
-        {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
-          {menu.map(([label, path, Icon]) => (
+      {/* The rail's settings submenu. Portalled for the same reason as the
+          tooltips: the nav scrolls and would clip it. */}
+      {flyout && createPortal(
+        <div
+          ref={flyoutRef}
+          role="menu"
+          aria-label="Settings"
+          className="sidebar-flyout fixed z-[120] w-[212px] p-1.5 rounded-xl bg-white border border-border shadow-lg"
+          style={{
+            left: flyout.left + 10,
+            // Kept on screen when the icon sits near the bottom of a short
+            // window; the menu is 44px of chrome plus a row per item.
+            top: Math.min(flyout.top, Math.max(8, window.innerHeight - (settings.length * 34 + 52))),
+          }}
+        >
+          <p className="px-2.5 pt-1.5 pb-2 text-[10px] font-bold tracking-[.1em] uppercase text-secondary-400">
+            Settings
+          </p>
+          {settings.map(({ label, path }) => (
             <NavLink
-              key={label}
+              key={path}
               to={path}
-              end={path === '/'}
-              onClick={() => setMobileOpen(false)}
+              role="menuitem"
+              onClick={() => { setFlyout(null); setMobileOpen(false); }}
               className={({ isActive }) =>
                 cn(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors font-medium text-sm',
-                  isActive || (label === 'Dashboard' && location.pathname.startsWith('/saved-reports'))
-                    ? 'bg-primary-100 text-primary-700'
-                    : 'text-secondary-600 hover:bg-secondary-100 hover:text-foreground'
+                  'flex items-center gap-2 px-2.5 py-2 rounded-lg text-[12.5px] transition-colors duration-200',
+                  isActive
+                    ? 'text-primary-700 bg-primary-50 font-semibold'
+                    : 'text-secondary-600 hover:text-foreground hover:bg-surface-3'
                 )
               }
             >
-              <Icon size={18} className="flex-shrink-0" />
-              {!sidebarCollapsed && (
-                <>
-                  <span>{label}</span>
-                  {label === 'Follow-ups' && (
-                    <span className="ml-auto bg-amber-500 text-white text-xs px-2 py-0.5 rounded-full">
-                      24
-                    </span>
-                  )}
-                </>
-              )}
+              <ChevronRight size={13} className="flex-none text-secondary-300" />
+              {label}
             </NavLink>
           ))}
-
-          {/* Settings Section */}
-          <div className="pt-4 border-t border-border mt-4">
-            <button
-              onClick={() => setSettingsExpanded(!settingsExpanded)}
-              className={cn(
-                'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors font-medium text-sm',
-                location.pathname.startsWith('/settings')
-                  ? 'bg-primary-100 text-primary-700'
-                  : 'text-secondary-600 hover:bg-secondary-100 hover:text-foreground'
-              )}
-              aria-expanded={settingsExpanded}
-            >
-              <Settings size={18} className="flex-shrink-0" />
-              {!sidebarCollapsed && (
-                <>
-                  <span>Settings</span>
-                  <ChevronDown
-                    size={16}
-                    className={cn(
-                      'ml-auto transition-transform',
-                      settingsExpanded ? 'rotate-180' : ''
-                    )}
-                  />
-                </>
-              )}
-            </button>
-
-            {/* Settings Submenu */}
-            {settingsExpanded && !sidebarCollapsed && (
-              <div className="mt-1 ml-6 space-y-1">
-                {settings.map(({ label, path }) => (
-                  <NavLink
-                    key={path}
-                    to={path}
-                    className={({ isActive }) =>
-                      cn(
-                        'block px-3 py-2 rounded-lg transition-colors text-sm',
-                        isActive
-                          ? 'text-primary-700 bg-primary-50'
-                          : 'text-secondary-600 hover:text-foreground hover:bg-secondary-100'
-                      )
-                    }
-                  >
-                    {label}
-                  </NavLink>
-                ))}
-              </div>
-            )}
-          </div>
-        </nav>
-
-        {/* Help Section */}
-        {!sidebarCollapsed && (
-          <div className="p-3 mx-3 mb-4 rounded-lg bg-secondary-50 border border-secondary-200">
-            <div className="flex items-start gap-3">
-              <HelpCircle size={18} className="text-secondary-600 flex-shrink-0 mt-0.5" />
-              <div className="min-w-0">
-                <p className="font-semibold text-sm text-foreground">Need a hand?</p>
-                <p className="text-xs text-secondary-600">Visit the help centre</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* User Profile */}
-        <div className="p-3 border-t border-border">
-          <button
-            onClick={onLogout}
-            className={cn(
-              'w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-secondary-100 transition-colors',
-              sidebarCollapsed && 'justify-center'
-            )}
-          >
-            <Avatar className="h-8 w-8 flex-shrink-0 text-xs">
-              <AvatarFallback>
-                {user.name
-                  .split(' ')
-                  .map((n) => n[0])
-                  .join('')}
-              </AvatarFallback>
-            </Avatar>
-            {!sidebarCollapsed && (
-              <div className="text-left flex-1 min-w-0">
-                <p className="font-semibold text-sm text-foreground truncate">
-                  {user.name}
-                </p>
-                <p className="text-xs text-secondary-500 truncate">{user.role}</p>
-              </div>
-            )}
-            <LogOut size={16} className="flex-shrink-0 text-secondary-500" />
-          </button>
-          {!sidebarCollapsed && (
-            <div className="text-xs text-secondary-500 text-center mt-2 font-mono">
-              {sessionTime}
-            </div>
-          )}
-        </div>
-
-        {/* Mobile Close Button */}
-        <button
-          className="md:hidden absolute top-4 right-4 p-1 hover:bg-secondary-100 rounded-lg"
-          onClick={() => setMobileOpen(false)}
-          aria-label="Close navigation"
-        >
-          <X size={20} />
-        </button>
-      </aside>
+        </div>,
+        document.body,
+      )}
     </>
   );
 }

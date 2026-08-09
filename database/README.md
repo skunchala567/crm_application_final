@@ -13,6 +13,12 @@ Create schema changes as a new numbered file in `mysql/`. Do not edit an already
 | Evolve an existing database | `mysql/` — add a new numbered migration |
 | Provision a brand-new database | `reference/FULL_SCHEMA_MYSQL.sql` |
 | Read the current shape of a table | `reference/FULL_SCHEMA_MYSQL.sql` |
+| Move the database to MariaDB 10.11 | `exports/` — generate with `apps/api/scripts/export/export-mariadb.js` |
+
+`exports/` is git-ignored. It holds generated MariaDB 10.11 provisioning
+scripts, which carry real lead PII, password hashes and integration
+credentials. Regenerate rather than share, and verify with
+`apps/api/scripts/export/verify-mariadb-export.js`.
 
 `reference/FULL_SCHEMA_MYSQL.sql` is a complete `CREATE TABLE IF NOT EXISTS`
 snapshot of all 124 objects (98 CRM tables, 7 shared identity/master tables,

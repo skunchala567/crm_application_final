@@ -17,7 +17,38 @@ const richText = (value, max = 50000) => {
     .slice(0,max);
   return cleaned.replace(/<[^>]*>/g,'').replace(/&nbsp;/gi,' ').trim()?cleaned:null;
 };
-const isAdmin = user => (user.roles || []).some(role => ['ADMIN','CRM_ADMIN'].includes(String(role).toUpperCase()));
+/**
+ * Sidebar logo: an https URL or an inline image data: URI.
+ *
+ * The value is rendered in an <img src>, so the allow-list is deliberately
+ * narrow -- no svg+xml (it can carry script), no other schemes. ~1.5MB cap
+ * keeps a data URI inside MEDIUMTEXT with room to spare.
+ */
+/**
+ * The support destination for a business unit's help card.
+ *
+ * Restricted to schemes a click can safely open: https, and the app links
+ * schools actually use for support. javascript: and data: are refused, since
+ * this value is rendered straight into an href.
+ */
+const helpUrl = value => {
+  const raw = String(value || '').trim();
+  if (!raw || raw.length > 1000) return null;
+  if (/^https:\/\/[^\s"'<>]+$/i.test(raw)) return raw;
+  if (/^(mailto:|tel:)[^\s"'<>]+$/i.test(raw)) return raw;
+  return null;
+};
+
+const brandLogo = value => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  if (raw.length > 1_500_000) return null;
+  if (/^https:\/\/[^\s"'<>]+$/i.test(raw)) return raw;
+  if (/^data:image\/(png|jpeg|jpg|gif|webp);base64,[A-Za-z0-9+/=]+$/i.test(raw)) return raw;
+  return null;
+};
+
+const isAdmin = user => (user.roles || []).some(role => ['CRM_ADMIN','SUPER_ADMIN'].includes(String(role).toUpperCase()));
 
 export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin) {
   const router = express.Router();
@@ -58,6 +89,8 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     res.json({data:rows.map(row=>({
       id:Number(row.id),code:row.unit_code,name:row.display_name,industryType:row.industry_type,
       description:row.description,iconKey:row.icon_key,color:row.color_code,
+      brandTitle:row.brand_title,brandSubtitle:row.brand_subtitle,brandLogo:row.brand_logo,
+      helpUrl:row.help_url,helpTitle:row.help_title,helpSubtitle:row.help_subtitle,
       compatibilityMode:row.compatibility_mode,isDefault:Boolean(row.is_default),isActive:Boolean(row.is_active),
       accessLevel:row.accessLevel||'admin',leadCount:Number(row.dynamicLeadCount||0)+Number(row.legacyLeadCount||0),
     }))});
@@ -71,9 +104,11 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
       await connection.beginTransaction();
       const [result]=await connection.execute(
         `INSERT INTO crm_business_units
-         (unit_code,display_name,industry_type,description,icon_key,color_code,compatibility_mode,is_default,is_active,created_by_user_id)
-         VALUES (?,?,?,?,?,?,'metadata',FALSE,TRUE,?)`,
-        [code,name,text(req.body.industryType,80)||'General',text(req.body.description,500),text(req.body.iconKey,50)||'building',
+         (unit_code,display_name,brand_title,brand_subtitle,brand_logo,help_url,help_title,help_subtitle,industry_type,description,icon_key,color_code,compatibility_mode,is_default,is_active,created_by_user_id)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'metadata',FALSE,TRUE,?)`,
+        [code,name,text(req.body.brandTitle,80),text(req.body.brandSubtitle,120),brandLogo(req.body.brandLogo),
+         helpUrl(req.body.helpUrl),text(req.body.helpTitle,80),text(req.body.helpSubtitle,160),
+         text(req.body.industryType,80)||'General',text(req.body.description,500),text(req.body.iconKey,50)||'building',
          /^#[0-9a-f]{6}$/i.test(req.body.color||'')?req.body.color:'#4A4FB1',Number(req.user.id)],
       );
       const unitId=Number(result.insertId);
@@ -165,8 +200,14 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     const unitId=Number(req.params.id),name=text(req.body.name,150);
     if(!name)return res.status(400).json({message:'Business unit name is required'});
     const [result]=await pool.execute(
-      `UPDATE crm_business_units SET display_name=?,industry_type=?,description=?,color_code=?,updated_by_user_id=? WHERE id=?`,
-      [name,text(req.body.industryType,80)||'General',text(req.body.description,500),
+      `UPDATE crm_business_units
+          SET display_name=?,brand_title=?,brand_subtitle=?,brand_logo=?,
+              help_url=?,help_title=?,help_subtitle=?,
+              industry_type=?,description=?,color_code=?,updated_by_user_id=?
+        WHERE id=?`,
+      [name,text(req.body.brandTitle,80),text(req.body.brandSubtitle,120),brandLogo(req.body.brandLogo),
+       helpUrl(req.body.helpUrl),text(req.body.helpTitle,80),text(req.body.helpSubtitle,160),
+       text(req.body.industryType,80)||'General',text(req.body.description,500),
        /^#[0-9a-f]{6}$/i.test(req.body.color||'')?req.body.color:'#4A4FB1',Number(req.user.id),unitId],
     );
     if(!result.affectedRows)return res.status(404).json({message:'Business unit not found'});
@@ -254,14 +295,18 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     const [[fields],[forms],[enquiryForms],[pipelines],[pipelineStages],[workflows],[operationStages],[modules],[branches],[sources],[channels],[campaigns],[employees],[academicYears]]=await Promise.all([
       pool.execute(`SELECT id,field_key AS fieldKey,display_name AS displayName,field_type AS fieldType,placeholder,help_text AS helpText,options_json AS options,validation_json AS validation,is_system AS isSystem,is_required AS isRequired,is_filterable AS isFilterable,filter_control AS filterControl,is_searchable AS isSearchable,is_importable AS isImportable,is_import_required AS isImportRequired,import_header AS importHeader,import_sample_value AS importSampleValue,show_in_list AS showInList,position,column_width AS columnWidth,is_active AS isActive FROM crm_metadata_fields WHERE business_unit_id=? ORDER BY module_key,position`,[unitId]),
       pool.execute(`SELECT id,form_key AS formKey,display_name AS displayName,form_type AS formType,sections_json AS sections,is_default AS isDefault,is_active AS isActive FROM crm_metadata_forms WHERE business_unit_id=? ORDER BY display_name`,[unitId]),
-      pool.execute(`SELECT id,form_key AS formKey,display_name AS displayName,description,default_branch_id AS defaultBranchId,default_stage_id AS defaultStageId,default_substage_id AS defaultSubstageId,default_source_id AS defaultSourceId,default_channel_id AS defaultChannelId,default_campaign_id AS defaultCampaignId,default_owner_employee_id AS defaultOwnerEmployeeId,field_schema_json AS fieldSchema,settings_json AS settings,success_message AS successMessage,redirect_url AS redirectUrl,is_active AS isActive FROM crm_public_enquiry_forms WHERE business_unit_id=? ORDER BY display_name`,[unitId]),
+      pool.execute(`SELECT id,form_key AS formKey,display_name AS displayName,description,default_branch_id AS defaultBranchId,default_stage_id AS defaultStageId,default_substage_id AS defaultSubstageId,default_source_id AS defaultSourceId,default_channel_id AS defaultChannelId,default_campaign_id AS defaultCampaignId,default_owner_employee_id AS defaultOwnerEmployeeId,field_schema_json AS fieldSchema,settings_json AS settings,success_message AS successMessage,redirect_url AS redirectUrl,payment_required AS paymentRequired,payment_amount AS paymentAmount,is_active AS isActive FROM crm_public_enquiry_forms WHERE business_unit_id=? ORDER BY display_name`,[unitId]),
       pool.execute(`SELECT id,pipeline_key AS pipelineKey,display_name AS displayName,description,entity_label_singular AS entityLabelSingular,entity_label_plural AS entityLabelPlural,is_default AS isDefault,is_active AS isActive FROM crm_metadata_pipelines WHERE business_unit_id=? ORDER BY is_default DESC,display_name`,[unitId]),
       pool.execute(`SELECT ps.id,ps.pipeline_id AS pipelineId,ps.stage_key AS stageKey,ps.display_name AS displayName,ps.stage_type AS stageType,ps.color_code AS color,ps.position,ps.is_active AS isActive FROM crm_metadata_pipeline_stages ps JOIN crm_metadata_pipelines p ON p.id=ps.pipeline_id WHERE p.business_unit_id=? ORDER BY ps.pipeline_id,ps.position`,[unitId]),
       pool.execute(`SELECT id,workflow_key AS workflowKey,display_name AS displayName,entity_label AS entityLabel,description,form_schema_json AS formSchema,is_default AS isDefault,is_active AS isActive FROM crm_operation_workflows WHERE business_unit_id=? ORDER BY is_default DESC,display_name`,[unitId]),
       pool.execute(`SELECT os.id,os.workflow_id AS workflowId,os.stage_key AS stageKey,os.display_name AS displayName,os.stage_type AS stageType,os.color_code AS color,os.position,os.checklist_json AS checklist,os.is_active AS isActive FROM crm_operation_stages os JOIN crm_operation_workflows ow ON ow.id=os.workflow_id WHERE ow.business_unit_id=? ORDER BY os.workflow_id,os.position`,[unitId]),
       pool.execute(`SELECT id,module_key AS moduleKey,display_name AS displayName,module_type AS moduleType,description,layout_json AS layout,settings_json AS settings,position,is_active AS isActive FROM crm_business_modules WHERE business_unit_id=? ORDER BY position`,[unitId]),
       pool.query(branchSelect),
-      pool.query(`SELECT id,display_name AS displayName FROM crm_lead_sources WHERE is_active=TRUE ORDER BY display_name`),
+      // channelId travels with the source so the enquiry form can narrow the
+      // source list to the chosen channel, the same binding the Add/Edit lead
+      // screens use. Without it the config screen offered every source under
+      // every channel.
+      pool.query(`SELECT id,display_name AS displayName,channel_id AS channelId FROM crm_lead_sources WHERE is_active=TRUE ORDER BY display_name`),
       pool.query(`SELECT id,display_name AS displayName FROM crm_lead_channels WHERE is_active=TRUE ORDER BY display_name`),
       pool.query(`SELECT id,display_name AS displayName FROM crm_campaigns WHERE is_active=TRUE ORDER BY display_name`),
       pool.execute(
@@ -276,7 +321,7 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
            AND e.status='Active'
            AND (ubu.user_id IS NOT NULL OR EXISTS(
              SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id
-             WHERE ur.user_id=u.id AND r.normalized_name IN ('ADMIN','CRM_ADMIN')
+             WHERE ur.user_id=u.id AND r.normalized_name IN ('CRM_ADMIN','SUPER_ADMIN')
            ))
          ORDER BY name
          LIMIT 1000`,
@@ -497,7 +542,13 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
       placeholder:text(field.placeholder,200),
       position:Number(field.position)||index+1,
     })):[];
+    // The form owns whether to collect a payment and how much; the branch
+    // only supplies the Jodo credentials. A blank amount falls back to the
+    // branch's application amount at submission time.
+    const amount=Number(req.body.paymentAmount);
     return {
+      paymentRequired:Boolean(req.body.paymentRequired),
+      paymentAmount:Number.isFinite(amount)&&amount>0?amount:null,
       displayName:text(req.body.displayName,150),
       description:text(req.body.description,500),
       defaultBranchId:req.body.defaultBranchId?Number(req.body.defaultBranchId):null,
@@ -527,9 +578,9 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     try{
       const [result]=await pool.execute(
         `INSERT INTO crm_public_enquiry_forms
-         (business_unit_id,form_key,display_name,description,default_branch_id,default_stage_id,default_substage_id,default_source_id,default_channel_id,default_campaign_id,default_owner_employee_id,field_schema_json,settings_json,success_message,redirect_url,is_active,created_by_user_id,updated_by_user_id)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [unitId,formKey,payload.displayName,payload.description,payload.defaultBranchId,payload.defaultStageId,payload.defaultSubstageId,payload.defaultSourceId,payload.defaultChannelId,payload.defaultCampaignId,payload.defaultOwnerEmployeeId,JSON.stringify(payload.fields),JSON.stringify(payload.settings),payload.successMessage,payload.redirectUrl,payload.isActive?1:0,Number(req.user.id),Number(req.user.id)],
+         (business_unit_id,form_key,display_name,description,default_branch_id,default_stage_id,default_substage_id,default_source_id,default_channel_id,default_campaign_id,default_owner_employee_id,field_schema_json,settings_json,success_message,redirect_url,payment_required,payment_amount,is_active,created_by_user_id,updated_by_user_id)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [unitId,formKey,payload.displayName,payload.description,payload.defaultBranchId,payload.defaultStageId,payload.defaultSubstageId,payload.defaultSourceId,payload.defaultChannelId,payload.defaultCampaignId,payload.defaultOwnerEmployeeId,JSON.stringify(payload.fields),JSON.stringify(payload.settings),payload.successMessage,payload.redirectUrl,payload.paymentRequired?1:0,payload.paymentAmount,payload.isActive?1:0,Number(req.user.id),Number(req.user.id)],
       );
       res.status(201).json({id:Number(result.insertId),formKey,message:'Enquiry form created'});
     }catch(error){if(error.code==='ER_DUP_ENTRY')return res.status(409).json({message:'This enquiry form key already exists'});throw error;}
@@ -544,9 +595,9 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     if(!payload.settings.defaultAcademicYear)return res.status(400).json({message:'Academic year is required for enquiry forms'});
     if(!payload.fields.length)return res.status(400).json({message:'Select at least one field for the enquiry form'});
     const [result]=await pool.execute(
-      `UPDATE crm_public_enquiry_forms SET display_name=?,description=?,default_branch_id=?,default_stage_id=?,default_substage_id=?,default_source_id=?,default_channel_id=?,default_campaign_id=?,default_owner_employee_id=?,field_schema_json=?,settings_json=?,success_message=?,redirect_url=?,is_active=?,updated_by_user_id=?
+      `UPDATE crm_public_enquiry_forms SET display_name=?,description=?,default_branch_id=?,default_stage_id=?,default_substage_id=?,default_source_id=?,default_channel_id=?,default_campaign_id=?,default_owner_employee_id=?,field_schema_json=?,settings_json=?,success_message=?,redirect_url=?,payment_required=?,payment_amount=?,is_active=?,updated_by_user_id=?
        WHERE id=? AND business_unit_id=?`,
-      [payload.displayName,payload.description,payload.defaultBranchId,payload.defaultStageId,payload.defaultSubstageId,payload.defaultSourceId,payload.defaultChannelId,payload.defaultCampaignId,payload.defaultOwnerEmployeeId,JSON.stringify(payload.fields),JSON.stringify(payload.settings),payload.successMessage,payload.redirectUrl,payload.isActive?1:0,Number(req.user.id),formId,unitId],
+      [payload.displayName,payload.description,payload.defaultBranchId,payload.defaultStageId,payload.defaultSubstageId,payload.defaultSourceId,payload.defaultChannelId,payload.defaultCampaignId,payload.defaultOwnerEmployeeId,JSON.stringify(payload.fields),JSON.stringify(payload.settings),payload.successMessage,payload.redirectUrl,payload.paymentRequired?1:0,payload.paymentAmount,payload.isActive?1:0,Number(req.user.id),formId,unitId],
     );
     if(!result.affectedRows)return res.status(404).json({message:'Enquiry form not found'});
     res.json({message:'Enquiry form updated'});
@@ -1101,7 +1152,7 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
        WHERE u.is_active=TRUE
          AND (ubu.user_id IS NOT NULL OR EXISTS(
            SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id
-           WHERE ur.user_id=u.id AND r.normalized_name IN ('ADMIN','CRM_ADMIN')
+           WHERE ur.user_id=u.id AND r.normalized_name IN ('CRM_ADMIN','SUPER_ADMIN')
          ))
        ORDER BY name`,
       [unitId],
@@ -1140,7 +1191,12 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
       `SELECT p.id,p.session_id AS sessionId,p.position,p.mom_notes AS notes,
               p.operation_record_id AS operationRecordId,opr.record_number AS recordNumber,
               opr.title AS actionItem,COALESCE(e.employee_name,go.display_name) AS owner,opr.due_at_utc AS dueAt,
-              JSON_UNQUOTE(JSON_EXTRACT(opr.values_json,'$.estimatedHours')) AS estimatedHours
+              JSON_UNQUOTE(JSON_EXTRACT(opr.values_json,'$.estimatedHours')) AS estimatedHours,
+              -- Enough for the session's action-item list to stand on its own,
+              -- rather than sending the reader to the Action Items tab.
+              opr.description AS description,opr.status_key AS statusKey,
+              opr.approval_status AS approvalStatus,opr.approval_required AS approvalRequired,
+              opr.minutes_spent AS minutesSpent,opr.created_at_utc AS createdAt
        FROM crm_mom_session_points p
        LEFT JOIN crm_operation_records opr ON opr.id=p.operation_record_id
        LEFT JOIN employees e ON e.id=opr.owner_employee_id

@@ -1,76 +1,496 @@
-import { Search, Bell } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import {
+  ArrowLeft, Bell, ChevronDown, Home, KeyRound, LogOut, Mail, Menu, Settings, X, Zap,
+} from 'lucide-react';
+import { api } from '../api';
 import { cn } from '../lib/utils';
+import { useIsDesktop } from '../lib/useMediaQuery';
+import { useBusinessUnit } from '../BusinessUnitContext';
+import { useLeadQuickActions } from '../LeadQuickActionsContext';
+import { usePermissions } from '../PermissionContext';
 
-export function Header({ title, subtitle, breadcrumbs, actions, searchPlaceholder, onSearch }) {
+/** Any one of these makes the Settings entry worth showing. */
+const SETTINGS_PERMISSIONS = [
+  'settings.users.view', 'settings.access_control.view', 'settings.business_units.view',
+  'settings.branches.view', 'settings.payment_forms.view', 'settings.lead_config.view',
+  'settings.academic_config.view', 'integrations.hub.view', 'whatsapp.templates.view',
+];
+
+/** Route -> breadcrumb trail. Keeps the topbar identical on every screen. */
+const CRUMBS = {
+  '/': ['Dashboard'],
+  '/leads': ['Leads'],
+  '/tracker': ['Tracker'],
+  '/bulk-actions': ['Bulk Actions'],
+  '/reports': ['Reports'],
+  '/saved-reports/new': ['Reports', 'New report'],
+  '/automations': ['Automations'],
+  '/whatsapp-inbox': ['WhatsApp Inbox'],
+};
+
+const SETTINGS_CRUMBS = {
+  '/settings/users': 'User Management',
+  '/settings/business-units': 'Business Units',
+  '/settings/branches': 'Branch Settings',
+  '/settings/payment-forms': 'Payment Forms',
+  '/settings/integrations': 'Integrations',
+  '/settings/google-sheets': 'Google Sheets',
+  '/settings/meta-lead-ads': 'Meta Lead Ads',
+  '/settings/whatsapp-templates': 'WhatsApp',
+  '/settings/callerdesk': 'CallerDesk',
+  '/settings/smartflo': 'Smartflo',
+};
+
+/** Fallback target when there is no in-app history entry to return to. */
+function parentOf(pathname) {
+  if (pathname.startsWith('/settings/')) return '/settings/integrations';
+  if (pathname.startsWith('/saved-reports')) return '/reports';
+  return '/';
+}
+
+export function Header({ user, onLogout, onMenuClick, navCollapsed = false, mobileNavOpen = false, usageTime = '00:00:00', usageSaved = true, children }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { selectedUnit } = useBusinessUnit();
+  // Published by whichever screen is open; empty everywhere except Leads.
+  const quickActions = useLeadQuickActions();
+  const { can, canAny } = usePermissions();
+  const isDesktop = useIsDesktop();
+  const navLabel = isDesktop
+    ? (navCollapsed ? 'Expand navigation' : 'Collapse navigation')
+    : (mobileNavOpen ? 'Close navigation' : 'Open navigation');
+
+  const [now, setNow] = useState(() => new Date());
+  const [openPop, setOpenPop] = useState(null); // 'quick' | 'messages' | 'alerts' | 'profile'
+  const [unreadMessages, setUnreadMessages] = useState(0);
+  const [followupsDue, setFollowupsDue] = useState(0);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const wrapRef = useRef(null);
+
+  // Only the date label uses this now; the usage timer ticks in the hook, so
+  // a minute is plenty and the blurred header repaints far less often.
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Close any popover on outside click or Escape.
+  useEffect(() => {
+    if (!openPop) return undefined;
+    const onDown = (event) => {
+      if (wrapRef.current && !wrapRef.current.contains(event.target)) setOpenPop(null);
+    };
+    const onKey = (event) => { if (event.key === 'Escape') setOpenPop(null); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [openPop]);
+
+  // Badge counts come from real endpoints and refresh per business unit only,
+  // so navigating between screens costs no extra requests.
+  useEffect(() => {
+    if (!selectedUnit?.id) return undefined;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const result = await api('/hub/smartping/conversations?limit=100&incomingOnly=1');
+        if (cancelled) return;
+        const total = (result.data || []).reduce((sum, item) => sum + Number(item.unread_count || 0), 0);
+        setUnreadMessages(total);
+      } catch {
+        if (!cancelled) setUnreadMessages(0);
+      }
+    })();
+
+    (async () => {
+      try {
+        const dashboard = await api('/dashboard');
+        if (!cancelled) setFollowupsDue(Number(dashboard?.stats?.followupsDue || 0));
+      } catch {
+        if (!cancelled) setFollowupsDue(0);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [selectedUnit?.id]);
+
+  const crumbs = useMemo(() => {
+    if (location.pathname.startsWith('/settings')) {
+      const leaf = SETTINGS_CRUMBS[location.pathname];
+      return leaf ? ['Settings', leaf] : ['Settings'];
+    }
+    return CRUMBS[location.pathname] || ['Workspace'];
+  }, [location.pathname]);
+
+  const initials = String(user?.name || '?')
+    .split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase();
+
+  // Root has nowhere to go back to. Elsewhere prefer real history so the
+  // button returns to the actual previous screen, not a guessed parent.
+  const canGoBack = location.pathname !== '/';
+  const goBack = () => {
+    if ((window.history.state?.idx ?? 0) > 0) navigate(-1);
+    else navigate(parentOf(location.pathname));
+  };
+
+  const toggle = (name) => setOpenPop((current) => (current === name ? null : name));
+  const go = (path) => { setOpenPop(null); navigate(path); };
+
+  const badge = (count, tone) => (count > 0 ? (
+    <em className={cn(
+      'absolute top-1 right-0.5 min-w-4 h-4 px-1 grid place-items-center rounded-full',
+      'text-[9.5px] font-bold not-italic text-white ring-2 ring-white',
+      tone === 'alert' ? 'bg-danger' : 'bg-primary-600'
+    )}>
+      {count > 99 ? '99+' : count}
+    </em>
+  ) : null);
+
   return (
-    <header className="sticky top-0 z-10 bg-white border-b border-border">
-      {/* Top Bar */}
-      <div className="h-16 px-6 flex items-center justify-between gap-4">
-        {/* Left: Search */}
-        <div className="flex-1 max-w-md hidden md:block">
-          <div className="relative">
-            <Search
-              size={16}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary-400 pointer-events-none"
-            />
-            <input
-              type="text"
-              placeholder={searchPlaceholder || 'Search...'}
-              onChange={(e) => onSearch?.(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 rounded-lg border border-border bg-secondary-50 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            />
+    <>
+    <header className="sticky top-0 z-40 flex-none bg-white/[.88] backdrop-blur-[14px] backdrop-saturate-150 border-b border-border">
+      <div className="h-[62px] flex items-center gap-2 xl:gap-[18px] px-3 sm:px-4 xl:px-[22px] min-w-0" ref={wrapRef}>
+        {/* Drawer opener, mobile only. On desktop the collapse control lives
+            inside the sidebar itself, where the panel it acts on is; here it
+            has to stay, because an off-canvas drawer cannot carry the button
+            that opens it. */}
+        <button
+          onClick={onMenuClick}
+          className="sidebar-drawer-opener grid place-items-center w-[38px] h-[38px] flex-none rounded-[11px] text-secondary-500 hover:bg-surface-3 hover:text-primary-600 active:scale-95 transition-all"
+          aria-label={navLabel}
+          aria-expanded={isDesktop ? !navCollapsed : mobileNavOpen}
+          aria-controls="app-sidebar"
+          title={navLabel}
+        >
+          <Menu size={18} />
+        </button>
+
+        {/* Back: returns to whichever screen led here. Several settings
+            screens are only reachable from Integrations, so this is their
+            only way out. */}
+        {canGoBack && (
+          <button
+            onClick={goBack}
+            className="grid place-items-center w-[38px] h-[38px] flex-none rounded-[11px] text-secondary-500 hover:bg-surface-3 hover:text-primary-600 active:scale-95 transition-all"
+            aria-label="Go back"
+            title="Back"
+          >
+            <ArrowLeft size={18} />
+          </button>
+        )}
+
+        {/* Breadcrumbs. The business unit name used to sit above them, which
+            left the row two lines tall and everything beside it optically high;
+            the unit is already named in the sidebar. */}
+        <div className="min-w-0 flex-1 lg:flex-none hidden sm:flex items-center">
+          <nav className="hidden md:flex items-center gap-1.5 text-[12.5px] text-secondary-500 whitespace-nowrap overflow-hidden" aria-label="Breadcrumb">
+            <Home size={13} />
+            <button onClick={() => navigate('/')} className="hover:text-primary-600 transition-colors">Home</button>
+            {crumbs.map((crumb, index) => (
+              <span key={crumb} className="flex items-center gap-1.5">
+                <span className="text-secondary-300">/</span>
+                <span className={index === crumbs.length - 1 ? 'text-primary-600 font-bold text-[13px]' : ''}>{crumb}</span>
+              </span>
+            ))}
+          </nav>
+        </div>
+
+        {/* Search (existing global search component) */}
+        <div className="ml-auto min-w-[220px] flex-1 max-w-[400px] hidden xl:block">
+          {children}
+        </div>
+
+        {/* Time actively spent in the app today, not the wall clock. */}
+        <div
+          className="hidden 2xl:block text-right pl-4 border-l border-border flex-none"
+          title={usageSaved
+            ? 'Active time in the CRM today. Signs you out after 10 minutes of inactivity.'
+            : 'Not being saved — this total will reset on next login. See the browser console.'}
+        >
+          <div className={cn(
+            'font-display font-bold text-[15px] tabular-nums tracking-tight',
+            usageSaved ? 'text-foreground' : 'text-warning'
+          )}>
+            {usageTime}
+          </div>
+          <div className="text-[11px] text-secondary-400 whitespace-nowrap">
+            {usageSaved
+              ? `Active today · ${now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`
+              : 'Active today · not saved'}
           </div>
         </div>
 
-        {/* Right: Actions */}
-        <div className="flex items-center gap-3 ml-auto">
-          {actions?.map((action, index) => (
-            <button
-              key={index}
-              onClick={action.onClick}
-              className="p-2 hover:bg-secondary-100 rounded-lg transition-colors"
-              aria-label={action.label}
-            >
-              {action.icon}
-            </button>
-          ))}
-          <button className="p-2 hover:bg-secondary-100 rounded-lg transition-colors relative">
-            <Bell size={20} className="text-secondary-600" />
-            <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
+        {/* Action cluster */}
+        <div className="flex items-center gap-0.5 sm:gap-1.5 ml-auto xl:ml-0 flex-none">
+          {/* Lead quick actions. Hidden unless a screen has registered some, so
+              the button never opens onto actions with nothing to act on. */}
+          {quickActions.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => toggle('quick')}
+                className="grid place-items-center w-[38px] h-[38px] rounded-[11px] text-secondary-500 hover:bg-surface-3 hover:text-primary-600 active:scale-95 transition-all"
+                aria-label="Lead actions"
+                title="Lead actions"
+                aria-expanded={openPop === 'quick'}
+              >
+                <Zap size={18} />
+              </button>
+              {openPop === 'quick' && (
+                <div className="absolute right-0 top-[calc(100%+10px)] w-[300px] p-2.5 rounded-lg bg-white border border-border shadow-lg">
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {quickActions.map(({ key, label, icon: Icon, title, disabled, onSelect }) => (
+                      <button
+                        key={key}
+                        onClick={() => { setOpenPop(null); onSelect(); }}
+                        disabled={disabled}
+                        title={title || label}
+                        className="flex flex-col items-center gap-[7px] px-1.5 py-3 rounded-xl transition-all enabled:hover:bg-primary-50 enabled:hover:-translate-y-0.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <Icon size={20} className="text-primary-600" />
+                        <span className="text-[10.5px] font-medium text-secondary-600 text-center leading-tight">{label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Messages -> WhatsApp inbox. Hidden without inbox access, since
+              the destination itself refuses to render for those users. */}
+          {can('whatsapp.inbox.view') && (
+          <button
+            onClick={() => navigate('/whatsapp-inbox')}
+            className="relative grid place-items-center w-[38px] h-[38px] rounded-[11px] text-secondary-500 hover:bg-surface-3 hover:text-primary-600 active:scale-95 transition-all"
+            aria-label={`${unreadMessages} unread WhatsApp messages`}
+            title={`${unreadMessages} unread WhatsApp messages`}
+          >
+            <Mail size={18} />
+            {badge(unreadMessages)}
           </button>
+          )}
+
+          {/* Follow-ups due -- lands on Leads, so it follows that permission. */}
+          {can('leads.list.view') && (
+          <button
+            onClick={() => navigate('/leads')}
+            className="relative grid place-items-center w-[38px] h-[38px] rounded-[11px] text-secondary-500 hover:bg-surface-3 hover:text-primary-600 active:scale-95 transition-all"
+            aria-label={`${followupsDue} follow-ups due`}
+            title={`${followupsDue} follow-ups due`}
+          >
+            <Bell size={18} />
+            {badge(followupsDue, 'alert')}
+          </button>
+          )}
+
+          {/* Profile */}
+          <div className="relative">
+            <button
+              onClick={() => toggle('profile')}
+              className="flex items-center gap-[9px] pl-[5px] pr-2.5 py-[5px] rounded-xl hover:bg-surface-3 transition-colors"
+              aria-expanded={openPop === 'profile'}
+            >
+              <span className="grid place-items-center w-8 h-8 rounded-[10px] bg-gradient-to-br from-primary-500 to-primary-700 text-white text-[12px] font-bold">
+                {initials}
+              </span>
+              <span className="hidden sm:flex flex-col text-left leading-[1.25]">
+                <strong className="text-[12.5px] text-foreground">{user?.name}</strong>
+                <small className="text-[10.5px] text-secondary-400">{user?.role}</small>
+              </span>
+              <ChevronDown size={14} className="hidden sm:block text-secondary-400" />
+            </button>
+
+            {openPop === 'profile' && (
+              <div className="absolute right-0 top-[calc(100%+10px)] w-[240px] rounded-lg bg-white border border-border shadow-lg overflow-hidden">
+                {/* Name and role already sit on the trigger, so only the email
+                    — the detail not shown there — is repeated here. */}
+                {user?.email && (
+                  <div className="px-4 py-3 bg-primary-50 border-b border-line-2 text-center">
+                    <small className="block text-[11.5px] text-secondary-500 truncate">{user.email}</small>
+                  </div>
+                )}
+                <div className="p-[7px] profile-menu-actions">
+                  {/* Only shown when at least one settings screen is reachable,
+                      otherwise it leads straight to a refusal. Change password
+                      and Sign out below stay available to everyone. */}
+                  {canAny(SETTINGS_PERMISSIONS) && (
+                  <button
+                    onClick={() => go('/settings')}
+                    className="profile-menu-action w-full flex items-center justify-center gap-[9px] px-[11px] py-[9px] rounded-[10px] text-[13px] text-secondary-700 hover:bg-surface-3 hover:text-foreground transition-colors"
+                  >
+                    <Settings size={16} className="text-secondary-400" />
+                    Settings
+                  </button>
+                  )}
+                  <button
+                    onClick={() => { setOpenPop(null); setPasswordOpen(true); }}
+                    className="profile-menu-action w-full flex items-center justify-center gap-[9px] px-[11px] py-[9px] rounded-[10px] text-[13px] text-secondary-700 hover:bg-surface-3 hover:text-foreground transition-colors"
+                  >
+                    <KeyRound size={16} className="text-secondary-400" />
+                    Change password
+                  </button>
+                  <div className="h-px bg-line-2 my-1.5 mx-1" />
+                  <button
+                    onClick={() => { setOpenPop(null); onLogout?.(); }}
+                    className="profile-menu-action w-full flex items-center justify-center gap-[9px] px-[11px] py-[9px] rounded-[10px] text-[13px] text-danger hover:bg-danger-bg transition-colors"
+                  >
+                    <LogOut size={16} />
+                    Sign out
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Page Header */}
-      {title && (
-        <div className="px-6 py-4 border-t border-border">
-          {breadcrumbs && (
-            <nav className="flex items-center gap-2 text-xs text-secondary-500 mb-3">
-              {breadcrumbs.map((crumb, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  {index > 0 && <span>/</span>}
-                  <a href={crumb.href} className="hover:text-foreground transition-colors">
-                    {crumb.label}
-                  </a>
-                </div>
-              ))}
-            </nav>
-          )}
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-bold text-foreground font-display">
-                {title}
-              </h1>
-              {subtitle && (
-                <p className="text-sm text-secondary-600 mt-1">
-                  {subtitle}
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Search on small screens, where it cannot sit inline */}
+      <div className="xl:hidden px-3 sm:px-4 pb-3">{children}</div>
     </header>
+
+    {/* Outside <header>: its backdrop-filter would otherwise make it the
+        containing block for this fixed overlay. */}
+    {passwordOpen && (
+      <ChangePasswordDialog onClose={() => setPasswordOpen(false)} />
+    )}
+    </>
+  );
+}
+
+// Bare <input> gets no border: Tailwind preflight zeroes border-width and the
+// design-system layer only sets radius/focus. Fields must bring their own.
+const FIELD_CLASS = [
+  'w-full h-11 px-3 rounded-[10px] text-sm',
+  'border border-border bg-white text-foreground',
+  'transition-all duration-200',
+  'focus:outline-none focus:border-primary-400 focus:ring-4 focus:ring-primary-50',
+].join(' ');
+
+/**
+ * Change password.
+ *
+ * app_users is shared with the Attendance system, so this updates the one
+ * credential both applications use — the dialog says so rather than letting
+ * that be a surprise.
+ */
+function ChangePasswordDialog({ onClose }) {
+  const [fields, setFields] = useState({ current: '', next: '', confirm: '' });
+  const [error, setError] = useState('');
+  const [done, setDone] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const set = (key) => (event) => setFields((prev) => ({ ...prev, [key]: event.target.value }));
+
+  const mismatch = fields.confirm.length > 0 && fields.next !== fields.confirm;
+  const tooShort = fields.next.length > 0 && fields.next.length < 8;
+
+  async function submit(event) {
+    event.preventDefault();
+    setError('');
+
+    // Validated here rather than by disabling the button: a button that is
+    // greyed out without saying why is worse than one that explains itself.
+    if (!fields.current) return setError('Enter your current password.');
+    if (!fields.next) return setError('Enter a new password.');
+    if (tooShort) return setError('New password must be at least 8 characters.');
+    if (!fields.confirm) return setError('Confirm your new password.');
+    if (mismatch) return setError('New password and confirmation do not match.');
+
+    setSaving(true);
+    try {
+      await api('/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword: fields.current, newPassword: fields.next }),
+      });
+      setDone(true);
+      setFields({ current: '', next: '', confirm: '' });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[200] grid place-items-center p-6 bg-secondary-900/50"
+      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
+    >
+      <div className="w-full max-w-md rounded-2xl bg-white border border-border shadow-lg overflow-hidden">
+        <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-border">
+          <h3 className="font-display font-bold text-base text-foreground">Change password</h3>
+          <button
+            onClick={onClose}
+            className="grid place-items-center w-8 h-8 rounded-[10px] text-secondary-500 hover:bg-surface-3 hover:text-foreground transition-colors"
+            aria-label="Close"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {done ? (
+          <div className="px-6 py-8 text-center">
+            <p className="font-semibold text-foreground mb-1">Password changed</p>
+            <p className="text-sm text-secondary-500 mb-5">
+              Use the new password next time you sign in.
+            </p>
+            <button className="primary" onClick={onClose}>Done</button>
+          </div>
+        ) : (
+          <form onSubmit={submit} className="px-6 py-5 space-y-4">
+            <p className="text-xs text-secondary-500">
+              This is the same login used by the Attendance application.
+            </p>
+
+            <label className="block">
+              <span className="block text-sm font-semibold mb-1.5">Current password</span>
+              <input
+                type="password" autoComplete="current-password" className={FIELD_CLASS}
+                value={fields.current} onChange={set('current')} autoFocus
+              />
+            </label>
+
+            <label className="block">
+              <span className="block text-sm font-semibold mb-1.5">New password</span>
+              <input
+                type="password" autoComplete="new-password" className={FIELD_CLASS}
+                value={fields.next} onChange={set('next')}
+              />
+              {tooShort && (
+                <span className="block mt-1 text-xs text-danger">Must be at least 8 characters.</span>
+              )}
+            </label>
+
+            <label className="block">
+              <span className="block text-sm font-semibold mb-1.5">Confirm new password</span>
+              <input
+                type="password" autoComplete="new-password" className={FIELD_CLASS}
+                value={fields.confirm} onChange={set('confirm')}
+              />
+              {mismatch && (
+                <span className="block mt-1 text-xs text-danger">Passwords do not match.</span>
+              )}
+            </label>
+
+            {error && (
+              <div className="p-3 rounded-lg bg-danger-bg text-danger text-sm">{error}</div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button type="button" className="secondary" onClick={onClose}>Cancel</button>
+              <button type="submit" className="primary" disabled={saving}>
+                {saving ? 'Saving…' : 'Change password'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
   );
 }
 

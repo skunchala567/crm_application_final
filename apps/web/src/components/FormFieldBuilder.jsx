@@ -1,4 +1,4 @@
-import { Plus, X, ChevronDown } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 
 const FIELD_TYPES = [
   { value: 'text', label: 'Text Input' },
@@ -121,6 +121,21 @@ export default function FormFieldBuilder({ fields, onChange }) {
                   </select>
                 </label>
 
+                {/* Inside the grid, not below it: as a sibling of .field-grid
+                    it sat outside the columns, so its label and input ran into
+                    each other on one line. */}
+                {!['checkbox'].includes(field.type) && (
+                  <label className="placeholder-label">
+                    Placeholder Text
+                    <input
+                      type="text"
+                      placeholder="e.g., Enter student name"
+                      value={field.placeholder}
+                      onChange={e => updateField(field.id, { placeholder: e.target.value })}
+                    />
+                  </label>
+                )}
+
                 <label className="checkbox-label">
                   <input
                     type="checkbox"
@@ -130,18 +145,6 @@ export default function FormFieldBuilder({ fields, onChange }) {
                   Required field
                 </label>
               </div>
-
-              {!['checkbox'].includes(field.type) && (
-                <label className="placeholder-label">
-                  Placeholder Text
-                  <input
-                    type="text"
-                    placeholder="e.g., Enter student name"
-                    value={field.placeholder}
-                    onChange={e => updateField(field.id, { placeholder: e.target.value })}
-                  />
-                </label>
-              )}
 
               {field.type === 'select' && (
                 <div className="options-section">

@@ -18,7 +18,7 @@
 .payment-forms h1 {
   margin: 0.5rem 0 0.25rem;
   font-size: 1.75rem;
-  color: #1f2937;
+  color: #16241e;
 }
 
 .payment-forms header span {
@@ -26,12 +26,12 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #6b7280;
+  color: #5d7167;
 }
 
 .payment-forms header p {
   margin: 0.5rem 0 0;
-  color: #4b5563;
+  color: #42544b;
   font-size: 0.9rem;
 }
 
@@ -40,7 +40,7 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.75rem 1.5rem;
-  background: #4a4fb1;
+  background: #0b7a4f;
   color: white;
   border: none;
   border-radius: 6px;
@@ -54,7 +54,7 @@
 .payment-forms header button:hover {
   background: #3b3d8a;
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(74, 79, 177, 0.3);
+  box-shadow: 0 4px 12px rgba(11, 122, 79, 0.3);
 }
 
 .forms-list {
@@ -72,14 +72,14 @@
   display: flex;
   flex-direction: column;
   padding: 1.5rem;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
+  background: #fbfdfc;
+  border: 1px solid #e4ece8;
   border-radius: 8px;
   transition: all 0.2s;
 }
 
 .form-card:hover {
-  border-color: #4a4fb1;
+  border-color: #0b7a4f;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
@@ -93,7 +93,7 @@
 .form-card h3 {
   margin: 0;
   font-size: 1.1rem;
-  color: #1f2937;
+  color: #16241e;
 }
 
 .status {
@@ -105,19 +105,185 @@
 }
 
 .status.active {
-  background: rgba(34, 197, 94, 0.1);
-  color: #22c55e;
+  background: rgba(18, 145, 95, 0.1);
+  color: #07603f;
 }
 
 .status.inactive {
-  background: rgba(107, 114, 128, 0.1);
-  color: #6b7280;
+  background: rgba(93, 113, 103, 0.1);
+  color: #5d7167;
 }
+
+/* Expired is its own state: the form was left on, the date simply passed. */
+.status.expired {
+  background: rgba(195, 61, 53, 0.12);
+  color: #a33028;
+}
+
+/* ---------- Forms list ---------- */
+/* Scoped to this page. .page-action-row is a shared class -- theme.css
+   right-aligns it for every screen that uses it -- so setting space-between
+   on the bare class here pushed User Management's lone "Add CRM user" button
+   back to the left. This page needs it because it has a count on the left
+   and the button on the right; nobody else does. */
+.payment-forms .page-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.forms-count {
+  font-size: 0.8rem;
+  color: #5d7167;
+}
+
+.payment-forms-table-wrap {
+  border: 1px solid #e4ece8;
+  border-radius: 10px;
+  background: #fff;
+  overflow-x: auto;
+}
+
+.payment-forms-table {
+  width: 100%;
+  border-collapse: collapse;
+  white-space: nowrap;
+}
+
+/* Everything is centred except the form name, which is the column the eye
+   scans down and reads best flush left. */
+.payment-forms-table th {
+  padding: 0.7rem 1rem;
+  background: #fbfdfc;
+  border-bottom: 1px solid #e4ece8;
+  text-align: center;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #5d7167;
+}
+
+.payment-forms-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #eef3f0;
+  font-size: 0.82rem;
+  color: #2a3b33;
+  vertical-align: middle;
+  text-align: center;
+}
+
+.payment-forms-table th:first-child,
+.payment-forms-table td:first-child {
+  text-align: left;
+}
+
+.payment-forms-table tbody tr:last-child td { border-bottom: 0; }
+.payment-forms-table tbody tr:hover { background: #fbfdfc; }
+
+/* Inactive and expired forms stay legible but stop competing for attention. */
+.payment-forms-table tr.is-dim td:not(.actions-col) { opacity: 0.62; }
+
+.payment-forms-table td strong {
+  display: block;
+  font-size: 0.86rem;
+  color: #16241e;
+}
+
+.payment-forms-table td small {
+  display: block;
+  margin-top: 0.15rem;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.72rem;
+  color: #5d7167;
+}
+
+/* Counts stay centred with the rest; tabular figures keep the digits from
+   shuffling sideways as the numbers change width. */
+.payment-forms-table .num { font-variant-numeric: tabular-nums; }
+.payment-forms-table .muted { color: #8fa198; }
+.payment-forms-table .expiry-past { color: #a33028; font-weight: 600; }
+.payment-forms-table .actions-col { width: 1%; }
+
+.payment-forms-table .row-actions {
+  display: inline-flex;
+  gap: 0.3rem;
+}
+
+.payment-forms-table .row-actions button,
+.payment-forms-table .row-actions a {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  padding: 0;
+  border: 1px solid #e4ece8;
+  border-radius: 6px;
+  background: #fff;
+  color: #5d7167;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.payment-forms-table .row-actions button:hover,
+.payment-forms-table .row-actions a:hover {
+  border-color: #0b7a4f;
+  color: #0b7a4f;
+  background: #f2f7f4;
+}
+
+.payment-forms-table .row-actions .danger:hover {
+  border-color: #efc4c1;
+  color: #c33d35;
+  background: #fdeeed;
+}
+
+/* ---------- Delete confirmation ---------- */
+.confirm-delete-modal { width: min(480px, 94vw); }
+
+.confirm-delete-body {
+  padding: 1.25rem;
+  display: grid;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  color: #2a3b33;
+}
+
+.confirm-delete-body p { margin: 0; line-height: 1.5; }
+
+.confirm-warning {
+  padding: 0.7rem 0.85rem;
+  border: 1px solid #f1d2d2;
+  border-radius: 8px;
+  background: #fdeeed;
+  color: #a33028;
+  font-size: 0.8rem;
+}
+
+.payment-modal-title .danger-icon {
+  background: #fdeeed !important;
+  color: #c33d35 !important;
+}
+
+.modal-footer .danger-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: #c33d35;
+  border: 1px solid #c33d35;
+  color: #fff;
+}
+
+.modal-footer .danger-btn:hover { background: #a33028; border-color: #a33028; }
 
 .branch-info {
   margin: 0.5rem 0;
   font-size: 0.9rem;
-  color: #4b5563;
+  color: #42544b;
 }
 
 .amount-info {
@@ -126,16 +292,16 @@
   gap: 0.5rem;
   margin: 0.75rem 0;
   padding: 0.75rem;
-  background: rgba(59, 130, 246, 0.05);
+  background: rgba(11, 122, 79, 0.05);
   border-radius: 4px;
   font-weight: 500;
-  color: #4a4fb1;
+  color: #0b7a4f;
 }
 
 .submission-count {
   margin: 0.5rem 0;
   font-size: 0.85rem;
-  color: #6b7280;
+  color: #5d7167;
 }
 
 .form-actions {
@@ -143,7 +309,7 @@
   gap: 0.5rem;
   margin-top: auto;
   padding-top: 1rem;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid #e4ece8;
 }
 
 .form-actions button,
@@ -153,10 +319,10 @@
   align-items: center;
   justify-content: center;
   padding: 0.5rem;
-  background: #f3f4f6;
-  border: 1px solid #e5e7eb;
+  background: #f2f7f4;
+  border: 1px solid #e4ece8;
   border-radius: 4px;
-  color: #6b7280;
+  color: #5d7167;
   cursor: pointer;
   text-decoration: none;
   transition: all 0.2s;
@@ -164,9 +330,9 @@
 
 .form-actions button:hover,
 .form-actions a:hover {
-  background: #4a4fb1;
+  background: #0b7a4f;
   color: white;
-  border-color: #4a4fb1;
+  border-color: #0b7a4f;
 }
 
 .empty {
@@ -180,12 +346,12 @@
 
 .empty h3 {
   margin: 0 0 0.5rem;
-  color: #1f2937;
+  color: #16241e;
 }
 
 .empty p {
   margin: 0;
-  color: #4b5563;
+  color: #42544b;
   font-size: 0.9rem;
 }
 
@@ -222,7 +388,7 @@
   justify-content: space-between;
   align-items: center;
   padding: 2rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e4ece8;
   flex-shrink: 0;
 }
 
@@ -230,13 +396,13 @@
   margin: 0;
   font-size: 1.25rem;
   font-weight: 600;
-  color: #1f2937;
+  color: #16241e;
 }
 
 .modal-header button {
   background: none;
   border: none;
-  color: #6b7280;
+  color: #5d7167;
   cursor: pointer;
   padding: 0;
   display: flex;
@@ -247,7 +413,7 @@
 }
 
 .modal-header button:hover {
-  color: #1f2937;
+  color: #16241e;
 }
 
 form {
@@ -267,7 +433,7 @@ form {
 
 .form-group label {
   font-weight: 500;
-  color: #374151;
+  color: #2a3b33;
   font-size: 0.9rem;
 }
 
@@ -275,11 +441,11 @@ form {
 .form-group select,
 .form-group textarea {
   padding: 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d5dfd9;
   border-radius: 6px;
   font-size: 0.9rem;
   background: white;
-  color: #1f2937;
+  color: #16241e;
   font-family: inherit;
 }
 
@@ -287,15 +453,15 @@ form {
 .form-group select:focus,
 .form-group textarea:focus {
   outline: none;
-  border-color: #4a4fb1;
-  box-shadow: 0 0 0 3px rgba(74, 79, 177, 0.1);
+  border-color: #0b7a4f;
+  box-shadow: 0 0 0 3px rgba(11, 122, 79, 0.1);
 }
 
 .modal-footer {
   display: flex;
   gap: 1rem;
   padding: 1.5rem 2rem;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid #e4ece8;
   justify-content: flex-end;
   flex-shrink: 0;
 }
@@ -305,24 +471,24 @@ form {
   border-radius: 6px;
   font-weight: 500;
   cursor: pointer;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d5dfd9;
   background: white;
-  color: #374151;
+  color: #2a3b33;
   transition: all 0.2s;
 }
 
 .modal-footer button:hover {
-  background: #f3f4f6;
-  border-color: #9ca3af;
+  background: #f2f7f4;
+  border-color: #83968c;
 }
 
 .modal-footer button.primary {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  background: #4a4fb1;
+  background: #0b7a4f;
   color: white;
-  border-color: #4a4fb1;
+  border-color: #0b7a4f;
 }
 
 .modal-footer button.primary:hover {
@@ -333,11 +499,11 @@ form {
 .category-count {
   margin: 0.5rem 0;
   font-size: 0.85rem;
-  color: #6b7280;
+  color: #5d7167;
 }
 
 fieldset.categories-section {
-  border: 1px solid #d1d5db;
+  border: 1px solid #d5dfd9;
   border-radius: 6px;
   padding: 1rem;
   margin: 1rem 0;
@@ -346,12 +512,12 @@ fieldset.categories-section {
 .categories-section legend {
   padding: 0 0.5rem;
   font-weight: 600;
-  color: #374151;
+  color: #2a3b33;
 }
 
 .legend-text {
   font-size: 0.85rem;
-  color: #6b7280;
+  color: #5d7167;
   margin-top: 0.25rem;
   margin-bottom: 1rem;
 }
@@ -367,19 +533,19 @@ fieldset.categories-section {
 .category-row input,
 .category-row select {
   padding: 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d5dfd9;
   border-radius: 6px;
   font-size: 0.9rem;
   background: white;
-  color: #1f2937;
+  color: #16241e;
   font-family: inherit;
 }
 
 .category-row input:focus,
 .category-row select:focus {
   outline: none;
-  border-color: #4a4fb1;
-  box-shadow: 0 0 0 3px rgba(74, 79, 177, 0.1);
+  border-color: #0b7a4f;
+  box-shadow: 0 0 0 3px rgba(11, 122, 79, 0.1);
 }
 
 .category-row button {
@@ -387,10 +553,10 @@ fieldset.categories-section {
   align-items: center;
   justify-content: center;
   padding: 0.75rem;
-  background: #fee2e2;
+  background: #fdeeed;
   border: none;
   border-radius: 6px;
-  color: #dc2626;
+  color: #c33d35;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -405,23 +571,291 @@ fieldset.categories-section {
   gap: 0.5rem;
   padding: 0.75rem 1rem;
   background: white;
-  border: 1px dashed #d1d5db;
+  border: 1px dashed #d5dfd9;
   border-radius: 6px;
-  color: #4a4fb1;
+  color: #0b7a4f;
   cursor: pointer;
   font-weight: 500;
   transition: all 0.2s;
 }
 
 .categories-section > button:hover {
-  border-color: #4a4fb1;
-  background: rgba(74, 79, 177, 0.05);
+  border-color: #0b7a4f;
+  background: rgba(11, 122, 79, 0.05);
 }
 
 @media (max-width: 768px) {
   .category-row {
     grid-template-columns: 1fr;
   }
+}
+
+/* Compact, square payment-form editor */
+.payment-form-modal {
+  width: min(980px, 96vw);
+  max-width: 980px;
+  max-height: 92vh;
+  border-radius: 5px;
+  overflow: hidden;
+  border: 1px solid #dce5e0;
+  box-shadow: 0 24px 70px rgba(15, 31, 24, 0.28);
+}
+
+.payment-form-modal .modal-header {
+  align-items: center;
+  padding: 1rem 1.25rem;
+  background: #f7faf8;
+}
+
+.payment-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.payment-modal-title > span {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  color: #08734c;
+  background: #e5f6ee;
+  border: 1px solid #caeadc;
+}
+
+.payment-modal-title > div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.payment-modal-title p {
+  margin: 0;
+  color: #718078;
+  font-size: 0.75rem;
+}
+
+.payment-form-modal .modal-header > button {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid #d8e1dc;
+  border-radius: 4px;
+  background: #fff;
+  color: #53635b;
+  transform: none;
+  box-shadow: none;
+}
+
+.payment-form-modal .modal-header > button:hover {
+  background: #edf5f1;
+  color: #08734c;
+  transform: none;
+  box-shadow: none;
+}
+
+.payment-form-create {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  padding: 1.25rem;
+  overflow-y: auto;
+  align-items: start;
+}
+
+.payment-form-create > .form-builder,
+.payment-form-create > .categories-section,
+.payment-form-create > .payment-form-basics-row,
+.payment-form-create > .modal-footer {
+  grid-column: 1 / -1;
+}
+
+/*
+ * Title, description, branch and selection type, two to a row.
+ *
+ * This row was already written as a four-column grid and still stacked into
+ * four full-width rows, because BulkUpload.css styles the bare `.form-group`
+ * class -- app-wide, not scoped to its own modal -- with `grid-column: 1/-1`.
+ * Every field in every grid in the app therefore spans all columns. The
+ * tracks below existed and were simply never used; `grid-column: auto` on the
+ * children is what lets them apply.
+ *
+ * Two columns rather than four: the selection type is a pair of side-by-side
+ * cards, and a quarter of this row leaves them too narrow to read.
+ */
+/* Six settings, three to a row: title, description, branch / selection type,
+   expiry, status. Kept to two rows as before -- the two added fields widened
+   the grid rather than lengthening it. */
+.payment-form-create .payment-form-basics-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem 1rem;
+  align-items: start;
+  width: 100%;
+}
+
+@media (max-width: 1100px) {
+  .payment-form-create .payment-form-basics-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.payment-form-create .field-hint {
+  font-size: 0.68rem;
+  font-weight: 400;
+  color: #5d7167;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.payment-form-create .payment-form-basics-row > .form-group {
+  grid-column: auto;
+  min-width: 0;
+}
+
+.payment-form-basics-row .form-group textarea {
+  height: 43px;
+  min-height: 43px;
+  resize: none;
+}
+
+.selection-type-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.selection-type-toggle button {
+  min-width: 0;
+  height: 43px;
+  padding: 0.35rem 0.45rem;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.4rem;
+  border: 1px solid #d5dfd9;
+  border-radius: 4px;
+  background: #fff;
+  color: #52635a;
+  cursor: pointer;
+  text-align: left;
+}
+
+.selection-type-toggle button span {
+  min-width: 0;
+  display: grid;
+  line-height: 1.1;
+}
+
+.selection-type-toggle button strong {
+  font-size: 0.75rem;
+  color: #263a31;
+}
+
+.selection-type-toggle button small {
+  margin-top: 0.15rem;
+  overflow: hidden;
+  color: #718078;
+  font-size: 0.62rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selection-type-toggle button.active {
+  border-color: #0b7a4f;
+  background: #e7f6ef;
+  color: #08734c;
+  box-shadow: 0 0 0 1px rgba(11, 122, 79, 0.08);
+}
+
+.selection-type-toggle button.active strong,
+.selection-type-toggle button.active small {
+  color: #08734c;
+}
+
+.payment-form-create .form-group {
+  min-width: 0;
+}
+
+.payment-form-create .form-group label,
+.payment-form-create .categories-section legend {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.payment-form-create .form-group label svg,
+.payment-form-create .categories-section legend svg {
+  color: #08734c;
+  flex: none;
+}
+
+.payment-form-create .form-group textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+/* The four primary settings must remain on one row in the modal. */
+.payment-form-create .payment-form-basics-row .form-group textarea {
+  height: 43px;
+  min-height: 43px;
+  resize: none;
+}
+
+.payment-form-create .form-builder,
+.payment-form-create fieldset.categories-section {
+  margin: 0;
+  border-radius: 4px;
+}
+
+.payment-form-create .form-builder {
+  padding: 1rem;
+  gap: 1rem;
+}
+
+.payment-form-create .category-row {
+  margin-bottom: 0.65rem;
+}
+
+.payment-form-create .modal-footer {
+  position: sticky;
+  bottom: -1.25rem;
+  z-index: 5;
+  margin: 0 -1.25rem -1.25rem;
+  padding: 0.9rem 1.25rem;
+  background: #f7faf8;
+}
+
+.payment-form-create .modal-footer button,
+.payment-form-create input,
+.payment-form-create select,
+.payment-form-create textarea,
+.payment-form-create .field-card,
+.payment-form-create .empty-fields,
+.payment-form-create .add-field-btn {
+  border-radius: 4px;
+}
+
+@media (max-width: 760px) {
+  .payment-form-modal { width: 100%; max-height: 96vh; }
+  .payment-form-create { grid-template-columns: 1fr; padding: 1rem; }
+  .payment-form-create > .form-builder,
+  .payment-form-create > .categories-section,
+  .payment-form-create > .payment-form-basics-row,
+  .payment-form-create > .modal-footer { grid-column: 1; }
+  /* One column on a phone. This asked for four across, which never showed
+     because the fields were stacking anyway; now that they honour the tracks
+     it would be four ~70px columns. */
+  .payment-form-create .payment-form-basics-row {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+  .payment-form-basics-row .form-group label { font-size: 0.68rem; }
+  .selection-type-toggle { gap: 0.2rem; }
+  .selection-type-toggle button { padding-inline: 0.3rem; }
+  .payment-form-create .modal-footer { margin: 0 -1rem -1rem; bottom: -1rem; }
 }
 
 /* Form Field Builder */
@@ -432,7 +866,7 @@ fieldset.categories-section {
   padding: 1.5rem;
   background: #f8f9fc;
   border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e4ece8;
 }
 
 .builder-header {
@@ -444,13 +878,13 @@ fieldset.categories-section {
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
-  color: #1f2937;
+  color: #16241e;
 }
 
 .builder-header p {
   margin: 0;
   font-size: 0.875rem;
-  color: #6b7280;
+  color: #5d7167;
 }
 
 .fields-list {
@@ -462,16 +896,16 @@ fieldset.categories-section {
 .empty-fields {
   padding: 2rem 1rem;
   text-align: center;
-  color: #9ca3af;
+  color: #83968c;
   font-size: 0.875rem;
   background: white;
-  border: 1px dashed #d1d5db;
+  border: 1px dashed #d5dfd9;
   border-radius: 6px;
 }
 
 .field-card {
   background: white;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d5dfd9;
   border-radius: 8px;
   padding: 1rem;
   display: grid;
@@ -495,7 +929,7 @@ fieldset.categories-section {
 
 .field-info strong {
   font-size: 0.95rem;
-  color: #1f2937;
+  color: #16241e;
 }
 
 .field-type {
@@ -521,7 +955,7 @@ fieldset.categories-section {
 .remove-btn {
   background: transparent;
   border: none;
-  color: #ef4444;
+  color: #c33d35;
   cursor: pointer;
   padding: 0.25rem;
   display: grid;
@@ -530,59 +964,83 @@ fieldset.categories-section {
 }
 
 .remove-btn:hover {
-  background: #fee2e2;
+  background: #fdeeed;
   border-radius: 4px;
 }
 
+/*
+ * One row per field: name, label, type, placeholder, then the Required tick.
+ *
+ * The tick gets a fixed column rather than a fraction -- it is a checkbox and
+ * a short caption, so a fifth of the row left the four inputs beside it
+ * needlessly cramped.
+ */
 .field-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) 132px;
+  gap: 0.75rem;
+  align-items: end;
 }
+
+/* A select-type field adds its options below; that block still spans. */
+.field-grid > * { min-width: 0; }
 
 .field-grid label {
   display: grid;
   gap: 0.5rem;
   font-size: 0.875rem;
   font-weight: 500;
-  color: #374151;
+  color: #2a3b33;
 }
 
 .field-grid input,
 .field-grid select {
   width: 100%;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d5dfd9;
   border-radius: 6px;
   font-size: 0.875rem;
   background: white;
-  color: #1f2937;
+  color: #16241e;
   outline: none;
   transition: all 0.2s;
 }
 
 .field-grid input:focus,
 .field-grid select:focus {
-  border-color: #4a4fb1;
-  box-shadow: 0 0 0 3px rgba(74, 79, 177, 0.1);
+  border-color: #0b7a4f;
+  box-shadow: 0 0 0 3px rgba(11, 122, 79, 0.1);
 }
 
+/* Both of these used to claim the whole row, which is what pushed the tick
+   and the placeholder onto lines of their own. They are ordinary cells now;
+   .options-section below still spans, because a list of options genuinely
+   needs the width. */
+/* Scoped to .field-grid so it outranks `.field-grid label { display: grid }`,
+   which was stacking the tick above its caption -- the floating checkbox in
+   the middle of the card. */
+.field-grid .checkbox-label,
 .checkbox-label {
-  grid-column: 1 / -1;
+  grid-column: auto;
   display: flex;
   align-items: center;
   gap: 0.5rem;
   font-weight: 400;
   cursor: pointer;
+  /* Sits level with the inputs beside it rather than with their labels. */
+  min-height: 36px;
+  white-space: nowrap;
 }
 
 .checkbox-label input {
   width: auto;
+  flex: none;
+  margin: 0;
   cursor: pointer;
 }
 
 .placeholder-label {
-  grid-column: 1 / -1;
+  grid-column: auto;
 }
 
 .options-section {
@@ -590,14 +1048,26 @@ fieldset.categories-section {
   display: grid;
   gap: 0.75rem;
   padding-top: 0.75rem;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid #e4ece8;
+}
+
+/* Five across needs the width; on a phone each field takes its own line.
+   This has to sit AFTER the .field-grid rules above, not in the media block
+   earlier in this file -- same specificity, so source order decides, and up
+   there the base five-column rule simply won. */
+@media (max-width: 760px) {
+  .field-grid {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+  .checkbox-label { min-height: 0; }
 }
 
 .options-section > label {
   margin: 0;
   font-size: 0.875rem;
   font-weight: 500;
-  color: #374151;
+  color: #2a3b33;
 }
 
 .option-row {
@@ -610,7 +1080,7 @@ fieldset.categories-section {
 .option-row input {
   width: 100%;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d5dfd9;
   border-radius: 6px;
   font-size: 0.875rem;
 }
@@ -618,7 +1088,7 @@ fieldset.categories-section {
 .option-row button {
   background: transparent;
   border: none;
-  color: #ef4444;
+  color: #c33d35;
   cursor: pointer;
   padding: 0.25rem;
   display: grid;
@@ -627,7 +1097,7 @@ fieldset.categories-section {
 }
 
 .option-row button:hover {
-  background: #fee2e2;
+  background: #fdeeed;
   border-radius: 4px;
 }
 
@@ -637,9 +1107,9 @@ fieldset.categories-section {
   gap: 0.5rem;
   padding: 0.5rem 0.75rem;
   background: white;
-  border: 1px dashed #d1d5db;
+  border: 1px dashed #d5dfd9;
   border-radius: 6px;
-  color: #4a4fb1;
+  color: #0b7a4f;
   cursor: pointer;
   font-weight: 500;
   font-size: 0.875rem;
@@ -647,8 +1117,8 @@ fieldset.categories-section {
 }
 
 .add-option-btn:hover {
-  border-color: #4a4fb1;
-  background: rgba(74, 79, 177, 0.05);
+  border-color: #0b7a4f;
+  background: rgba(11, 122, 79, 0.05);
 }
 
 .add-field-btn {
@@ -658,9 +1128,9 @@ fieldset.categories-section {
   justify-self: flex-start;
   padding: 0.75rem 1rem;
   background: white;
-  border: 1px solid #4a4fb1;
+  border: 1px solid #0b7a4f;
   border-radius: 6px;
-  color: #4a4fb1;
+  color: #0b7a4f;
   cursor: pointer;
   font-weight: 500;
   transition: all 0.2s;

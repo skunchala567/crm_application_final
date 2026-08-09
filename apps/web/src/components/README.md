@@ -4,12 +4,16 @@ Modern, reusable component library built with React, Tailwind CSS, and shadcn/ui
 
 ## Theme Colors
 
-- **Primary**: #3B82F6 (Power Blue)
-- **Background**: #FAFBFC
-- **Cards**: #FFFFFF
-- **Text Primary**: #111827
-- **Text Secondary**: #6B7280
-- **Border**: #E5E7EB
+Tokens live in `src/theme.css` and are mirrored into Tailwind by
+`tailwind.config.js`. Use the scale names (`primary-600`, `secondary-500`),
+not raw hex values.
+
+- **Primary**: #0B7A4F (brand green, `primary-600`)
+- **Background**: #F4F8F6
+- **Cards / Surface**: #FFFFFF
+- **Text Primary**: #0D1A15
+- **Text Secondary**: #5D7167
+- **Border**: #E4ECE8
 
 ## UI Components (`ui/`)
 
@@ -241,40 +245,6 @@ import { StatCard } from './StatCard';
   icon={UsersIcon}
   color="blue"
 />
-```
-
-### StatusBadge
-Lead stage status indicator.
-
-```jsx
-import { StatusBadge } from './StatusBadge';
-
-<StatusBadge stage="application" />
-// Automatically selects appropriate color based on stage
-```
-
-### EmptyState
-Display when no data is available.
-
-```jsx
-import { EmptyState } from './EmptyState';
-
-<EmptyState
-  icon={EmptyIcon}
-  title="No leads found"
-  description="Start by adding a new lead"
-  action={{ label: 'Add Lead', onClick: () => {} }}
-/>
-```
-
-### Divider
-Section separator with optional text.
-
-```jsx
-import { Divider } from './Divider';
-
-<Divider />
-<Divider variant="with-text">Or continue with</Divider>
 ```
 
 ## Utility Functions

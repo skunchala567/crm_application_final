@@ -3,29 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { api } from './api';
 import './BulkUpload.css';
 
-export function BulkUploadButton() {
-  const [showModal, setShowModal] = useState(false);
-
-  return (
-    <>
-      <button
-        className="bulk-upload-trigger"
-        title="Bulk Lead Upload"
-        onClick={() => setShowModal(true)}
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <polyline points="17 8 12 3 7 8"></polyline>
-          <line x1="12" y1="3" x2="12" y2="15"></line>
-        </svg>
-      </button>
-      {showModal && (
-        <BulkUploadModal onClose={() => setShowModal(false)} />
-      )}
-    </>
-  );
-}
-
 /**
  * Unified Bulk Upload Modal
  *
@@ -44,7 +21,7 @@ export function BulkUploadButton() {
  * - Footer buttons change based on current state
  * - Re-validation flow: upload new file to validate again
  */
-function BulkUploadModal({ onClose }) {
+export function BulkUploadModal({ onClose }) {
   const navigate = useNavigate();
 
   // Modal flow states
@@ -234,10 +211,6 @@ function BulkUploadModal({ onClose }) {
           ownerEmployeeId: '',
           normalizedPhone: '',
         };
-        // LOG: First row parsing
-        if (i === 1) {
-          console.log('[CSV-PARSE] Row 1 parsed record:', record);
-        }
         parsedRecords.push(record);
       }
 
@@ -301,9 +274,6 @@ function BulkUploadModal({ onClose }) {
     setValidationErrors([]);
 
     try {
-      // LOG: Before sending to backend
-      console.log('[BULK-UPLOAD-FE] Sending records to import endpoint. Sample record:', records[0]);
-
       // Call backend import endpoint with already-validated records
       const response = await api('/bulk-leads/import', {
         method: 'POST',
@@ -399,7 +369,7 @@ function BulkUploadModal({ onClose }) {
           <div className="bulk-upload-progress">
             <div className="success-checkmark">✅</div>
             <p>Import received and queued for processing</p>
-            <p style={{ fontSize: '0.9em', color: '#666', marginTop: '0.5em' }}>
+            <p style={{ fontSize: '0.9em', color: '#5d7167', marginTop: '0.5em' }}>
               Redirecting to Bulk Actions...
             </p>
           </div>

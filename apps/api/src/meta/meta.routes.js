@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { encryptToken, getMasterKey } from '../integration-hub/crypto-utils.js';
 import {
   listPages, subscribePageToLeadgen, unsubscribePage,
-  listLeadForms, listFormLeads, debugToken, GRAPH_VERSION,
+  listLeadForms, listFormLeads, debugToken, getTokenOwner, GRAPH_VERSION,
 } from './meta-client.js';
 import {
   loadMetaConfig, saveMetaConfig, redactMetaConfig, META_PROVIDER,
@@ -75,13 +75,57 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
     });
   }));
 
+  /**
+   * Names for the routing pickers, so the screen never asks for a raw row id.
+   *
+   * `users` mirrors requireCrmAccess: an active account, CRM access not revoked,
+   * and at least one CRM role. Anyone missing those cannot be the importing
+   * user, so offering them would just produce failed imports.
+   */
+  router.get('/lookups', wrap(async (_req, res) => {
+    const [users] = await pool.execute(
+      `SELECT u.id,
+              COALESCE(e.employee_name, CONCAT_WS(' ', p.first_name, p.last_name), u.email) AS name,
+              u.email
+         FROM app_users u
+         LEFT JOIN crm_user_access_status cuas ON cuas.user_id = u.id
+         LEFT JOIN employees e ON e.id = u.employee_id
+         LEFT JOIN crm_user_profiles p ON p.user_id = u.id
+        WHERE u.is_active = TRUE
+          AND COALESCE(cuas.is_active, 1) = 1
+          AND EXISTS (
+            SELECT 1 FROM user_roles ur
+              JOIN roles r ON r.id = ur.role_id
+             WHERE ur.user_id = u.id
+               AND r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER','SUPER_ADMIN'))
+        ORDER BY name`,
+    );
+    const [branches] = await pool.execute(
+      'SELECT id, branch_name AS name FROM branches WHERE is_active = 1 ORDER BY branch_name',
+    );
+    const [businessUnits] = await pool.execute(
+      `SELECT id, display_name AS name FROM crm_business_units
+        WHERE is_active = TRUE ORDER BY is_default DESC, display_name`,
+    );
+    res.json({
+      success: true,
+      data: {
+        users: users.map((row) => ({ id: Number(row.id), name: row.name, email: row.email })),
+        branches: branches.map((row) => ({ id: Number(row.id), name: row.name })),
+        businessUnits: businessUnits.map((row) => ({ id: Number(row.id), name: row.name })),
+      },
+    });
+  }));
+
   // ---------------- Pages ----------------
 
   router.get('/pages', wrap(async (_req, res) => {
     const [rows] = await pool.execute(
-      `SELECT id, page_id, page_name, is_subscribed, subscribed_at_utc, subscribe_error,
+      `SELECT id, page_id, page_name, meta_account_id, meta_account_name,
+              is_subscribed, subscribed_at_utc, subscribe_error,
               business_unit_id, branch_id, is_active, updated_at_utc
-         FROM crm_meta_pages ORDER BY page_name ASC`,
+         FROM crm_meta_pages
+        ORDER BY meta_account_name IS NULL, meta_account_name ASC, page_name ASC`,
     );
     res.json({ success: true, data: rows });
   }));
@@ -95,11 +139,32 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
    */
   router.post('/pages/sync', requireUserAdmin, wrap(async (req, res) => {
     const config = await loadMetaConfig(pool, { useCache: false });
-    requireConfigured(config, ['systemUserToken']);
+
+    // A token in the body discovers Pages from THAT Facebook account; without
+    // one we fall back to the stored system user token as before. The supplied
+    // token is used for discovery only and never stored -- each Page's own
+    // token is what gets persisted, and that is what every leadgen call uses.
+    const suppliedToken = typeof req.body?.userToken === 'string' ? req.body.userToken.trim() : '';
+    if (!suppliedToken) requireConfigured(config, ['systemUserToken']);
+    else if (!config) throw Object.assign(new Error('Meta integration is not configured'), { status: 400 });
+
+    const discoveryToken = suppliedToken || config.systemUserToken;
+
+    // Label the Pages with the account they came from. A token that cannot
+    // identify itself is not usable for discovery either, so fail loudly.
+    let account;
+    try {
+      account = await getTokenOwner(discoveryToken, { logger });
+    } catch (error) {
+      throw Object.assign(
+        new Error(`Could not identify the Facebook account for this token: ${error.message}`),
+        { status: 400 },
+      );
+    }
 
     const shouldSubscribe = req.body?.subscribe !== false && config.autoSubscribePages !== false;
     const masterKey = getMasterKey();
-    const pages = await listPages(config.systemUserToken, { logger });
+    const pages = await listPages(discoveryToken, { logger });
     const results = [];
 
     for (const page of pages) {
@@ -118,11 +183,13 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
 
       await pool.execute(
         `INSERT INTO crm_meta_pages
-           (integration_id, page_id, page_name, access_token_encrypted,
-            is_subscribed, subscribed_at_utc, subscribe_error)
-         VALUES (?,?,?,?,?,${subscribed ? 'CURRENT_TIMESTAMP(6)' : 'NULL'},?)
+           (integration_id, meta_account_id, meta_account_name, page_id, page_name,
+            access_token_encrypted, is_subscribed, subscribed_at_utc, subscribe_error)
+         VALUES (?,?,?,?,?,?,?,${subscribed ? 'CURRENT_TIMESTAMP(6)' : 'NULL'},?)
          ON DUPLICATE KEY UPDATE
            integration_id=VALUES(integration_id),
+           meta_account_id=VALUES(meta_account_id),
+           meta_account_name=VALUES(meta_account_name),
            page_name=VALUES(page_name),
            access_token_encrypted=VALUES(access_token_encrypted),
            is_subscribed=VALUES(is_subscribed),
@@ -130,7 +197,8 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
            subscribe_error=VALUES(subscribe_error),
            updated_at_utc=CURRENT_TIMESTAMP(6)`,
         [
-          Number(config.integrationId), pageId, page.name || null,
+          Number(config.integrationId), account.id, account.name,
+          pageId, page.name || null,
           page.access_token ? encryptToken(page.access_token, masterKey) : null,
           subscribed ? 1 : 0, subscribeError,
         ],
@@ -143,12 +211,38 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
     res.json({
       success: true,
       data: {
+        account: { id: account.id, name: account.name },
         total: results.length,
         subscribed: results.filter((r) => r.subscribed).length,
         failed: results.filter((r) => r.error).length,
         pages: results,
       },
     });
+  }));
+
+  /** Facebook accounts Pages have been connected through, with page counts. */
+  router.get('/accounts', wrap(async (_req, res) => {
+    const [rows] = await pool.execute(
+      `SELECT meta_account_id   AS accountId,
+              meta_account_name AS accountName,
+              COUNT(*)                                   AS pageCount,
+              SUM(is_subscribed = 1)                     AS subscribedCount,
+              SUM(subscribe_error IS NOT NULL)           AS errorCount,
+              MAX(updated_at_utc)                        AS lastSyncedAt
+         FROM crm_meta_pages
+        GROUP BY meta_account_id, meta_account_name
+        ORDER BY meta_account_name IS NULL, meta_account_name ASC`,
+    );
+    res.json({ success: true, data: rows });
+  }));
+
+  /** Disconnect every Page discovered through one Facebook account. */
+  router.delete('/accounts/:accountId', requireUserAdmin, wrap(async (req, res) => {
+    const [result] = await pool.execute(
+      'DELETE FROM crm_meta_pages WHERE meta_account_id <=> ?',
+      [req.params.accountId === 'unknown' ? null : req.params.accountId],
+    );
+    res.json({ success: true, data: { removed: result.affectedRows } });
   }));
 
   router.patch('/pages/:pageId', requireUserAdmin, wrap(async (req, res) => {

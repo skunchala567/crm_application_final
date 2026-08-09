@@ -1,0 +1,106 @@
+/* ---------------------------------------------------------------------
+   Sidebar rail: the two floating pieces.
+
+   Tooltips and the settings flyout are rendered into document.body, so
+   they cannot use the sidebar's own transitions. These are the only
+   entrance animations they need; `tailwindcss-animate` is not a dependency
+   of this project, so they are written out rather than composed from
+   `animate-in` utilities that would silently resolve to nothing.
+   --------------------------------------------------------------------- */
+@keyframes sidebar-tip-in {
+  from { opacity: 0; transform: translate(-4px, -50%); }
+  to   { opacity: 1; transform: translate(0, -50%); }
+}
+
+@keyframes sidebar-flyout-in {
+  from { opacity: 0; transform: translateX(-6px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.sidebar-tooltip {
+  animation: sidebar-tip-in .12s ease-out both;
+}
+
+.sidebar-flyout {
+  animation: sidebar-flyout-in .14s ease-out both;
+}
+
+/* The topbar's drawer opener is mobile-only -- on desktop the collapse
+   control lives inside the sidebar.
+   This cannot be done with Tailwind's `md:hidden`. BulkUpload.css styles the
+   bare `button` element with `display: inline-flex`, and because that file is
+   outside any cascade layer while Tailwind's utilities sit inside
+   `@layer utilities`, the unlayered element selector beats every display
+   utility no matter its specificity. Written here, unlayered, it applies. */
+@media (min-width: 768px) {
+  .sidebar-drawer-opener {
+    display: none;
+  }
+}
+
+/* Same reason as above: the unlayered global `button` rule carries
+   `height: 44px`, `padding: 0 20px` and `min-width: max-content`, which
+   Tailwind's `w-9 h-9` cannot override from inside the utilities layer. The
+   toggle is an icon button and needs to be square. */
+.sidebar-toggle-btn {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  padding: 0;
+}
+
+/* The rail's logo doubles as the expand control: it cross-fades to the panel
+   icon on hover or keyboard focus, and clicking it opens the sidebar. Two
+   stacked children rather than a swapped node, so the change is a fade
+   instead of a pop. */
+.sidebar-brand-btn {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  padding: 0;
+  border: 0;
+  border-radius: 13px;
+  background: transparent;
+}
+
+.sidebar-brand-btn > span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  transition: opacity .16s ease;
+}
+
+.sidebar-brand-btn .brand-swap-icon {
+  opacity: 0;
+  border-radius: 13px;
+  background: var(--surface-3, #f2f7f4);
+  color: var(--primary, #0b7a4f);
+}
+
+.sidebar-brand-btn:hover .brand-swap-mark,
+.sidebar-brand-btn:focus-visible .brand-swap-mark { opacity: 0; }
+
+.sidebar-brand-btn:hover .brand-swap-icon,
+.sidebar-brand-btn:focus-visible .brand-swap-icon { opacity: 1; }
+
+.sidebar-brand-btn:active { transform: scale(.95); }
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-brand-btn > span { transition: none; }
+}
+
+/* The rail animates its width; without this the labels inside reflow to a
+   second line for the length of the transition before they are clipped. */
+.app-sidebar nav a,
+.app-sidebar nav button {
+  min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-tooltip,
+  .sidebar-flyout {
+    animation: none;
+  }
+}

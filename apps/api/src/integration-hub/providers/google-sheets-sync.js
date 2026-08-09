@@ -4,7 +4,7 @@
 // =====================================================
 
 import { GoogleSheetsProvider } from './google-sheets-provider.js';
-import { transformRow, transformCrmData, extractFieldMappings } from '../data-transformer.js';
+import { transformRow, transformCrmData } from '../data-transformer.js';
 import { decryptToken, getMasterKey } from '../crypto-utils.js';
 import crypto from 'node:crypto';
 

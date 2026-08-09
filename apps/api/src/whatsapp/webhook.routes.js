@@ -108,19 +108,27 @@ export function createWebhookRoutes(pool, logger = console) {
         || messageContent.document?.url || messageContent.document?.link
         || messageContent.video?.url || messageContent.video?.link || null;
       const normalizedMobile = String(mobile || '').replace(/\D/g, '').slice(-10);
+      // The lead also says which business the conversation belongs to. An
+      // inbound from a number nobody has as a lead cannot be attributed, so
+      // it falls to the default unit rather than appearing in every unit.
       const [[linkedLead]] = await pool.query(
-        `SELECT id FROM crm_leads
+        `SELECT id, business_unit_id AS businessUnitId FROM crm_leads
          WHERE normalized_phone=? AND deleted_at_utc IS NULL
          ORDER BY updated_at_utc DESC LIMIT 1`,
         [normalizedMobile]
       );
+      const [[fallbackUnit]] = linkedLead?.businessUnitId ? [[null]] : await pool.query(
+        'SELECT id FROM crm_business_units WHERE is_default=TRUE ORDER BY id LIMIT 1'
+      );
+      const conversationUnitId = linkedLead?.businessUnitId || fallbackUnit?.id || null;
       const [conversationResult] = await pool.query(
         `INSERT INTO crm_whatsapp_conversations
-          (organization_id, integration_id, mobile, contact_name, lead_id, last_message,
+          (organization_id, business_unit_id, integration_id, mobile, contact_name, lead_id, last_message,
            last_message_time, unread_count, status)
-         VALUES (?, ?, ?, ?, ?, ?, NOW(), ?, 'ACTIVE')
+         VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?, 'ACTIVE')
          ON DUPLICATE KEY UPDATE
            id = LAST_INSERT_ID(id),
+           business_unit_id = COALESCE(business_unit_id, VALUES(business_unit_id)),
            contact_name = COALESCE(VALUES(contact_name), contact_name),
            lead_id = COALESCE(lead_id, VALUES(lead_id)),
            last_message = VALUES(last_message),
@@ -129,6 +137,7 @@ export function createWebhookRoutes(pool, logger = console) {
            updated_at = NOW()`,
         [
           integration.organization_id,
+          conversationUnitId,
           integration.id,
           mobile,
           payload.contact_name || payload.userName || null,

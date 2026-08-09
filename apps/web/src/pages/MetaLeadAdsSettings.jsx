@@ -1,17 +1,24 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AlertCircle, CheckCircle2, Copy, Download, Facebook, Loader2,
+  AlertCircle, AlertTriangle, CheckCircle2, Copy, Download, Loader2, Plus,
   RefreshCw, Save, ShieldCheck, XCircle,
 } from 'lucide-react';
 import { api } from '../api';
+import { SearchSelect } from '../FilterWorkspace.jsx';
 
 /**
  * Meta Lead Ads settings.
  *
- * Three stages, in the order they must actually be done:
- *   1. Credentials  -> app id/secret + system user token
- *   2. Pages        -> discover + subscribe to leadgen webhooks
- *   3. Forms        -> route each form to a branch, then backfill
+ * Four stages, in the order they must actually be done:
+ *   1. Connect      -> app id/secret + system user token
+ *   2. Routing      -> who imports, and where leads land by default
+ *   3. Pages        -> discover + subscribe to leadgen webhooks
+ *   4. Forms        -> route each form to a branch, then backfill
+ *
+ * Every reference to another record is chosen by name. The ids still go to the
+ * API unchanged -- only the way they are picked differs, because asking an
+ * admin to recall that "import as user 1" means Srikanth was a reliable way to
+ * end up with a number that imports nothing.
  */
 
 const CRM_FIELDS = [
@@ -40,6 +47,36 @@ function StatusPill({ ok, children }) {
   );
 }
 
+/** A labelled field with room for the one line of context it needs. */
+function Field({ label, hint, required, error, children }) {
+  return (
+    <div className="form-group">
+      <span className="label">
+        {label}
+        {required && <span className="text-red-600 ml-0.5" title="Required">*</span>}
+      </span>
+      {children}
+      {error
+        ? <span className="text-xs text-red-600 mt-1 flex items-center gap-1"><AlertTriangle size={12} />{error}</span>
+        : hint && <span className="text-xs text-secondary-500 mt-1 block">{hint}</span>}
+    </div>
+  );
+}
+
+/** One line of the setup checklist at the top of the screen. */
+function StepChip({ done, label }) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border ${
+      done
+        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+        : 'bg-secondary-50 border-border text-secondary-500'
+    }`}>
+      {done ? <CheckCircle2 size={13} /> : <span className="w-[13px] h-[13px] rounded-full border-2 border-current inline-block" />}
+      {label}
+    </span>
+  );
+}
+
 export default function MetaLeadAdsSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -51,15 +88,62 @@ export default function MetaLeadAdsSettings() {
   const [form, setForm] = useState({ appId: '', appSecret: '', systemUserToken: '' });
   const [routing, setRouting] = useState({ defaultBranchId: '', defaultBusinessUnitId: '', actorUserId: '' });
 
+  // Names for every id the screen would otherwise have asked for.
+  const [lookups, setLookups] = useState({ users: [], branches: [], businessUnits: [] });
+
   const [pages, setPages] = useState([]);
   const [forms, setForms] = useState([]);
   const [ledger, setLedger] = useState({ counts: {}, imports: [] });
 
+  // Adding a second Facebook account: its token is used once for discovery.
+  const [addAccountOpen, setAddAccountOpen] = useState(false);
+  const [accountToken, setAccountToken] = useState('');
+
+  // Pages carry the account they were discovered through. Pages connected
+  // before that was recorded group under a single "unknown" bucket.
+  const accountGroups = useMemo(() => {
+    const groups = new Map();
+    for (const page of pages) {
+      const key = page.meta_account_id || 'unknown';
+      if (!groups.has(key)) {
+        groups.set(key, {
+          key,
+          id: page.meta_account_id || null,
+          name: page.meta_account_name || 'Previously connected account',
+          pages: [],
+        });
+      }
+      groups.get(key).pages.push(page);
+    }
+    return [...groups.values()];
+  }, [pages]);
+
+  const branchOptions = useMemo(() => [
+    { value: '', label: '— No default branch —' },
+    ...lookups.branches.map((b) => ({ value: String(b.id), label: b.name })),
+  ], [lookups.branches]);
+
+  const unitOptions = useMemo(() => [
+    { value: '', label: '— No default business unit —' },
+    ...lookups.businessUnits.map((u) => ({ value: String(u.id), label: u.name })),
+  ], [lookups.businessUnits]);
+
+  const userOptions = useMemo(() => [
+    { value: '', label: '— Select a user —' },
+    ...lookups.users.map((u) => ({ value: String(u.id), label: `${u.name} (${u.email})` })),
+  ], [lookups.users]);
+
+  const branchName = useCallback(
+    (id) => lookups.branches.find((b) => String(b.id) === String(id))?.name || null,
+    [lookups.branches],
+  );
+
   const loadAll = useCallback(async () => {
     setError('');
     try {
-      const [configRes, pagesRes, formsRes, importsRes] = await Promise.all([
+      const [configRes, lookupRes, pagesRes, formsRes, importsRes] = await Promise.all([
         api.get('/meta/config'),
+        api.get('/meta/lookups').catch(() => ({ data: { users: [], branches: [], businessUnits: [] } })),
         api.get('/meta/pages').catch(() => ({ data: [] })),
         api.get('/meta/forms').catch(() => ({ data: [] })),
         api.get('/meta/imports?limit=25').catch(() => ({ data: { counts: {}, imports: [] } })),
@@ -72,6 +156,7 @@ export default function MetaLeadAdsSettings() {
         defaultBusinessUnitId: cfg.config?.defaultBusinessUnitId ?? '',
         actorUserId: cfg.config?.actorUserId ?? '',
       });
+      setLookups(lookupRes.data || { users: [], branches: [], businessUnits: [] });
       setPages(pagesRes.data || []);
       setForms(formsRes.data || []);
       setLedger(importsRes.data || { counts: {}, imports: [] });
@@ -100,7 +185,7 @@ export default function MetaLeadAdsSettings() {
       if (form.systemUserToken) payload.systemUserToken = form.systemUserToken;
       await api.put('/meta/config', payload);
       setForm((prev) => ({ ...prev, appSecret: '', systemUserToken: '' }));
-      flash('Credentials saved');
+      flash('Settings saved');
       await loadAll();
     } catch (err) {
       setError(err.message);
@@ -139,25 +224,30 @@ export default function MetaLeadAdsSettings() {
   }
 
   const counts = ledger.counts || {};
+  const subscribedPages = pages.filter((p) => p.is_subscribed).length;
+  // The one setting that stops imports dead, so it gets its own banner.
+  const missingActor = !routing.actorUserId;
+
+  const saveButton = (
+    <button className="primary inline-flex items-center gap-2" onClick={saveConfig} disabled={saving}>
+      {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save
+    </button>
+  );
 
   return (
     <div className="space-y-6">
-      <header className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-blue-600 text-white">
-            <Facebook size={20} />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-foreground">Meta Lead Ads</h2>
-            <p className="text-sm text-secondary-600">
-              Pull leads from Facebook and Instagram lead forms into the CRM.
-            </p>
-          </div>
+      {/* Where you are in the setup, and the way back to a fresh read. */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          <StepChip done={!!meta?.configured} label="1. Connected" />
+          <StepChip done={!missingActor} label="2. Lead routing" />
+          <StepChip done={subscribedPages > 0} label="3. Pages subscribed" />
+          <StepChip done={forms.length > 0} label="4. Forms synced" />
         </div>
         <button className="secondary inline-flex items-center gap-2" onClick={loadAll}>
           <RefreshCw size={14} /> Refresh
         </button>
-      </header>
+      </div>
 
       {error && (
         <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
@@ -170,30 +260,46 @@ export default function MetaLeadAdsSettings() {
           <CheckCircle2 size={16} /> {notice}
         </div>
       )}
+      {missingActor && (
+        <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+          <span>
+            <strong>Leads are not being imported.</strong> Choose an <em>Import leads as</em> user
+            below — every incoming lead is recorded against a CRM user, and without one each
+            lead is rejected and listed as failed under Recent imports. Fix this and use
+            <em> retry</em> to bring them in.
+          </span>
+        </div>
+      )}
 
-      {/* 1. Credentials */}
+      {/* 1. Connection */}
       <section className="panel card">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="card-title">1. App credentials</h3>
+        <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
+          <h3 className="card-title">1. Connect to Meta</h3>
           <StatusPill ok={meta?.configured}>
-            {meta?.configured ? 'Configured' : 'Not configured'}
+            {meta?.configured ? 'Connected' : 'Not connected'}
           </StatusPill>
         </div>
+        <p className="text-xs text-secondary-500 mb-4">
+          From your Meta app at developers.facebook.com → Settings → Basic. Secrets are stored
+          encrypted and never shown again.
+        </p>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <label className="form-group">
-            <span className="label">App ID</span>
+          <Field label="App ID" hint="The numeric ID of your Meta app.">
             <input
               className="input"
               value={form.appId}
               onChange={(e) => setForm({ ...form, appId: e.target.value })}
               placeholder="1234567890"
             />
-          </label>
-          <label className="form-group">
-            <span className="label">
-              App Secret {meta?.config?.hasAppSecret && <em className="text-xs text-secondary-500">(stored)</em>}
-            </span>
+          </Field>
+          <Field
+            label="App Secret"
+            hint={meta?.config?.hasAppSecret
+              ? 'Already stored. Leave blank to keep it.'
+              : 'Used to verify that webhook calls really come from Meta.'}
+          >
             <input
               className="input"
               type="password"
@@ -201,49 +307,27 @@ export default function MetaLeadAdsSettings() {
               onChange={(e) => setForm({ ...form, appSecret: e.target.value })}
               placeholder={meta?.config?.hasAppSecret ? 'Leave blank to keep current' : 'App secret'}
             />
-          </label>
-          <label className="form-group md:col-span-2">
-            <span className="label">
-              System User Token {meta?.config?.hasSystemUserToken && <em className="text-xs text-secondary-500">(stored)</em>}
-            </span>
-            <input
-              className="input"
-              type="password"
-              value={form.systemUserToken}
-              onChange={(e) => setForm({ ...form, systemUserToken: e.target.value })}
-              placeholder={meta?.config?.hasSystemUserToken ? 'Leave blank to keep current' : 'Long-lived system user token'}
-            />
-          </label>
+          </Field>
+          <div className="md:col-span-2">
+            <Field
+              label="System User Token"
+              hint={meta?.config?.hasSystemUserToken
+                ? 'Already stored. Leave blank to keep it.'
+                : 'A long-lived token from Business Settings → System Users. Needs pages_show_list, pages_manage_metadata and leads_retrieval.'}
+            >
+              <input
+                className="input"
+                type="password"
+                value={form.systemUserToken}
+                onChange={(e) => setForm({ ...form, systemUserToken: e.target.value })}
+                placeholder={meta?.config?.hasSystemUserToken ? 'Leave blank to keep current' : 'Long-lived system user token'}
+              />
+            </Field>
+          </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-3 mt-2">
-          <label className="form-group">
-            <span className="label">Default Branch ID</span>
-            <input
-              className="input" type="number" value={routing.defaultBranchId}
-              onChange={(e) => setRouting({ ...routing, defaultBranchId: e.target.value })}
-            />
-          </label>
-          <label className="form-group">
-            <span className="label">Default Business Unit ID</span>
-            <input
-              className="input" type="number" value={routing.defaultBusinessUnitId}
-              onChange={(e) => setRouting({ ...routing, defaultBusinessUnitId: e.target.value })}
-            />
-          </label>
-          <label className="form-group">
-            <span className="label">Import as User ID</span>
-            <input
-              className="input" type="number" value={routing.actorUserId}
-              onChange={(e) => setRouting({ ...routing, actorUserId: e.target.value })}
-            />
-          </label>
-        </div>
-
-        <div className="flex items-center gap-3 mt-2 flex-wrap">
-          <button className="primary inline-flex items-center gap-2" onClick={saveConfig} disabled={saving}>
-            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save
-          </button>
+        <div className="flex items-center gap-3 mt-4 flex-wrap">
+          {saveButton}
           <button
             className="secondary inline-flex items-center gap-2"
             disabled={!meta?.configured || busy === 'test'}
@@ -288,65 +372,214 @@ export default function MetaLeadAdsSettings() {
         </div>
       </section>
 
-      {/* 2. Pages */}
+      {/* 2. Routing */}
       <section className="panel card">
-        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-          <h3 className="card-title">2. Pages ({pages.length})</h3>
-          <button
-            className="primary inline-flex items-center gap-2"
-            disabled={!meta?.configured || busy === 'pages'}
-            onClick={() => run('pages', () => api.post('/meta/pages/sync', { subscribe: true }),
-              (r) => `${r.data.subscribed}/${r.data.total} pages subscribed${r.data.failed ? `, ${r.data.failed} failed` : ''}`)}
-          >
-            {busy === 'pages' ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-            Sync &amp; subscribe pages
-          </button>
+        <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
+          <h3 className="card-title">2. Where new leads go</h3>
+          <StatusPill ok={!missingActor}>{missingActor ? 'Incomplete' : 'Ready'}</StatusPill>
         </div>
+        <p className="text-xs text-secondary-500 mb-4">
+          Applied to every lead Meta sends. A form with its own branch (step 4) overrides
+          the default below.
+        </p>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <Field
+            label="Import leads as"
+            required
+            error={missingActor ? 'Required — imports fail without this' : ''}
+            hint="The CRM user recorded as having created the lead. A webhook has nobody signed in, so it acts as this user. Shown as the author in the lead's activity timeline."
+          >
+            <SearchSelect
+              label="Import leads as"
+              value={String(routing.actorUserId ?? '')}
+              options={userOptions}
+              onChange={(value) => setRouting({ ...routing, actorUserId: value })}
+            />
+          </Field>
+          <Field label="Default branch" hint="Used when a form has no branch of its own.">
+            <SearchSelect
+              label="Default branch"
+              value={String(routing.defaultBranchId ?? '')}
+              options={branchOptions}
+              onChange={(value) => setRouting({ ...routing, defaultBranchId: value })}
+            />
+          </Field>
+          <Field label="Default business unit" hint="Which business the leads belong to.">
+            <SearchSelect
+              label="Default business unit"
+              value={String(routing.defaultBusinessUnitId ?? '')}
+              options={unitOptions}
+              onChange={(value) => setRouting({ ...routing, defaultBusinessUnitId: value })}
+            />
+          </Field>
+        </div>
+
+        <p className="text-xs text-secondary-500 mt-3">
+          Only users with CRM access appear in the list. To use a different person, give
+          them CRM access under Settings → User Management first.
+        </p>
+
+        <div className="flex items-center gap-3 mt-4 flex-wrap">{saveButton}</div>
+      </section>
+
+      {/* 3. Pages, grouped by the Facebook account they were connected through */}
+      <section className="panel card">
+        <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
+          <h3 className="card-title">
+            3. Facebook pages ({pages.length})
+            {accountGroups.length > 0 && (
+              <span className="text-xs font-normal text-secondary-500 ml-2">
+                across {accountGroups.length} account{accountGroups.length === 1 ? '' : 's'}
+              </span>
+            )}
+          </h3>
+          <div className="flex items-center gap-2">
+            <button
+              className="secondary inline-flex items-center gap-2"
+              disabled={!meta?.configured || busy === 'pages'}
+              onClick={() => run('pages', () => api.post('/meta/pages/sync', { subscribe: true }),
+                (r) => `${r.data.account?.name || 'Account'}: ${r.data.subscribed}/${r.data.total} pages subscribed${r.data.failed ? `, ${r.data.failed} failed` : ''}`)}
+            >
+              {busy === 'pages' ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              Re-sync saved account
+            </button>
+            <button
+              className="primary inline-flex items-center gap-2"
+              disabled={!meta?.configured}
+              onClick={() => { setAddAccountOpen((open) => !open); setAccountToken(''); }}
+            >
+              <Plus size={14} />
+              Add Facebook account
+            </button>
+          </div>
+        </div>
+        <p className="text-xs text-secondary-500 mb-4">
+          Connect as many Pages as you need. Pages from different Facebook accounts can
+          coexist — each Page stores its own access token, so lead delivery is independent.
+        </p>
+
+        {addAccountOpen && (
+          <div className="border border-border rounded-lg p-4 mb-4 bg-surface-3">
+            <label className="block text-sm font-semibold mb-1">
+              User access token for the Facebook account to add
+            </label>
+            <p className="text-xs text-secondary-500 mb-2">
+              Needs <code>pages_show_list</code>, <code>pages_manage_metadata</code> and{' '}
+              <code>leads_retrieval</code>. Used once to list that account&apos;s Pages —
+              it is never stored; only each Page&apos;s own token is saved, encrypted.
+            </p>
+            <div className="flex gap-2 flex-wrap">
+              <input
+                type="password"
+                className="flex-1 min-w-[260px]"
+                placeholder="EAAB…"
+                value={accountToken}
+                onChange={(e) => setAccountToken(e.target.value)}
+                autoComplete="off"
+              />
+              <button
+                className="primary inline-flex items-center gap-2"
+                disabled={!accountToken.trim() || busy === 'add-account'}
+                onClick={() => run('add-account',
+                  () => api.post('/meta/pages/sync', { subscribe: true, userToken: accountToken.trim() }),
+                  (r) => {
+                    setAddAccountOpen(false);
+                    setAccountToken('');
+                    return `${r.data.account?.name || 'Account'}: ${r.data.subscribed}/${r.data.total} pages connected${r.data.failed ? `, ${r.data.failed} failed` : ''}`;
+                  })}
+              >
+                {busy === 'add-account' ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                Connect pages
+              </button>
+              <button className="secondary" onClick={() => { setAddAccountOpen(false); setAccountToken(''); }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
         {pages.length === 0 ? (
           <p className="text-sm text-secondary-600">
-            No pages yet. Save credentials, then sync.
+            No pages yet. Save credentials and re-sync, or add a Facebook account above.
           </p>
         ) : (
-          <div className="table-wrap overflow-x-auto">
-            <table className="table">
-              <thead>
-                <tr><th>Page</th><th>Subscribed</th><th>Branch</th><th>Forms</th></tr>
-              </thead>
-              <tbody>
-                {pages.map((page) => (
-                  <tr key={page.page_id}>
-                    <td>
-                      <div className="font-semibold">{page.page_name || '(unnamed)'}</div>
-                      <div className="text-xs text-secondary-500">{page.page_id}</div>
-                      {page.subscribe_error && (
-                        <div className="text-xs text-red-600 mt-1">{page.subscribe_error}</div>
-                      )}
-                    </td>
-                    <td><StatusPill ok={!!page.is_subscribed}>{page.is_subscribed ? 'Yes' : 'No'}</StatusPill></td>
-                    <td className="text-sm">{page.branch_id || <span className="text-secondary-400">default</span>}</td>
-                    <td>
-                      <button
-                        className="secondary text-xs"
-                        disabled={busy === `forms-${page.page_id}`}
-                        onClick={() => run(`forms-${page.page_id}`,
-                          () => api.post(`/meta/pages/${page.page_id}/forms/sync`, {}),
-                          (r) => `${r.data.length} forms synced`)}
-                      >
-                        {busy === `forms-${page.page_id}` ? 'Syncing…' : 'Sync forms'}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-5">
+            {accountGroups.map((group) => (
+              <div key={group.key} className="border border-border rounded-lg overflow-hidden">
+                <div className="flex items-center justify-between gap-3 flex-wrap px-4 py-3 bg-surface-3 border-b border-border">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-sm truncate">{group.name}</div>
+                    <div className="text-xs text-secondary-500">
+                      {group.id ? `Account ${group.id} · ` : ''}
+                      {group.pages.length} page{group.pages.length === 1 ? '' : 's'} ·{' '}
+                      {group.pages.filter((p) => p.is_subscribed).length} subscribed
+                    </div>
+                  </div>
+                  <button
+                    className="secondary text-xs"
+                    disabled={busy === `disconnect-${group.key}`}
+                    onClick={() => {
+                      if (!window.confirm(`Disconnect all ${group.pages.length} page(s) connected through ${group.name}? Imported leads are kept.`)) return;
+                      run(`disconnect-${group.key}`,
+                        () => api.delete(`/meta/accounts/${encodeURIComponent(group.id || 'unknown')}`),
+                        (r) => `${r.data.removed} page(s) disconnected`);
+                    }}
+                  >
+                    {busy === `disconnect-${group.key}` ? 'Removing…' : 'Disconnect account'}
+                  </button>
+                </div>
+
+                <div className="table-wrap overflow-x-auto">
+                  <table className="table">
+                    <thead>
+                      <tr><th>Page</th><th>Receiving leads</th><th>Branch</th><th>Forms</th></tr>
+                    </thead>
+                    <tbody>
+                      {group.pages.map((page) => (
+                        <tr key={page.page_id}>
+                          <td>
+                            <div className="font-semibold">{page.page_name || '(unnamed)'}</div>
+                            <div className="text-xs text-secondary-500">{page.page_id}</div>
+                            {page.subscribe_error && (
+                              <div className="text-xs text-red-600 mt-1">{page.subscribe_error}</div>
+                            )}
+                          </td>
+                          <td><StatusPill ok={!!page.is_subscribed}>{page.is_subscribed ? 'Yes' : 'No'}</StatusPill></td>
+                          <td className="text-sm">
+                            {branchName(page.branch_id)
+                              || <span className="text-secondary-400">Default</span>}
+                          </td>
+                          <td>
+                            <button
+                              className="secondary text-xs"
+                              disabled={busy === `forms-${page.page_id}`}
+                              onClick={() => run(`forms-${page.page_id}`,
+                                () => api.post(`/meta/pages/${page.page_id}/forms/sync`, {}),
+                                (r) => `${r.data.length} forms synced`)}
+                            >
+                              {busy === `forms-${page.page_id}` ? 'Syncing…' : 'Sync forms'}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </section>
 
-      {/* 3. Forms */}
+      {/* 4. Forms */}
       <section className="panel card">
-        <h3 className="card-title mb-4">3. Lead forms ({forms.length})</h3>
+        <h3 className="card-title mb-1">4. Lead forms ({forms.length})</h3>
+        <p className="text-xs text-secondary-500 mb-4">
+          Send each form&apos;s leads to a specific branch, and check that its questions land
+          on the right CRM fields. <strong>Backfill</strong> pulls in leads submitted before
+          the form was connected.
+        </p>
         {forms.length === 0 ? (
           <p className="text-sm text-secondary-600">No forms yet. Sync forms from a page above.</p>
         ) : (
@@ -354,28 +587,37 @@ export default function MetaLeadAdsSettings() {
             {forms.map((f) => (
               <div key={f.form_id} className="border border-border rounded-lg p-4">
                 <div className="flex items-start justify-between gap-3 flex-wrap">
-                  <div>
+                  <div className="min-w-0">
                     <div className="font-semibold">{f.form_name || f.form_id}</div>
                     <div className="text-xs text-secondary-500">
                       Form {f.form_id} · Page {f.page_id}
                       {f.form_status ? ` · ${f.form_status}` : ''}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      className="input w-32"
-                      type="number"
-                      placeholder="Branch ID"
-                      defaultValue={f.branch_id || ''}
-                      onBlur={(e) => {
-                        const value = e.target.value;
-                        if (String(value) !== String(f.branch_id || '')) {
+                  <div className="flex items-end gap-2 flex-wrap">
+                    {/* Native select on purpose: this writes as soon as it
+                        changes, and a type-ahead fires onChange while you are
+                        still typing -- which would blank the branch mid-search. */}
+                    <div className="w-[220px]">
+                      <span className="label text-xs">Send leads to branch</span>
+                      <select
+                        className="input"
+                        aria-label={`Branch for ${f.form_name || f.form_id}`}
+                        value={String(f.branch_id ?? '')}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          if (String(value) === String(f.branch_id ?? '')) return;
                           run(`branch-${f.form_id}`,
                             () => api.patch(`/meta/forms/${f.form_id}`, { branchId: value || null }),
                             'Branch updated');
-                        }
-                      }}
-                    />
+                        }}
+                      >
+                        <option value="">Use default branch</option>
+                        {lookups.branches.map((b) => (
+                          <option key={b.id} value={String(b.id)}>{b.name}</option>
+                        ))}
+                      </select>
+                    </div>
                     <button
                       className="secondary inline-flex items-center gap-1.5 text-xs"
                       disabled={busy === `bf-${f.form_id}`}
@@ -392,21 +634,26 @@ export default function MetaLeadAdsSettings() {
                 </div>
 
                 {Object.keys(f.field_mapping || {}).length > 0 && (
-                  <div className="mt-3 grid gap-2 md:grid-cols-2">
-                    {Object.entries(f.field_mapping).map(([metaField, crmField]) => (
-                      <label key={metaField} className="flex items-center gap-2 text-xs">
-                        <span className="flex-1 truncate text-secondary-700" title={metaField}>{metaField}</span>
-                        <select
-                          className="input py-1 text-xs w-40"
-                          value={crmField || ''}
-                          onChange={(e) => updateMapping(f.form_id, metaField, e.target.value)}
-                        >
-                          {CRM_FIELDS.map((opt) => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                          ))}
-                        </select>
-                      </label>
-                    ))}
+                  <div className="mt-3 pt-3 border-t border-border">
+                    <div className="text-xs font-semibold text-secondary-700 mb-2">
+                      Form question → CRM field
+                    </div>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {Object.entries(f.field_mapping).map(([metaField, crmField]) => (
+                        <label key={metaField} className="flex items-center gap-2 text-xs">
+                          <span className="flex-1 truncate text-secondary-700" title={metaField}>{metaField}</span>
+                          <select
+                            className="input py-1 text-xs w-40"
+                            value={crmField || ''}
+                            onChange={(e) => updateMapping(f.form_id, metaField, e.target.value)}
+                          >
+                            {CRM_FIELDS.map((opt) => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                      ))}
+                    </div>
                   </div>
                 )}
                 <p className="text-xs text-secondary-500 mt-2">
@@ -418,9 +665,13 @@ export default function MetaLeadAdsSettings() {
         )}
       </section>
 
-      {/* 4. Ledger */}
+      {/* 5. Ledger */}
       <section className="panel card">
-        <h3 className="card-title mb-4">Recent imports</h3>
+        <h3 className="card-title mb-1">Recent imports</h3>
+        <p className="text-xs text-secondary-500 mb-4">
+          Every lead Meta has sent. Failed ones are kept and can be retried once the
+          cause is fixed.
+        </p>
         <div className="flex gap-3 flex-wrap mb-4">
           {[
             ['imported', 'Imported', 'bg-emerald-100 text-emerald-700'],
