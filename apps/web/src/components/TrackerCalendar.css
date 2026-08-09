@@ -1,0 +1,57 @@
+/* ---------------------------------------------------------------------
+   Tracker calendar: the day cells.
+
+   Each cell is a <button> so a day can be selected by keyboard as well as
+   mouse. That runs straight into BulkUpload.css, which styles the bare
+   `button` element app-wide with height:44px, padding:0 20px,
+   min-width:max-content, display:inline-flex and white-space:nowrap. Being
+   unlayered, it beats every Tailwind utility no matter the specificity, so
+   the grid cannot be sized from the markup -- these rules have to live in
+   plain CSS too.
+   --------------------------------------------------------------------- */
+.tracker-cal-day {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-width: 0;
+  min-height: 104px;
+  padding: 6px;
+  border: 0;
+  border-radius: 0;
+  font: inherit;
+  text-align: left;
+  white-space: normal;
+  cursor: pointer;
+}
+
+/* Chips still clip to one line inside a cell that now wraps. */
+.tracker-cal-day .tracker-cal-chip {
+  white-space: nowrap;
+}
+
+.tracker-cal-day:focus-visible {
+  outline: 2px solid var(--primary, #0b7a4f);
+  outline-offset: -2px;
+}
+
+/* Rows in the overdue list are buttons too, and need the same release from
+   the global button rule described above. */
+.tracker-overdue-row {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 0;
+  font: inherit;
+  text-align: left;
+  white-space: normal;
+  background: transparent;
+  cursor: pointer;
+}
+
+.tracker-overdue-row:focus-visible {
+  outline: 2px solid var(--primary, #0b7a4f);
+  outline-offset: -2px;
+}

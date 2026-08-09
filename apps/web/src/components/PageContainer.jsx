@@ -6,16 +6,21 @@ export function PageContainer({
   variant = 'default',
   ...props
 }) {
+  // The area between the sidebar and the viewport edge IS the workspace, so
+  // this container spans it. Horizontal padding scales with the viewport
+  // instead of the container being centred inside a fixed max-width.
   const variantClasses = {
-    default: 'px-6 md:px-8 py-8 md:py-10',
-    compact: 'px-6 md:px-8 py-6 md:py-8',
+    default: 'px-5 md:px-7 xl:px-9 py-7 md:py-9',
+    compact: 'px-5 md:px-7 xl:px-9 py-5 md:py-7',
     full: '',
+    // Opt-in for reading-width content: long-form copy, narrow forms.
+    narrow: 'px-5 md:px-7 py-7 md:py-9 max-w-3xl',
   };
 
   return (
     <div
       className={cn(
-        'w-full max-w-7xl mx-auto',
+        'w-full',
         variantClasses[variant],
         className
       )}

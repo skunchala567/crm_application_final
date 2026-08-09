@@ -1,16 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, RefreshCw, Settings, Trash2, Activity, AlertCircle, CheckCircle, Clock, Link as LinkIcon } from 'lucide-react';
+import { Plus, Settings, Activity, AlertCircle, CheckCircle, Link as LinkIcon } from 'lucide-react';
 import { api } from '../api';
-import SpreadsheetPicker from './SpreadsheetPicker';
 import FieldMappingPanel from './FieldMappingPanel';
 import SmartpingConfig from './SmartpingConfig';
 import GoogleOAuthConfig from './GoogleOAuthConfig';
 import SyncDataPanel from './SyncDataPanel';
 import StatCard from './components/StatCard';
-import IntegrationTable from './components/IntegrationTable';
+import IntegrationGrid from './components/IntegrationGrid';
 import ActionToolbar from './components/ActionToolbar';
-import PageHeader from './components/PageHeader';
 import './IntegrationHub.css';
 
 export default function IntegrationHubPage() {
@@ -42,6 +40,25 @@ export default function IntegrationHubPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  /**
+   * Providers that own a full settings screen open it; everything else uses
+   * the details modal. These screens are not listed in the sidebar, so this
+   * is how they are reached.
+   */
+  const PROVIDER_SCREENS = {
+    callerdesk: '/settings/callerdesk',
+    smartflo: '/settings/smartflo',
+    meta_lead_ads: '/settings/meta-lead-ads',
+    google_sheets: '/settings/google-sheets',
+  };
+
+  const openIntegrationSettings = (integration) => {
+    const provider = String(integration.provider_name || '').toLowerCase();
+    const screen = PROVIDER_SCREENS[provider];
+    if (screen) navigate(screen);
+    else setSelectedIntegration(integration);
   };
 
   const handleTestConnection = async (integration) => {
@@ -115,7 +132,6 @@ export default function IntegrationHubPage() {
   if (loading) {
     return (
       <main className="integration-main settings-integration-page">
-        <PageHeader title="Integrations" subtitle="Connect and manage third-party services" />
         <div className="loading-state">Loading integrations...</div>
       </main>
     );
@@ -123,15 +139,16 @@ export default function IntegrationHubPage() {
 
   return (
     <main className="integration-main settings-integration-page">
-      <PageHeader
-        title="Integrations"
-        subtitle="Manage and monitor all third-party integrations connected with the CRM"
-      >
+      {/* Title lives in the Settings section header; only the action is here. */}
+      <div className="flex items-center justify-between gap-4 mb-6">
+        <p className="text-[12.5px] text-secondary-500">
+          Manage and monitor all third-party integrations connected with the CRM
+        </p>
         <button className="btn btn-primary" onClick={() => setShowWizard(true)}>
           <Plus size={18} />
           Add Integration
         </button>
-      </PageHeader>
+      </div>
 
       {error && (
         <div className="alert alert-danger">
@@ -215,11 +232,10 @@ export default function IntegrationHubPage() {
           </button>
         </div>
       ) : (
-        <IntegrationTable
+        <IntegrationGrid
           integrations={filteredIntegrations}
-          onViewDetails={setSelectedIntegration}
           onSync={handleSync}
-          onSettings={(integration) => String(integration.provider_name).toLowerCase()==='callerdesk' ? navigate('/settings/callerdesk') : String(integration.provider_name).toLowerCase()==='smartflo' ? navigate('/settings/smartflo') : setSelectedIntegration(integration)}
+          onSettings={(integration) => openIntegrationSettings(integration)}
           loading={loading}
         />
       )}
@@ -477,8 +493,8 @@ function IntegrationDetails({ integration, onClose, onRefresh, onAuthorize }) {
               )}
 
               {!isAuthorized && integration.provider_name !== 'callerdesk' && (
-                <div style={{ marginTop: '2rem', padding: '1rem', backgroundColor: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '0.5rem' }}>
-                  <p style={{ color: '#92400e', marginBottom: '1rem' }}>
+                <div style={{ marginTop: '2rem', padding: '1rem', backgroundColor: '#fdf4e3', border: '1px solid #fcd34d', borderRadius: '0.5rem' }}>
+                  <p style={{ color: '#c47f0a', marginBottom: '1rem' }}>
                     ⚠️ This integration is not authorized. Please authorize it first to enable functionality.
                   </p>
                   <button

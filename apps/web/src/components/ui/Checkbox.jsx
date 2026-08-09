@@ -1,5 +1,4 @@
 import { forwardRef } from 'react';
-import { Check } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 const Checkbox = forwardRef(

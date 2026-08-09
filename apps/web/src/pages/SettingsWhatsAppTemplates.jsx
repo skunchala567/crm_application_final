@@ -56,7 +56,6 @@ export default function SettingsWhatsAppTemplates({ integrationId, integrations,
         return dateB - dateA;
       });
 
-      console.log(`Loaded ${sorted.length} templates from server`);
       setTemplates(sorted);
 
       // ✅ FIX 9: Maintain selected template if it still exists
@@ -136,30 +135,31 @@ export default function SettingsWhatsAppTemplates({ integrationId, integrations,
     }
   };
 
-  const handleDuplicate = async (templateId) => {
+  /**
+   * Open the create form prefilled from an existing template.
+   *
+   * This used to POST a copy immediately, named `<name>_copy_<timestamp>`, so
+   * a duplicate was published to the account before anyone could change a
+   * word of it -- and with no users selected, so nobody could use it either.
+   */
+  const handleDuplicate = (templateId) => {
     const template = templates.find(t => (t.id || t.aisensy_template_id) === templateId);
     if (!template) return;
-
-    try {
-      setError(null);
-      const newTemplate = {
-        template_name: `${template.template_name}_copy_${Date.now()}`,
-        label: `${template.label || template.template_name} (Copy)`,
-        category: template.category || 'MARKETING',
-        language: template.language || 'English',
-        template_type: template.template_type || 'TEXT',
-        body: template.body || '',
-        header_content: template.header_content || '',
-        footer: template.footer || '',
-        sample_text: template.sample_text || '',
-        quick_replies: template.quick_replies || [],
-        call_to_action: template.call_to_action || []
-      };
-      await api.post(`/whatsapp/integrations/${template.integrationId || integrationId}/templates`, newTemplate);
-      await loadTemplates();
-    } catch (err) {
-      setError(`Failed to duplicate: ${err.message}`);
-    }
+    onNavigate('create', null, template.integrationId || integrationId, {
+      // The name must differ; the rest is the operator's to edit.
+      template_name: `${template.template_name}_copy`,
+      label: `${template.label || template.template_name} (Copy)`,
+      category: template.category || 'MARKETING',
+      language: template.language || 'English',
+      template_type: template.template_type || 'TEXT',
+      body: template.body || '',
+      header_content: template.header_content || '',
+      footer: template.footer || '',
+      sample_text: template.sample_text || '',
+      quick_replies: template.quick_replies || [],
+      call_to_action: template.call_to_action || [],
+      visibleUserIds: template.visibleUserIds || [],
+    });
   };
 
   const countVariables = (text) => {
@@ -223,11 +223,6 @@ export default function SettingsWhatsAppTemplates({ integrationId, integrations,
   const endIndex = startIndex + pageSize;
   const paginatedTemplates = filtered.slice(startIndex, endIndex);
 
-  // Debug: Log template count
-  useEffect(() => {
-    console.log(`Total templates: ${templates.length}, Filtered: ${filtered.length}, Pages: ${totalPages}`);
-  }, [templates.length, filtered.length, totalPages]);
-
   const handlePageChange = (page) => {
     if (page >= 1 && page <= totalPages) {
       setCurrentPage(page);
@@ -237,9 +232,6 @@ export default function SettingsWhatsAppTemplates({ integrationId, integrations,
   return (
     <div className="templates-redesigned">
       <header className="template-page-header">
-        <div className="template-page-heading">
-          <h1>WhatsApp Templates</h1>
-        </div>
         <div className="template-header-controls">
           <label className="template-header-search">
             <Search size={18} aria-hidden="true" />

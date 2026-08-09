@@ -1419,13 +1419,24 @@ export class IntegrationHubService {
         };
       }
 
+      /* Outbound messages are sent from a lead screen, so the lead says which
+         business the conversation belongs to. Without a lead it falls to the
+         sender's active unit, and failing that the default one. */
+      const [[outboundLead]] = options.leadId
+        ? await this.pool.query('SELECT business_unit_id AS unitId FROM crm_leads WHERE id=?', [options.leadId])
+        : [[]];
+      const [[defaultUnit]] = (outboundLead?.unitId || options.businessUnitId) ? [[null]]
+        : await this.pool.query('SELECT id FROM crm_business_units WHERE is_default=TRUE ORDER BY id LIMIT 1');
+      const conversationUnitId = outboundLead?.unitId || options.businessUnitId || defaultUnit?.id || null;
+
       const [conversationResult] = await this.pool.query(
         `INSERT INTO crm_whatsapp_conversations
-          (organization_id, integration_id, mobile, contact_name, lead_id,
+          (organization_id, business_unit_id, integration_id, mobile, contact_name, lead_id,
            last_message, last_message_time, status)
-         VALUES (?, ?, ?, ?, ?, ?, NOW(), 'ACTIVE')
+         VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), 'ACTIVE')
          ON DUPLICATE KEY UPDATE
            id = LAST_INSERT_ID(id),
+           business_unit_id = COALESCE(business_unit_id, VALUES(business_unit_id)),
            contact_name = COALESCE(VALUES(contact_name), contact_name),
            lead_id = COALESCE(VALUES(lead_id), lead_id),
            last_message = VALUES(last_message),
@@ -1433,6 +1444,7 @@ export class IntegrationHubService {
            updated_at = NOW()`,
         [
           organizationId,
+          conversationUnitId,
           integrationId,
           normalizedPhone,
           options.userName || null,
@@ -1682,10 +1694,22 @@ export class IntegrationHubService {
     }));
   }
 
+  /**
+   * The inbox for one business unit.
+   *
+   * Conversations used to be filtered on organization_id alone, so a second
+   * business unit showed the first one's chats -- a new unit with no leads
+   * and no WhatsApp account of its own listed everything in the system.
+   *
+   * `businessUnitId` is required for that reason; a caller that cannot say
+   * which business it is asking about gets nothing rather than everything.
+   */
   async getWhatsAppConversations(organizationId, filters = {}) {
     const limit = Math.min(Math.max(Number(filters.limit) || 50, 1), 100);
     const offset = Math.max(Number(filters.offset) || 0, 0);
-    const params = [organizationId];
+    const businessUnitId = Number(filters.businessUnitId);
+    if (!Number.isInteger(businessUnitId) || businessUnitId <= 0) return [];
+    const params = [organizationId, businessUnitId];
     let searchSql = '';
     const incomingSql = String(filters.incomingOnly || '') === '1'
       ? ` AND EXISTS (
@@ -1693,6 +1717,22 @@ export class IntegrationHubService {
           WHERE incoming.conversation_id=c.id AND incoming.direction='incoming'
         )`
       : '';
+    /*
+     * A conversation about a lead belongs to that lead's branch, so someone
+     * who cannot open the lead should not read its chat either. Conversations
+     * with nobody attached carry no branch and stay visible to the unit.
+     */
+    let branchSql = '';
+    const branchIds = Array.isArray(filters.branchIds)
+      ? filters.branchIds.map(Number).filter(Number.isFinite) : [];
+    if (branchIds.length) {
+      branchSql = ` AND (c.lead_id IS NULL OR l.branch_id IN (${branchIds.map(() => '?').join(',')}))`;
+      params.push(...branchIds);
+    } else if (filters.restrictToBranches) {
+      // Told to restrict but holding no branches: no lead conversations.
+      branchSql = ' AND c.lead_id IS NULL';
+    }
+
     if (filters.search) {
       searchSql = ' AND (c.mobile LIKE ? OR c.contact_name LIKE ? OR c.last_message LIKE ?)';
       const pattern = `%${filters.search}%`;
@@ -1708,7 +1748,8 @@ export class IntegrationHubService {
        LEFT JOIN crm_leads l ON l.id=c.lead_id AND l.deleted_at_utc IS NULL
        LEFT JOIN branches b ON b.id=l.branch_id
        LEFT JOIN crm_lead_stages s ON s.id=l.stage_id
-       WHERE c.organization_id = ? ${searchSql} ${incomingSql}
+       WHERE c.organization_id = ? AND c.business_unit_id = ?
+             ${branchSql} ${searchSql} ${incomingSql}
        ORDER BY c.last_message_time DESC
        LIMIT ${limit} OFFSET ${offset}`,
       params
@@ -1716,10 +1757,18 @@ export class IntegrationHubService {
     return rows;
   }
 
+  /**
+   * Messages in one conversation.
+   *
+   * Scoped to the business unit as well, or the list could be narrowed while
+   * the thread behind it stayed readable by passing its id.
+   */
   async getWhatsAppConversationMessages(organizationId, conversationId, filters = {}) {
     const limit = Math.min(Math.max(Number(filters.limit) || 50, 1), 100);
     const beforeId = Number(filters.beforeId) || null;
-    const params = [conversationId, organizationId];
+    const businessUnitId = Number(filters.businessUnitId);
+    if (!Number.isInteger(businessUnitId) || businessUnitId <= 0) return [];
+    const params = [conversationId, organizationId, businessUnitId];
     let beforeSql = '';
     if (beforeId) {
       beforeSql = ' AND m.id < ?';
@@ -1729,7 +1778,8 @@ export class IntegrationHubService {
       `SELECT m.*
        FROM crm_whatsapp_messages m
        JOIN crm_whatsapp_conversations c ON c.id = m.conversation_id
-       WHERE m.conversation_id = ? AND c.organization_id = ? ${beforeSql}
+       WHERE m.conversation_id = ? AND c.organization_id = ?
+             AND c.business_unit_id = ? ${beforeSql}
        ORDER BY m.id DESC
        LIMIT ${limit}`,
       params
@@ -1804,12 +1854,15 @@ export class IntegrationHubService {
     );
   }
 
-  async markWhatsAppConversationRead(organizationId, conversationId) {
+  /** Scoped to the unit for the same reason the read paths are. */
+  async markWhatsAppConversationRead(organizationId, conversationId, businessUnitId) {
+    const unitId = Number(businessUnitId);
+    if (!Number.isInteger(unitId) || unitId <= 0) return { success: false };
     await this.pool.query(
       `UPDATE crm_whatsapp_conversations
        SET unread_count = 0, updated_at = NOW()
-       WHERE id = ? AND organization_id = ?`,
-      [conversationId, organizationId]
+       WHERE id = ? AND organization_id = ? AND business_unit_id = ?`,
+      [conversationId, organizationId, unitId]
     );
     return { success: true };
   }

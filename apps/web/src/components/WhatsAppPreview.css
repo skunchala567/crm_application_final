@@ -6,7 +6,7 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: linear-gradient(135deg, #f5f5f5 0%, #fafafa 100%);
+  background: linear-gradient(135deg, #f2f7f4 0%, #fafafa 100%);
   border-radius: 8px;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -98,7 +98,7 @@
 .media-placeholder {
   width: 100%;
   height: 120px;
-  background: linear-gradient(135deg, #e5e7eb 0%, #f3f4f6 100%);
+  background: linear-gradient(135deg, #e4ece8 0%, #f2f7f4 100%);
   border-radius: 6px;
   display: flex;
   align-items: center;
@@ -130,7 +130,7 @@
 
 .wa-quick-reply-btn {
   background: white;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e4ece8;
   border-radius: 20px;
   padding: 8px 12px;
   font-size: 12px;
@@ -156,7 +156,7 @@
 
 .wa-cta-btn {
   background: white;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e4ece8;
   border-radius: 6px;
   padding: 10px 12px;
   font-size: 12px;
@@ -222,7 +222,7 @@
 .media-skeleton {
   width: 100%;
   height: 200px;
-  background: linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%);
+  background: linear-gradient(90deg, #e4ece8 25%, #f2f7f4 50%, #e4ece8 75%);
   background-size: 200% 100%;
   animation: pulse 1.5s infinite;
   border-radius: 8px;
@@ -246,7 +246,7 @@
 .media-error {
   width: 100%;
   height: 200px;
-  background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+  background: linear-gradient(135deg, #f2f7f4 0%, #e4ece8 100%);
   border-radius: 8px;
   display: flex;
   flex-direction: column;
@@ -280,7 +280,7 @@
   padding: 12px;
   background: white;
   border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e4ece8;
   max-width: 85%;
 }
 

@@ -3,10 +3,28 @@ import { CheckCircle2, Loader2 } from "lucide-react";
 import { api } from "./api";
 import "./PublicEnquiryForm.css";
 
+/**
+ * What the capture script has been holding since the visitor first landed.
+ *
+ * crm-attribution.js is loaded from index.html and persists the first ad
+ * click for 90 days, so this survives the visitor browsing the site and
+ * coming back later -- which reading the query string here never did. If the
+ * script is blocked or absent, the fields below still carry whatever is in
+ * the current URL, so nothing gets worse than it was.
+ */
+function capturedAttribution() {
+  try {
+    return window.crmAttribution?.get?.() || null;
+  } catch {
+    return null;
+  }
+}
+
 function publicTrackingPayload() {
   const params = new URLSearchParams(window.location.search);
   const pick = (...keys) => keys.map(key => params.get(key)).find(Boolean) || "";
   return {
+    attribution: capturedAttribution(),
     branchId: pick("branchId", "branch_id"),
     academicYearId: pick("academicYearId", "academic_year_id"),
     academicYear: pick("academicYear", "academic_year"),
@@ -90,7 +108,7 @@ export default function PublicEnquiryForm({ formKey }) {
       })
       .catch(error => setStatus({ loading: false, saving: false, error: error.message, success: "" }));
   }, [formKey]);
-  const color = form?.color || "#4A4FB1";
+  const color = form?.color || "#0b7a4f";
   const fields = useMemo(() => form?.fields || [], [form]);
   const update = (fieldKey, value) => setValues(current => ({ ...current, [fieldKey]: value }));
   function validateForm() {

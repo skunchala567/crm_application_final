@@ -31,7 +31,7 @@ export default function CallerDeskSettings({ onMessage }) {
   async function save(e){e.preventDefault();setBusy(true);try{await api.put('/callerdesk/config',config);notify('CallerDesk configuration saved');await load();}catch(e){notify(e.message,'error');}finally{setBusy(false);}}
   async function test(){setBusy(true);try{await api.post('/callerdesk/test',{});notify('CallerDesk connection is working');}catch(e){notify(e.message,'error');}finally{setBusy(false);}}
   return <div className="callerdesk-settings">
-    <header><div><span className="eyebrow">Calling integration</span><h1>CallerDesk</h1><p>Call leads securely, capture outcomes and recordings, and manage opt-in dialling queues.</p></div><button className="secondary" onClick={()=>load().catch(e=>setError(e.message))}><RefreshCw size={16}/> Refresh</button></header>
+    <header className="page-action-row"><button className="secondary" onClick={()=>load().catch(e=>setError(e.message))}><RefreshCw size={16}/> Refresh</button></header>
     {error&&<div className="callerdesk-error">{error}</div>}
     <section className="callerdesk-guide"><strong>Configuration guide</strong><span><b>1</b> Save API credentials</span><span><b>2</b> Test connection</span><span><b>3</b> Configure branch DIDs in Business Units</span><span><b>4</b> Map members in User Management</span></section>
     <section className="callerdesk-card"><div className="section-title"><PhoneCall/><div><h2>Account setup</h2><p>The authcode is encrypted and never returned to the browser.</p></div>{config.configured&&<span className="connected"><CheckCircle2/> Connected</span>}</div>

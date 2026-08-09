@@ -1,22 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  ArrowLeft,
-  Filter,
-  Pencil,
-  Play,
-  Megaphone,
-  Plus,
-  Save,
-  Trash2,
-  Workflow,
-  Zap,
-} from "lucide-react";
+import { ArrowLeft, Filter, Pencil, Play, Megaphone, Plus, Save, Trash2, Workflow, Zap } from "lucide-react";
 import { api } from "./api";
 import { useBusinessUnit } from "./BusinessUnitContext.jsx";
 import { MultiSearchSelect, SearchSelect } from "./FilterWorkspace.jsx";
-import {
-  MarketingCampaignList,
-} from "./MarketingCampaigns.jsx";
+import { MarketingCampaignList } from "./MarketingCampaigns.jsx";
 
 const categories = [
   {
@@ -920,22 +907,9 @@ export default function AutomationPage() {
     );
   return (
     <main className="page automation-page">
-      <div className="page-heading">
-        <div>
-          <span className="eyebrow">Engagement automation</span>
-          <h1>Automation workflows</h1>
-          <p>
-            Create rules that respond to lead activity and keep follow-ups
-            moving.
-          </p>
-        </div>
-        <div className="automation-heading-actions">
-          <button className="primary" onClick={() => begin("attribute")}>
-            <Plus size={18} /> Add workflow
-          </button>
-        </div>
-      </div>
-      <nav className="automation-module-tabs" aria-label="Automation sections">
+      {/* Title removed with the page header; the action sits with the tabs. */}
+      <div className="automation-tab-bar">
+        <nav className="automation-module-tabs" aria-label="Automation sections">
         <button
           className={automationTab === "workflows" ? "active" : ""}
           onClick={() => setAutomationTab("workflows")}
@@ -948,7 +922,11 @@ export default function AutomationPage() {
         >
           <Megaphone /> Bulk campaigns <span>{campaigns.length}</span>
         </button>
-      </nav>
+        </nav>
+        <button className="primary" onClick={() => begin("attribute")}>
+          <Plus size={18} /> Add workflow
+        </button>
+      </div>
       {notice && <div className="notice success">{notice}</div>}
       {automationTab === "campaigns" ? (
         <MarketingCampaignList

@@ -60,7 +60,7 @@
   flex-direction: column;
   border-left: 1px solid var(--border);
   background: var(--surface);
-  box-shadow: -5px 0 18px #24264c10;
+  box-shadow: -5px 0 18px #0d1a1510;
 }
 
 .applied-filters-panel.collapsed {
@@ -91,11 +91,21 @@
   transform: scale(1.06);
 }
 
+/* Keep the toggle at the same height as when expanded. Pinning it to the
+   bottom of a full-height panel pushed it out of view, so the panel could be
+   collapsed but never reopened. Centred in the 42px rail rather than
+   straddling its edge. */
 .applied-filters-panel.collapsed .applied-filter-toggle {
   top: auto;
-  right: 3px;
-  bottom: 3px;
-  left: auto;
+  bottom: 66px;
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+}
+
+/* The base :hover sets transform, which would drop the centring above. */
+.applied-filters-panel.collapsed .applied-filter-toggle:hover {
+  transform: translateX(-50%) scale(1.06);
 }
 
 .applied-filters-panel > header {
@@ -124,7 +134,7 @@
 
 .applied-filters-panel > header strong {
   color: var(--ink);
-  font: 700 13px Manrope;
+  font: 700 13px 'Plus Jakarta Sans';
 }
 
 .applied-filters-panel > header small {
@@ -157,7 +167,7 @@
   border-bottom: 1px solid var(--border);
   background: var(--accent-softer);
   color: var(--primary);
-  font: 800 10px Manrope;
+  font: 800 10px 'Plus Jakarta Sans';
   text-transform: uppercase;
   letter-spacing: .03em;
 }
@@ -183,7 +193,7 @@
 }
 
 .applied-filter-sections article + article {
-  border-top: 1px solid #eff0f4;
+  border-top: 1px solid #eef3f0;
 }
 
 .applied-filter-sections article > span {
@@ -279,7 +289,7 @@
 }
 
 .leads-page tbody tr:nth-child(4n + 1) .lead-view-avatar {
-  background: #555ab1;
+  background: #12915f;
 }
 
 .leads-page tbody tr:nth-child(4n + 2) .lead-view-avatar {
@@ -457,5 +467,19 @@
     border: 0;
     background: transparent;
     box-shadow: none;
+  }
+
+  /* Here the collapsed panel IS a 42px button holder, so the toggle sits
+     inside it rather than offset from the bottom of a full-height rail. */
+  .applied-filters-panel.collapsed .applied-filter-toggle {
+    top: 2px;
+    left: 2px;
+    right: auto;
+    bottom: auto;
+    transform: none;
+  }
+
+  .applied-filters-panel.collapsed .applied-filter-toggle:hover {
+    transform: scale(1.06);
   }
 }

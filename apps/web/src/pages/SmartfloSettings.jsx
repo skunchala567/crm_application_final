@@ -1,5 +1,5 @@
-import { useEffect,useState } from 'react';
-import { Activity,CheckCircle2,PhoneCall,RefreshCw,Save } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Activity, CheckCircle2, PhoneCall, RefreshCw, Save } from 'lucide-react';
 import { api } from '../api.js';
 import './CallerDeskSettings.css';
 
@@ -12,7 +12,7 @@ export default function SmartfloSettings({onMessage}){
   useEffect(()=>{load().catch(e=>setError(e.message));},[]);
   async function save(e){e.preventDefault();setBusy(true);try{await api.put('/smartflo/config',form);notify('Smartflo configuration saved');await load();}catch(e){notify(e.message,'error');}finally{setBusy(false);}}
   async function test(){setBusy(true);try{await api.post('/smartflo/test',{});notify('Smartflo connection is working');await load();}catch(e){notify(e.message,'error');}finally{setBusy(false);}}
-  return <div className="callerdesk-settings"><header><div><span className="eyebrow">Calling integration</span><h1>Tata Smartflo</h1><p>Use Smartflo agents, DIDs, click-to-call, live calls, CDRs and webhooks from CRM.</p></div><button className="secondary" onClick={()=>load().catch(e=>setError(e.message))}><RefreshCw size={16}/>Refresh</button></header>{error&&<div className="callerdesk-error">{error}</div>}
+  return <div className="callerdesk-settings"><header className="page-action-row"><button className="secondary" onClick={()=>load().catch(e=>setError(e.message))}><RefreshCw size={16}/>Refresh</button></header>{error&&<div className="callerdesk-error">{error}</div>}
     <section className="callerdesk-guide"><strong>Configuration guide</strong><span><b>1</b>Save credentials/token</span><span><b>2</b>Test DID, IVR and user access</span><span><b>3</b>Map branch DIDs and IVRs</span><span><b>4</b>Map agents in User Management</span></section>
     <section className="callerdesk-card"><div className="section-title"><PhoneCall/><div><h2>Account setup</h2><p>Credentials and tokens are encrypted and never returned to the browser.</p></div>{form.configured&&<span className="connected"><CheckCircle2/>Connected</span>}</div><form className="callerdesk-grid" onSubmit={save}>
       <label>Account name<small>Friendly name inside CRM</small><input value={form.accountName||''} onChange={e=>setForm({...form,accountName:e.target.value})}/></label>

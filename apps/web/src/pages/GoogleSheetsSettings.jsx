@@ -297,10 +297,6 @@ export default function GoogleSheetsSettings({ onMessage }) {
   return (
     <main className="google-sheets-settings">
       <header className="google-sheets-header">
-        <div className="google-title-block">
-          <span className="google-title-icon"><FileSpreadsheet size={21} /></span>
-          <div><h1>Google Sheets</h1><p>Configure spreadsheets, map CRM fields, and manage data synchronization.</p></div>
-        </div>
         <div className="google-header-actions">
           <button className="google-refresh" onClick={() => navigate('/settings/integrations?add=1')}><Plus size={16}/> Add Integration</button>
           <button className="google-refresh" onClick={loadIntegrations}><RefreshCw size={16} /> Refresh</button>

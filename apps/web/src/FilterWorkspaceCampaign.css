@@ -59,7 +59,7 @@
 .multi-select-actions {
   padding: 7px;
   border-bottom: 1px solid var(--border);
-  background: #fafafe;
+  background: #fbfdfc;
 }
 
 .multi-select-actions > button {
@@ -137,7 +137,7 @@
   height: 40px;
   border-radius: 8px;
   background: var(--surface);
-  box-shadow: 0 1px 3px #24264c0d;
+  box-shadow: 0 1px 3px #0d1a150d;
   overflow: visible;
 }
 
@@ -239,7 +239,7 @@
 .date-range-filter-card h3 {
   grid-column: 1 / -1;
   margin: 0;
-  font: 800 12px Manrope, sans-serif;
+  font: 800 12px 'Plus Jakarta Sans', sans-serif;
   color: #343764;
 }
 

@@ -1,18 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  ArrowLeft,
-  Ban,
-  CalendarDays,
-  CheckCircle2,
-  ChevronDown,
-  FileUp,
-  Loader,
-  MessageCircle,
-  Pause,
-  Play,
-  Plus,
-  Send,
-} from "lucide-react";
+import { ArrowLeft, Ban, CalendarDays, CheckCircle2, ChevronDown, FileUp, Loader, MessageCircle, Pause, Play, Send } from "lucide-react";
 import { api } from "./api";
 import { MultiSearchSelect } from "./FilterWorkspace.jsx";
 import "./MarketingCampaigns.css";

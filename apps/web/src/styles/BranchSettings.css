@@ -44,7 +44,7 @@
 
 .branch-selector select {
   padding: 0.75rem;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--line);
   border-radius: 6px;
   font-size: 0.9rem;
   background: var(--bg-secondary);
@@ -53,8 +53,8 @@
 
 .branch-selector select:focus {
   outline: none;
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 3px rgba(74, 79, 177, 0.1);
+  border-color: var(--brand-600);
+  box-shadow: 0 0 0 3px rgba(11, 122, 79, 0.1);
 }
 
 .jodo-config-form {
@@ -63,7 +63,7 @@
   gap: 1.5rem;
   padding: 1.5rem;
   background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--line);
   border-radius: 8px;
 }
 
@@ -91,7 +91,7 @@
 .form-group input[type="text"],
 .form-group input[type="password"] {
   padding: 0.75rem;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--line);
   border-radius: 6px;
   font-size: 0.9rem;
   background: var(--bg-primary);
@@ -101,16 +101,16 @@
 
 .form-group input:focus {
   outline: none;
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 3px rgba(74, 79, 177, 0.1);
+  border-color: var(--brand-600);
+  box-shadow: 0 0 0 3px rgba(11, 122, 79, 0.1);
 }
 
 .info-box {
   display: flex;
   gap: 1rem;
   padding: 1rem;
-  background: rgba(59, 130, 246, 0.05);
-  border: 1px solid rgba(59, 130, 246, 0.2);
+  background: rgba(11, 122, 79, 0.05);
+  border: 1px solid rgba(11, 122, 79, 0.2);
   border-radius: 6px;
   font-size: 0.9rem;
   color: var(--text-secondary);
@@ -118,7 +118,7 @@
 
 .info-box svg {
   flex-shrink: 0;
-  color: var(--primary-color);
+  color: var(--brand-600);
   margin-top: 2px;
 }
 
@@ -126,13 +126,13 @@
   color: var(--text-primary);
 }
 
-button.primary {
+.branch-settings button.primary {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
   padding: 0.75rem 1.5rem;
-  background: var(--primary-color);
+  background: var(--brand-600);
   color: white;
   border: none;
   border-radius: 6px;
@@ -142,11 +142,11 @@ button.primary {
   align-self: flex-start;
 }
 
-button.primary:hover:not(:disabled) {
-  background: var(--primary-color-dark);
+.branch-settings button.primary:hover:not(:disabled) {
+  background: var(--brand-700);
 }
 
-button.primary:disabled {
+.branch-settings button.primary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

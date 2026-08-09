@@ -223,42 +223,42 @@ export default function AcademicYearsConfiguration({ onMessage }) {
 
       <style>{`
         .config-content{padding:20px;display:grid;grid-template-columns:380px 1fr;gap:20px}
-        .config-add{display:grid;gap:14px;background:#f7f8fc;border:1px solid #dfe1ea;border-radius:10px;padding:16px}
+        .config-add{display:grid;gap:14px;background:#f7f8fc;border:1px solid #e4ece8;border-radius:10px;padding:16px}
         .config-form-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
-        .config-form-title h3{margin:0;font:700 14px;color:#222439}
+        .config-form-title h3{margin:0;font:700 14px;color:#16241e}
         .config-form-title button{border:0;background:none;color:#9294a4;cursor:pointer;padding:4px;display:grid;place-items:center}
-        .config-add label{display:grid;gap:7px;font-weight:600;font-size:12px;color:#55576d}
-        .config-add input{border:1px solid #dfe1ea;border-radius:8px;padding:10px 11px;outline:none;background:#fff}
-        .config-add input:focus{border-color:#696ec4;box-shadow:0 0 0 3px #696ec41a}
+        .config-add label{display:grid;gap:7px;font-weight:600;font-size:12px;color:#42544b}
+        .config-add input{border:1px solid #e4ece8;border-radius:8px;padding:10px 11px;outline:none;background:#fff}
+        .config-add input:focus{border-color:#2fae7a;box-shadow:0 0 0 3px #2fae7a1a}
         .config-yes-no{display:flex;gap:8px;margin-top:3px}
-        .config-yes-no button{border:1px solid #dfe1ea;background:#fff;border-radius:8px;padding:9px 13px;font-size:11px;font-weight:600;color:#55576d;cursor:pointer}
-        .config-yes-no button.active{border-color:#696ec4;background:#eeeefd;color:#555ab1}
+        .config-yes-no button{border:1px solid #e4ece8;background:#fff;border-radius:8px;padding:9px 13px;font-size:11px;font-weight:600;color:#42544b;cursor:pointer}
+        .config-yes-no button.active{border-color:#2fae7a;background:#eef9f4;color:#12915f}
         .config-form-actions{display:flex;gap:9px;margin-top:4px}
         .config-form-actions button{border:0;border-radius:8px;padding:10px 14px;font-weight:700;font-size:12px;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
-        .primary{background:#454aa2;color:#fff}
-        .primary:hover:not(:disabled){background:#30347d}
+        .primary{background:#0b7a4f;color:#fff}
+        .primary:hover:not(:disabled){background:#07603f}
         .primary:disabled{opacity:.65}
-        .secondary{border:1px solid #dfe1ea;background:#fff;color:#55576d}
-        .secondary:hover{border-color:#696ec4;background:#f0f0fc}
+        .secondary{border:1px solid #e4ece8;background:#fff;color:#42544b}
+        .secondary:hover{border-color:#2fae7a;background:#f0f0fc}
         .config-list{display:flex;flex-direction:column;gap:12px}
-        .config-list-tools{display:flex;justify-content:space-between;align-items:center;padding:0 12px;font-size:12px;color:#73758b}
+        .config-list-tools{display:flex;justify-content:space-between;align-items:center;padding:0 12px;font-size:12px;color:#5d7167}
         .config-records{display:grid;gap:8px}
-        .config-records article{display:flex;justify-content:space-between;align-items:center;padding:14px 12px;border:1px solid #dfe1ea;border-radius:8px;background:#fff}
-        .config-records article.selected{border-color:#696ec4;background:#f5f5fc;box-shadow:inset 0 0 0 1px #696ec41a}
+        .config-records article{display:flex;justify-content:space-between;align-items:center;padding:14px 12px;border:1px solid #e4ece8;border-radius:8px;background:#fff}
+        .config-records article.selected{border-color:#2fae7a;background:#f5f5fc;box-shadow:inset 0 0 0 1px #2fae7a1a}
         .config-records article>div:first-child{display:grid;gap:2px}
-        .config-records article strong{font-size:12px;color:#222439}
+        .config-records article strong{font-size:12px;color:#16241e}
         .config-records article small{font-size:11px;color:#8c8e9d}
         .config-record-actions{display:flex;gap:8px}
-        .config-edit{border:0;background:none;color:#555ab1;font-weight:600;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:5px}
+        .config-edit{border:0;background:none;color:#12915f;font-weight:600;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:5px}
         .config-edit:hover{text-decoration:underline}
-        .config-status{border:0;background:none;color:#555ab1;font-weight:600;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:6px}
-        .config-status i{display:inline-block;width:7px;height:7px;border-radius:50%;background:#dfe1ea}
+        .config-status{border:0;background:none;color:#12915f;font-weight:600;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:6px}
+        .config-status i{display:inline-block;width:7px;height:7px;border-radius:50%;background:#e4ece8}
         .config-status.active i{background:#278a6d}
         .config-status.active{color:#278a6d}
         .config-status.inactive i{background:#d9d9e0}
         .config-status.inactive{color:#9294a4}
         .empty{text-align:center;padding:20px;color:#8c8e9e;font-size:12px}
-        .empty strong{color:#222439}
+        .empty strong{color:#16241e}
         @media(max-width:1024px){.config-content{grid-template-columns:1fr}}
       `}</style>
     </section>

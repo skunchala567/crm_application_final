@@ -5,8 +5,8 @@
   bottom: 0;
   width: clamp(320px, 90vw, 500px);
   background: white;
-  border-left: 1px solid var(--border, #dfe1ea);
-  box-shadow: -4px 0 16px rgba(36, 38, 76, 0.12);
+  border-left: 1px solid var(--border, #e4ece8);
+  box-shadow: -4px 0 16px rgba(13, 26, 21, 0.12);
   display: flex;
   flex-direction: column;
   z-index: 999;
@@ -26,7 +26,7 @@
 
 .stage-change-header {
   padding: 24px;
-  border-bottom: 1px solid var(--border, #dfe1ea);
+  border-bottom: 1px solid var(--border, #e4ece8);
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -38,7 +38,7 @@
 
 .stage-change-header .eyebrow {
   display: block;
-  font: 600 11px Manrope;
+  font: 600 11px 'Plus Jakarta Sans';
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: #8a8c9b;
@@ -46,15 +46,15 @@
 }
 
 .stage-change-header h2 {
-  font: 700 18px Manrope;
+  font: 700 18px 'Plus Jakarta Sans';
   margin: 0 0 8px;
-  color: #222439;
+  color: #16241e;
 }
 
 .stage-change-header p {
   margin: 0;
   font-size: 13px;
-  color: #55576d;
+  color: #42544b;
 }
 
 .stage-change-header .icon-btn {
@@ -74,7 +74,7 @@
 
 .stage-change-header .icon-btn:hover {
   background: #f5f5fc;
-  color: #555ab1;
+  color: #07603f;
 }
 
 .stage-change-dialog form {
@@ -95,17 +95,17 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font: 600 12px Manrope;
-  color: #222439;
+  font: 600 12px 'Plus Jakarta Sans';
+  color: #16241e;
 }
 
 .stage-change-dialog select {
   padding: 8px 12px;
-  border: 1px solid var(--border, #dfe1ea);
+  border: 1px solid var(--border, #e4ece8);
   border-radius: 6px;
   background: white;
   font-size: 13px;
-  color: #222439;
+  color: #16241e;
   transition: all 0.15s ease;
 }
 
@@ -116,8 +116,8 @@
 
 .stage-change-dialog select:focus {
   outline: none;
-  border-color: var(--icon, #555ab1);
-  box-shadow: 0 0 0 3px rgba(85, 90, 177, 0.1);
+  border-color: var(--icon, #12915f);
+  box-shadow: 0 0 0 3px rgba(18, 145, 95, 0.1);
 }
 
 .stage-change-dialog select:disabled {
@@ -130,7 +130,7 @@
   padding: 0 24px;
   color: #a63e3e;
   font-size: 12px;
-  background: #fff0f0;
+  background: #fdeeed;
   border: 1px solid #efc5c5;
   border-radius: 6px;
   padding: 12px;
@@ -139,7 +139,7 @@
 
 .stage-change-dialog footer {
   padding: 24px;
-  border-top: 1px solid var(--border, #dfe1ea);
+  border-top: 1px solid var(--border, #e4ece8);
   display: flex;
   gap: 8px;
   justify-content: flex-end;
@@ -164,13 +164,13 @@
 .stage-change-dialog button.secondary:hover:not(:disabled) {
   background: #f5f5fc;
   border-color: #aeb0d1;
-  color: #555ab1;
+  color: #07603f;
 }
 
 .stage-change-dialog button.primary {
-  background: var(--icon, #555ab1);
+  background: var(--icon, #12915f);
   color: white;
-  border-color: var(--icon, #555ab1);
+  border-color: var(--icon, #12915f);
 }
 
 .stage-change-dialog button.primary:hover:not(:disabled) {
@@ -187,7 +187,7 @@
   .stage-change-dialog {
     width: 100%;
     border-left: none;
-    border-top: 1px solid var(--border, #dfe1ea);
+    border-top: 1px solid var(--border, #e4ece8);
   }
 
   @keyframes slideInRight {

@@ -1,4 +1,4 @@
-import { Search, Filter, RefreshCw } from 'lucide-react';
+import { Search, RefreshCw } from 'lucide-react';
 
 export default function ActionToolbar({
   searchValue,

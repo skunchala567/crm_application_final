@@ -30,7 +30,7 @@
   left: 50%;
   width: min(520px, calc(100vw - 32px));
   transform: translateX(-50%);
-  box-shadow: 0 12px 32px #24264c24;
+  box-shadow: 0 12px 32px #0d1a1524;
 }
 
 .wa-inbox-layout {
@@ -188,7 +188,7 @@
   padding: 8px 0;
   display: grid;
   gap: 3px;
-  border-bottom: 1px solid #eff0f4;
+  border-bottom: 1px solid #eef3f0;
 }
 
 .wa-profile-history article:last-child {

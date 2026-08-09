@@ -1,4 +1,4 @@
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { useState } from 'react';
 import { Building2, Settings, Users, MessageCircle, PhoneCall, MapPin, Zap, Facebook } from 'lucide-react';
 import UserManagementPage from '../UserManagementPage.jsx';
@@ -12,7 +12,6 @@ import CallerDeskSettings from '../pages/CallerDeskSettings.jsx';
 import SmartfloSettings from '../pages/SmartfloSettings.jsx';
 import BranchSettingsPage from '../pages/BranchSettingsPage.jsx';
 import PaymentFormsPage from '../pages/PaymentFormsPage.jsx';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui';
 import PageContainer from './PageContainer';
 
 const settingsTabs = [
@@ -97,56 +96,28 @@ const getActiveTabFromPath = (pathname) => {
 
 export default function SettingsPageModern() {
   const location = useLocation();
-  const navigate = useNavigate();
   const [message, setMessage] = useState(null);
 
   const activeTabId = getActiveTabFromPath(location.pathname);
   const activeTabConfig = settingsTabs.find((tab) => tab.id === activeTabId);
   const ActiveComponent = activeTabConfig?.component;
 
-  const handleTabChange = (tabId) => {
-    const tab = settingsTabs.find((t) => t.id === tabId);
-    if (tab) {
-      navigate(tab.path);
-    }
-  };
-
   return (
     <div className="min-h-screen bg-background">
       <Toast message={message} onClose={() => setMessage(null)} />
 
-      {/* Page Header */}
-      <div className="bg-white border-b border-border sticky top-0 z-10">
-        <PageContainer className="py-6">
-          <h1 className="text-3xl font-bold text-foreground font-display">Settings</h1>
-          <p className="text-secondary-600 mt-2">Manage your CRM configuration and integrations</p>
-        </PageContainer>
-      </div>
+      {/* Content starts directly below the universal bar. Which settings
+          section is open is shown by the sidebar submenu and the topbar
+          breadcrumbs, so no header band is repeated here.
 
-      {/* Settings Tabs and Content */}
-      <PageContainer className="py-8">
-        <Tabs value={activeTabId} onValueChange={handleTabChange} className="w-full">
-          {/* Tabs list - wraps onto multiple rows instead of scrolling
-              horizontally, so every tab stays reachable without dragging. */}
-          <div className="mb-8">
-            <TabsList className="flex flex-wrap w-full h-auto justify-start gap-1">
-              {settingsTabs.map((tab) => {
-                const Icon = tab.icon;
-                return (
-                  <TabsTrigger key={tab.id} value={tab.id} className="whitespace-nowrap">
-                    <Icon size={16} className="mr-2" />
-                    {tab.label}
-                  </TabsTrigger>
-                );
-              })}
-            </TabsList>
-          </div>
-
-          {/* Only the active panel is mounted; activeTabId always matches. */}
-          <TabsContent value={activeTabId} className="mt-0">
-            {ActiveComponent && <ActiveComponent onMessage={setMessage} />}
-          </TabsContent>
-        </Tabs>
+          No padding of its own: every settings screen brings its own, and
+          the two were stacking into ~70px of blank band under the topbar --
+          twice what the other screens have. The `py-6` that used to be
+          passed here never applied above 768px anyway, because
+          PageContainer's own `md:py-9` is a media-query variant and wins
+          over an unprefixed class whatever the merge order. */}
+      <PageContainer variant="full">
+        {ActiveComponent && <ActiveComponent onMessage={setMessage} />}
       </PageContainer>
     </div>
   );

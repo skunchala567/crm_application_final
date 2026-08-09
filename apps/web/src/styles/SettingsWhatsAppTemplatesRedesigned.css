@@ -50,12 +50,12 @@
 }
 
 .template-page-heading { min-width: 0; }
-.template-integration-filter{height:40px;min-width:190px;padding:0 30px 0 11px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink);font-size:11px;outline:0}.template-integration-filter:focus{border-color:var(--primary);box-shadow:0 0 0 3px #454aa219}
-.whatsapp-account-overlay{position:fixed;inset:0;z-index:1400;display:grid;place-items:center;padding:20px;background:#191b303d}.whatsapp-account-picker{width:min(600px,94vw);max-height:82vh;overflow:hidden;border:1px solid var(--border);border-radius:12px;background:var(--canvas);box-shadow:0 22px 60px #181a3530}.whatsapp-account-picker>header{padding:16px 18px;display:flex;align-items:flex-start;justify-content:space-between;border-bottom:1px solid var(--border);background:#fff}.whatsapp-account-picker>header>div{display:flex;align-items:center;gap:10px}.whatsapp-account-picker>header>div>svg{color:var(--primary)}.whatsapp-account-picker header span{display:grid;gap:3px}.whatsapp-account-picker h2,.whatsapp-account-picker p{margin:0}.whatsapp-account-picker h2{font:800 17px Manrope}.whatsapp-account-picker p{color:var(--text-secondary);font-size:10px}.whatsapp-account-picker>header>button{width:34px;height:34px;display:grid;place-items:center;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--text-secondary)}.whatsapp-account-picker>div{padding:14px;display:grid;gap:8px;max-height:60vh;overflow:auto}.whatsapp-account-picker>div>button{min-height:62px;padding:10px 12px;display:flex;align-items:center;gap:11px;text-align:left;border:1px solid var(--border);border-radius:9px;background:#fff;color:var(--ink)}.whatsapp-account-picker>div>button:hover:not(:disabled){border-color:var(--primary);background:var(--accent-softer)}.whatsapp-account-picker>div>button:disabled{opacity:.55}.whatsapp-account-picker>div>button>svg{color:var(--primary)}.whatsapp-account-picker>div>button>span{display:grid;gap:3px;flex:1}.whatsapp-account-picker strong{font-size:12px}.whatsapp-account-picker small{color:var(--text-secondary);font-size:9px}.whatsapp-account-picker b{padding:5px 8px;border-radius:12px;background:var(--primary-soft);color:var(--primary);font-size:9px}
+.template-integration-filter{height:40px;min-width:190px;padding:0 30px 0 11px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink);font-size:11px;outline:0}.template-integration-filter:focus{border-color:var(--primary);box-shadow:0 0 0 3px #0b7a4f19}
+.whatsapp-account-overlay{position:fixed;inset:0;z-index:1400;display:grid;place-items:center;padding:20px;background:#191b303d}.whatsapp-account-picker{width:min(600px,94vw);max-height:82vh;overflow:hidden;border:1px solid var(--border);border-radius:12px;background:var(--canvas);box-shadow:0 22px 60px #181a3530}.whatsapp-account-picker>header{padding:16px 18px;display:flex;align-items:flex-start;justify-content:space-between;border-bottom:1px solid var(--border);background:#fff}.whatsapp-account-picker>header>div{display:flex;align-items:center;gap:10px}.whatsapp-account-picker>header>div>svg{color:var(--primary)}.whatsapp-account-picker header span{display:grid;gap:3px}.whatsapp-account-picker h2,.whatsapp-account-picker p{margin:0}.whatsapp-account-picker h2{font:800 17px 'Plus Jakarta Sans'}.whatsapp-account-picker p{color:var(--text-secondary);font-size:10px}.whatsapp-account-picker>header>button{width:34px;height:34px;display:grid;place-items:center;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--text-secondary)}.whatsapp-account-picker>div{padding:14px;display:grid;gap:8px;max-height:60vh;overflow:auto}.whatsapp-account-picker>div>button{min-height:62px;padding:10px 12px;display:flex;align-items:center;gap:11px;text-align:left;border:1px solid var(--border);border-radius:9px;background:#fff;color:var(--ink)}.whatsapp-account-picker>div>button:hover:not(:disabled){border-color:var(--primary);background:var(--accent-softer)}.whatsapp-account-picker>div>button:disabled{opacity:.55}.whatsapp-account-picker>div>button>svg{color:var(--primary)}.whatsapp-account-picker>div>button>span{display:grid;gap:3px;flex:1}.whatsapp-account-picker strong{font-size:12px}.whatsapp-account-picker small{color:var(--text-secondary);font-size:9px}.whatsapp-account-picker b{padding:5px 8px;border-radius:12px;background:var(--primary-soft);color:var(--primary);font-size:9px}
 .template-page-heading h1 {
   margin: 0 0 3px;
   color: var(--ink);
-  font: 800 29px/1.2 Manrope, sans-serif;
+  font: 800 29px/1.2 'Plus Jakarta Sans', sans-serif;
 }
 .template-page-heading p {
   margin: 0;
@@ -154,7 +154,7 @@
   margin: 7px 0 5px;
   font-size: clamp(24px, 4.3vw, 29px);
   font-weight: 800;
-  font-family: Manrope, sans-serif;
+  font-family: 'Plus Jakarta Sans', sans-serif;
   color: var(--ink);
 }
 
@@ -269,13 +269,13 @@
 }
 
 .btn-danger {
-  color: #dc2626;
-  border: 1px solid rgba(220, 38, 38, 0.3);
+  color: #c33d35;
+  border: 1px solid rgba(195, 61, 53, 0.3);
 }
 
 .btn-danger:hover {
-  background: rgba(220, 38, 38, 0.1);
-  border-color: #dc2626;
+  background: rgba(195, 61, 53, 0.1);
+  border-color: #c33d35;
 }
 
 .btn:disabled {
@@ -308,9 +308,9 @@
 }
 
 .alert-error {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #dc2626;
+  background: rgba(195, 61, 53, 0.1);
+  border: 1px solid rgba(195, 61, 53, 0.3);
+  color: #c33d35;
 }
 
 .alert-close {
@@ -333,9 +333,9 @@
    ======================== */
 
 .alert-success {
-  background: rgba(34, 197, 94, 0.1);
-  border: 1px solid rgba(34, 197, 94, 0.3);
-  color: #16a34a;
+  background: rgba(18, 145, 95, 0.1);
+  border: 1px solid rgba(18, 145, 95, 0.3);
+  color: #0b7a4f;
 }
 
 /* ========================
@@ -677,20 +677,20 @@
 
 /* ✅ Status-specific colors - aligned with Leads page */
 .filter-chip.filter-approved {
-  color: #16a34a;
+  color: #0b7a4f;
 }
 
 .filter-chip.filter-approved:hover:not(.active) {
   color: #15803d;
-  background: rgba(34, 197, 94, 0.08);
+  background: rgba(18, 145, 95, 0.08);
 }
 
 .filter-chip.filter-pending {
-  color: #d97706;
+  color: #c47f0a;
 }
 
 .filter-chip.filter-pending:hover:not(.active) {
-  color: #b45309;
+  color: #c47f0a;
   background: rgba(217, 119, 6, 0.08);
 }
 
@@ -704,30 +704,30 @@
 }
 
 .filter-chip.filter-rejected {
-  color: #dc2626;
+  color: #c33d35;
 }
 
 .filter-chip.filter-rejected:hover:not(.active) {
-  color: #b91c1c;
-  background: rgba(220, 38, 38, 0.08);
+  color: #a33028;
+  background: rgba(195, 61, 53, 0.08);
 }
 
 .filter-chip.filter-archived {
-  color: #6b7280;
+  color: #5d7167;
 }
 
 .filter-chip.filter-archived:hover:not(.active) {
-  color: #4b5563;
-  background: rgba(107, 114, 128, 0.08);
+  color: #42544b;
+  background: rgba(93, 113, 103, 0.08);
 }
 
 /* Active state for status chips */
 .filter-chip.filter-approved.active {
-  border-bottom-color: #16a34a;
+  border-bottom-color: #0b7a4f;
 }
 
 .filter-chip.filter-pending.active {
-  border-bottom-color: #d97706;
+  border-bottom-color: #c47f0a;
 }
 
 .filter-chip.filter-draft.active {
@@ -735,11 +735,11 @@
 }
 
 .filter-chip.filter-rejected.active {
-  border-bottom-color: #dc2626;
+  border-bottom-color: #c33d35;
 }
 
 .filter-chip.filter-archived.active {
-  border-bottom-color: #6b7280;
+  border-bottom-color: #5d7167;
 }
 
 /* ========================
@@ -877,8 +877,8 @@
 }
 
 .chip.variables {
-  background: rgba(245, 158, 11, 0.08);
-  color: #d97706;
+  background: rgba(196, 127, 10, 0.08);
+  color: #c47f0a;
 }
 
 /* Loading & Empty states */
@@ -1104,8 +1104,8 @@
 
 .rejection-notice {
   padding: 8px;
-  background: rgba(239, 68, 68, 0.08);
-  border-left: 3px solid #dc2626;
+  background: rgba(195, 61, 53, 0.08);
+  border-left: 3px solid #c33d35;
   border-radius: 3px;
 }
 
@@ -1113,13 +1113,13 @@
   margin: 0 0 4px 0;
   font-size: 11px;
   font-weight: 600;
-  color: #dc2626;
+  color: #c33d35;
 }
 
 .rejection-notice p {
   margin: 0;
   font-size: 11px;
-  color: #dc2626;
+  color: #c33d35;
 }
 
 /* Preview Section - Large */
@@ -1201,10 +1201,10 @@
 .variables-info {
   margin-top: 8px;
   padding: 8px;
-  background: rgba(245, 158, 11, 0.1);
-  border-left: 3px solid #d97706;
+  background: rgba(196, 127, 10, 0.1);
+  border-left: 3px solid #c47f0a;
   font-size: 12px;
-  color: #d97706;
+  color: #c47f0a;
 }
 
 /* Status badge styling - used in both detail panel and table */
@@ -1237,67 +1237,67 @@
 }
 
 .meta-status.status-approved {
-  background: rgba(34, 197, 94, 0.15);
-  color: #16a34a;
+  background: rgba(18, 145, 95, 0.15);
+  color: #0b7a4f;
 }
 
 .meta-status.status-pending {
-  background: rgba(245, 158, 11, 0.15);
-  color: #d97706;
+  background: rgba(196, 127, 10, 0.15);
+  color: #c47f0a;
 }
 
 .meta-status.status-draft {
-  background: rgba(59, 130, 246, 0.15);
+  background: rgba(11, 122, 79, 0.15);
   color: #0284c7;
 }
 
 .meta-status.status-rejected {
-  background: rgba(239, 68, 68, 0.15);
-  color: #dc2626;
+  background: rgba(195, 61, 53, 0.15);
+  color: #c33d35;
 }
 
 .meta-status.status-archived {
-  background: rgba(107, 114, 128, 0.15);
-  color: #4b5563;
+  background: rgba(93, 113, 103, 0.15);
+  color: #42544b;
 }
 
 /* Status badge colors - table version */
 .status-badge.status-approved {
-  background: rgba(34, 197, 94, 0.15);
-  color: #16a34a;
+  background: rgba(18, 145, 95, 0.15);
+  color: #0b7a4f;
 }
 
 .status-badge.status-pending {
-  background: rgba(245, 158, 11, 0.15);
-  color: #d97706;
+  background: rgba(196, 127, 10, 0.15);
+  color: #c47f0a;
 }
 
 .status-badge.status-draft {
-  background: rgba(59, 130, 246, 0.15);
+  background: rgba(11, 122, 79, 0.15);
   color: #0284c7;
 }
 
 .status-badge.status-rejected {
-  background: rgba(239, 68, 68, 0.15);
-  color: #dc2626;
+  background: rgba(195, 61, 53, 0.15);
+  color: #c33d35;
 }
 
 .status-badge.status-archived {
-  background: rgba(107, 114, 128, 0.15);
-  color: #4b5563;
+  background: rgba(93, 113, 103, 0.15);
+  color: #42544b;
 }
 
 .detail-section.rejection {
-  background: rgba(239, 68, 68, 0.05);
+  background: rgba(195, 61, 53, 0.05);
   padding: 12px;
   border-radius: 6px;
-  border-left: 3px solid #dc2626;
+  border-left: 3px solid #c33d35;
 }
 
 .detail-section.rejection p {
   margin: 0;
   font-size: 13px;
-  color: #dc2626;
+  color: #c33d35;
 }
 
 .timestamps {
@@ -1356,28 +1356,28 @@
 
 /* Status colors - matching requirements */
 .status-badge.status-draft {
-  background: rgba(59, 130, 246, 0.1);
+  background: rgba(11, 122, 79, 0.1);
   color: #1e40af;
 }
 
 .status-badge.status-pending {
-  background: rgba(245, 158, 11, 0.12);
-  color: #d97706;
+  background: rgba(196, 127, 10, 0.12);
+  color: #c47f0a;
 }
 
 .status-badge.status-approved {
-  background: rgba(34, 197, 94, 0.12);
-  color: #16a34a;
+  background: rgba(18, 145, 95, 0.12);
+  color: #0b7a4f;
 }
 
 .status-badge.status-rejected {
-  background: rgba(239, 68, 68, 0.12);
-  color: #dc2626;
+  background: rgba(195, 61, 53, 0.12);
+  color: #c33d35;
 }
 
 .status-badge.status-archived {
-  background: rgba(107, 114, 128, 0.12);
-  color: #4b5563;
+  background: rgba(93, 113, 103, 0.12);
+  color: #42544b;
 }
 
 /* ========================
@@ -1598,7 +1598,7 @@
   min-height: 42px;
   padding: 0 20px;
   border-bottom: 1px solid var(--border);
-  background: #f8f8fc;
+  background: #f2f7f4;
   color: var(--text-tertiary);
   font-size: 10px;
   font-weight: 700;
@@ -1665,7 +1665,7 @@
   inset: 84px 0 0 0;
   z-index: 1090;
   border: 0;
-  background: rgba(25, 27, 48, 0.28);
+  background: rgba(13, 26, 21, 0.28);
   cursor: default;
   animation: drawer-fade-in 0.18s ease-out;
 }
@@ -1681,7 +1681,7 @@
   border: 1px solid var(--border);
   border-right: 0;
   background: var(--canvas);
-  box-shadow: -12px 8px 36px rgba(25, 27, 48, 0.16);
+  box-shadow: -12px 8px 36px rgba(13, 26, 21, 0.16);
   animation: drawer-slide-in 0.22s ease-out;
 }
 
@@ -1710,7 +1710,7 @@
 .templates-redesigned .templates-detail-panel .info-header h2 {
   overflow: hidden;
   color: var(--ink);
-  font: 800 18px/1.3 Manrope, sans-serif;
+  font: 800 18px/1.3 'Plus Jakarta Sans', sans-serif;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1757,14 +1757,14 @@
   border-color: var(--border);
   border-radius: 10px;
   background: var(--canvas);
-  box-shadow: 0 2px 8px rgba(25, 27, 48, .05);
+  box-shadow: 0 2px 8px rgba(13, 26, 21, .05);
 }
 
 .templates-redesigned .templates-detail-panel .detail-actions-bottom {
   padding: 12px 16px;
   gap: 8px;
   background: var(--surface);
-  box-shadow: 0 -4px 14px rgba(25, 27, 48, .04);
+  box-shadow: 0 -4px 14px rgba(13, 26, 21, .04);
 }
 
 .templates-redesigned .templates-detail-panel .detail-actions-bottom .btn {
@@ -1877,7 +1877,7 @@
 
 .page-size-selector select:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 2px rgba(69, 74, 162, 0.1);
+  box-shadow: 0 0 0 2px rgba(11, 122, 79, 0.1);
 }
 
 .pagination-info {

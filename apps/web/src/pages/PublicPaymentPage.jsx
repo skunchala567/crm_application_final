@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { AlertCircle, Loader } from 'lucide-react';
 import { api } from '../api.js';
 import '../styles/PublicPayment.css';
@@ -17,6 +17,8 @@ export default function PublicPaymentPage() {
     studentName: '',
     selectedCategoryIds: [],
   });
+  // Answers to whatever the Customer Details Form asked for, keyed by field name.
+  const [answers, setAnswers] = useState({});
 
   useEffect(() => {
     loadForm();
@@ -34,6 +36,54 @@ export default function PublicPaymentPage() {
     }
   }
 
+  /*
+   * Which boxes the page draws.
+   *
+   * It used to draw four fixed ones -- full name, email, phone, student name
+   * -- no matter what the Customer Details Form said, so a form configured
+   * with two fields showed four nobody had asked for and neither of the two.
+   *
+   * A payer name, email and phone are still collected on every form: Jodo
+   * will not create a payment link without them. Anything else comes from the
+   * configuration, and a form that configures none simply asks for less.
+   */
+  const PAYER_FIELDS = [
+    { name: 'name', label: 'Full Name', type: 'text', required: true, placeholder: 'Enter your full name', core: true },
+    { name: 'email', label: 'Email Address', type: 'email', required: true, placeholder: 'your@email.com', core: true },
+    { name: 'phone', label: 'Phone Number', type: 'tel', required: true, placeholder: '10-digit mobile number', core: true },
+  ];
+
+  function visibleFields() {
+    const configured = Array.isArray(form?.fields) ? form.fields : [];
+    // A configured field that collects the payer's own name, email or phone
+    // replaces the built-in one rather than sitting beside a duplicate.
+    const claimed = new Set(configured.map(f => String(f.name || '').toLowerCase()));
+    const core = PAYER_FIELDS.filter(f => !claimed.has(f.name));
+    return [...core, ...configured.map(f => ({ ...f, core: PAYER_FIELDS.some(p => p.name === String(f.name || '').toLowerCase()) }))];
+  }
+
+  /** Core fields live on formData; everything else lives in answers. */
+  const valueOf = (field) => (PAYER_FIELDS.some(p => p.name === field.name)
+    ? formData[field.name === 'name' ? 'name' : field.name]
+    : (answers[field.name] ?? ''));
+
+  const setValue = (field, value) => {
+    if (PAYER_FIELDS.some(p => p.name === field.name)) {
+      setFormData(current => ({ ...current, [field.name]: value }));
+    } else {
+      setAnswers(current => ({ ...current, [field.name]: value }));
+      // Student name is what Jodo is told the payment is for, so a field
+      // named for it is passed through rather than left in the extras.
+      if (String(field.name).toLowerCase() === 'studentname') {
+        setFormData(current => ({ ...current, studentName: value }));
+      }
+    }
+  };
+
+  /** The public payload names it selectionType; selection_type never existed
+      on it, so a single-choice form drew tick boxes and accepted several. */
+  const isSingleChoice = () => (form?.selectionType || 'single') === 'single';
+
   function calculateTotal() {
     if (!form) return 0;
     return form.categories
@@ -43,7 +93,7 @@ export default function PublicPaymentPage() {
 
   function toggleCategory(categoryId) {
     const newSelected = [...formData.selectedCategoryIds];
-    if (form.selection_type === 'single') {
+    if (isSingleChoice()) {
       // For single select, only one can be selected at a time
       setFormData({
         ...formData,
@@ -64,8 +114,9 @@ export default function PublicPaymentPage() {
     e.preventDefault();
     setError('');
 
-    if (!formData.name || !formData.email || !formData.phone || !formData.studentName) {
-      setError('Please fill in all required fields');
+    const missing = visibleFields().find(field => field.required && !String(valueOf(field) || '').trim());
+    if (missing) {
+      setError(`Please fill in ${missing.label || missing.name}`);
       return;
     }
 
@@ -82,6 +133,7 @@ export default function PublicPaymentPage() {
         phone: formData.phone,
         studentName: formData.studentName,
         selectedCategoryIds: formData.selectedCategoryIds,
+        customFields: answers,
       });
 
       if (result.data?.redirectUrl) {
@@ -136,52 +188,57 @@ export default function PublicPaymentPage() {
 
         <form onSubmit={handleSubmit} className="payment-form">
           <div className="form-section">
-            <h3>Personal Information</h3>
+            <h3>Your Details</h3>
 
-            <div className="form-group">
-              <label>Full Name *</label>
-              <input
-                required
-                type="text"
-                placeholder="Enter your full name"
-                value={formData.name}
-                onChange={e => setFormData({ ...formData, name: e.target.value })}
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Email Address *</label>
-              <input
-                required
-                type="email"
-                placeholder="your@email.com"
-                value={formData.email}
-                onChange={e => setFormData({ ...formData, email: e.target.value })}
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Phone Number *</label>
-              <input
-                required
-                type="tel"
-                inputMode="numeric"
-                placeholder="10-digit mobile number"
-                value={formData.phone}
-                onChange={e => setFormData({ ...formData, phone: e.target.value })}
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Student Name *</label>
-              <input
-                required
-                type="text"
-                placeholder="Student's full name"
-                value={formData.studentName}
-                onChange={e => setFormData({ ...formData, studentName: e.target.value })}
-              />
-            </div>
+            {visibleFields().map(field => (
+              <div className="form-group" key={field.name}>
+                <label htmlFor={`pf-${field.name}`}>
+                  {field.label || field.name}{field.required ? ' *' : ''}
+                </label>
+                {field.type === 'textarea' ? (
+                  <textarea
+                    id={`pf-${field.name}`}
+                    rows={3}
+                    required={Boolean(field.required)}
+                    placeholder={field.placeholder || ''}
+                    value={valueOf(field)}
+                    onChange={e => setValue(field, e.target.value)}
+                  />
+                ) : field.type === 'select' ? (
+                  <select
+                    id={`pf-${field.name}`}
+                    required={Boolean(field.required)}
+                    value={valueOf(field)}
+                    onChange={e => setValue(field, e.target.value)}
+                  >
+                    <option value="">{field.placeholder || 'Select an option'}</option>
+                    {(field.options || []).map(option => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                ) : field.type === 'checkbox' ? (
+                  <label className="public-checkbox">
+                    <input
+                      id={`pf-${field.name}`}
+                      type="checkbox"
+                      checked={valueOf(field) === 'yes'}
+                      onChange={e => setValue(field, e.target.checked ? 'yes' : '')}
+                    />
+                    {field.placeholder || 'Yes'}
+                  </label>
+                ) : (
+                  <input
+                    id={`pf-${field.name}`}
+                    type={field.type === 'phone' ? 'tel' : (field.type || 'text')}
+                    inputMode={field.type === 'phone' || field.type === 'tel' ? 'numeric' : undefined}
+                    required={Boolean(field.required)}
+                    placeholder={field.placeholder || ''}
+                    value={valueOf(field)}
+                    onChange={e => setValue(field, e.target.value)}
+                  />
+                )}
+              </div>
+            ))}
           </div>
 
           <div className="form-section">
@@ -190,8 +247,8 @@ export default function PublicPaymentPage() {
               {form.categories.map(category => (
                 <label key={category.id} className="category-item">
                   <input
-                    type={form.selection_type === 'single' ? 'radio' : 'checkbox'}
-                    name={form.selection_type === 'single' ? 'category-single' : 'category-multiple'}
+                    type={isSingleChoice() ? 'radio' : 'checkbox'}
+                    name={isSingleChoice() ? 'category-single' : 'category-multiple'}
                     value={category.id}
                     checked={formData.selectedCategoryIds.includes(category.id)}
                     onChange={() => toggleCategory(category.id)}

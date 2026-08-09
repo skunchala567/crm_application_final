@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowLeft, AlertCircle } from 'lucide-react';
 import { api } from '../api';
 import TemplateFormBuilder from '../components/TemplateFormBuilder';
 import TemplatePreviewPanel from '../components/TemplatePreviewPanel';
+import TemplateVisibilityPicker from '../components/TemplateVisibilityPicker';
 import '../styles/SettingsWhatsAppTemplatesCreate.css';
 
-export default function SettingsWhatsAppTemplatesCreate({ integrationId, onBack, onSuccess }) {
+export default function SettingsWhatsAppTemplatesCreate({ integrationId, onBack, onSuccess, initialTemplate = null }) {
+  // Prefilled when duplicating; the operator still has to review and save.
   const [formData, setFormData] = useState({
     template_name: '',
     label: '',
@@ -18,10 +20,37 @@ export default function SettingsWhatsAppTemplatesCreate({ integrationId, onBack,
     quick_replies: [],
     call_to_action: [],
     sample_text: '',
-    message_action_type: 'NONE'
+    message_action_type: 'NONE',
+    // Who may use the template. The API has always accepted this on create;
+    // the form simply never sent it, so every template came out visible to
+    // administrators only.
+    visibleUserIds: [],
+    ...(initialTemplate || {}),
   });
 
   const [errors, setErrors] = useState({});
+
+  /*
+   * The label is the WhatsApp account the template is created on.
+   *
+   * It was a free-text "display name" that every operator had to invent, with
+   * nothing tying it to the account chosen a moment earlier in the picker.
+   * Filled in from the account and left read-only, so it always matches.
+   *
+   * Not applied when duplicating, where the copy carries the original's label.
+   */
+  useEffect(() => {
+    if (!integrationId) return;
+    let cancelled = false;
+    api('/whatsapp/accounts')
+      .then((result) => {
+        if (cancelled) return;
+        const account = (result.data || []).find(item => String(item.id) === String(integrationId));
+        if (account?.name) setFormData(prev => ({ ...prev, label: account.name }));
+      })
+      .catch(() => { /* leave the field editable rather than block creation */ });
+    return () => { cancelled = true; };
+  }, [integrationId]);
   const [loading, setLoading] = useState(false);
   const [serverError, setServerError] = useState(null);
 
@@ -96,16 +125,13 @@ export default function SettingsWhatsAppTemplatesCreate({ integrationId, onBack,
 
   return (
     <div className="settings-create-template">
+      {/* Title and context removed with the page-header pattern; the back
+          action is navigation and stays. */}
       <header className="create-page-header">
-        <div className="create-page-heading">
-          <button className="btn-back" onClick={onBack}>
-            <ArrowLeft size={17} />
-            Back to templates
-          </button>
-          <h1>Create New Template</h1>
-          <p>Design and submit a new WhatsApp Business message template</p>
-        </div>
-        <span className="create-page-context">WhatsApp Templates</span>
+        <button className="btn-back" onClick={onBack}>
+          <ArrowLeft size={17} />
+          Back to templates
+        </button>
       </header>
 
       {serverError && (
@@ -122,6 +148,13 @@ export default function SettingsWhatsAppTemplatesCreate({ integrationId, onBack,
             formData={formData}
             onChange={handleFieldChange}
             errors={errors}
+            lockLabel
+          />
+
+          <TemplateVisibilityPicker
+            value={formData.visibleUserIds}
+            onChange={(ids) => handleFieldChange('visibleUserIds', ids)}
+            disabled={loading}
           />
 
           <div className="form-actions">

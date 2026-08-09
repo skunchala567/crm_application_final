@@ -26,7 +26,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
     `);
     templateVisibilitySchemaReady = true;
   }
-  const isTemplateAdmin = user => (user?.roles || []).some(role => ['ADMIN','CRM_ADMIN'].includes(String(role).toUpperCase()));
+  const isTemplateAdmin = user => (user?.roles || []).some(role => ['CRM_ADMIN','SUPER_ADMIN'].includes(String(role).toUpperCase()));
   async function canUseTemplate(req, integrationId, templateName) {
     if (!templateName || isTemplateAdmin(req.user)) return true;
     await ensureTemplateVisibilitySchema();
@@ -928,10 +928,29 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
     }
   });
 
+  /*
+   * The active business unit and the caller's branches are read from the
+   * request, never from the query string -- otherwise the client could ask
+   * for another unit's inbox simply by changing the URL.
+   */
+  const inboxScope = (req) => ({
+    businessUnitId: Number(req.businessUnit?.id) || null,
+    branchIds: Array.isArray(req.user?.branchIds) ? req.user.branchIds : [],
+    // Administrators see the whole unit; everyone else only their branches.
+    restrictToBranches: !(req.user?.roles || [])
+      .some((role) => ['CRM_ADMIN', 'SUPER_ADMIN', 'ADMIN'].includes(String(role).toUpperCase())),
+  });
+
   router.get('/smartping/conversations', authenticate, async (req, res, next) => {
     try {
       const organizationId = req.user?.id || 1;
-      const data = await service.getWhatsAppConversations(organizationId, req.query);
+      const scope = inboxScope(req);
+      const data = await service.getWhatsAppConversations(organizationId, {
+        ...req.query,
+        ...scope,
+        // An admin is not narrowed by branch.
+        branchIds: scope.restrictToBranches ? scope.branchIds : [],
+      });
       res.json({ success: true, data });
     } catch (error) {
       next(error);
@@ -944,7 +963,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
       const data = await service.getWhatsAppConversationMessages(
         organizationId,
         Number(req.params.conversationId),
-        req.query
+        { ...req.query, businessUnitId: Number(req.businessUnit?.id) || null },
       );
       res.json({ success: true, data });
     } catch (error) {
@@ -957,7 +976,8 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
       const organizationId = req.user?.id || 1;
       const data = await service.markWhatsAppConversationRead(
         organizationId,
-        Number(req.params.conversationId)
+        Number(req.params.conversationId),
+        Number(req.businessUnit?.id) || null,
       );
       res.json({ success: true, data });
     } catch (error) {

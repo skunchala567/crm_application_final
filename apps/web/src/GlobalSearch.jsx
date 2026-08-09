@@ -1,11 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Search, X } from 'lucide-react';
 import { api } from './api';
 import './GlobalSearch.css';
 
+/**
+ * Global search.
+ *
+ * Rendered as a field inside the universal topbar. On the Leads screen it
+ * drives that list's filter through the `q` URL param — which is why Leads no
+ * longer carries a search box of its own.
+ */
 export default function GlobalSearch() {
-  const [expanded, setExpanded] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -14,9 +20,39 @@ export default function GlobalSearch() {
   const inputRef = useRef(null);
   const searchCacheRef = useRef(new Map());
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // On Leads the list itself is the result set, so the typeahead stands down.
+  const filtersLeads = location.pathname === '/leads';
+
+  // Adopt a deep-linked ?q= so the field reflects what the list is showing.
+  useEffect(() => {
+    if (!filtersLeads) return;
+    const current = searchParams.get('q') || '';
+    setQuery((value) => (value === current ? value : current));
+    // Only when the route changes; typing must not be overwritten mid-keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtersLeads]);
+
+  // Push the query into the URL; LeadsPage reads `q` and debounces its fetch.
+  useEffect(() => {
+    if (!filtersLeads) return undefined;
+    const timer = setTimeout(() => {
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        const trimmed = query.trim();
+        if (trimmed) next.set('q', trimmed);
+        else next.delete('q');
+        return next;
+      }, { replace: true });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [query, filtersLeads, setSearchParams]);
 
   // Fetch results with debounce
   useEffect(() => {
+    if (filtersLeads) return;
     if (!query.trim()) {
       setResults([]);
       setActiveIndex(-1);
@@ -43,14 +79,13 @@ export default function GlobalSearch() {
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, filtersLeads]);
 
   // Global keyboard shortcut: Ctrl+Shift+F
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.ctrlKey && e.shiftKey && (e.key === 'F' || e.key === 'f')) {
         e.preventDefault();
-        setExpanded(true);
         setTimeout(() => inputRef.current?.focus(), 0);
       }
     };
@@ -59,27 +94,17 @@ export default function GlobalSearch() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Outside click to close
-  useEffect(() => {
-    const handleMouseDown = (e) => {
-      if (loading) return; // Don't close while searching
-      if (!rootRef.current?.contains(e.target)) {
-        setExpanded(false);
-      }
-    };
-
-    if (expanded) {
-      document.addEventListener('mousedown', handleMouseDown);
-      return () => document.removeEventListener('mousedown', handleMouseDown);
-    }
-  }, [expanded, loading]);
+  /** Close the suggestion list without touching what was typed. */
+  const dismissSuggestions = () => {
+    setResults([]);
+    setActiveIndex(-1);
+  };
 
   // Handle keyboard nav (Arrow keys, Enter, Esc)
   const handleKeyDown = (e) => {
     if (e.key === 'Escape') {
       if (loading) return;
-      setExpanded(false);
-    } else if (e.key === 'ArrowDown') {
+      } else if (e.key === 'ArrowDown') {
       e.preventDefault();
       setActiveIndex((i) => Math.min(i + 1, results.length));
     } else if (e.key === 'ArrowUp') {
@@ -91,7 +116,7 @@ export default function GlobalSearch() {
         handleSelectResult(results[activeIndex]);
       } else if (query.trim()) {
         navigate(`/leads?q=${encodeURIComponent(query.trim())}`);
-        setExpanded(false);
+        dismissSuggestions();
       }
     }
   };
@@ -103,7 +128,7 @@ export default function GlobalSearch() {
       openLead: String(result.id)
     });
     navigate(`/leads?${params.toString()}`);
-    setExpanded(false);
+    dismissSuggestions();
     setQuery('');
   };
 
@@ -124,107 +149,66 @@ export default function GlobalSearch() {
   };
 
   return (
-    <div ref={rootRef} className={`global-search-container ${expanded ? 'expanded' : ''}`}>
-      <button
-        className="global-search-toggle"
-        onClick={() => {
-          setExpanded(!expanded);
-          setTimeout(() => inputRef.current?.focus(), 0);
-        }}
-        aria-label="Global search"
-        title="Press Ctrl+Shift+F"
-      >
-        <Search size={20} />
-      </button>
+      <div ref={rootRef} className="global-search-inline">
+        <Search size={16} className="global-search-inline-icon" />
+        <input
+          ref={inputRef}
+          type="text"
+          placeholder={filtersLeads
+            ? 'Search by name, phone, or lead number…'
+            : 'Search students, leads, phone or email…'}
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setActiveIndex(-1);
+          }}
+          onKeyDown={handleKeyDown}
+          autoComplete="off"
+          spellCheck="false"
+          aria-label="Search"
+        />
+        {query ? (
+          <button
+            className="global-search-inline-clear"
+            onClick={() => {
+              setQuery('');
+              inputRef.current?.focus();
+            }}
+            aria-label="Clear search"
+          >
+            <X size={14} />
+          </button>
+        ) : (
+          <span className="global-search-inline-kbd" aria-hidden="true">
+            <kbd>Ctrl</kbd><kbd>⇧</kbd><kbd>F</kbd>
+          </span>
+        )}
 
-      {expanded && (
-        <div className="global-search-panel">
-          <div className="global-search-input-wrapper">
-            <Search size={18} className="search-icon" />
-            <input
-              ref={inputRef}
-              type="text"
-              className="global-search-input"
-              placeholder="Student, lead ID, phone or email"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setActiveIndex(-1);
-              }}
-              onKeyDown={handleKeyDown}
-              autoComplete="off"
-              spellCheck="false"
-            />
-            {query && (
-              <button
-                className="global-search-clear"
-                onClick={() => {
-                  setQuery('');
-                  inputRef.current?.focus();
-                }}
-                aria-label="Clear search"
-              >
-                <X size={16} />
-              </button>
+        {/* Typeahead is suppressed on Leads, where the table is the result. */}
+        {!filtersLeads && query.trim() && (
+          <div className="global-search-inline-results" role="listbox">
+            {loading && <div className="global-search-loading">Searching…</div>}
+            {!loading && !results.length && (
+              <div className="global-search-empty">No matches for “{query}”</div>
             )}
+            {!loading && results.map((result, index) => (
+              <button
+                key={result.id}
+                type="button"
+                role="option"
+                aria-selected={index === activeIndex}
+                className={`global-search-inline-item ${index === activeIndex ? 'active' : ''}`}
+                onMouseEnter={() => setActiveIndex(index)}
+                onClick={() => handleSelectResult(result)}
+              >
+                <strong>{highlightMatch(String(result.studentName || 'Unnamed lead'), query)}</strong>
+                <small>
+                  {[result.leadId, result.phone, result.stage].filter(Boolean).join(' · ')}
+                </small>
+              </button>
+            ))}
           </div>
-
-          {query.trim() && (
-            <div className="global-search-results" role="listbox">
-              {loading && (
-                <div className="global-search-loading">
-                  <span className="spinner" /> Searching...
-                </div>
-              )}
-
-              {!loading && results.length === 0 && (
-                <div className="global-search-empty">No results found</div>
-              )}
-
-              {!loading && results.length > 0 && (
-                <>
-                  {results.map((result, idx) => (
-                    <button
-                      key={result.id}
-                      className={`global-search-result ${idx === activeIndex ? 'active' : ''}`}
-                      onClick={() => handleSelectResult(result)}
-                      role="option"
-                      aria-selected={idx === activeIndex}
-                    >
-                      <div className="result-student">
-                        <span className="result-avatar">{result.studentName?.charAt(0)?.toUpperCase()}</span>
-                        <div className="result-info">
-                          <span className="result-name">
-                            {highlightMatch(result.studentName || '', query)}
-                          </span>
-                          <span className="result-phone">
-                            {highlightMatch(result.phone || '', query)}
-                          </span>
-                        </div>
-                      </div>
-                      <span className={`result-stage`}>
-                        {result.stage}
-                      </span>
-                    </button>
-                  ))}
-
-                  {results.length === 8 && (
-                    <button
-                      className="global-search-view-all"
-                      onClick={() => {
-                        navigate(`/leads?q=${encodeURIComponent(query.trim())}`);
-                        setExpanded(false);
-                      }}
-                    >
-                      View all results →
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+        )}
     </div>
   );
 }

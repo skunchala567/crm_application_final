@@ -50,19 +50,27 @@ export function createBranchesRoutes(pool, authenticate, requireCrmAccess) {
     );
     if (!branch) return res.status(404).json({ message: 'Branch not found' });
 
-    if (jodo_payment_enabled && (!jodo_api_key || !jodo_secret_key)) {
-      return res.status(400).json({ message: 'API key and secret key are required when Jodo is enabled' });
-    }
+    // Credentials are the branch's payment CAPABILITY; whether to actually
+    // charge is decided per enquiry form. They are therefore stored on their
+    // own merit and never cleared as a side effect of a flag -- doing that
+    // used to wipe the API key and secret on any save that omitted it.
+    const trimmed = (value) => {
+      const text = String(value ?? '').trim();
+      return text || null;
+    };
 
     await pool.execute(
       `UPDATE branches
-       SET jodo_payment_enabled = ?, jodo_api_key = ?, jodo_secret_key = ?, jodo_collector_code = ?
-       WHERE id = ?`,
+          SET jodo_payment_enabled = ?,
+              jodo_api_key = COALESCE(?, jodo_api_key),
+              jodo_secret_key = COALESCE(?, jodo_secret_key),
+              jodo_collector_code = ?
+        WHERE id = ?`,
       [
-        Boolean(jodo_payment_enabled) ? 1 : 0,
-        jodo_payment_enabled ? (String(jodo_api_key).trim() || null) : null,
-        jodo_payment_enabled ? (String(jodo_secret_key).trim() || null) : null,
-        jodo_payment_enabled ? (String(jodo_collector_code).trim() || null) : null,
+        jodo_payment_enabled === undefined ? 1 : (jodo_payment_enabled ? 1 : 0),
+        trimmed(jodo_api_key),
+        trimmed(jodo_secret_key),
+        trimmed(jodo_collector_code),
         branchId
       ]
     );

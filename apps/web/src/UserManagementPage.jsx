@@ -1,15 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  KeyRound,
-  Pencil,
-  Plus,
-  Power,
-  Search,
-  ShieldCheck,
-  UserCog,
-  X,
-} from "lucide-react";
+import { KeyRound, Pencil, Plus, Power, Search, ShieldCheck, UserCog, X } from "lucide-react";
 import { api } from "./api";
+import AccessControlPanel from "./components/AccessControlPanel.jsx";
+import { Can } from "./components/Can.jsx";
+import { usePermissions } from "./PermissionContext.jsx";
 
 const initialForm = {
   userType: "employee",
@@ -20,6 +14,7 @@ const initialForm = {
   email: "",
   roleName: "COUNSELLOR",
   branchIds: [],
+  businessUnitIds: [],
   password: "",
   isActive: true,
   callerdeskEnabled: false,
@@ -115,7 +110,38 @@ function EmployeeSearch({ employees, value, onChange, disabled }) {
   );
 }
 
+/** Tabs across the top of User Management. */
+function UserManagementTabs({ activeTab, onChange, canSeeAccess }) {
+  const tabs = [
+    { key: 'users', label: 'Users', icon: UserCog },
+    ...(canSeeAccess ? [{ key: 'access', label: 'Access Control', icon: ShieldCheck }] : []),
+  ];
+  if (tabs.length < 2) return null;
+  return (
+    <div className="flex items-center gap-1 border-b border-border mb-4" role="tablist">
+      {tabs.map(({ key, label, icon: Icon }) => (
+        <button
+          key={key}
+          role="tab"
+          aria-selected={activeTab === key}
+          onClick={() => onChange(key)}
+          className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors ${
+            activeTab === key
+              ? 'border-primary-600 text-primary-700'
+              : 'border-transparent text-secondary-500 hover:text-foreground'
+          }`}
+        >
+          <Icon size={15} /> {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function UserManagementPage() {
+  const { can } = usePermissions();
+  const canSeeAccess = can('settings.access_control.view');
+  const [activeTab, setActiveTab] = useState('users');
   const [users, setUsers] = useState([]);
   const [meta, setMeta] = useState({ employees: [], branches: [], roles: [] });
   const [search, setSearch] = useState("");
@@ -177,7 +203,12 @@ export default function UserManagementPage() {
       phone: user.phone || "",
       email: user.email,
       roleName: user.roles.find((role) => role !== "ADMIN") || "CRM_ADMIN",
-      branchIds: user.branchIds,
+      branchIds: user.branchIds || [],
+      // Was missing entirely, so form.businessUnitIds came back undefined and
+      // the business unit picker threw on .includes -- taking the whole app
+      // down with it. Invisible until a second business unit existed, because
+      // that section only renders when there is more than one to choose from.
+      businessUnitIds: user.businessUnitIds || [],
       password: "",
       isActive: user.isActive,
       callerdeskEnabled: user.callerdeskEnabled,
@@ -196,16 +227,30 @@ export default function UserManagementPage() {
       mode: "edit",
       id: user.id,
       title: `Configure ${user.name}`,
-      isSystemAdmin: user.isSystemAdmin,
+    });
+  }
+  /* Both pickers read through this rather than the form field directly. A
+     user record that arrives without one of these lists is a data problem,
+     not a reason for the screen to stop existing. */
+  const selectedIds = (key) => (Array.isArray(form[key]) ? form[key] : []);
+
+  function toggleBusinessUnit(id) {
+    setForm((current) => {
+      const chosen = Array.isArray(current.businessUnitIds) ? current.businessUnitIds : [];
+      return {
+        ...current,
+        businessUnitIds: chosen.includes(id) ? chosen.filter((value) => value !== id) : [...chosen, id],
+      };
     });
   }
   function toggleBranch(id) {
-    setForm((current) => ({
-      ...current,
-      branchIds: current.branchIds.includes(id)
-        ? current.branchIds.filter((branchId) => branchId !== id)
-        : [...current.branchIds, id],
-    }));
+    setForm((current) => {
+      const chosen = Array.isArray(current.branchIds) ? current.branchIds : [];
+      return {
+        ...current,
+        branchIds: chosen.includes(id) ? chosen.filter((branchId) => branchId !== id) : [...chosen, id],
+      };
+    });
   }
   function selectEmployee(employeeId) {
     const employee = meta.employees.find(
@@ -265,20 +310,24 @@ export default function UserManagementPage() {
     }
   }
 
+  if (activeTab === "access") {
+    return (
+      <main className="page user-management-page">
+        <UserManagementTabs activeTab={activeTab} onChange={setActiveTab} canSeeAccess={canSeeAccess} />
+        <AccessControlPanel />
+      </main>
+    );
+  }
+
   return (
     <main className="page user-management-page">
-      <div className="page-heading">
-        <div>
-          <span className="eyebrow">CRM administration</span>
-          <h1>User management</h1>
-          <p>
-            Grant CRM access to existing employees or create standalone CRM
-            users who are not available in the employee master.
-          </p>
-        </div>
-        <button className="primary" onClick={createUser}>
-          <Plus size={18} /> Add CRM user
-        </button>
+      <UserManagementTabs activeTab={activeTab} onChange={setActiveTab} canSeeAccess={canSeeAccess} />
+      <div className="page-action-row">
+        <Can do="settings.users.create">
+          <button className="primary" onClick={createUser}>
+            <Plus size={18} /> Add CRM user
+          </button>
+        </Can>
       </div>
       {message && (
         <div className={`notice ${message.type}`}>
@@ -367,10 +416,7 @@ export default function UserManagementPage() {
                     </span>
                   </td>
                   <td className="branch-cell">
-                    {user.branchNames ||
-                      (user.isSystemAdmin
-                        ? "Attendance admin scope"
-                        : "Not assigned")}
+                    {user.branchNames || "Not assigned"}
                   </td>
                   <td>
                     <span
@@ -393,7 +439,7 @@ export default function UserManagementPage() {
                       <button title="Configure" onClick={() => editUser(user)}>
                         <Pencil size={15} />
                       </button>
-                      {!user.isSystemAdmin && (
+                      {(
                         <button
                           className={user.isActive ? "status-action deactivate" : "status-action activate"}
                           title={user.isActive ? "Mark CRM user inactive" : "Mark CRM user active"}
@@ -566,6 +612,34 @@ export default function UserManagementPage() {
                   ))}
                 </div>
               </div>
+              {/* Only shown when there is a choice to make. With a single
+                  business unit configured, every CRM user belongs to it and
+                  the control would be a checkbox that can never be unticked. */}
+              {meta.businessUnits?.length > 1 && (
+                <div className="form-section">
+                  <h3>Business unit access</h3>
+                  <p className="section-help">
+                    Which businesses this user can work in. The first selected one
+                    is where the CRM opens for them. Leave empty to keep the
+                    current assignment.
+                  </p>
+                  <div className="branch-options">
+                    {meta.businessUnits.map((unit) => (
+                      <label
+                        key={unit.id}
+                        className={selectedIds("businessUnitIds").includes(Number(unit.id)) ? "selected" : ""}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedIds("businessUnitIds").includes(Number(unit.id))}
+                          onChange={() => toggleBusinessUnit(Number(unit.id))}
+                        />
+                        <span><strong>{unit.name}</strong></span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="form-section">
                 <h3>CRM branch access *</h3>
                 <p className="section-help">
@@ -576,14 +650,14 @@ export default function UserManagementPage() {
                     <label
                       key={branch.id}
                       className={
-                        form.branchIds.includes(Number(branch.id))
+                        selectedIds("branchIds").includes(Number(branch.id))
                           ? "selected"
                           : ""
                       }
                     >
                       <input
                         type="checkbox"
-                        checked={form.branchIds.includes(Number(branch.id))}
+                        checked={selectedIds("branchIds").includes(Number(branch.id))}
                         onChange={() => toggleBranch(Number(branch.id))}
                       />
                       <span>

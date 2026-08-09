@@ -41,7 +41,7 @@ export default function BranchSettingsPage({ onMessage }) {
     try {
       const result = await api(`/branches/${branch.id}/jodo-config`);
       setFormData({
-        jodo_payment_enabled: Boolean(result.data?.jodo_payment_enabled),
+        jodo_payment_enabled: true,
         jodo_api_key: result.data?.jodo_api_key || '',
         jodo_secret_key: result.data?.jodo_secret_key || '',
         jodo_collector_code: result.data?.jodo_collector_code || '',
@@ -73,14 +73,6 @@ export default function BranchSettingsPage({ onMessage }) {
 
   return (
     <main className="branch-settings">
-      <header>
-        <div>
-          <span>BRANCH SETTINGS</span>
-          <h1>Jodo Payment Configuration</h1>
-          <p>Configure payment gateway credentials for each branch.</p>
-        </div>
-      </header>
-
       <section className="branch-selector">
         <select
           value={selectedBranch?.id || ''}
@@ -100,18 +92,10 @@ export default function BranchSettingsPage({ onMessage }) {
 
       {selectedBranch && (
         <section className="jodo-config-form">
-          <div className="form-group">
-            <label>
-              <input
-                type="checkbox"
-                checked={formData.jodo_payment_enabled}
-                onChange={(e) => setFormData({ ...formData, jodo_payment_enabled: e.target.checked })}
-              />
-              Enable Jodo Payment Links for this branch
-            </label>
-          </div>
-
-          {formData.jodo_payment_enabled && (
+          {/* No enable checkbox: a branch can take payment as soon as it has
+              credentials. Whether a given enquiry form charges is set on the
+              form itself. */}
+          {(
             <>
               <div className="info-box">
                 <AlertCircle size={16} />
@@ -159,11 +143,6 @@ export default function BranchSettingsPage({ onMessage }) {
             </>
           )}
 
-          {!formData.jodo_payment_enabled && (
-            <div className="info-box">
-              <p>Enable Jodo payments above to configure credentials for this branch.</p>
-            </div>
-          )}
         </section>
       )}
     </main>

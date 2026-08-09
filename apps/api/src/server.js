@@ -15,13 +15,21 @@ import { createWebhookRoutes } from './whatsapp/webhook.routes.js';
 import { createAutomationEngine, ensureAutomationRuntimeSchema } from './automation-engine.js';
 import { createMarketingCampaignEngine, ensureMarketingCampaignSchema } from './marketing-campaign-engine.js';
 import { createBusinessPlatformRoutes } from './business-platform.routes.js';
+import { createUsageRoutes } from './usage.routes.js';
 import { createCallerDeskRoutes, createCallerDeskWebhookRoutes } from './callerdesk/callerdesk.routes.js';
 import { createSmartfloRoutes, createSmartfloWebhookRoutes } from './smartflo/smartflo.routes.js';
 import { createJodoPaymentLinkRoutes } from './jodo-payment-links.routes.js';
 import { createBranchesRoutes } from './branches.routes.js';
 import { createPaymentFormsRoutes } from './payment-forms.routes.js';
+import { createPartnerRoutes } from './partner/partner.routes.js';
+import { createReportDataSourceRoutes } from './report-data-sources.routes.js';
 import { createMetaRoutes } from './meta/meta.routes.js';
 import { createMetaWebhookRoutes } from './meta/meta-webhook.routes.js';
+import { recordLeadAttribution } from './attribution/attribution-contract.js';
+import { createRbacMiddleware } from './rbac/rbac.middleware.js';
+import { scopeNarrowingSql, scopeCovers } from './rbac/permission-service.js';
+import { createRbacRoutes } from './rbac/rbac.routes.js';
+import { bootstrapRbac } from './rbac/rbac-bootstrap.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -190,15 +198,23 @@ function issueToken(user) {
   return jwt.sign(user, jwtSecret, { expiresIn: process.env.JWT_EXPIRES_IN || '8h' });
 }
 
+// Access control runs as the second half of authentication rather than as a
+// middleware each route opts into. Every protected route already passes
+// through here, so nothing can be left unguarded by omission -- which is the
+// difference between an access control system and a set of hidden buttons.
+const rbacGuard = createRbacMiddleware(pool, console);
+
 function authenticate(req, res, next) {
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
   if (!token) return res.status(401).json({ message: 'Authentication required' });
+  let claims;
   try {
-    req.user = jwt.verify(token, jwtSecret);
-    next();
+    claims = jwt.verify(token, jwtSecret);
   } catch {
-    res.status(401).json({ message: 'Session expired or invalid' });
+    return res.status(401).json({ message: 'Session expired or invalid' });
   }
+  req.user = claims;
+  return rbacGuard(req, res, next);
 }
 
 const whatsappMediaRules = {
@@ -284,13 +300,13 @@ app.post(
   }
 );
 
-const crmRoles = new Set(['ADMIN', 'CRM_ADMIN', 'ADMISSION_MANAGER', 'COUNSELLOR', 'CRM_VIEWER']);
+const crmRoles = new Set(['CRM_ADMIN', 'SUPER_ADMIN', 'ADMISSION_MANAGER', 'COUNSELLOR', 'CRM_VIEWER']);
 async function requireCrmAccess(req, res, next) {
   if (!req.user.roles?.some((role) => crmRoles.has(role))) return res.status(403).json({ success: false, error: 'Your account does not have Admissions CRM access', details: `Required roles: ${Array.from(crmRoles).join(', ')}. Your roles: ${req.user.roles?.join(', ') || 'none'}` });
   const [rows]=await pool.execute(`SELECT COALESCE((SELECT is_active FROM crm_user_access_status WHERE user_id=?),1) AS crmActive`,[Number(req.user.id)]);
   if (!Boolean(rows[0]?.crmActive)) return res.status(403).json({ success: false, error: 'Your CRM access is inactive', details: 'Contact a CRM administrator to reactivate your access' });
   const requestedUnitId=Number(req.headers['x-business-unit-id']);
-  const isAdmin=req.user.roles?.some(role=>['ADMIN','CRM_ADMIN'].includes(String(role).toUpperCase()));
+  const isAdmin=req.user.roles?.some(role=>['CRM_ADMIN','SUPER_ADMIN'].includes(String(role).toUpperCase()));
   const params=isAdmin
     ? (Number.isInteger(requestedUnitId)&&requestedUnitId>0?[requestedUnitId]:[])
     : [Number(req.user.id),...(Number.isInteger(requestedUnitId)&&requestedUnitId>0?[requestedUnitId]:[])];
@@ -314,41 +330,131 @@ async function requireCrmAccess(req, res, next) {
 }
 
 function requireLeadWrite(req, res, next) {
-  const allowed = ['ADMIN', 'CRM_ADMIN', 'ADMISSION_MANAGER', 'COUNSELLOR'];
+  const allowed = ['CRM_ADMIN', 'SUPER_ADMIN', 'ADMISSION_MANAGER', 'COUNSELLOR'];
   if (req.user.roles?.some((role) => allowed.includes(role))) return next();
   return res.status(403).json({ success: false, error: 'Insufficient permissions for lead creation/import', details: `Required roles: ${allowed.join(', ')}. Your roles: ${req.user.roles?.join(', ') || 'none'}` });
 }
 
 function requireLeadDelete(req, res, next) {
-  const allowed = ['ADMIN', 'CRM_ADMIN', 'ADMISSION_MANAGER'];
+  const allowed = ['CRM_ADMIN', 'SUPER_ADMIN', 'ADMISSION_MANAGER'];
   if (req.user.roles?.some((role) => allowed.includes(role))) return next();
   return res.status(403).json({ message: 'Your CRM role cannot delete leads' });
 }
 
+/**
+ * CRM user administration.
+ *
+ * Deliberately does not accept the Attendance system's 'ADMIN' role: the CRM
+ * decides who administers the CRM. Anyone who needs it holds CRM_ADMIN or
+ * SUPER_ADMIN, which are granted from Settings -> User Management -> Access
+ * Control rather than from the Attendance application.
+ */
 function requireUserAdmin(req, res, next) {
-  if (req.user.roles?.some((role) => ['ADMIN', 'CRM_ADMIN'].includes(role))) return next();
+  if (req.user.roles?.some((role) => ['CRM_ADMIN', 'SUPER_ADMIN'].includes(role))) return next();
   return res.status(403).json({ message: 'CRM user administration requires CRM Admin access' });
 }
 
 function scopedWhere(user, column = 'l.branch_id') {
   const branchIds = Array.isArray(user.branchIds) ? user.branchIds.map(Number).filter(Number.isFinite) : [];
-  if (user.roles?.includes('ADMIN') && branchIds.length === 0) return { sql: '1=1', params: [] };
+  // A CRM administrator who has not been given specific branches is not
+  // restricted to none of them. Previously this hinged on the Attendance
+  // system's ADMIN role; it now hinges on the CRM's own.
+  const crmAdmin = user.roles?.some((role) => ['CRM_ADMIN', 'SUPER_ADMIN'].includes(role));
+  if (crmAdmin && branchIds.length === 0) return { sql: '1=1', params: [] };
   if (branchIds.length === 0) return { sql: '1=0', params: [] };
   return { sql: `${column} IN (${branchIds.map(() => '?').join(',')})`, params: branchIds };
 }
 
-function leadScopedWhere(user) {
+/**
+ * Which lead rows this user may see.
+ *
+ * Two independent bounds, ANDed:
+ *
+ *   Tenancy  - the business unit, and the branches the user is mapped to.
+ *              This is data isolation and applies whatever the roles say.
+ *   Record scope - the own/team/department/all scope attached to the user's
+ *              leads.list.view grant, resolved by the RBAC middleware.
+ *
+ * While enforcement is off or in audit the record scope is not applied, so
+ * these queries return exactly what they returned before RBAC existed --
+ * "audit changes nothing" has to be literally true or it is not a safe place
+ * to land.
+ *
+ * The role-name test below survives only as the pre-RBAC fallback. Once
+ * enforcement is on, a scope of 'all' is what lifts the branch restriction,
+ * so access follows the grant rather than a hardcoded role name.
+ */
+/*
+ * "Due today", defined once.
+ *
+ * The follow-up badges disagreed -- the bell said 1 while the Leads screen
+ * said 2 for the same two leads -- because each decided for itself what
+ * "due" meant:
+ *
+ *   bell   f.due_at_utc <= CURRENT_TIMESTAMP()      -- up to this instant
+ *   leads  DATE(l.next_followup_at_utc) <= <today>  -- the whole day
+ *
+ * A follow-up set for 11:31 pm is due today but not yet due at 5 pm, so the
+ * bell dropped it. The badge answers "how many leads need me today", which
+ * is a calendar day, so both now compare days.
+ *
+ * On timezones: despite the _utc suffix these columns hold IST wall-clock
+ * time. The pool pins every connection to '+05:30' (see createPool above),
+ * so values are written in IST and CURRENT_DATE() reads back in IST. The
+ * comparison stays inside that one frame -- converting the column with
+ * CONVERT_TZ would shift it a second time and push an 11:31 pm follow-up
+ * into tomorrow.
+ *
+ * Both badges also read the same column now. crm_followups keeps a row per
+ * scheduled follow-up and they accumulate -- lead 621 has three pending for
+ * one lead -- so counting there needs a DISTINCT that crm_leads does not.
+ */
+/** Leads whose next follow-up falls on or before the end of today. */
+const FOLLOWUP_DUE_SQL = `l.next_followup_at_utc IS NOT NULL
+       AND DATE(l.next_followup_at_utc) <= CURRENT_DATE()`;
+/** ...and those whose day has already passed. */
+const FOLLOWUP_OVERDUE_SQL = 'DATE(l.next_followup_at_utc) < CURRENT_DATE()';
+
+/**
+ * @param widerScope optional scope that may replace the list scope when it
+ *   grants more -- used by search, which has a permission of its own.
+ */
+function leadScopedWhere(user, widerScope = null) {
   const branchIds = Array.isArray(user.branchIds) ? user.branchIds.map(Number).filter(Number.isFinite) : [];
   const unitId=Number(user.businessUnitId);
   const unitSql=Number.isInteger(unitId)&&unitId>0?'l.business_unit_id=?':'1=1';
   const unitParams=Number.isInteger(unitId)&&unitId>0?[unitId]:[];
-  if (user.roles?.some((role) => ['ADMIN', 'CRM_ADMIN'].includes(role))) return { sql: unitSql, params: unitParams };
+
+  const enforced = Boolean(user.rbacEnforced);
+  const listScope = enforced ? (user.rbacScope || 'none') : null;
+  // Whichever of the two reaches further; never narrower than the list.
+  const scope = enforced && widerScope
+    ? (scopeCovers(widerScope, listScope) ? widerScope : listScope)
+    : listScope;
+
+  // Narrowing from the permission grant, applied on top of tenancy.
+  const narrow = enforced
+    ? scopeNarrowingSql(user, scope)
+    : { sql: '1=1', params: [] };
+
+  const compose = (base) => ({
+    sql: narrow.sql === '1=1' ? base.sql : `${base.sql} AND (${narrow.sql})`,
+    params: [...base.params, ...(narrow.sql === '1=1' ? [] : narrow.params)],
+  });
+
+  // Unrestricted readers -- an 'all' grant, or an admin while RBAC is not yet
+  // enforcing -- are bounded by the business unit only.
+  const unrestricted = enforced
+    ? scope === 'all'
+    : user.roles?.some((role) => ['CRM_ADMIN', 'SUPER_ADMIN'].includes(role));
+  if (unrestricted) return compose({ sql: unitSql, params: unitParams });
+
   if (branchIds.length === 0) return { sql: '1=0', params: [] };
   const placeholders = branchIds.map(() => '?').join(',');
-  return {
+  return compose({
     sql: `${unitSql} AND (l.branch_id IN (${placeholders}) OR l.referred_to_branch_id IN (${placeholders}))`,
     params: [...unitParams, ...branchIds, ...branchIds],
-  };
+  });
 }
 
 async function loadDatabaseUser(email) {
@@ -370,14 +476,16 @@ async function loadDatabaseUser(email) {
     `SELECT r.normalized_name AS name FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = ?`,
     [user.id],
   );
-  let [branches] = await pool.execute(`SELECT branch_id AS id FROM crm_user_branches WHERE user_id = ?`, [user.id]);
-  if (branches.length === 0 && roles.some((role) => role.name === 'ADMIN')) {
-    [branches] = await pool.execute(
-      `SELECT ub.branch_id AS id FROM user_branches ub WHERE ub.user_id = ?
-       UNION SELECT u.branch_id AS id FROM app_users u WHERE u.id = ? AND u.branch_id IS NOT NULL`,
-      [user.id, user.id],
-    );
-  }
+  // CRM branch access comes from crm_user_branches only.
+  //
+  // This used to fall back to the Attendance system's `user_branches` table
+  // for anyone holding its ADMIN role, which meant a CRM user's data access
+  // could be widened by a change made in a different application, with nothing
+  // in the CRM to show why. Branch access is now granted in one place:
+  // Settings -> User Management -> Access Configuration.
+  const [branches] = await pool.execute(
+    `SELECT branch_id AS id FROM crm_user_branches WHERE user_id = ?`, [user.id],
+  );
   return { ...user, roles: roles.map((role) => role.name), branchIds: branches.map((branch) => Number(branch.id)) };
 }
 
@@ -426,6 +534,50 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.get('/api/auth/me', authenticate, (req, res) => res.json({ user: req.user }));
 
+/**
+ * Change the signed-in user's own password.
+ *
+ * app_users is shared with the Attendance system, so this changes the single
+ * credential used by both. Rotating security_stamp mirrors what user creation
+ * does and is what lets existing sessions be invalidated later.
+ */
+app.post('/api/auth/change-password', authenticate, async (req, res) => {
+  const currentPassword = String(req.body?.currentPassword || '');
+  const newPassword = String(req.body?.newPassword || '');
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ message: 'Current and new password are both required' });
+  }
+  if (newPassword.length < 8) {
+    return res.status(400).json({ message: 'New password must be at least 8 characters' });
+  }
+  if (newPassword === currentPassword) {
+    return res.status(400).json({ message: 'New password must be different from the current one' });
+  }
+
+  const [[row]] = await pool.execute(
+    'SELECT id, password_hash AS passwordHash, is_active AS isActive FROM app_users WHERE id = ? LIMIT 1',
+    [req.user.id],
+  );
+  if (!row || !row.isActive) return res.status(401).json({ message: 'Account is not active' });
+
+  // Re-verify the current password: a stolen token must not be enough to
+  // take over the account.
+  if (!verifyAttendancePassword(currentPassword, row.passwordHash)) {
+    return res.status(400).json({ message: 'Current password is incorrect' });
+  }
+
+  await pool.execute(
+    `UPDATE app_users
+        SET password_hash = ?, security_stamp = ?, failed_login_count = 0,
+            lockout_end_utc = NULL, updated_at_utc = CURRENT_TIMESTAMP(6)
+      WHERE id = ?`,
+    [hashAttendancePassword(newPassword), crypto.randomUUID(), row.id],
+  );
+
+  res.json({ success: true, message: 'Password changed' });
+});
+
 async function publicFormDefinition(formKey, activeOnly = true) {
   const [[form]]=await pool.execute(
     `SELECT f.id,f.form_key AS formKey,f.display_name AS displayName,f.description,f.business_unit_id AS businessUnitId,
@@ -433,6 +585,7 @@ async function publicFormDefinition(formKey, activeOnly = true) {
             f.default_source_id AS defaultSourceId,f.default_channel_id AS defaultChannelId,f.default_campaign_id AS defaultCampaignId,
             f.default_owner_employee_id AS defaultOwnerEmployeeId,f.field_schema_json AS fieldSchema,f.settings_json AS settings,
             f.success_message AS successMessage,f.redirect_url AS redirectUrl,f.is_active AS isActive,
+            f.payment_required AS paymentRequired,f.payment_amount AS paymentAmount,
             COALESCE(f.updated_by_user_id,f.created_by_user_id) AS actorUserId,bu.display_name AS businessUnitName,bu.color_code AS color
      FROM crm_public_enquiry_forms f
      JOIN crm_business_units bu ON bu.id=f.business_unit_id
@@ -474,6 +627,37 @@ function normalizeMarketingCode(value) {
 function safeTrackingValue(value, maxLength = 500) {
   const text = String(value ?? '').trim();
   return text ? text.slice(0, maxLength) : '';
+}
+
+/**
+ * The attribution contract payload for a public enquiry.
+ *
+ * Newer embeds send `tracking.attribution` already in contract shape, built
+ * by the capture script that has been following the visitor since they
+ * landed. Older ones only ever send whatever was in the enquiry form's own
+ * query string, so map that flat shape across rather than losing it --
+ * gclid/fbclid pass through under their raw parameter names on purpose,
+ * because classifyClickId resolves those against crm_attribution_platforms.
+ */
+function publicAttributionPayload(trackingInput, resolvedTracking) {
+  const provided = trackingInput && typeof trackingInput.attribution === 'object'
+    ? trackingInput.attribution
+    : null;
+  if (provided) return { ...provided, origin: provided.origin || 'website' };
+
+  const legacy = resolvedTracking?.attribution || {};
+  return {
+    origin: 'website',
+    campaignSource: legacy.utmSource,
+    campaignMedium: legacy.utmMedium,
+    campaignName: legacy.utmCampaign,
+    campaignTerm: legacy.utmTerm,
+    campaignContent: legacy.utmContent,
+    gclid: legacy.gclid,
+    fbclid: legacy.fbclid,
+    landingUrl: legacy.landingPage,
+    referrerUrl: legacy.referrer,
+  };
 }
 
 async function resolvePublicTracking(form, trackingInput = {}) {
@@ -591,16 +775,33 @@ async function branchPaymentConfig(branchId) {
   };
 }
 
+/**
+ * Payment settings for one submission.
+ *
+ * The FORM decides whether to collect and how much; the BRANCH supplies the
+ * Jodo credentials that make collection possible. A form with no amount of
+ * its own falls back to the branch's application amount, so forms created
+ * before the setting moved keep working unchanged.
+ */
+function resolvePaymentContext(form, branchConfig) {
+  const formAmount = Number(form?.paymentAmount);
+  const branchAmount = Number(branchConfig?.amount);
+  const amount = Number.isFinite(formAmount) && formAmount > 0
+    ? formAmount
+    : (Number.isFinite(branchAmount) && branchAmount > 0 ? branchAmount : 0);
+  return { ...(branchConfig || {}), required: Boolean(form?.paymentRequired), amount };
+}
+
 function publicPaymentEnabled(config) {
-  return Boolean(config?.paymentEnabled && config.apiKey && config.secretKey && config.collectorCode && Number(config.amount) > 0);
+  return Boolean(config?.required && config.apiKey && config.secretKey && config.collectorCode && Number(config.amount) > 0);
 }
 
 function publicPaymentVisible(config) {
-  return Boolean(config?.paymentEnabled && Number(config.amount) > 0);
+  return Boolean(config?.required && Number(config.amount) > 0);
 }
 
 function publicPaymentMissingParts(config) {
-  if (!config?.paymentEnabled) return ['payment enabled'];
+  if (!config?.required) return ['payment enabled on the enquiry form'];
   const missing = [];
   if (!config.apiKey) missing.push('Jodo API key');
   if (!config.secretKey) missing.push('Jodo secret key');
@@ -677,7 +878,7 @@ app.get('/api/public/enquiry-forms/:formKey', async (req,res)=>{
   const fields=await publicFieldOptions(form.businessUnitId,schema.map(field=>field.fieldKey));
   const fieldsByKey=new Map(fields.map(field=>[field.fieldKey,field]));
   const resolvedTracking=await resolvePublicTracking(form,req.query);
-  const paymentConfig=await branchPaymentConfig(resolvedTracking.branchId);
+  const paymentConfig=resolvePaymentContext(form,await branchPaymentConfig(resolvedTracking.branchId));
   const paymentVisible=publicPaymentVisible(paymentConfig);
   res.json({
     form:{
@@ -701,8 +902,8 @@ app.post('/api/public/enquiry-forms/:formKey/payment-order', async (req,res)=>{
   if(String(req.body.website||'').trim())return res.status(400).json({message:'Submission rejected'});
   const values=req.body.values&&typeof req.body.values==='object'?req.body.values:{};
   const resolvedTracking=await resolvePublicTracking(form,req.body.tracking);
-  const config=await branchPaymentConfig(resolvedTracking.branchId);
-  if(!publicPaymentEnabled(config))return res.status(400).json({message:`Online application payment is incomplete for this branch. Missing: ${publicPaymentMissingParts(config).join(', ')}`});
+  const config=resolvePaymentContext(form,await branchPaymentConfig(resolvedTracking.branchId));
+  if(!publicPaymentEnabled(config))return res.status(400).json({message:`Online application payment is incomplete for this form. Missing: ${publicPaymentMissingParts(config).join(', ')}`});
   const name=values.student_name||values.name||values.studentName;
   const phone=values.phone||values.primary_phone||values.primaryPhone;
   const email=values.email||'';
@@ -761,7 +962,7 @@ app.post('/api/public/enquiry-forms/:formKey/submit', async (req,res)=>{
   }
   const validationError=validateLead(body,{requireClass:schema.some(field=>field.fieldKey==='class_id'&&field.required),requirePhone:schema.some(field=>['phone','primary_phone'].includes(field.fieldKey)&&field.required)!==false});
   if(validationError)return res.status(400).json({message:validationError});
-  const paymentConfig=await branchPaymentConfig(body.branchId);
+  const paymentConfig=resolvePaymentContext(form,await branchPaymentConfig(body.branchId));
   const payment= req.body.payment && typeof req.body.payment==='object' ? req.body.payment : {};
   const paymentOrderId=cleanOptional(payment.orderId || payment.order_id,120);
   const paymentStatus=cleanOptional(payment.status,40) || (paymentOrderId ? 'order_created' : null);
@@ -791,6 +992,12 @@ app.post('/api/public/enquiry-forms/:formKey/submit', async (req,res)=>{
     if(existing&&body.sourceId&&body.channelId&&body.campaignId){
       const enquiry=await appendLeadSourceOrDetectDuplicate(connection,existing,body,'website',actorUserId);
       await connection.commit();
+      // A return visit from a different advertisement is an extra touch on
+      // the same lead. Recorded after the commit, on the pool rather than
+      // this connection, so attribution can never roll the enquiry back.
+      if(!enquiry.duplicate){
+        await recordLeadAttribution(pool,existing.id,publicAttributionPayload(req.body.tracking,resolvedTracking),{origin:'website'});
+      }
       if(enquiry.duplicate)return res.status(200).json({id:Number(existing.id),leadNumber:existing.leadNumber,message:'Your enquiry is already available with our admissions team.'});
       return res.json({id:Number(existing.id),leadNumber:existing.leadNumber,reEnquired:true,message:form.successMessage});
     }
@@ -809,6 +1016,9 @@ app.post('/api/public/enquiry-forms/:formKey/submit', async (req,res)=>{
     if(body.sourceId&&body.channelId&&body.campaignId)await connection.execute(`INSERT INTO crm_lead_source_history(lead_id,academic_year,source_id,channel_id,campaign_id,is_primary,intake_method,created_by_user_id) VALUES(?,?,?,?,?,TRUE,'website',?)`,[result.insertId,cleanOptional(body.academicYear,20),body.sourceId,body.channelId,body.campaignId,actorUserId]);
     await connection.execute(`INSERT INTO crm_lead_activities(lead_id,activity_type,summary,actor_user_id) VALUES(?,'created','Lead created via website enquiry form',?)`,[result.insertId,actorUserId]);
     await connection.commit();
+    // Touch 1: the advertisement that produced this lead. Never throws, so a
+    // tracking problem cannot cost us the enquiry itself.
+    await recordLeadAttribution(pool,result.insertId,publicAttributionPayload(req.body.tracking,resolvedTracking),{origin:'website'});
     res.status(201).json({id:Number(result.insertId),leadNumber,message:form.successMessage});
   }catch(error){await connection.rollback();throw error;}
   finally{await connection.execute(`SELECT RELEASE_LOCK(?)`,[lockName]).catch(()=>{});connection.release();}
@@ -829,8 +1039,8 @@ app.post('/api/public/enquiry-forms/:formKey/payment-callback', async (req,res)=
     [Number(form.businessUnitId),orderId],
   );
   if(!lead)return res.status(404).json({message:'Lead not found for this payment order'});
-  const config=await branchPaymentConfig(lead.branchId);
-  if(!publicPaymentEnabled(config))return res.status(400).json({message:'Payment is not configured for this branch'});
+  const config=resolvePaymentContext(form,await branchPaymentConfig(lead.branchId));
+  if(!publicPaymentEnabled(config))return res.status(400).json({message:'Payment is not configured for this form'});
   let orderPayload;
   try{
     orderPayload=await getJodoOrder(config,orderId);
@@ -873,8 +1083,8 @@ app.post('/api/public/enquiry-forms/:formKey/payment-status', async (req,res)=>{
     [Number(form.businessUnitId),orderId],
   );
   if(!lead)return res.status(404).json({message:'Lead not found for this payment order'});
-  const config=await branchPaymentConfig(lead.branchId);
-  if(!publicPaymentEnabled(config))return res.status(400).json({message:'Payment is not configured for this branch'});
+  const config=resolvePaymentContext(form,await branchPaymentConfig(lead.branchId));
+  if(!publicPaymentEnabled(config))return res.status(400).json({message:'Payment is not configured for this form'});
   const orderPayload=await getJodoOrder(config,orderId);
   const order=jodoOrderData(orderPayload);
   const paid=String(order?.status||'').toLowerCase()==='paid';
@@ -888,11 +1098,24 @@ app.post('/api/public/enquiry-forms/:formKey/payment-status', async (req,res)=>{
   res.json({orderId,status:order?.status||'unpaid',paid});
 });
 
-app.get('/api/branches', authenticate, requireCrmAccess, async (req, res) => {
-  const scope = scopedWhere(req.user, 'b.id');
+/*
+ * Every active branch, for pickers and reference lists.
+ *
+ * This used to return only the caller's own branches, which is right for lead
+ * data but wrong for a list of what exists: an administrator mapping WhatsApp
+ * accounts saw 4 of 20 branches and had no way to know the rest were there,
+ * and the same list feeds several other pickers.
+ *
+ * Naming a branch is not access to it. Every write still checks
+ * accessibleBranch(), and lead rows are still bounded by leadScopedWhere(),
+ * so widening this list grants nothing -- it only stops the interface hiding
+ * options an administrator is entitled to choose.
+ */
+app.get('/api/branches', authenticate, requireCrmAccess, async (_req, res) => {
   const [rows] = await pool.execute(
-    `SELECT b.id, b.branch_name AS name, b.short_name AS shortName, b.time_zone_id AS timeZoneId
-     FROM branches b WHERE b.is_active = TRUE AND ${scope.sql} ORDER BY b.branch_name`, scope.params,
+    `SELECT b.id, b.branch_name AS name, b.branch_name AS branch_name,
+            b.short_name AS shortName, b.time_zone_id AS timeZoneId
+     FROM branches b WHERE b.is_active = TRUE ORDER BY b.branch_name`,
   );
   res.json({ data: rows });
 });
@@ -951,15 +1174,30 @@ app.get('/api/dashboard', authenticate, requireCrmAccess, async (req, res) => {
        SUM(l.created_at_utc >= DATE_SUB(CURRENT_TIMESTAMP(), INTERVAL 14 DAY)
            AND l.created_at_utc < DATE_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)) AS newPreviousWeek,
        SUM(l.created_at_utc < DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')) AS totalLeadsLastMonth,
-       SUM(s.name = 'admitted') AS admissions
+       SUM(s.is_admission_stage) AS admissions
      FROM crm_leads l JOIN crm_lead_stages s ON s.id = l.stage_id
      WHERE l.deleted_at_utc IS NULL AND ${scope.sql}`, scope.params,
   );
+  /*
+   * Follow-ups due, counted as LEADS and over the same IST day the Leads
+   * screen counts (see FOLLOWUP_DUE_SQL). The bell and the Leads date badge
+   * are the same number by construction now, rather than by coincidence.
+   *
+   * The owner filter is what makes it personal: someone whose lead scope is
+   * their own records only should see their own follow-ups, while a manager
+   * or admin keeps the wider count their scope already gives them. It is
+   * l.owner_employee_id here for the same reason -- it is the column the
+   * Leads list filters on.
+   */
+  const ownFollowupsOnly = req.user.rbacEnforced && req.user.rbacScope === 'own';
+  const assigneeSql = ownFollowupsOnly ? ' AND l.owner_employee_id = ?' : '';
+  const assigneeParams = ownFollowupsOnly ? [Number(req.user.employeeId) || 0] : [];
   const [[followups]] = await pool.execute(
     `SELECT COUNT(*) AS followupsDue,
-            SUM(f.due_at_utc < CURRENT_DATE()) AS followupsOverdue
-     FROM crm_followups f JOIN crm_leads l ON l.id = f.lead_id
-     WHERE f.status = 'pending' AND f.due_at_utc <= CURRENT_TIMESTAMP() AND l.deleted_at_utc IS NULL AND ${scope.sql}`, scope.params,
+            SUM(${FOLLOWUP_OVERDUE_SQL}) AS followupsOverdue
+     FROM crm_leads l
+     WHERE l.deleted_at_utc IS NULL AND ${FOLLOWUP_DUE_SQL}
+       AND ${scope.sql}${assigneeSql}`, [...scope.params, ...assigneeParams],
   );
   const [[admissionPeriods]] = await pool.execute(
     `SELECT
@@ -968,22 +1206,88 @@ app.get('/api/dashboard', authenticate, requireCrmAccess, async (req, res) => {
            AND events.admittedAt < DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')) AS admissionsLastMonth
      FROM (
        SELECT l.id,
-              COALESCE(MIN(CASE WHEN admitted_stage.name = 'admitted' THEN h.changed_at_utc END),
-                       CASE WHEN current_stage.name = 'admitted' THEN l.created_at_utc END) AS admittedAt
+              COALESCE(MIN(CASE WHEN admitted_stage.is_admission_stage THEN h.changed_at_utc END),
+                       CASE WHEN current_stage.is_admission_stage THEN l.created_at_utc END) AS admittedAt
        FROM crm_leads l
        JOIN crm_lead_stages current_stage ON current_stage.id = l.stage_id
        LEFT JOIN crm_lead_stage_history h ON h.lead_id = l.id
        LEFT JOIN crm_lead_stages admitted_stage ON admitted_stage.id = h.to_stage_id
        WHERE l.deleted_at_utc IS NULL AND ${scope.sql}
-       GROUP BY l.id, l.created_at_utc, current_stage.name
+       GROUP BY l.id, l.created_at_utc, current_stage.is_admission_stage
      ) events
      WHERE events.admittedAt IS NOT NULL`, scope.params,
   );
+  /*
+   * Follow-ups completed today: leads that were actually worked on.
+   *
+   * Counted as DISTINCT leads with a comment logged today, not the number of
+   * comments -- five comments across three leads is three follow-ups done.
+   * A comment is the record of the conversation, so it is the closest thing
+   * the CRM has to "this lead was followed up".
+   *
+   * Day boundaries in IST: the timestamps are UTC, and without converting
+   * both sides everything after 5:30am would fall on the wrong day.
+   */
+  const [[followupsDone]] = await pool.execute(
+    `SELECT
+       COUNT(DISTINCT CASE WHEN DATE(CONVERT_TZ(c.created_at_utc,'+00:00','+05:30'))
+                                = DATE(CONVERT_TZ(NOW(),'+00:00','+05:30'))
+                           THEN c.lead_id END) AS today,
+       COUNT(DISTINCT CASE WHEN DATE(CONVERT_TZ(c.created_at_utc,'+00:00','+05:30'))
+                                = DATE(CONVERT_TZ(NOW(),'+00:00','+05:30')) - INTERVAL 1 DAY
+                           THEN c.lead_id END) AS yesterday
+       FROM crm_lead_comments c
+       JOIN crm_leads l ON l.id = c.lead_id
+      WHERE l.deleted_at_utc IS NULL AND ${scope.sql}`,
+    scope.params,
+  );
+
   const [funnelRows] = await pool.execute(
     `SELECT s.display_name AS label, s.color_code AS color, COUNT(l.id) AS value
      FROM crm_lead_stages s LEFT JOIN crm_leads l ON l.stage_id = s.id AND l.deleted_at_utc IS NULL AND ${scope.sql}
      WHERE s.is_active = TRUE AND s.business_unit_id=? GROUP BY s.id, s.display_name, s.color_code, s.position ORDER BY s.position`, [...scope.params,Number(req.businessUnit.id)],
   );
+  const trendDays = 14;
+  const trendFrom = new Date();
+  trendFrom.setDate(trendFrom.getDate() - (trendDays - 1));
+  const trendFromKey = `${trendFrom.getFullYear()}-${String(trendFrom.getMonth() + 1).padStart(2, '0')}-${String(trendFrom.getDate()).padStart(2, '0')}`;
+  const currentUserId = Number(req.user.id) || 0;
+  const currentEmployeeId = Number(req.user.employeeId) || 0;
+  const [usageTrendRows, assignedTrendRows, followupTrendRows] = await Promise.all([
+    pool.execute(
+      `SELECT DATE_FORMAT(usage_date,'%Y-%m-%d') AS day,active_seconds AS value
+       FROM crm_user_daily_usage WHERE user_id=? AND usage_date>=? ORDER BY usage_date`,
+      [currentUserId, trendFromKey],
+    ),
+    pool.execute(
+      `SELECT DATE_FORMAT(DATE(CONVERT_TZ(COALESCE(l.owner_assigned_at_utc,l.created_at_utc),'+00:00','+05:30')),'%Y-%m-%d') AS day,
+              COUNT(*) AS value
+       FROM crm_leads l
+       WHERE l.deleted_at_utc IS NULL AND l.owner_employee_id=? AND ${scope.sql}
+         AND DATE(CONVERT_TZ(COALESCE(l.owner_assigned_at_utc,l.created_at_utc),'+00:00','+05:30'))>=?
+       GROUP BY day ORDER BY day`,
+      [currentEmployeeId, ...scope.params, trendFromKey],
+    ),
+    pool.execute(
+      `SELECT DATE_FORMAT(DATE(CONVERT_TZ(c.created_at_utc,'+00:00','+05:30')),'%Y-%m-%d') AS day,
+              COUNT(DISTINCT c.lead_id) AS value
+       FROM crm_lead_comments c JOIN crm_leads l ON l.id=c.lead_id
+       WHERE c.created_by_user_id=? AND l.deleted_at_utc IS NULL AND ${scope.sql}
+         AND DATE(CONVERT_TZ(c.created_at_utc,'+00:00','+05:30'))>=?
+       GROUP BY day ORDER BY day`,
+      [currentUserId, ...scope.params, trendFromKey],
+    ),
+  ]);
+  const trendMap = rows => new Map(rows.map(row => [String(row.day), Number(row.value || 0)]));
+  const usageMap = trendMap(usageTrendRows[0]);
+  const assignedMap = trendMap(assignedTrendRows[0]);
+  const followupMap = trendMap(followupTrendRows[0]);
+  const activityTrends = Array.from({ length: trendDays }, (_, index) => {
+    const date = new Date(`${trendFromKey}T00:00:00`);
+    date.setDate(date.getDate() + index);
+    const day = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    return { day, crmHours: Number(((usageMap.get(day) || 0) / 3600).toFixed(2)), leadsAssigned: assignedMap.get(day) || 0, followupsDone: followupMap.get(day) || 0 };
+  });
   const recentLeads = await queryLeads(req.user, '', 4);
   res.json({
     businessUnit:{id:Number(req.businessUnit.id),name:req.businessUnit.displayName},
@@ -992,21 +1296,35 @@ app.get('/api/dashboard', authenticate, requireCrmAccess, async (req, res) => {
       newThisWeek: Number(stats.newThisWeek || 0),
       followupsDue: Number(followups.followupsDue || 0),
       admissions: Number(stats.admissions || 0),
+      followupsDoneToday: Number(followupsDone.today || 0),
       comparisons: {
         totalLeadsLastMonth: Number(stats.totalLeadsLastMonth || 0),
         newPreviousWeek: Number(stats.newPreviousWeek || 0),
         followupsOverdue: Number(followups.followupsOverdue || 0),
         admissionsThisMonth: Number(admissionPeriods.admissionsThisMonth || 0),
         admissionsLastMonth: Number(admissionPeriods.admissionsLastMonth || 0),
+        followupsDoneYesterday: Number(followupsDone.yesterday || 0),
       },
     },
-    funnel: funnelRows.map((row) => ({ ...row, value: Number(row.value) })), recentLeads,
+    funnel: funnelRows.map((row) => ({ ...row, value: Number(row.value) })), activityTrends, recentLeads,
   });
 });
 
 async function queryLeads(user, search, limit = null) {
-  const scope = leadScopedWhere(user);
   search = String(search || '').trim();
+  /*
+   * A search uses the Global Search scope when that is the wider of the two.
+   *
+   * Browsing the list and looking one lead up by phone are different
+   * permissions on purpose: a counsellor answering a call needs to find the
+   * caller's record even when the list itself is limited to their own. With
+   * Global Search granted over all records, a search that matched a lead but
+   * returned nothing was the setting being quietly ignored.
+   *
+   * It only ever widens, and only while a search term is present -- an empty
+   * search is a browse, and stays on the list scope.
+   */
+  const scope = leadScopedWhere(user, search ? user.rbacSearchScope : null);
   let whereClause = `(? = '' OR l.student_name LIKE ? OR l.phone LIKE ? OR l.lead_number LIKE ?)`;
   let params = [search, `%${search}%`, `%${search}%`, `%${search}%`];
 
@@ -1105,7 +1423,10 @@ async function queryLeads(user, search, limit = null) {
 async function accessibleBranch(user, branchId) {
   const id = Number(branchId);
   if (!Number.isInteger(id) || id <= 0) return false;
-  if (user.roles?.includes('ADMIN') && (!user.branchIds || user.branchIds.length === 0)) return true;
+  // A CRM administrator with no specific branches is not limited to none.
+  // Keyed on the CRM's roles rather than the Attendance system's ADMIN.
+  const crmAdmin = user.roles?.some((role) => ['CRM_ADMIN', 'SUPER_ADMIN'].includes(role));
+  if (crmAdmin && (!user.branchIds || user.branchIds.length === 0)) return true;
   return user.branchIds?.map(Number).includes(id) || false;
 }
 
@@ -1269,7 +1590,17 @@ app.get('/api/leads/meta', authenticate, requireCrmAccess, async (req, res) => {
   const [curricula] = await pool.query(`SELECT id, curriculum_code AS code, display_name AS displayName FROM crm_curricula WHERE is_active = TRUE ORDER BY position`);
   const [channels] = await pool.query(`SELECT c.id,c.channel_code AS code,c.display_name AS displayName,COALESCE(cc.display_name,c.category) category FROM crm_lead_channels c LEFT JOIN crm_channel_categories cc ON cc.id=c.category_id WHERE c.is_active=TRUE AND (cc.id IS NULL OR cc.is_active=TRUE) ORDER BY category,c.display_name`);
   const [campaigns] = await pool.query(`SELECT c.id,c.campaign_code AS code,c.display_name AS displayName,COALESCE(cc.display_name,c.category) category FROM crm_campaigns c LEFT JOIN crm_campaign_categories cc ON cc.id=c.category_id WHERE c.is_active=TRUE AND (cc.id IS NULL OR cc.is_active=TRUE) ORDER BY c.display_name`);
-  const [sourceLinks]=await pool.query(`SELECT DISTINCT channel_id AS channelId,source_id AS sourceId FROM crm_lead_source_history WHERE channel_id IS NOT NULL AND source_id IS NOT NULL`);
+  /*
+   * Which sources belong to which channel.
+   *
+   * Taken from the configured mapping on crm_lead_sources, not from
+   * crm_lead_source_history as before. History only knows the combinations
+   * somebody has already used, so a channel nobody had picked yet appeared
+   * to have no sources -- and the form's "no links, show everything"
+   * fallback then offered every source under it. Selecting "Phone enquiry"
+   * listed Website and Meta Ads because of exactly that.
+   */
+  const [sourceLinks]=await pool.query(`SELECT channel_id AS channelId,id AS sourceId FROM crm_lead_sources WHERE channel_id IS NOT NULL AND is_active=TRUE`);
   const [campaignLinks]=await pool.query(`SELECT DISTINCT source_id AS sourceId,campaign_id AS campaignId FROM crm_lead_source_history WHERE source_id IS NOT NULL AND campaign_id IS NOT NULL`);
   const [admissionTypes] = await pool.query(`SELECT id, type_code AS code, display_name AS displayName FROM crm_admission_types WHERE is_active = TRUE ORDER BY display_name`);
   const [substages] = await pool.execute(`SELECT ss.id, ss.stage_id AS stageId, ss.substage_code AS code, ss.display_name AS displayName FROM crm_lead_substages ss JOIN crm_lead_stages s ON s.id=ss.stage_id WHERE s.business_unit_id=? AND ss.is_active = TRUE ORDER BY s.position, ss.position`,[Number(req.businessUnit.id)]);
@@ -1302,7 +1633,7 @@ app.get('/api/leads/meta', authenticate, requireCrmAccess, async (req, res) => {
      JOIN crm_user_branches user_access ON user_access.user_id = u.id
      JOIN branches assigned_branch ON assigned_branch.id = user_access.branch_id AND assigned_branch.is_active = TRUE
      WHERE e.status = 'Active'
-       AND r.normalized_name IN ('ADMIN','CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER')
+       AND r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER','SUPER_ADMIN')
        AND ${employeeScope.sql}
      ORDER BY e.employee_name LIMIT 1000`,
     employeeScope.params,
@@ -1362,6 +1693,66 @@ app.get('/api/leads/:id', authenticate, requireCrmAccess, async (req, res) => {
      LEFT JOIN employees actor_email_employee ON actor_user.employee_id IS NULL AND LOWER(actor_email_employee.email)=LOWER(actor_user.email)
      WHERE a.lead_id=? ORDER BY a.occurred_at_utc DESC LIMIT 30`, [Number(req.params.id)],
   );
+  /*
+   * Calls placed through the CRM, folded into the same feed.
+   *
+   * CallerDesk and Smartflo write every call to crm_call_activities --
+   * including its recording_url -- but nothing ever wrote a matching row to
+   * crm_lead_activities, and the feed reads only that table. Calls therefore
+   * never appeared on a lead at all, recording or not.
+   *
+   * Merged at read time rather than duplicated on write: crm_call_activities
+   * stays the single record of a call, and calls already made show up without
+   * a backfill.
+   */
+  const [callActivities] = await pool.execute(
+    `SELECT ca.id, ca.direction, ca.status, ca.call_result AS callResult, ca.disposition,
+            ca.duration_seconds AS durationSeconds, ca.talk_seconds AS talkSeconds,
+            ca.recording_url AS recordingUrl, ca.notes,
+            ca.destination_number AS destinationNumber, ca.agent_number AS agentNumber,
+            COALESCE(ca.started_at_utc, ca.created_at_utc) AS occurredAt,
+            COALESCE(agent_employee.employee_name, agent_email_employee.employee_name, 'CRM user') AS actorName
+       FROM crm_call_activities ca
+       LEFT JOIN app_users agent_user ON agent_user.id = ca.agent_user_id
+       LEFT JOIN employees agent_employee ON agent_employee.id = agent_user.employee_id
+       LEFT JOIN employees agent_email_employee ON agent_user.employee_id IS NULL
+            AND LOWER(agent_email_employee.email) = LOWER(agent_user.email)
+      WHERE ca.lead_id = ?
+      ORDER BY COALESCE(ca.started_at_utc, ca.created_at_utc) DESC LIMIT 30`,
+    [Number(req.params.id)],
+  );
+  const callDuration = (seconds) => {
+    const total = Number(seconds) || 0;
+    if (!total) return null;
+    const minutes = Math.floor(total / 60);
+    return minutes ? `${minutes}m ${total % 60}s` : `${total}s`;
+  };
+  for (const call of callActivities) {
+    const spoken = callDuration(call.talkSeconds || call.durationSeconds);
+    activities.push({
+      // Prefixed so it cannot collide with a crm_lead_activities id, which
+      // the front end uses as a React key and an expand/collapse key.
+      id: `call-${call.id}`,
+      type: 'call',
+      summary: [
+        call.direction === 'inbound' ? 'Incoming call' : 'Outgoing call',
+        call.callResult || call.status,
+        spoken ? `${spoken} talk time` : null,
+      ].filter(Boolean).join(' · '),
+      occurredAt: call.occurredAt,
+      actorName: call.actorName,
+      commentText: call.notes || null,
+      details: {
+        recordingUrl: call.recordingUrl || null,
+        direction: call.direction || null,
+        outcome: call.callResult || call.status || null,
+        disposition: call.disposition || null,
+        duration: spoken,
+        number: call.destinationNumber || null,
+      },
+    });
+  }
+
   const [comments] = await pool.execute(
     `SELECT c.id,c.comment_text AS commentText,c.created_at_utc AS createdAt,
             COALESCE(e.employee_name,email_employee.employee_name,'CRM user') AS counsellorName
@@ -1553,7 +1944,7 @@ app.put('/api/leads/:id/followup-notes', authenticate, requireCrmAccess, require
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const [[lead]] = await connection.execute(`SELECT l.owner_employee_id AS ownerEmployeeId FROM crm_leads l WHERE l.id=? AND l.deleted_at_utc IS NULL AND ${scope.sql} FOR UPDATE`, [leadId, ...scope.params]);
+    const [[lead]] = await connection.execute(`SELECT l.owner_employee_id AS ownerEmployeeId, l.branch_id AS branchId, l.referred_to_branch_id AS referredToBranchId FROM crm_leads l WHERE l.id=? AND l.deleted_at_utc IS NULL AND ${scope.sql} FOR UPDATE`, [leadId, ...scope.params]);
     if (!lead) { await connection.rollback(); return res.status(404).json({ message: 'Lead not found' }); }
     const [[counsellor]] = await connection.execute(
       `SELECT DISTINCT e.id,e.employee_name AS name,b.branch_name AS branchName
@@ -1564,13 +1955,35 @@ app.put('/api/leads/:id/followup-notes', authenticate, requireCrmAccess, require
        JOIN branches b ON b.id=cub.branch_id AND b.is_active=TRUE
        LEFT JOIN crm_user_access_status cuas ON cuas.user_id=u.id
        WHERE e.id=? AND e.status='Active' AND COALESCE(cuas.is_active,1)=1
-         AND r.normalized_name IN ('ADMIN','CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR') LIMIT 1`,
+         AND r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','SUPER_ADMIN') LIMIT 1`,
       [referralBranchId, referralEmployeeId],
     );
     if (!counsellor) { await connection.rollback(); return res.status(400).json({ message: 'The selected counsellor does not have active CRM access to the selected branch' }); }
+    /*
+     * A referral only happened if the lead actually moved.
+     *
+     * The counsellor field is pre-filled with whoever already owns the lead,
+     * so saving an ordinary follow-up sent the same owner back. Writing the
+     * referral columns regardless stamped referred_at_utc with the current
+     * time on every save and logged a "Lead referred" activity for a referral
+     * that never took place -- which is why the timeline showed the lead being
+     * referred to the same person over and over.
+     *
+     * The branch counts too: the same counsellor in a different branch is a
+     * genuine transfer. A lead that has never been referred is compared
+     * against its own branch, not against NULL.
+     */
+    const currentBranchId = Number(lead.referredToBranchId || lead.branchId) || null;
+    const referralChanged = Number(lead.ownerEmployeeId) !== referralEmployeeId
+      || currentBranchId !== referralBranchId;
+
     const [result] = await connection.execute(
-      `UPDATE crm_leads SET stage_id=?,substage_id=?,next_followup_at_utc=?,owner_employee_id=?,owner_assigned_at_utc=CURRENT_TIMESTAMP(6),referred_to_branch_id=?,referred_to_branch_name=?,referred_at_utc=CURRENT_TIMESTAMP(6),updated_by_user_id=? WHERE id=? AND deleted_at_utc IS NULL`,
-      [stageId, substageId, followup.nextFollowupAt, referralEmployeeId, referralBranchId, counsellor.branchName, Number(req.user.id), leadId],
+      `UPDATE crm_leads SET stage_id=?,substage_id=?,next_followup_at_utc=?${referralChanged
+        ? ',owner_employee_id=?,owner_assigned_at_utc=CURRENT_TIMESTAMP(6),referred_to_branch_id=?,referred_to_branch_name=?,referred_at_utc=CURRENT_TIMESTAMP(6),referred_by_employee_id=?'
+        : ''},updated_by_user_id=? WHERE id=? AND deleted_at_utc IS NULL`,
+      [stageId, substageId, followup.nextFollowupAt,
+        ...(referralChanged ? [referralEmployeeId, referralBranchId, counsellor.branchName, Number(req.user.employeeId) || null] : []),
+        Number(req.user.id), leadId],
     );
     await connection.execute(`INSERT INTO crm_lead_comments (lead_id,comment_text,created_by_user_id) VALUES (?,?,?)`, [leadId, comment, Number(req.user.id)]);
     const [[pending]] = await connection.execute(`SELECT id FROM crm_followups WHERE lead_id=? AND status='P' ORDER BY id DESC LIMIT 1`, [leadId]);
@@ -1581,8 +1994,24 @@ app.put('/api/leads/:id/followup-notes', authenticate, requireCrmAccess, require
     } else {
       await connection.execute(`UPDATE crm_followups SET status='Cancelled' WHERE lead_id=? AND status='P'`, [leadId]);
     }
-    await connection.execute(`INSERT INTO crm_lead_activities (lead_id,activity_type,summary,actor_user_id) VALUES (?,'followup_updated',?,?)`, [leadId, `Follow-up updated · ${validSubstage.stageName} · ${validSubstage.substageName}`, Number(req.user.id)]);
-    await connection.execute(`INSERT INTO crm_lead_activities (lead_id,activity_type,summary,actor_user_id) VALUES (?,'referred',?,?)`, [leadId, `Lead assigned to ${counsellor.name} · ${counsellor.branchName}`, Number(req.user.id)]);
+    // The scheduled follow-up is recorded on the activity itself. Reading it
+    // back off the lead would only ever show the CURRENT date, so every past
+    // entry in the timeline would claim whatever was scheduled most recently.
+    await connection.execute(
+      `INSERT INTO crm_lead_activities (lead_id,activity_type,summary,details_json,actor_user_id) VALUES (?,'followup_updated',?,?,?)`,
+      [leadId, `Follow-up updated · ${validSubstage.stageName} · ${validSubstage.substageName}`,
+        JSON.stringify({
+          nextFollowupAt: followup.nextFollowupAt || null,
+          followupType: followup.followupType || null,
+          stage: validSubstage.stageName,
+          substage: validSubstage.substageName,
+        }),
+        Number(req.user.id)],
+    );
+    // Only recorded when the lead genuinely changed hands.
+    if (referralChanged) {
+      await connection.execute(`INSERT INTO crm_lead_activities (lead_id,activity_type,summary,actor_user_id) VALUES (?,'referred',?,?)`, [leadId, `Lead assigned to ${counsellor.name} · ${counsellor.branchName}`, Number(req.user.id)]);
+    }
     await connection.commit();
     res.json({ message: 'Follow-up and notes updated successfully', updated: Boolean(result.affectedRows) });
   } catch (error) {
@@ -1625,7 +2054,7 @@ app.put('/api/leads/actions/bulk-refer', authenticate, requireCrmAccess, require
      JOIN branches b ON b.id=cub.branch_id AND b.is_active=TRUE
      LEFT JOIN crm_user_access_status cuas ON cuas.user_id=u.id
      WHERE e.id=? AND e.status='Active' AND COALESCE(cuas.is_active,1)=1
-       AND r.normalized_name IN ('ADMIN','CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR') LIMIT 1`,[branchId,employeeId]);
+       AND r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','SUPER_ADMIN') LIMIT 1`,[branchId,employeeId]);
   if(!counsellor)return res.status(400).json({message:'The selected counsellor does not have active CRM access to the selected branch'});
   const placeholders=leadIds.map(()=>'?').join(',');
   const scope=leadScopedWhere(req.user);
@@ -1642,7 +2071,7 @@ app.put('/api/leads/actions/bulk-refer', authenticate, requireCrmAccess, require
   const connection=await pool.getConnection();
   try{
     await connection.beginTransaction();
-    await connection.execute(`UPDATE crm_leads SET owner_employee_id=?,owner_assigned_at_utc=CURRENT_TIMESTAMP(6),referred_to_branch_id=?,referred_to_branch_name=?,referred_at_utc=CURRENT_TIMESTAMP(6),updated_by_user_id=? WHERE id IN (${placeholders}) AND deleted_at_utc IS NULL`,[employeeId,branchId,counsellor.branchName,Number(req.user.id),...leadIds]);
+    await connection.execute(`UPDATE crm_leads SET owner_employee_id=?,owner_assigned_at_utc=CURRENT_TIMESTAMP(6),referred_to_branch_id=?,referred_to_branch_name=?,referred_at_utc=CURRENT_TIMESTAMP(6),referred_by_employee_id=?,updated_by_user_id=? WHERE id IN (${placeholders}) AND deleted_at_utc IS NULL`,[employeeId,branchId,counsellor.branchName,Number(req.user.employeeId)||null,Number(req.user.id),...leadIds]);
     await connection.execute(`UPDATE crm_followups SET assigned_employee_id=? WHERE lead_id IN (${placeholders}) AND status='P'`,[employeeId,...leadIds]);
     await connection.execute(
       `INSERT INTO crm_bulk_operations
@@ -1687,12 +2116,12 @@ app.put('/api/leads/:id/refer', authenticate, requireCrmAccess, requireLeadWrite
      JOIN branches referral_branch ON referral_branch.id=cub.branch_id AND referral_branch.is_active=TRUE
      LEFT JOIN crm_user_access_status cuas ON cuas.user_id=u.id
      WHERE l.id=? AND l.deleted_at_utc IS NULL AND COALESCE(cuas.is_active,1)=1
-       AND r.normalized_name IN ('ADMIN','CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR') AND ${scope.sql}
+       AND r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','SUPER_ADMIN') AND ${scope.sql}
      LIMIT 1`,
     [employeeId, branchId, leadId, ...scope.params],
   );
   if (!counsellor) return res.status(400).json({ message: 'The selected counsellor does not have active CRM access to the selected branch' });
-  const [result] = await pool.execute(`UPDATE crm_leads SET owner_employee_id=?,owner_assigned_at_utc=CURRENT_TIMESTAMP(6),referred_to_branch_id=?,referred_to_branch_name=?,referred_at_utc=CURRENT_TIMESTAMP(6),updated_by_user_id=? WHERE id=? AND deleted_at_utc IS NULL`, [employeeId, branchId, counsellor.branchName, Number(req.user.id), leadId]);
+  const [result] = await pool.execute(`UPDATE crm_leads SET owner_employee_id=?,owner_assigned_at_utc=CURRENT_TIMESTAMP(6),referred_to_branch_id=?,referred_to_branch_name=?,referred_at_utc=CURRENT_TIMESTAMP(6),referred_by_employee_id=?,updated_by_user_id=? WHERE id=? AND deleted_at_utc IS NULL`, [employeeId, branchId, counsellor.branchName, Number(req.user.employeeId)||null, Number(req.user.id), leadId]);
   if (!result.affectedRows) return res.status(404).json({ message: 'Lead not found' });
   await pool.execute(`UPDATE crm_followups SET assigned_employee_id=? WHERE lead_id=? AND status='P'`, [employeeId, leadId]);
   await pool.execute(`INSERT INTO crm_lead_activities (lead_id,activity_type,summary,actor_user_id) VALUES (?,'referred',?,?)`, [leadId, `Lead referred to ${counsellor.name} · ${counsellor.branchName}`, Number(req.user.id)]);
@@ -1826,7 +2255,7 @@ app.get('/api/leads/referral-options/all', authenticate, requireCrmAccess, async
      JOIN branches b ON b.id=cub.branch_id AND b.is_active=TRUE
      LEFT JOIN crm_user_access_status cuas ON cuas.user_id=u.id
      WHERE e.status='Active' AND COALESCE(cuas.is_active,1)=1
-       AND r.normalized_name IN ('ADMIN','CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR')
+       AND r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','SUPER_ADMIN')
     ORDER BY b.branch_name,e.employee_name`,
   );
   const [[currentEmployee]] = req.user.employeeId
@@ -1844,11 +2273,20 @@ app.delete('/api/leads/:id', authenticate, requireCrmAccess, requireLeadDelete, 
 
 const assignableCrmRoles = ['CRM_ADMIN', 'ADMISSION_MANAGER', 'COUNSELLOR', 'CRM_VIEWER'];
 
-app.get('/api/admin/users/meta', authenticate, requireUserAdmin, async (req, res) => {
-  const scope = scopedWhere(req.user, 'b.id');
+app.get('/api/admin/users/meta', authenticate, requireUserAdmin, async (_req, res) => {
+  // Every active branch, not just the ones this administrator happens to work
+  // in. This list populates the branch picker when granting access to someone
+  // else, so scoping it to the administrator's own branches meant an admin
+  // assigned to 4 of 20 branches could only ever grant those 4 -- and had no
+  // way to see that the other 16 existed. The endpoint is already behind
+  // requireUserAdmin, which is the check that matters here.
   const [branches] = await pool.execute(
     `SELECT b.id, b.branch_name AS name, b.short_name AS shortName
-     FROM branches b WHERE b.is_active = TRUE AND ${scope.sql} ORDER BY b.branch_name`, scope.params,
+     FROM branches b WHERE b.is_active = TRUE ORDER BY b.branch_name`,
+  );
+  const [businessUnits] = await pool.execute(
+    `SELECT id, display_name AS name FROM crm_business_units
+      WHERE is_active = TRUE ORDER BY is_default DESC, display_name`,
   );
   const [employees] = await pool.query(
     `SELECT e.id, e.employee_number AS employeeNumber, e.employee_name AS name, e.email,
@@ -1863,7 +2301,7 @@ app.get('/api/admin/users/meta', authenticate, requireUserAdmin, async (req, res
      FROM roles WHERE normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER')
      ORDER BY FIELD(normalized_name,'CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER')`,
   );
-  res.json({ branches, employees, roles });
+  res.json({ branches, businessUnits, employees, roles });
 });
 
 app.get('/api/admin/users', authenticate, requireUserAdmin, async (req, res) => {
@@ -1871,9 +2309,16 @@ app.get('/api/admin/users', authenticate, requireUserAdmin, async (req, res) => 
     `SELECT u.id, u.employee_id AS employeeId, u.email, u.is_active AS attendanceActive, COALESCE(cuas.is_active,1) AS isActive,
             COALESCE(e.employee_name,CONCAT_WS(' ',p.first_name,p.last_name),u.email) AS name,
             p.first_name AS firstName,p.last_name AS lastName,p.phone,e.employee_number AS employeeNumber,
-            GROUP_CONCAT(DISTINCT CASE WHEN r.normalized_name LIKE 'CRM\\_%' THEN r.normalized_name END ORDER BY r.normalized_name) AS crmRoles,
-            MAX(r.normalized_name = 'ADMIN') AS isSystemAdmin,
+            -- Matched against the actual CRM role set, not a 'CRM_' name
+            -- prefix: COUNSELLOR and ADMISSION_MANAGER do not carry that
+            -- prefix, so the prefix test reported every counsellor and
+            -- admission manager as having no CRM role at all.
+            GROUP_CONCAT(DISTINCT CASE WHEN r.normalized_name IN
+              ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER','SUPER_ADMIN')
+              THEN r.normalized_name END ORDER BY r.normalized_name) AS crmRoles,
             GROUP_CONCAT(DISTINCT cub.branch_id ORDER BY cub.branch_id) AS branchIds,
+            (SELECT GROUP_CONCAT(ubu.business_unit_id ORDER BY ubu.is_default DESC, ubu.business_unit_id)
+               FROM crm_user_business_units ubu WHERE ubu.user_id = u.id) AS businessUnitIds,
             GROUP_CONCAT(DISTINCT b.branch_name ORDER BY b.branch_name SEPARATOR ', ') AS branchNames,
             u.callerdesk_member_id AS callerdeskMemberId,u.callerdesk_member_name AS callerdeskMemberName,
             u.callerdesk_member_number AS callerdeskMemberNumber,u.callerdesk_call_group AS callerdeskCallGroup,
@@ -1887,16 +2332,19 @@ app.get('/api/admin/users', authenticate, requireUserAdmin, async (req, res) => 
      LEFT JOIN crm_user_access_status cuas ON cuas.user_id=u.id
      JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id
      LEFT JOIN crm_user_branches cub ON cub.user_id = u.id LEFT JOIN branches b ON b.id = cub.branch_id
-     WHERE r.normalized_name = 'ADMIN' OR r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER')
+     WHERE r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER','SUPER_ADMIN')
      GROUP BY u.id, u.employee_id, u.email, u.is_active, cuas.is_active, e.employee_name,p.first_name,p.last_name,p.phone,e.employee_number,
               u.callerdesk_member_id,u.callerdesk_member_name,u.callerdesk_member_number,u.callerdesk_call_group,u.callerdesk_enabled,
               u.smartflo_user_id,u.smartflo_agent_id,u.smartflo_agent_name,u.smartflo_agent_number,u.smartflo_department_id,u.smartflo_enabled,u.last_login_at_utc
      ORDER BY name`,
   );
   res.json({ data: rows.map((row) => ({ ...row, id: Number(row.id), employeeId: row.employeeId ? Number(row.employeeId) : null,
-    isActive: Boolean(row.isActive), isSystemAdmin: Boolean(row.isSystemAdmin),callerdeskEnabled:Boolean(row.callerdeskEnabled),smartfloEnabled:Boolean(row.smartfloEnabled),
-    roles: row.crmRoles ? row.crmRoles.split(',') : row.isSystemAdmin ? ['ADMIN'] : [],
-    branchIds: row.branchIds ? row.branchIds.split(',').map(Number) : [] })) });
+    isActive: Boolean(row.isActive), callerdeskEnabled:Boolean(row.callerdeskEnabled),smartfloEnabled:Boolean(row.smartfloEnabled),
+    // A user holding only Attendance roles genuinely has no CRM role; saying
+    // so is more useful than reporting the other application's ADMIN here.
+    roles: row.crmRoles ? row.crmRoles.split(',') : [],
+    branchIds: row.branchIds ? row.branchIds.split(',').map(Number) : [],
+    businessUnitIds: row.businessUnitIds ? String(row.businessUnitIds).split(',').map(Number) : [] })) });
 });
 
 async function saveCrmUser(req, res, existingUserId = null) {
@@ -1908,6 +2356,10 @@ async function saveCrmUser(req, res, existingUserId = null) {
   const phone = String(req.body.phone || '').replace(/[^0-9+()\-\s]/g,'').trim().slice(0,30);
   const roleName = String(req.body.roleName || '').toUpperCase();
   const branchIds = [...new Set((req.body.branchIds || []).map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+  // Which business units this user may work in. Empty means "leave as is" for
+  // an existing user and "the default unit" for a new one, so an administrator
+  // who never opens the section cannot accidentally strip access.
+  const businessUnitIds = [...new Set((req.body.businessUnitIds || []).map(Number).filter((id) => Number.isInteger(id) && id > 0))];
   const email = String(req.body.email || '').trim();
   const password = String(req.body.password || '');
   const callerdeskEnabled=Boolean(req.body.callerdeskEnabled);
@@ -1973,6 +2425,17 @@ async function saveCrmUser(req, res, existingUserId = null) {
       `INSERT INTO user_roles (user_id, role_id, created_at_utc)
        SELECT ?, id, CURRENT_TIMESTAMP(6) FROM roles WHERE normalized_name = ?`, [user.id, roleName],
     );
+    if (businessUnitIds.length) {
+      // Replaced wholesale so unticking a unit actually removes it. The first
+      // one stays the default, which is what the shell opens on.
+      await connection.execute(`DELETE FROM crm_user_business_units WHERE user_id = ?`, [user.id]);
+      for (const [index, unitId] of businessUnitIds.entries()) {
+        await connection.execute(
+          `INSERT INTO crm_user_business_units (user_id, business_unit_id, access_level, is_default) VALUES (?,?,?,?)`,
+          [user.id, unitId, 'contribute', index === 0 ? 1 : 0],
+        );
+      }
+    }
     await connection.execute(`DELETE FROM crm_user_branches WHERE user_id = ?`, [user.id]);
     for (const branchId of branchIds) {
       await connection.execute(`INSERT INTO crm_user_branches (user_id, branch_id, created_by_user_id) VALUES (?, ?, ?)`, [user.id, branchId, Number(req.user.id)]);
@@ -2459,10 +2922,10 @@ app.post('/api/marketing-campaigns', authenticate, requireCrmAccess, requireLead
           REFERENCES app_users(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
-    const templateVisibilitySql = req.user.roles?.some(role=>['ADMIN','CRM_ADMIN'].includes(String(role).toUpperCase()))
+    const templateVisibilitySql = req.user.roles?.some(role=>['CRM_ADMIN','SUPER_ADMIN'].includes(String(role).toUpperCase()))
       ? ''
       : `AND EXISTS (SELECT 1 FROM crm_whatsapp_template_user_visibility tv WHERE tv.template_id=crm_whatsapp_templates.id AND tv.user_id=?)`;
-    const templateVisibilityParams = req.user.roles?.some(role=>['ADMIN','CRM_ADMIN'].includes(String(role).toUpperCase()))
+    const templateVisibilityParams = req.user.roles?.some(role=>['CRM_ADMIN','SUPER_ADMIN'].includes(String(role).toUpperCase()))
       ? []
       : [Number(req.user.id)];
     const [[template]]=await pool.execute(
@@ -2609,12 +3072,37 @@ app.get('/api/leads', authenticate, requireCrmAccess, async (req, res) => {
   );
 
   // Get followups due
+  // Matches the bell: a counsellor's badge counts the leads they own, so the
+  // two never disagree about how much work is waiting.
+  const dueOwnOnly = req.user.rbacEnforced && req.user.rbacScope === 'own';
+  const dueOwnerSql = dueOwnOnly ? ' AND l.owner_employee_id = ?' : '';
+  const dueOwnerParams = dueOwnOnly ? [Number(req.user.employeeId) || 0] : [];
   const [[due]]=await pool.execute(
     `SELECT COUNT(*) AS count FROM crm_leads l
-     WHERE l.deleted_at_utc IS NULL AND l.next_followup_at_utc IS NOT NULL
-       AND DATE(l.next_followup_at_utc)<=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+05:30'))
-       AND ${scope.sql}`,
-    scope.params,
+     WHERE l.deleted_at_utc IS NULL AND ${FOLLOWUP_DUE_SQL}
+       AND ${scope.sql}${dueOwnerSql}`,
+    [...scope.params, ...dueOwnerParams],
+  );
+
+  // Untouched means the current owner has not added a comment since this
+  // assignment began. Keep this user-specific even for managers/admins: the
+  // badge represents work waiting on the signed-in user's own desk.
+  const currentEmployeeId = Number(req.user.employeeId) || 0;
+  const [[untouchedAssigned]]=await pool.execute(
+    `SELECT COUNT(*) AS count
+     FROM crm_leads l
+     WHERE l.deleted_at_utc IS NULL
+       AND l.owner_employee_id = ?
+       AND ${scope.sql}
+       AND NOT EXISTS (
+         SELECT 1
+         FROM crm_lead_comments touch_comment
+         JOIN app_users touch_user ON touch_user.id = touch_comment.created_by_user_id
+         WHERE touch_comment.lead_id = l.id
+           AND touch_user.employee_id = l.owner_employee_id
+           AND touch_comment.created_at_utc >= COALESCE(l.owner_assigned_at_utc,l.referred_at_utc,l.created_at_utc)
+       )`,
+    [currentEmployeeId, ...scope.params],
   );
 
   // Get re-enquired count
@@ -2637,7 +3125,8 @@ app.get('/api/leads', authenticate, requireCrmAccess, async (req, res) => {
       ...stageCounts,
       'Re-enquired': Number(reEnquiredCount.count||0)
     },
-    followupsTillToday: Number(due.count||0)
+    followupsTillToday: Number(due.count||0),
+    untouchedAssignedCount: Number(untouchedAssigned.count||0)
   });
 });
 
@@ -3235,6 +3724,55 @@ app.get('/api/bulk-operations', authenticate, requireCrmAccess, requireLeadWrite
     [Number(req.businessUnit.id),...values],
   );
   res.json({ data: rows.map(row => ({ ...row, id:Number(row.id), details:typeof row.details==='string' ? JSON.parse(row.details) : row.details })) });
+});
+
+/*
+ * The most recent comments for many leads at once.
+ *
+ * The export needs them for every row it is about to write. Fetching them one
+ * lead at a time would be a request per row, so they are collected in a
+ * single query and returned keyed by lead.
+ *
+ * Scoped like any other lead read: a lead the caller could not open is not
+ * one whose comments they can export. `leadScopedWhere` supplies the same
+ * branch/ownership restriction the list uses.
+ */
+app.get('/api/leads/comments/recent', authenticate, requireCrmAccess, async (req, res) => {
+  const limit = Math.min(20, Math.max(1, Number(req.query.limit) || 5));
+  const leadIds = [...new Set(String(req.query.leadIds || '').split(',')
+    .map(Number).filter((id) => Number.isInteger(id) && id > 0))].slice(0, 5000);
+  if (!leadIds.length) return res.json({ data: {} });
+
+  const scope = leadScopedWhere(req.user);
+  const placeholders = leadIds.map(() => '?').join(',');
+  const [rows] = await pool.execute(
+    `SELECT c.lead_id AS leadId, c.comment_text AS commentText, c.created_at_utc AS createdAt,
+            COALESCE(e.employee_name, email_employee.employee_name, u.email, 'CRM user') AS authorName
+       FROM crm_lead_comments c
+       JOIN crm_leads l ON l.id = c.lead_id
+       LEFT JOIN app_users u ON u.id = c.created_by_user_id
+       LEFT JOIN employees e ON e.id = u.employee_id
+       LEFT JOIN employees email_employee ON u.employee_id IS NULL
+            AND LOWER(email_employee.email) = LOWER(u.email)
+      WHERE c.lead_id IN (${placeholders}) AND l.deleted_at_utc IS NULL AND ${scope.sql}
+      ORDER BY c.lead_id, c.created_at_utc DESC`,
+    [...leadIds, ...scope.params],
+  );
+
+  // Trimmed to `limit` per lead here rather than in SQL: a window function
+  // would tie this to MySQL 8 for no gain at these volumes.
+  const byLead = {};
+  for (const row of rows) {
+    const list = (byLead[row.leadId] ||= []);
+    if (list.length < limit) {
+      list.push({
+        author: row.authorName,
+        text: row.commentText,
+        createdAt: row.createdAt,
+      });
+    }
+  }
+  res.json({ data: byLead });
 });
 
 app.post('/api/bulk-operations/data-export', authenticate, requireCrmAccess, requireLeadWrite, async (req, res) => {
@@ -4505,13 +5043,19 @@ async function processBulkUploadImport(uploadId, records, branchId, userId, pool
 // ============= Integration Hub Routes =============
 app.use('/api/hub', createIntegrationHubRoutes(integrationHubService, authenticate, requireCrmAccess));
 app.use('/api/platform', createBusinessPlatformRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
+app.use('/api/usage', createUsageRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
 app.use('/api/callerdesk', createCallerDeskRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
 app.use('/api/callerdesk', createCallerDeskWebhookRoutes(pool));
 app.use('/api/smartflo', createSmartfloRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
 app.use('/api/smartflo', createSmartfloWebhookRoutes(pool));
 app.use('/api/jodo/payment-links', createJodoPaymentLinkRoutes(pool,authenticate,requireCrmAccess,requireUserAdmin));
+app.use('/api/rbac', createRbacRoutes(pool, authenticate, requireCrmAccess, console));
 app.use('/api/branches', createBranchesRoutes(pool, authenticate, requireCrmAccess));
 app.use('/api/payment-forms', createPaymentFormsRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
+// Partner write-back (SmatBot AI qualification). Authenticated by API key,
+// not by a user session, so it sits outside `authenticate` deliberately.
+app.use('/api/partner', createPartnerRoutes(pool));
+app.use('/api/report-data-sources', createReportDataSourceRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
 
 // ============= Meta Lead Ads =============
 // Webhook first: it is public, and mounting it ahead of the authenticated
@@ -4557,6 +5101,13 @@ try {
   if (Number(schema.count) !== 1) throw new Error('CRM database schema is not ready. Run the MySQL migrations.');
   await ensureAutomationRuntimeSchema(pool);
   await ensureMarketingCampaignSchema(pool);
+  // Sync the permission registry and seed stock roles. Deliberately not fatal:
+  // a permissions problem should not stop the CRM from starting, and with
+  // enforcement defaulting to audit an unseeded install still behaves exactly
+  // as it did before.
+  await bootstrapRbac(pool, console).catch((error) => {
+    console.warn(`[rbac] bootstrap skipped: ${error.message}`);
+  });
 } catch (error) {
   console.error(`CRM API startup failed: ${error.message}`);
   process.exit(1);

@@ -1,42 +1,20 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Bell,
-  CalendarRange,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Download,
-  Filter,
-  History,
-  Megaphone,
-  NotebookPen,
-  MessageSquare,
-  MessageCircle,
-  MoreVertical,
-  PanelRightClose,
-  PanelRightOpen,
-  PhoneCall,
-  Pencil,
-  Plus,
-  RefreshCw,
-  Search,
-  Trash2,
-  UserRoundPlus,
-  X,
-  GitBranch,
-} from "lucide-react";
+import { CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Download, Filter, History, Megaphone, NotebookPen, MessageCircle, MoreVertical, PanelRightClose, PanelRightOpen, PhoneCall, Pencil, Plus, RefreshCw, Search, Trash2, Upload, UserRoundPlus, X, GitBranch } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { api } from "./api";
 import FilterWorkspace, { emptyAdvancedFilters, MultiSearchSelect, normalizeFilters } from "./FilterWorkspace.jsx";
 import DownloadFieldsDialog from "./DownloadFieldsDialog.jsx";
-import { BulkUploadButton } from "./BulkUpload.jsx";
+import { BulkUploadModal } from "./BulkUpload.jsx";
+import { useRegisterLeadQuickActions } from "./LeadQuickActionsContext.jsx";
+import { usePermissions } from "./PermissionContext.jsx";
 import { StageChangeDialog } from "./StageChangeDialog.jsx";
 import { BulkStageChangeConfirm } from "./BulkStageChangeConfirm.jsx";
 import Toast from "./Toast.jsx";
 import { WhatsAppSendPanel } from "./components/WhatsAppSendPanel.jsx";
 import { MarketingCampaignBuilder } from "./MarketingCampaigns.jsx";
 import ActivityTimeline from "./components/ActivityTimeline.jsx";
+import LeadTimeline from "./components/LeadTimeline.jsx";
 import "./LeadsUnread.css";
 import "./LeadsStickyLayout.css";
 import "./ProjectPagination.css";
@@ -102,6 +80,7 @@ function SearchSuggestion({
   onChange,
   required = false,
   placeholder = "Search or select…",
+  className = "",
 }) {
   const listId = `suggest-${label.toLowerCase().replaceAll(" ", "-")}`;
   const selected = options.find(
@@ -119,7 +98,7 @@ function SearchSuggestion({
     onChange(match?.id || "");
   }
   return (
-    <label>
+    <label className={className}>
       {label}
       {required ? " *" : ""}
       <div className="suggestion-field">
@@ -286,8 +265,10 @@ function FollowupDateFilter({ from, to, onChange, dueCount = 0, dateType = "next
   }
   const nextMonth = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1);
   return <div className="inline-lead-filter followup-date-filter" ref={rootRef}>
-    <span>Follow-ups</span>
-    <button type="button" className={`followup-range-trigger ${from || to ? "active" : ""}`} aria-expanded={open} onClick={toggleOpen}><CalendarRange size={16}/><div style={{display:"flex",flexDirection:"column",alignItems:"flex-start",minWidth:0,flex:1}}><small style={{fontSize:"10px",color:"#999"}}>{dateTypeLabels[dateType]}</small><b>{label}</b></div><ChevronDown size={14}/><span className={`followup-due-badge ${dueCount>0?"has-due":""}`} title={`${dueCount} follow-ups due through today`}>{dueCount>99?"99+":dueCount}</span></button>
+    {/* Reflects the selected type: the control filters by whichever date is
+        chosen, so a fixed "Follow-ups" label contradicted it. */}
+    <span>{dateTypeLabels[dateType] || "Follow-ups"}</span>
+    <button type="button" className={`followup-range-trigger ${from || to ? "active" : ""}`} aria-expanded={open} onClick={toggleOpen}><CalendarRange size={16}/><div style={{display:"flex",flexDirection:"column",alignItems:"flex-start",minWidth:0,flex:1}}><small style={{fontSize:"10px",color:"#83968c"}}>{dateTypeLabels[dateType]}</small><b>{label}</b></div><ChevronDown size={14}/><span className={`followup-due-badge ${dueCount>0?"has-due":""}`} title={`${dueCount} follow-ups due through today`}>{dueCount>99?"99+":dueCount}</span></button>
     {open && <div className="followup-range-popover leads-date-range-popover">
       <div className="followup-range-header">
         <div className="followup-range-title"><CalendarRange size={18}/><div><strong>{dateTypeLabels[dateType]}</strong><small>Select the {dateTypeLabels[dateType].toLowerCase()} range</small></div></div>
@@ -314,12 +295,8 @@ function FunnelStrip({
   onDelete,
   onCreate,
   onAddLead,
-  onSearch,
-  onMessages,
-  unreadCount = 0,
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
-  const searchInputRef = useRef(null);
   const moreMenuRef = useRef(null);
 
   useEffect(() => {
@@ -339,22 +316,7 @@ function FunnelStrip({
   return (
     <div className="funnel-strip">
 
-      {/* Left Side - Search */}
-      <div className="global-search-box-inline">
-        <input
-          ref={searchInputRef}
-          type="text"
-          placeholder="Search by name, phone, or lead number..."
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              const value = e.target.value.trim();
-              if (value) {
-                onSearch(value);
-              }
-            }
-          }}
-        />
-      </div>
+      {/* Search lives in the universal topbar and drives this list via ?q= */}
 
       {/* Right Side */}
       <div className="funnel-header-actions">
@@ -409,20 +371,129 @@ function FunnelStrip({
           Add lead
         </button>
 
-        <button className="header-action-icon" title={`${unreadCount} unread WhatsApp messages`} onClick={onMessages}>
-          <MessageCircle size={18} />
-          <i className={unreadCount ? "green has-count" : "green"}>{unreadCount > 99 ? "99+" : unreadCount}</i>
-        </button>
-
-        <button className="header-action-icon" title="Notifications">
-          <Bell size={18} />
-          <i>0</i>
-        </button>
+        {/* The messages and notifications icons used to be repeated here.
+            They are global, not per-screen, and the universal topbar already
+            carries them -- two bells side by side showing different numbers
+            (this one was hardcoded to 0) was worse than none. */}
 
       </div>
 
     </div>
   );
+}
+
+/**
+ * Which advanced-filter fields each date type reads and writes.
+ *
+ * The inline date picker used to write into followupFrom/followupTo whatever
+ * type was chosen, while the filter below evaluates each range against its
+ * own field -- so picking "Added -> Till today" filtered on next follow-up
+ * instead, and leads added earlier disappeared.
+ */
+const DATE_TYPE_FILTER_FIELDS = {
+  addedAt: ["addedFrom", "addedTo"],
+  updatedAt: ["updatedFrom", "updatedTo"],
+  referredAt: ["referredFrom", "referredTo"],
+  nextFollowup: ["nextFollowupFrom", "nextFollowupTo"],
+  reEnquiredAt: ["reEnquiredFrom", "reEnquiredTo"],
+};
+
+/**
+ * Write a range into the fields a date type owns.
+ *
+ * Next follow-up carries two pairs: nextFollowupFrom/To written by the filter
+ * workspace, and the older followupFrom/To this inline picker used. The row
+ * filter reads `nextFollowupFrom || followupFrom`, so clearing only one of
+ * them would leave the other still filtering. Both move together.
+ */
+function withDateRange(filters, dateType, from, to) {
+  const [fromKey, toKey] = DATE_TYPE_FILTER_FIELDS[dateType] || DATE_TYPE_FILTER_FIELDS.nextFollowup;
+  const next = { ...filters, [fromKey]: from || "", [toKey]: to || "" };
+  if (fromKey === "nextFollowupFrom") {
+    next.followupFrom = from || "";
+    next.followupTo = to || "";
+  }
+  return next;
+}
+
+/**
+ * Counsellors available to receive a referral, as one searchable list.
+ *
+ * Referral used to be two fields -- pick a branch, then a counsellor in it --
+ * which meant knowing the branch before you could look someone up. One list
+ * labelled "Name - Branch" is searchable by either, because the datalist
+ * matches anywhere in the label.
+ *
+ * The option key has to carry the branch. A counsellor with access to four
+ * branches comes back as four rows sharing one employee id, so keying on the
+ * employee alone would resolve "Taufeeq - NACHARAM" to whichever of his
+ * branches happened to be listed first, and refer the lead to the wrong one.
+ */
+function referralChoices(employees = []) {
+  return employees.map(employee => ({
+    id: `${employee.branchId}:${employee.id}`,
+    label: `${employee.name} - ${employee.branchName}`,
+  }));
+}
+
+/** The composite key for a branch/counsellor pair, or "" when incomplete. */
+function referralKey(branchId, employeeId) {
+  return branchId && employeeId ? `${branchId}:${employeeId}` : "";
+}
+
+/** Split a composite key back into its two ids. */
+function splitReferralKey(key) {
+  const [branchId = "", employeeId = ""] = String(key || "").split(":");
+  return { branchId, employeeId };
+}
+
+/**
+ * Sources selectable under a channel.
+ *
+ * The mapping is configured on the source itself. Two rules:
+ *   - no channel chosen yet: everything, so the list is not empty on open
+ *   - a source with no channel configured stays available everywhere, or it
+ *     would be impossible to pick until an administrator maps it
+ *
+ * The old rule also showed every source when the CHOSEN channel had no links,
+ * which is why picking "Phone enquiry" listed Website and Meta Ads.
+ */
+/** The active business unit, as the api layer reads it. */
+const savedFunnelKey = () => `crm_saved_funnel_${localStorage.getItem("crm_business_unit_id") || "default"}`;
+
+function sourcesForChannel(sources = [], sourceLinks = [], channelId) {
+  if (!channelId) return sources;
+  return sources.filter((source) => {
+    const linkedHere = sourceLinks.some(
+      (link) => String(link.channelId) === String(channelId)
+        && String(link.sourceId) === String(source.id),
+    );
+    const mappedAnywhere = sourceLinks.some((link) => String(link.sourceId) === String(source.id));
+    return linkedHere || !mappedAnywhere;
+  });
+}
+
+/**
+ * "Is referred" -- whether a lead has been handed to someone else by me.
+ *
+ *   no  (default) leads sitting with me, that I did not refer away
+ *   yes           leads I referred, now owned by someone else
+ *   ""            no opinion; show everything
+ *
+ * Both sides are answered from the lead itself: referredByEmployeeId records
+ * who passed it on, ownerEmployeeId who holds it now.
+ */
+function matchesReferredFilter(lead, mode, myEmployeeId) {
+  if (!mode) return true;
+  // Without an employee record there is no "me" to compare against, so the
+  // filter cannot mean anything -- show everything rather than nothing.
+  if (!myEmployeeId) return true;
+
+  const referredByMe = String(lead.referredByEmployeeId || "") === String(myEmployeeId);
+  const ownedByMe = String(lead.ownerEmployeeId || "") === String(myEmployeeId);
+
+  if (mode === "yes") return referredByMe && !ownedByMe;
+  return !referredByMe && ownedByMe;
 }
 
 function getDateFieldValue(lead, dateType) {
@@ -433,7 +504,11 @@ function getDateFieldValue(lead, dateType) {
     nextFollowup: lead.nextFollowup,
     reEnquiredAt: lead.reEnquiredAt,
   };
-  return dateMap[dateType] || lead.nextFollowup;
+  // A known type with no value on this lead must stay empty rather than
+  // borrowing the follow-up date -- otherwise a lead that was never referred
+  // would match a "referred between" range on its follow-up date instead.
+  // Only an unrecognised type falls back, preserving the original default.
+  return dateType in dateMap ? dateMap[dateType] : lead.nextFollowup;
 }
 function matchesDateRange(lead, field, from, to) {
   if (!from && !to) return true;
@@ -458,6 +533,23 @@ function formatExportDate(value) {
 
 function csvCell(value) {
   return `"${String(value ?? "").replaceAll('"', '""')}"`;
+}
+
+/**
+ * The recent comments of one lead, as a single cell.
+ *
+ * One comment per line, newest first, each "Author: comment". Newlines
+ * survive because csvCell quotes every value, and Excel shows a quoted
+ * multi-line cell as multiple lines within the one cell.
+ *
+ * A comment containing its own line breaks is flattened to a single line, or
+ * it would look like several comments once inside the cell.
+ */
+function formatCommentCell(comments) {
+  if (!Array.isArray(comments) || !comments.length) return "";
+  return comments
+    .map(({ author, text }) => `${author || "CRM user"}: ${String(text || "").replace(/\s*\r?\n\s*/g, " ").trim()}`)
+    .join("\n");
 }
 
 function buildLeadExportGroups(meta) {
@@ -488,6 +580,12 @@ function buildLeadExportGroups(meta) {
     { id:"referredAt", label:"Referred on", group:"Date details", get:lead=>formatExportDate(lead.referredAt) },
     { id:"nextFollowup", label:"Next follow-up", group:"Date details", get:lead=>formatExportDate(lead.nextFollowup) },
     { id:"reEnquiredAt", label:"Re-enquired on", group:"Date details", get:lead=>formatExportDate(lead.reEnquiredAt) },
+    /* One cell holding the last five comments, newest first, each as
+       "Author: comment". The lead list does not carry comments, so the
+       exporter fetches them for the selected rows and hangs them on the lead
+       as recentComments before calling this. */
+    { id:"recentComments", label:"Recent comments (last 5)", group:"Lead journey details",
+      needsComments:true, get:lead=>formatCommentCell(lead.recentComments) },
   ];
   const standardKeys = new Set(["name","student_name","phone","primary_phone","alternate_phone","email","parent_name","city","academic_year","branch_id","admission_type_id","curriculum_id","class_id","channel_id","source_id","campaign_id","stage_id","substage_id","owner_employee_id","next_followup_at_utc"]);
   const custom = (meta.leadFields || [])
@@ -502,12 +600,14 @@ function buildLeadExportGroups(meta) {
 }
 
 export default function LeadsPage() {
+  const { can, roles } = usePermissions();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const [leads, setLeads] = useState([]);
   const [totalLeads, setTotalLeads] = useState(0);
   const [stageCounts, setStageCounts] = useState({});
   const [followupsTillToday,setFollowupsTillToday]=useState(0);
+  const [untouchedAssignedCount,setUntouchedAssignedCount]=useState(0);
   const [meta, setMeta] = useState({
     stages: [],
     sources: [],
@@ -569,13 +669,50 @@ export default function LeadsPage() {
   const [referBranchId,setReferBranchId]=useState("");
   const [referEmployeeId,setReferEmployeeId]=useState("");
   const [referralOptions,setReferralOptions]=useState({branches:[],employees:[]});
-  const [savedFunnel, setSavedFunnel] = useState(() => localStorage.getItem("crm_saved_funnel") || "");
+  // Keyed by business unit, like the dashboard layout and saved reports. The
+  // unscoped key meant a view saved under one business unit was remembered
+  // while working in another, where it does not exist.
+  const [savedFunnel, setSavedFunnel] = useState(() => localStorage.getItem(savedFunnelKey()) || "");
   const [filterPanel, setFilterPanel] = useState(null);
   const [appliedFiltersExpanded, setAppliedFiltersExpanded] = useState(true);
   const [advancedFilters, setAdvancedFilters] = useState(emptyAdvancedFilters);
   const [followupDateType, setFollowupDateType] = useState("nextFollowup");
+  // The signed-in user's employee record, which is what lead ownership and
+  // referrals are keyed on. Read once: it cannot change within a session.
+  const currentEmployeeId = useMemo(() => {
+    try { return JSON.parse(localStorage.getItem("crm_user") || "{}").employeeId || null; }
+    catch { return null; }
+  }, []);
+  /*
+   * "Is referred" is a counsellor's view of their own desk: what is with me,
+   * versus what I have passed on. A manager or admin works across everyone's
+   * leads, so defaulting them to "only mine" would hide most of the pipeline
+   * for a filter they never asked for. Applied and offered to counsellors only.
+   */
+  const isCounsellor = roles.some((role) => role.normalizedName === "COUNSELLOR");
+  // The picker edits whichever pair of filter fields the chosen date type owns.
+  const [dateFilterFromKey, dateFilterToKey] =
+    DATE_TYPE_FILTER_FIELDS[followupDateType] || DATE_TYPE_FILTER_FIELDS.nextFollowup;
+
+  /**
+   * Switching the date type carries the range across rather than leaving it
+   * behind on the previous field. The control shows one range, so leaving a
+   * stale one applied to a type no longer on screen would silently filter the
+   * list with something the user cannot see.
+   */
+  function changeDateFilterType(nextType) {
+    if (nextType === followupDateType) return;
+    setAdvancedFilters(current => {
+      const carriedFrom = current[dateFilterFromKey];
+      const carriedTo = current[dateFilterToKey];
+      // Clear the old type's range first, then place it on the new one.
+      const cleared = withDateRange(current, followupDateType, "", "");
+      return withDateRange(cleared, nextType, carriedFrom, carriedTo);
+    });
+    setFollowupDateType(nextType);
+  }
   const [funnels, setFunnels] = useState([]);
-  const [quickActionsExpanded,setQuickActionsExpanded]=useState(false);
+  const [bulkUploadOpen,setBulkUploadOpen]=useState(false);
   const [stageChangeTarget, setStageChangeTarget] = useState(null);
   const [showStageChangeConfirm, setShowStageChangeConfirm] = useState(false);
   const [availableAdmissionTypes, setAvailableAdmissionTypes] = useState([]);
@@ -588,7 +725,6 @@ export default function LeadsPage() {
   const [whatsAppConversations, setWhatsAppConversations] = useState([]);
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
   const studentNameInputRef = useRef(null);
-  function toggleQuickActions(){setQuickActionsExpanded(current=>!current)}
 
   async function callLead(lead){
     setOpenActionId(null);
@@ -636,6 +772,7 @@ export default function LeadsPage() {
       setTotalLeads(Number(result.total||0));
       setStageCounts(result.stageCounts||{});
       setFollowupsTillToday(Number(result.followupsTillToday||0));
+      setUntouchedAssignedCount(Number(result.untouchedAssignedCount||0));
     } catch (error) {
       setMessage({ type: "error", text: error.message });
     } finally {
@@ -806,6 +943,7 @@ export default function LeadsPage() {
           (!advancedFilters.admissionTypeId.length || advancedFilters.admissionTypeId.includes(String(lead.admissionTypeId))) &&
           (!advancedFilters.referredByEmployeeId.length || advancedFilters.referredByEmployeeId.includes(String(lead.referredByEmployeeId))) &&
           (!advancedFilters.touchStatus.length || advancedFilters.touchStatus.includes(String(lead.touchStatus))) &&
+          (!isCounsellor || matchesReferredFilter(lead, advancedFilters.isReferred, currentEmployeeId)) &&
           (!advancedFilters.isParent.length || advancedFilters.isParent.some(value => value === "yes" ? Boolean(lead.isParent) : !lead.isParent)) &&
           (!advancedFilters.lookingForAdmission.length || advancedFilters.lookingForAdmission.some(value => value === "yes" ? Boolean(lead.lookingForAdmission) : !lead.lookingForAdmission)) &&
           (!advancedFilters.whatsappResponse.length || advancedFilters.whatsappResponse.includes(String(lead.whatsappResponse))) &&
@@ -963,7 +1101,25 @@ export default function LeadsPage() {
   async function exportLeads(fields) {
     const selectedFields = fields?.length ? fields : leadExportGroups.flatMap(group => group.fields).filter(field => field.defaultSelected);
     const header = selectedFields.map(field => field.label);
-    const rows = filtered.map(lead => selectedFields.map(field => field.get(lead)));
+
+    /* Comments are not part of the lead list, so they are collected only when
+       a field that needs them was ticked -- one request for the whole export
+       rather than one per row. A failure here leaves those cells empty rather
+       than losing the download the user asked for. */
+    let commentsByLead = {};
+    if (selectedFields.some(field => field.needsComments) && filtered.length) {
+      try {
+        const result = await api(`/leads/comments/recent?limit=5&leadIds=${filtered.map(lead => lead.id).join(",")}`);
+        commentsByLead = result.data || {};
+      } catch (error) {
+        setMessage({ type:"error", text:`Comments could not be loaded, so those cells are empty: ${error.message}` });
+      }
+    }
+
+    const rows = filtered.map(lead => {
+      const withComments = { ...lead, recentComments: commentsByLead[lead.id] || [] };
+      return selectedFields.map(field => field.get(withComments));
+    });
     const csv = [header, ...rows].map(row => row.map(csvCell).join(",")).join("\n");
     const fileName = `crm-leads-${new Date().toISOString().slice(0, 10)}.csv`;
     const link = document.createElement("a");
@@ -1215,6 +1371,48 @@ export default function LeadsPage() {
     }
   }
 
+  // These used to sit behind the expand arrow on the filter row; they now hang
+  // off the topbar's lightning button instead. Same handlers, same enable
+  // rules -- only the surface that launches them moved.
+  //
+  // Publishing nothing while the campaign builder is up keeps the button in
+  // step with the old toolbar, which that view replaced outright.
+  /*
+   * The lightning menu is the bulk toolbar: every tile acts on the selected
+   * or filtered leads, not on one record. So each tile needs the Bulk Actions
+   * permission for its verb as well as the underlying capability -- revoking
+   * Bulk Actions has to remove Change Stage, WhatsApp and Export, not just
+   * Bulk Upload. `permissions` is an AND: all of them must be held.
+   *
+   * The API enforces the same keys, so a hidden tile is not the control.
+   */
+  useRegisterLeadQuickActions(marketingLeadIds ? [] : [
+    { key: "bulk-upload", label: "Bulk Upload", icon: Upload,
+      permissions: ["bulk_actions.toolbar.view", "bulk_actions.upload.import"],
+      title: "Bulk Lead Upload",
+      onSelect: () => setBulkUploadOpen(true) },
+    { key: "stage", label: "Change Stage", icon: GitBranch,
+      permissions: ["bulk_actions.toolbar.view", "bulk_actions.change_stage.edit"],
+      title: `Change stage for ${selectedIds.length || "selected"} leads`,
+      disabled: !selectedIds.length, onSelect: openBulkStageChange },
+    { key: "refer", label: "Refer", icon: UserRoundPlus,
+      permissions: ["bulk_actions.toolbar.view", "bulk_actions.refer.assign"],
+      title: `Refer ${selectedIds.length || "selected"} leads`,
+      disabled: !selectedIds.length, onSelect: openBulkRefer },
+    { key: "campaign", label: "Campaign", icon: Megaphone,
+      permissions: ["bulk_actions.toolbar.view", "bulk_actions.campaign.create"],
+      title: `Add marketing campaign for ${filtered.length} filtered leads`,
+      disabled: !filtered.length, onSelect: openFilteredMarketingCampaign },
+    { key: "whatsapp", label: "WhatsApp", icon: MessageCircle,
+      permissions: ["bulk_actions.toolbar.view", "bulk_actions.whatsapp.create"],
+      title: `Send WhatsApp to ${selectedIds.length || "selected"} leads in this view`,
+      disabled: !selectedIds.length, onSelect: openSelectedMessages },
+    { key: "export", label: "Export", icon: Download,
+      permissions: ["bulk_actions.toolbar.view", "bulk_actions.export.export"],
+      title: "Export visible leads",
+      onSelect: () => setDownloadDialogOpen(true) },
+  ].filter((action) => action.permissions.every((key) => can(key))));
+
   if (marketingLeadIds) {
     return (
       <MarketingCampaignBuilder
@@ -1233,7 +1431,7 @@ export default function LeadsPage() {
     <main className={`page leads-page ${hasAppliedFilters ? (appliedFiltersExpanded ? "applied-filters-open" : "applied-filters-collapsed") : ""}`}>
       <section className="lead-command-center">
         <div className="funnel-callout">
-          <FunnelStrip funnels={funnels} onApply={applyFunnel} onDelete={deleteFunnel} onCreate={createFunnel} onAddLead={openCreate} onSearch={(query) => setSearch(query)} onMessages={() => navigate("/whatsapp-inbox")} unreadCount={whatsAppConversations.reduce((sum,item)=>sum+Number(item.unread_count||0),0)}/>
+          <FunnelStrip funnels={funnels} onApply={applyFunnel} onDelete={deleteFunnel} onCreate={createFunnel} onAddLead={openCreate}/>
         </div>
         <div className="stage-tabs" role="tablist">
           <button className={`stage-tab ${!stageFilter ? "active" : ""}`} onClick={() => selectStage("")}><span className="stage-name">All</span> <span className="stage-count">{leadsMatchingActiveFilters.length}</span></button>
@@ -1242,26 +1440,27 @@ export default function LeadsPage() {
         </div>
         <div className="lead-control-row">
           <div className="inline-lead-filter"><span>Branch</span><MultiSearchSelect label="Branch" value={branchFilter} onChange={setBranchFilter} options={[{value:"",label:"All branches"},...meta.branches.map(branch=>({value:String(branch.id),label:branch.name}))]}/></div>
-          <div className="inline-lead-filter"><span>Touch status</span><MultiSearchSelect label="Touch status" value={advancedFilters.touchStatus} onChange={value=>setAdvancedFilters(current=>({...current,touchStatus:value}))} options={[{value:"",label:"Any touch status"},{value:"touched",label:"Is touched"},{value:"untouched",label:"Untouched"}]}/></div>
+          <div className="inline-lead-filter touch-status-filter"><span>Touch status</span><div className="touch-status-control"><MultiSearchSelect label="Touch status" value={advancedFilters.touchStatus} onChange={value=>setAdvancedFilters(current=>({...current,touchStatus:value}))} options={[{value:"",label:"Any touch status"},{value:"touched",label:"Is touched"},{value:"untouched",label:"Untouched"}]}/><span className={`touch-status-count-badge ${untouchedAssignedCount>0?"has-untouched":""}`} title={`${untouchedAssignedCount} untouched leads assigned to you`}>{untouchedAssignedCount>99?"99+":untouchedAssignedCount}</span></div></div>
           <div className="inline-lead-filter"><span>Sub-stage</span><MultiSearchSelect label="Sub-stage" value={advancedFilters.substageId} onChange={value=>setAdvancedFilters(current=>({...current,substageId:value}))} options={[{value:"",label:"All sub-stages"},...meta.substages.filter(item=>!stageFilter||String(item.stageId)===String(meta.stages.find(stage=>stage.displayName===stageFilter)?.id)).map(item=>({value:String(item.id),label:item.displayName}))]}/></div>
           <div className="inline-lead-filter"><span>Source</span><MultiSearchSelect label="Source" value={advancedFilters.sourceId} onChange={value=>setAdvancedFilters(current=>({...current,sourceId:value}))} options={[{value:"",label:"All sources"},...meta.sources.map(item=>({value:String(item.id),label:item.displayName}))]}/></div>
-          <FollowupDateFilter from={advancedFilters.followupFrom} to={advancedFilters.followupTo} dueCount={followupsTillToday} dateType={followupDateType} onDateTypeChange={setFollowupDateType} onChange={(followupFrom,followupTo)=>setAdvancedFilters(current=>({...current,followupFrom,followupTo}))}/>
-          <div className="lead-actions-wrap"><div className={`lead-quick-actions ${quickActionsExpanded?"expanded":"collapsed"}`}>
-            {quickActionsExpanded&&<>
-            <BulkUploadButton/>
-            <button title={`Change stage for ${selectedIds.length || "selected"} leads`} aria-label={`Change stage for selected leads`} onClick={openBulkStageChange} disabled={!selectedIds.length}><GitBranch/></button>
-            <button title={`Refer ${selectedIds.length || "selected"} leads`} aria-label="Refer selected leads" onClick={openBulkRefer} disabled={!selectedIds.length}><UserRoundPlus/></button>
-            <button title={`Add marketing campaign for ${filtered.length} filtered leads`} onClick={openFilteredMarketingCampaign} disabled={!filtered.length}><Megaphone/></button>
-            <button title={`Send WhatsApp to ${selectedIds.length || "selected"} leads in this view`} onClick={openSelectedMessages} disabled={!selectedIds.length}><MessageCircle/></button>
-            <button title="Export visible leads" onClick={() => setDownloadDialogOpen(true)}><Download/></button>
-            </>}
-            <button className="quick-actions-toggle" title={quickActionsExpanded?"Collapse lead actions":"Expand lead actions"} aria-label={quickActionsExpanded?"Collapse lead actions":"Expand lead actions"} onClick={toggleQuickActions}>{quickActionsExpanded?<PanelRightClose/>:<PanelRightOpen/>}</button>
+          <FollowupDateFilter
+            from={advancedFilters[dateFilterFromKey]}
+            to={advancedFilters[dateFilterToKey]}
+            dueCount={followupsTillToday}
+            dateType={followupDateType}
+            onDateTypeChange={changeDateFilterType}
+            onChange={(rangeFrom,rangeTo)=>setAdvancedFilters(current=>withDateRange(current,followupDateType,rangeFrom,rangeTo))}
+          />
+          {/* Bulk actions moved to the topbar's lightning button; only the two
+              filter controls stay on this row. */}
+          <div className="lead-actions-wrap"><div className="lead-quick-actions">
             <button title="Clear filters" aria-label="Clear filters" onClick={clearLeadFilters}><RefreshCw/></button>
             <button title="Open filters" onClick={() => setFilterPanel("filter")}><Filter/></button>
           </div></div>
         </div>
       </section>
       {downloadDialogOpen && <DownloadFieldsDialog title="Download Data" groups={leadExportGroups} onClose={() => setDownloadDialogOpen(false)} onDownload={exportLeads}/>}
+      {bulkUploadOpen && <BulkUploadModal onClose={() => setBulkUploadOpen(false)}/>}
       <Toast message={message} onClose={() => setMessage(null)} />
       <article className="panel leads-panel">
         <div className="table-wrap">
@@ -1452,11 +1651,12 @@ export default function LeadsPage() {
           mode={filterPanel}
           meta={meta}
           initialFilters={{ ...advancedFilters, branchId: branchFilter, stage: stageFilter, dateType: followupDateType }}
+          showReferredFilter={isCounsellor}
           onApply={applyAdvancedFilters}
           onClose={() => setFilterPanel(null)}
           onSaved={({ name, type }) => {
             if (type === "funnel") {
-              localStorage.setItem("crm_saved_funnel", name);
+              localStorage.setItem(savedFunnelKey(), name);
               setSavedFunnel(name);
               loadFunnels();
             }
@@ -1467,9 +1667,8 @@ export default function LeadsPage() {
       {referLead&&<><div className="drawer-backdrop" onClick={()=>setReferLead(null)}/><section className="refer-dialog" role="dialog" aria-modal="true" aria-labelledby="refer-title">
         <div className="refer-dialog-head"><div><span className="eyebrow">{referLead.bulk?"Bulk lead referral":"Lead referral"}</span><h2 id="refer-title">Refer {referLead.studentName}</h2><p>{referLead.bulk?`${referLead.leadId} will be reassigned.`:`${referLead.leadId} · ${referLead.branch}`}</p></div><button className="icon-btn" onClick={()=>setReferLead(null)}><X/></button></div>
         <form onSubmit={submitReferral}>
-          <SearchSuggestion label="Referral branch" required options={referralOptions.branches.map(branch=>({id:branch.id,label:branch.name}))} value={referBranchId} onChange={(branchId)=>{setReferBranchId(String(branchId||""));setReferEmployeeId("")}} placeholder="Search and select branch…"/>
-          <SearchSuggestion label="Counsellor" required options={referralOptions.employees.filter(employee=>String(employee.branchId)===String(referBranchId)).map(employee=>({id:employee.id,label:`${employee.name} · ${employee.branchName}`}))} value={referEmployeeId} onChange={setReferEmployeeId} placeholder={referBranchId?"Search counsellor…":"Select a branch first"}/>
-          <small>Only counsellors with active CRM access to the selected branch are shown. Referring transfers the lead to that branch.</small>
+          <SearchSuggestion label="Counsellor" required options={referralChoices(referralOptions.employees)} value={referralKey(referBranchId,referEmployeeId)} onChange={(key)=>{const {branchId,employeeId}=splitReferralKey(key);setReferBranchId(branchId);setReferEmployeeId(employeeId);}} placeholder="Search by counsellor or branch…"/>
+          <small>Search by counsellor or branch name. Only counsellors with active CRM access are listed, and referring transfers the lead to that counsellor's branch.</small>
           <div className="refer-dialog-actions"><button type="button" className="secondary" onClick={()=>setReferLead(null)}>Cancel</button><button className="primary" disabled={saving||!referBranchId||!referEmployeeId}>{saving?"Referring…":referLead.bulk?`Refer ${referLead.ids.length} leads`:"Refer lead"}</button></div>
         </form>
       </section></>}
@@ -1480,8 +1679,7 @@ export default function LeadsPage() {
           <label>Sub-stage *<select required value={followupForm.substageId} onChange={e=>setFollowupForm({...followupForm,substageId:e.target.value})}><option value="">Select sub-stage</option>{meta.substages.filter(item=>!followupForm.stageId||String(item.stageId)===String(followupForm.stageId)).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
           {modalFollowupRequired&&<label>Next follow-up *<input required type="datetime-local" min={minimumFollowupTime} value={followupForm.nextFollowupAt} onChange={e=>setFollowupForm({...followupForm,nextFollowupAt:e.target.value})}/></label>}
           {modalFollowupRequired&&<label>Follow-up type *<select required value={followupForm.followupType} onChange={e=>setFollowupForm({...followupForm,followupType:e.target.value})}><option value="">Select follow-up type</option><option>Call</option><option>WhatsApp</option><option>Email</option><option>Campus Visit</option></select></label>}
-          <SearchSuggestion label="Referral branch" required options={referralOptions.branches.map(branch=>({id:branch.id,label:branch.name}))} value={followupForm.referralBranchId} onChange={(branchId)=>setFollowupForm({...followupForm,referralBranchId:String(branchId||""),referralEmployeeId:""})} placeholder="Search and select branch…"/>
-          <SearchSuggestion label="Counsellor" required options={referralOptions.employees.filter(employee=>String(employee.branchId)===String(followupForm.referralBranchId)).map(employee=>({id:employee.id,label:employee.name}))} value={followupForm.referralEmployeeId} onChange={(employeeId)=>setFollowupForm({...followupForm,referralEmployeeId:String(employeeId||"")})} placeholder={followupForm.referralBranchId?"Search counsellor…":"Select a branch first"}/>
+          <SearchSuggestion className="wide" label="Counsellor" required options={referralChoices(referralOptions.employees)} value={referralKey(followupForm.referralBranchId,followupForm.referralEmployeeId)} onChange={(key)=>{const {branchId,employeeId}=splitReferralKey(key);setFollowupForm({...followupForm,referralBranchId:branchId,referralEmployeeId:employeeId});}} placeholder="Search by counsellor or branch…"/>
           <div className="wide previous-comments"><span>Previous comments</span><div className="comment-history">{followupForm.comments.length?followupForm.comments.map(item=><article key={item.id}><strong>{item.counsellorName}</strong><i>—</i><time>{item.createdAt?new Date(item.createdAt).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}):"Earlier comment"}</time><i>—</i><p>{item.commentText}</p></article>):<p className="no-comments">No previous comments</p>}</div></div>
           <label className="wide">New comment *<textarea required rows="4" placeholder="Write a new comment…" value={followupForm.comment} onChange={e=>setFollowupForm({...followupForm,comment:e.target.value})}/></label>
         </div><footer><button type="button" className="secondary" onClick={()=>setFollowupModal(null)}>Cancel</button><button className="primary" disabled={saving}>{saving?"Saving…":"Save follow-up"}</button></footer></form>
@@ -1494,7 +1692,20 @@ export default function LeadsPage() {
           <div><span>Next follow-up</span><strong>{historyModal.nextFollowupAt?new Date(historyModal.nextFollowupAt).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}):"Not scheduled"}</strong></div>
           <div><span>Lead owner</span><strong>{historyModal.owner||"Unassigned"}</strong></div>
         </div>
-        <section className="history-comments"><h3>Previous comments</h3><div className="comment-history">{historyModal.comments?.length?historyModal.comments.map(item=><article key={item.id}><strong>{item.counsellorName}</strong><i>—</i><time>{item.createdAt?new Date(item.createdAt).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}):"Earlier comment"}</time><i>—</i><p>{item.commentText}</p></article>):<p className="no-comments">No previous comments</p>}</div></section>
+        {/* What used to be the lead modal's Activity tab. The two showed the
+            same lead from the same payload -- one as a flat comment list, the
+            other as a timeline -- so history is now the single place that
+            answers "what has happened to this lead", in the richer form. */}
+        <div className="history-body">
+          <section className="form-section lead-dates-section">
+            <h3>Lead timeline</h3>
+            <LeadTimeline lead={historyModal} />
+          </section>
+          <section className="activity-section modal-activity">
+            <h3>Activity</h3>
+            <ActivityTimeline activities={historyModal.activities || []} />
+          </section>
+        </div>
         <footer><button type="button" className="primary" onClick={()=>setHistoryModal(null)}>Close</button></footer>
       </section></>}
       {drawer && (
@@ -1515,7 +1726,7 @@ export default function LeadsPage() {
             {drawer.mode !== "create"&&<nav className="lead-detail-tabs" aria-label="Lead detail categories">
               <button type="button" className={drawerTab==="student"?"active":""} onClick={()=>setDrawerTab("student")}>Student &amp; contact</button>
               <button type="button" className={drawerTab==="source"?"active":""} onClick={()=>setDrawerTab("source")}>Source details</button>
-              {drawer.mode==="view"&&<button type="button" className={drawerTab==="activity"?"active":""} onClick={()=>setDrawerTab("activity")}>Activity</button>}
+              {/* Activity moved to the history dialog on the lead row. */}
             </nav>}
             <form onSubmit={save}>
               <fieldset disabled={drawer.mode === "view"}>
@@ -1653,7 +1864,7 @@ export default function LeadsPage() {
                         }
                       >
                         <option value="">Select source</option>
-                        {meta.sources.filter(source=>!form.channelId||!meta.sourceLinks.some(link=>String(link.channelId)===String(form.channelId))||meta.sourceLinks.some(link=>String(link.channelId)===String(form.channelId)&&String(link.sourceId)===String(source.id))).map((source) => (
+                        {sourcesForChannel(meta.sources, meta.sourceLinks, form.channelId).map((source) => (
                           <option key={source.id} value={source.id}>
                             {source.displayName}
                           </option>
@@ -1664,7 +1875,7 @@ export default function LeadsPage() {
                     </div></section>
                     {drawer.mode==="edit"&&<section className="wide secondary-source-entry"><header><strong>Add secondary source</strong><small>The primary source above remains unchanged.</small></header><div className="secondary-source-grid">
                       <label>Channel *<select value={secondarySource.channelId} onChange={e=>setSecondarySource({...secondarySource,channelId:e.target.value,sourceId:"",campaignId:""})}><option value="">Select channel</option>{meta.channels.map(item=><option key={item.id} value={item.id}>{item.displayName} · {item.category}</option>)}</select></label>
-                      <label>Source *<select value={secondarySource.sourceId} onChange={e=>setSecondarySource({...secondarySource,sourceId:e.target.value,campaignId:""})}><option value="">Select source</option>{meta.sources.filter(source=>!secondarySource.channelId||!meta.sourceLinks.some(link=>String(link.channelId)===String(secondarySource.channelId))||meta.sourceLinks.some(link=>String(link.channelId)===String(secondarySource.channelId)&&String(link.sourceId)===String(source.id))).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
+                      <label>Source *<select value={secondarySource.sourceId} onChange={e=>setSecondarySource({...secondarySource,sourceId:e.target.value,campaignId:""})}><option value="">Select source</option>{sourcesForChannel(meta.sources, meta.sourceLinks, secondarySource.channelId).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
                       <label>Campaign *<select value={secondarySource.campaignId} onChange={e=>setSecondarySource({...secondarySource,campaignId:e.target.value})}><option value="">Select campaign</option>{meta.campaigns.filter(campaign=>!secondarySource.sourceId||!meta.campaignLinks.some(link=>String(link.sourceId)===String(secondarySource.sourceId))||meta.campaignLinks.some(link=>String(link.sourceId)===String(secondarySource.sourceId)&&String(link.campaignId)===String(campaign.id))).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
                     </div><button type="button" className="primary add-secondary-source" disabled={saving||!secondarySource.sourceId||!secondarySource.channelId||!secondarySource.campaignId} onClick={addSecondarySource}><Plus size={15}/> Add source</button></section>}
                     {drawer.mode!=="create"&&<div className="wide source-history"><strong>Source history</strong>{form.sourceHistory?.length?form.sourceHistory.map(item=><article key={item.id}><b>{item.isPrimary?"Primary":"Secondary"}</b><span>{item.academicYear} · {item.channel} · {item.source} · {item.campaign}</span><small>{item.addedBy} · {new Date(item.createdAt).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"})}</small></article>):<p>No source history available</p>}</div>}
@@ -1729,39 +1940,9 @@ export default function LeadsPage() {
                   </div>
                 </div>}
               </fieldset>
-              {drawer.mode === "view" && (
-                <div className="form-section lead-dates-section">
-                  <h3>Lead timeline</h3>
-                  <div className="dates-grid">
-                    <div className="date-item">
-                      <span className="date-label">Added</span>
-                      <strong>{form.addedAt ? new Date(form.addedAt).toLocaleString("en-IN", {timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}) : "—"}</strong>
-                    </div>
-                    <div className="date-item">
-                      <span className="date-label">Updated</span>
-                      <strong>{form.updatedAt ? new Date(form.updatedAt).toLocaleString("en-IN", {timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}) : "—"}</strong>
-                    </div>
-                    <div className="date-item">
-                      <span className="date-label">Referred</span>
-                      <strong>{form.referredAt ? new Date(form.referredAt).toLocaleString("en-IN", {timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}) : "—"}</strong>
-                    </div>
-                    <div className="date-item">
-                      <span className="date-label">Next Follow-up</span>
-                      <strong>{form.nextFollowup ? new Date(form.nextFollowup).toLocaleString("en-IN", {timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}) : "Not scheduled"}</strong>
-                    </div>
-                    <div className="date-item">
-                      <span className="date-label">Re-enquired</span>
-                      <strong>{form.reEnquiredAt ? new Date(form.reEnquiredAt).toLocaleString("en-IN", {timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}) : "—"}</strong>
-                    </div>
-                  </div>
-                </div>
-              )}
-              {drawer.mode === "view" && drawerTab === "activity" && (
-                <div className="activity-section modal-activity">
-                  <h3>Activity</h3>
-                  <ActivityTimeline activities={drawer.activities || []} />
-                </div>
-              )}
+              {/* The timeline and activity feed that used to live here now
+                  open from the history icon on the lead row, where the same
+                  question was already being asked. */}
               <div className="drawer-actions">
                 <button
                   type="button"
