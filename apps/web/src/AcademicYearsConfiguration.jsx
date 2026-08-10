@@ -223,42 +223,42 @@ export default function AcademicYearsConfiguration({ onMessage }) {
 
       <style>{`
         .config-content{padding:20px;display:grid;grid-template-columns:380px 1fr;gap:20px}
-        .config-add{display:grid;gap:14px;background:#f7f8fc;border:1px solid #e4ece8;border-radius:10px;padding:16px}
+        .config-add{display:grid;gap:14px;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:16px}
         .config-form-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
-        .config-form-title h3{margin:0;font:700 14px;color:#16241e}
-        .config-form-title button{border:0;background:none;color:#9294a4;cursor:pointer;padding:4px;display:grid;place-items:center}
-        .config-add label{display:grid;gap:7px;font-weight:600;font-size:12px;color:#42544b}
-        .config-add input{border:1px solid #e4ece8;border-radius:8px;padding:10px 11px;outline:none;background:#fff}
-        .config-add input:focus{border-color:#2fae7a;box-shadow:0 0 0 3px #2fae7a1a}
+        .config-form-title h3{margin:0;font:700 14px;color:var(--ink-800)}
+        .config-form-title button{border:0;background:none;color:var(--ink-400);cursor:pointer;padding:4px;display:grid;place-items:center}
+        .config-add label{display:grid;gap:7px;font-weight:600;font-size:12px;color:var(--ink-600)}
+        .config-add input{border:1px solid var(--line);border-radius:8px;padding:10px 11px;outline:none;background:#fff}
+        .config-add input:focus{border-color:var(--brand-400);box-shadow:0 0 0 3px color-mix(in srgb, var(--brand-400) 10.2%, transparent)}
         .config-yes-no{display:flex;gap:8px;margin-top:3px}
-        .config-yes-no button{border:1px solid #e4ece8;background:#fff;border-radius:8px;padding:9px 13px;font-size:11px;font-weight:600;color:#42544b;cursor:pointer}
-        .config-yes-no button.active{border-color:#2fae7a;background:#eef9f4;color:#12915f}
+        .config-yes-no button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:9px 13px;font-size:11px;font-weight:600;color:var(--ink-600);cursor:pointer}
+        .config-yes-no button.active{border-color:var(--brand-400);background:var(--brand-50);color:var(--brand-500)}
         .config-form-actions{display:flex;gap:9px;margin-top:4px}
         .config-form-actions button{border:0;border-radius:8px;padding:10px 14px;font-weight:700;font-size:12px;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
-        .primary{background:#0b7a4f;color:#fff}
-        .primary:hover:not(:disabled){background:#07603f}
+        .primary{background:var(--brand-600);color:#fff}
+        .primary:hover:not(:disabled){background:var(--brand-700)}
         .primary:disabled{opacity:.65}
-        .secondary{border:1px solid #e4ece8;background:#fff;color:#42544b}
-        .secondary:hover{border-color:#2fae7a;background:#f0f0fc}
+        .secondary{border:1px solid var(--line);background:#fff;color:var(--ink-600)}
+        .secondary:hover{border-color:var(--brand-400);background:var(--brand-50)}
         .config-list{display:flex;flex-direction:column;gap:12px}
-        .config-list-tools{display:flex;justify-content:space-between;align-items:center;padding:0 12px;font-size:12px;color:#5d7167}
+        .config-list-tools{display:flex;justify-content:space-between;align-items:center;padding:0 12px;font-size:12px;color:var(--ink-500)}
         .config-records{display:grid;gap:8px}
-        .config-records article{display:flex;justify-content:space-between;align-items:center;padding:14px 12px;border:1px solid #e4ece8;border-radius:8px;background:#fff}
-        .config-records article.selected{border-color:#2fae7a;background:#f5f5fc;box-shadow:inset 0 0 0 1px #2fae7a1a}
+        .config-records article{display:flex;justify-content:space-between;align-items:center;padding:14px 12px;border:1px solid var(--line);border-radius:8px;background:#fff}
+        .config-records article.selected{border-color:var(--brand-400);background:var(--surface-3);box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--brand-400) 10.2%, transparent)}
         .config-records article>div:first-child{display:grid;gap:2px}
-        .config-records article strong{font-size:12px;color:#16241e}
-        .config-records article small{font-size:11px;color:#8c8e9d}
+        .config-records article strong{font-size:12px;color:var(--ink-800)}
+        .config-records article small{font-size:11px;color:var(--ink-400)}
         .config-record-actions{display:flex;gap:8px}
-        .config-edit{border:0;background:none;color:#12915f;font-weight:600;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:5px}
+        .config-edit{border:0;background:none;color:var(--brand-500);font-weight:600;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:5px}
         .config-edit:hover{text-decoration:underline}
-        .config-status{border:0;background:none;color:#12915f;font-weight:600;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:6px}
-        .config-status i{display:inline-block;width:7px;height:7px;border-radius:50%;background:#e4ece8}
-        .config-status.active i{background:#278a6d}
-        .config-status.active{color:#278a6d}
-        .config-status.inactive i{background:#d9d9e0}
-        .config-status.inactive{color:#9294a4}
-        .empty{text-align:center;padding:20px;color:#8c8e9e;font-size:12px}
-        .empty strong{color:#16241e}
+        .config-status{border:0;background:none;color:var(--brand-500);font-weight:600;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:6px}
+        .config-status i{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--line)}
+        .config-status.active i{background:var(--brand-500)}
+        .config-status.active{color:var(--brand-500)}
+        .config-status.inactive i{background:var(--ink-200)}
+        .config-status.inactive{color:var(--ink-400)}
+        .empty{text-align:center;padding:20px;color:var(--ink-400);font-size:12px}
+        .empty strong{color:var(--ink-800)}
         @media(max-width:1024px){.config-content{grid-template-columns:1fr}}
       `}</style>
     </section>

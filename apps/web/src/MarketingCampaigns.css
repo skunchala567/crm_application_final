@@ -7,7 +7,7 @@
   gap: 10px;
   border: 1px dashed var(--primary);
   border-radius: 8px;
-  background: #f8f8ff;
+  background: var(--bg);
   color: var(--primary);
   cursor: pointer;
 }
@@ -37,10 +37,10 @@
   display: flex;
   align-items: center;
   gap: 11px;
-  border: 1px solid #b9e3d2;
+  border: 1px solid var(--brand-200);
   border-radius: 10px;
-  background: #effaf5;
-  color: #18745b;
+  background: var(--brand-50);
+  color: var(--brand-600);
 }
 
 .marketing-selected-audience > svg {
@@ -59,7 +59,7 @@
 
 .marketing-selected-audience span {
   font-size: 10px;
-  color: #4c7569;
+  color: var(--ink-500);
 }
 
 .campaign-record-list {
@@ -134,7 +134,7 @@
 
 .campaign-record-details {
   border-top: 1px solid var(--border);
-  background: #fcfcff;
+  background: var(--surface-2);
 }
 
 .campaign-detail-grid {

@@ -5,7 +5,7 @@
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(15, 18, 35, 0.62);
+  background: color-mix(in srgb, var(--ink-900) 62%, transparent);
 }
 
 .download-fields-dialog {
@@ -16,7 +16,7 @@
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 12px;
-  box-shadow: 0 24px 70px rgba(22, 24, 60, 0.32);
+  box-shadow: 0 24px 70px color-mix(in srgb, var(--brand-900) 32%, transparent);
   overflow: hidden;
 }
 
@@ -28,7 +28,7 @@
   gap: 16px;
   padding: 0 22px;
   background: linear-gradient(135deg, var(--primary-soft), #ffffff);
-  border-bottom: 1px solid #dfe1fb;
+  border-bottom: 1px solid var(--brand-100);
 }
 
 .download-fields-dialog header > div {
@@ -67,8 +67,8 @@
   gap: 9px;
   padding: 0 12px;
   border-radius: 8px;
-  background: #f7f7ff;
-  border: 1px solid #ececff;
+  background: var(--brand-50);
+  border: 1px solid var(--brand-100);
 }
 
 .download-dialog-search svg {
@@ -86,7 +86,7 @@
 
 .download-dialog-note {
   margin: 6px 26px 14px;
-  color: #686b76;
+  color: var(--ink-500);
   font-size: 12px;
   font-style: italic;
 }
@@ -97,7 +97,7 @@
   align-items: center;
   gap: 10px;
   padding: 0 28px;
-  border-bottom: 1px solid #dfe1fb;
+  border-bottom: 1px solid var(--brand-100);
   color: var(--ink);
   font-size: 12px;
   font-weight: 800;
@@ -136,7 +136,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #4d5060;
+  color: var(--ink-600);
   font-size: 13px;
   font-weight: 900;
 }
@@ -152,7 +152,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #4a4d59;
+  color: var(--ink-600);
   font-size: 12px;
 }
 
@@ -186,7 +186,7 @@
 }
 
 .download-reset {
-  border: 1px solid #cfd2df;
+  border: 1px solid var(--ink-200);
   background: #fff;
   color: var(--primary);
 }

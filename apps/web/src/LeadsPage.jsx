@@ -307,7 +307,7 @@ function FollowupDateFilter({ from, to, onChange, dateType = "nextFollowup", onD
     {/* Reflects the selected type: the control filters by whichever date is
         chosen, so a fixed "Follow-ups" label contradicted it. */}
     <span>{dateTypeLabels[dateType] || "Follow-ups"}</span>
-    <button type="button" className={`followup-range-trigger ${from || to ? "active" : ""}`} aria-expanded={open} onClick={toggleOpen}><CalendarRange size={16}/><div style={{display:"flex",flexDirection:"column",alignItems:"flex-start",minWidth:0,flex:1}}><small style={{fontSize:"10px",color:"#83968c"}}>{dateTypeLabels[dateType]}</small><b>{label}</b></div><ChevronDown size={14}/></button>
+    <button type="button" className={`followup-range-trigger ${from || to ? "active" : ""}`} aria-expanded={open} onClick={toggleOpen}><CalendarRange size={16}/><div style={{display:"flex",flexDirection:"column",alignItems:"flex-start",minWidth:0,flex:1}}><small style={{fontSize:"10px",color:"var(--ink-400)"}}>{dateTypeLabels[dateType]}</small><b>{label}</b></div><ChevronDown size={14}/></button>
     {open && <div className="followup-range-popover leads-date-range-popover">
       <div className="followup-range-header">
         <div className="followup-range-title"><CalendarRange size={18}/><div><strong>{dateTypeLabels[dateType]}</strong><small>Select the {dateTypeLabels[dateType].toLowerCase()} range</small></div></div>

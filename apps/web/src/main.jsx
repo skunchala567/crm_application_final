@@ -5,9 +5,15 @@ import './styles/tailwind.css';
 import './styles.css';
 import './theme.css';
 import { initTooltips } from './lib/tooltips.js';
+import { applyCachedBrandTheme } from './brand-theme.js';
 
 // Every button and filter explains itself on hover, with no delay.
 initTooltips();
+
+// Repaint from the last known business-unit colour before the first frame.
+// The live colour arrives with /platform/business-units, so without this the
+// app would render in the default palette and visibly flip on every reload.
+applyCachedBrandTheme();
 
 const rootElement = document.getElementById('root');
 globalThis.React = React;

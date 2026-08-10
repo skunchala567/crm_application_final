@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Building2, ChevronDown, GraduationCap } from 'lucide-react';
 import { api } from './api';
+import { applyBrandTheme, DEFAULT_BRAND_COLOR } from './brand-theme.js';
 
 const BusinessUnitContext = createContext(null);
 
@@ -32,6 +33,16 @@ export function BusinessUnitProvider({ children }) {
     window.dispatchEvent(new CustomEvent('crm:business-unit-changed',{detail:{businessUnitId:numeric}}));
   };
   const selectedUnit=units.find(unit=>unit.id===selectedId)||null;
+
+  // The unit's colour drives the whole design system, not just its own badge:
+  // applyBrandTheme regenerates --brand-*, --ink-* and the surface tokens that
+  // every sheet reads. Falling back to the default keeps a unit with no colour
+  // set from inheriting the previous unit's palette.
+  useEffect(()=>{
+    if(loading&&!selectedUnit)return;
+    applyBrandTheme(selectedUnit?.color||DEFAULT_BRAND_COLOR);
+  },[selectedUnit?.color,loading]);
+
   const value=useMemo(()=>({units,selectedUnit,selectedId,selectUnit,refresh,loading}),[units,selectedUnit,selectedId,loading]);
   return <BusinessUnitContext.Provider value={value}>{children}</BusinessUnitContext.Provider>;
 }

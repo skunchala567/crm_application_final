@@ -166,7 +166,7 @@
   padding: 8px;
   flex: 0 0 auto;
   border-radius: 50%;
-  background: linear-gradient(135deg, #6877e7, #7950ad);
+  background: linear-gradient(135deg, var(--brand-500), #7950ad);
   color: #fff;
 }
 
@@ -220,8 +220,8 @@
   border: 0;
   border-radius: 0;
   background:
-    linear-gradient(rgba(228, 236, 232, .9), rgba(228, 236, 232, .9)),
-    radial-gradient(circle at 14px 14px, rgba(42, 59, 51, .13) 1.5px, transparent 1.5px) 0 0 / 28px 28px;
+    linear-gradient(color-mix(in srgb, var(--line) 90%, transparent), color-mix(in srgb, var(--line) 90%, transparent)),
+    radial-gradient(circle at 14px 14px, color-mix(in srgb, var(--ink-700) 13%, transparent) 1.5px, transparent 1.5px) 0 0 / 28px 28px;
 }
 
 .wa-chat-empty {
@@ -250,12 +250,12 @@
   color: var(--ink);
   font-size: 11px;
   line-height: 1.45;
-  box-shadow: 0 2px 5px rgba(31, 35, 72, .06);
+  box-shadow: 0 2px 5px color-mix(in srgb, var(--brand-900) 6%, transparent);
 }
 
 .wa-chat-bubble.outgoing {
   align-self: flex-end;
-  border-color: #cfe6c5;
+  border-color: var(--brand-200);
   border-radius: 8px 8px 2px 8px;
   background: #d9fdd3;
 }
@@ -310,8 +310,8 @@
 }
 
 .wa-send-field textarea.template-locked {
-  background: #f0f1f6;
-  color: #596078;
+  background: var(--line-2);
+  color: var(--ink-500);
   cursor: not-allowed;
   resize: none;
 }
@@ -337,7 +337,7 @@
   height: 36px;
   padding: 0 9px;
   border-radius: 18px;
-  background: #f4f8f6;
+  background: var(--bg);
   font-size: 10px;
 }
 
@@ -364,7 +364,7 @@
   padding: 12px 14px;
   border: 0;
   border-radius: 18px;
-  background: #f4f8f6;
+  background: var(--bg);
   resize: none;
 }
 

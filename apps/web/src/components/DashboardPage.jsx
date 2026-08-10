@@ -575,7 +575,7 @@ function StatsWidget({ statCards, size }) {
 }
 
 const ACTIVITY_SERIES = {
-  crmHours: { label: 'CRM Usage', color: '#0b7a4f', suffix: '', decimals: 1 },
+  crmHours: { label: 'CRM Usage', color: 'var(--brand-600)', suffix: '', decimals: 1 },
   leads: { label: 'Lead', color: '#4e8bd8', suffix: '', decimals: 0 },
 };
 
@@ -617,7 +617,7 @@ function DailyActivityWidget({ data }) {
       <div className="dashboard-activity-chart" aria-label={`${series.label} by day`}>
         <svg viewBox={`0 0 ${width} ${height}`} role="img">
           {[0, 0.5, 1].map(ratio => <line key={ratio} x1={margin.left} x2={width - margin.right} y1={margin.top + plotHeight * ratio} y2={margin.top + plotHeight * ratio} className="activity-grid-line" />)}
-          {points.length > 0 && <><polyline points={pointString} fill="none" stroke={series.color} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />{points.map((point, index) => <g key={point.day || index}><circle cx={point.x} cy={point.y} r="4" fill="#fff" stroke={series.color} strokeWidth="3"><title>{`${point.day}: ${displayValue(point.value)}`}</title></circle><text x={point.x} y={Math.max(13, point.y - 10)} textAnchor="middle" className="activity-value-label">{displayValue(point.value)}</text>{(index % labelStep === 0 || index === points.length - 1) && <text x={point.x} y={height - 14} textAnchor="middle" className="activity-day-label">{displayDay(point.day)}</text>}</g>)}</>}
+          {points.length > 0 && <><polyline points={pointString} fill="none" style={{ stroke: series.color }} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />{points.map((point, index) => <g key={point.day || index}><circle cx={point.x} cy={point.y} r="4" fill="#fff" style={{ stroke: series.color }} strokeWidth="3"><title>{`${point.day}: ${displayValue(point.value)}`}</title></circle><text x={point.x} y={Math.max(13, point.y - 10)} textAnchor="middle" className="activity-value-label">{displayValue(point.value)}</text>{(index % labelStep === 0 || index === points.length - 1) && <text x={point.x} y={height - 14} textAnchor="middle" className="activity-day-label">{displayDay(point.day)}</text>}</g>)}</>}
         </svg>
       </div>
       <div className="dashboard-activity-legend"><i style={{ background: series.color }} /><span>{series.label}</span><strong>{displayValue(values.reduce((sum, value) => sum + value, 0))} total</strong></div>

@@ -1,25 +1,25 @@
-.public-enquiry-page{min-height:100vh;display:grid;place-items:center;padding:24px;background:#f4f8f6;color:#202238}
-.public-enquiry-card{width:min(720px,100%);background:#fff;border:1px solid #e0e2ec;border-radius:12px;box-shadow:0 18px 50px #20223b1f;overflow:hidden}
-.public-enquiry-card header{padding:24px 26px;border-top:5px solid var(--accent,#0b7a4f);border-bottom:1px solid #e5e6ee}
-.public-enquiry-card header span{color:var(--accent,#0b7a4f);font-size:11px;font-weight:800;text-transform:uppercase}
+.public-enquiry-page{min-height:100vh;display:grid;place-items:center;padding:24px;background:var(--bg);color:var(--brand-900)}
+.public-enquiry-card{width:min(720px,100%);background:#fff;border:1px solid var(--ink-200);border-radius:12px;box-shadow:0 18px 50px color-mix(in srgb, var(--brand-900) 12.2%, transparent);overflow:hidden}
+.public-enquiry-card header{padding:24px 26px;border-top:5px solid var(--accent,var(--brand-600));border-bottom:1px solid var(--line)}
+.public-enquiry-card header span{color:var(--accent,var(--brand-600));font-size:11px;font-weight:800;text-transform:uppercase}
 .public-enquiry-card h1{margin:5px 0 4px;font:800 25px 'Plus Jakarta Sans',sans-serif}
-.public-enquiry-card p{margin:0;color:#74778b;font-size:13px;line-height:1.6}
+.public-enquiry-card p{margin:0;color:var(--ink-500);font-size:13px;line-height:1.6}
 .public-enquiry-card form{display:grid;grid-template-columns:1fr 1fr;gap:15px;padding:24px 26px}
-.public-enquiry-card label{display:grid;gap:7px;color:#383b50;font-size:12px;font-weight:800}
+.public-enquiry-card label{display:grid;gap:7px;color:var(--ink-700);font-size:12px;font-weight:800}
 .public-enquiry-card label.wide,.public-form-error,.public-payment-note,.public-enquiry-card button{grid-column:1/-1}
-.public-enquiry-card input,.public-enquiry-card select,.public-enquiry-card textarea{width:100%;border:1px solid #d9dce8;border-radius:8px;background:#fff;padding:11px 12px;color:#25283d;font:500 13px 'Plus Jakarta Sans',sans-serif;outline:0}
-.public-enquiry-card input:focus,.public-enquiry-card select:focus,.public-enquiry-card textarea:focus{border-color:var(--accent,#0b7a4f);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent,#0b7a4f) 16%,transparent)}
+.public-enquiry-card input,.public-enquiry-card select,.public-enquiry-card textarea{width:100%;border:1px solid var(--ink-200);border-radius:8px;background:#fff;padding:11px 12px;color:var(--brand-900);font:500 13px 'Plus Jakarta Sans',sans-serif;outline:0}
+.public-enquiry-card input:focus,.public-enquiry-card select:focus,.public-enquiry-card textarea:focus{border-color:var(--accent,var(--brand-600));box-shadow:0 0 0 3px color-mix(in srgb,var(--accent,var(--brand-600)) 16%,transparent)}
 .public-enquiry-card textarea{resize:vertical}
-.public-enquiry-card button{height:46px;border:0;border-radius:8px;background:var(--accent,#0b7a4f);color:#fff;font:800 14px 'Plus Jakarta Sans',sans-serif;cursor:pointer}
+.public-enquiry-card button{height:46px;border:0;border-radius:8px;background:var(--accent,var(--brand-600));color:#fff;font:800 14px 'Plus Jakarta Sans',sans-serif;cursor:pointer}
 .public-enquiry-card button:disabled{opacity:.7;cursor:not-allowed}
-.public-payment-note{display:grid;gap:4px;padding:14px 16px;border:1px solid color-mix(in srgb,var(--accent,#0b7a4f) 24%,#d9dce8);border-radius:10px;background:color-mix(in srgb,var(--accent,#0b7a4f) 8%,#fff)}
-.public-payment-note strong{color:#202238;font-size:13px}
-.public-payment-note span{color:var(--accent,#0b7a4f);font-size:15px;font-weight:900}
-.public-payment-note small{color:#74778b;font-size:11px}
+.public-payment-note{display:grid;gap:4px;padding:14px 16px;border:1px solid color-mix(in srgb,var(--accent,var(--brand-600)) 24%,var(--ink-200));border-radius:10px;background:color-mix(in srgb,var(--accent,var(--brand-600)) 8%,#fff)}
+.public-payment-note strong{color:var(--brand-900);font-size:13px}
+.public-payment-note span{color:var(--accent,var(--brand-600));font-size:15px;font-weight:900}
+.public-payment-note small{color:var(--ink-500);font-size:11px}
 .public-form-error{padding:10px 12px;border-radius:8px;background:#fdeeed;color:#ad3434;font-size:12px}
 .public-enquiry-card.success,.public-enquiry-card.loading{display:grid;place-items:center;text-align:center;padding:44px 26px}
-.public-enquiry-card.success svg{width:46px;height:46px;color:var(--accent,#0b7a4f);margin-bottom:10px}
-.public-enquiry-card.loading svg{animation:spin 1s linear infinite;color:#0b7a4f}
+.public-enquiry-card.success svg{width:46px;height:46px;color:var(--accent,var(--brand-600));margin-bottom:10px}
+.public-enquiry-card.loading svg{animation:spin 1s linear infinite;color:var(--brand-600)}
 .website-field{position:absolute!important;left:-9999px!important;width:1px!important;height:1px!important;opacity:0!important}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media(max-width:640px){.public-enquiry-page{padding:12px}.public-enquiry-card form{grid-template-columns:1fr;padding:18px}.public-enquiry-card header{padding:20px 18px}.public-enquiry-card h1{font-size:22px}}

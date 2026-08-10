@@ -10,13 +10,13 @@
   margin: 0 0 0.5rem 0;
   font-size: 1.2rem;
   font-weight: 700;
-  color: #0d1a15;
+  color: var(--ink-900);
 }
 
 .sync-subtitle {
   margin: 0;
   font-size: 0.95rem;
-  color: #5d7167;
+  color: var(--ink-500);
 }
 
 .sync-actions {
@@ -44,25 +44,25 @@
 }
 
 .import-btn {
-  background: linear-gradient(135deg, #12915f 0%, #07603f 100%);
+  background: linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%);
   color: white;
 }
 
 .import-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #07603f 0%, #12915f 100%);
+  background: linear-gradient(135deg, var(--brand-700) 0%, var(--brand-500) 100%);
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(18, 145, 95, 0.4);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--brand-500) 40%, transparent);
 }
 
 .export-btn {
-  background: linear-gradient(135deg, #0b7a4f 0%, #0b7a4f 100%);
+  background: linear-gradient(135deg, var(--brand-600) 0%, var(--brand-600) 100%);
   color: white;
 }
 
 .export-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #0b7a4f 0%, #0b7a4f 100%);
+  background: linear-gradient(135deg, var(--brand-600) 0%, var(--brand-600) 100%);
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(11, 122, 79, 0.4);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--brand-600) 40%, transparent);
 }
 
 .sync-btn:active:not(:disabled) {
@@ -80,7 +80,7 @@
   align-items: center;
   gap: 1.5rem;
   padding: 2rem;
-  background: linear-gradient(135deg, #f0f9ff 0%, #f2f7f4 100%);
+  background: linear-gradient(135deg, #f0f9ff 0%, var(--surface-3) 100%);
   border: 2px solid #93c5fd;
   border-radius: 10px;
   margin-bottom: 2rem;
@@ -89,13 +89,13 @@
 .progress-title {
   margin: 0 0 0.5rem 0;
   font-weight: 600;
-  color: #0d1a15;
+  color: var(--ink-900);
   font-size: 1.05rem;
 }
 
 .progress-subtitle {
   margin: 0;
-  color: #5d7167;
+  color: var(--ink-500);
   font-size: 0.9rem;
 }
 
@@ -142,8 +142,8 @@
 
 .sync-success {
   padding: 2rem;
-  background: linear-gradient(135deg, #f0fdf4 0%, #f2f7f4 100%);
-  border: 2px solid #86efac;
+  background: linear-gradient(135deg, var(--brand-50) 0%, var(--surface-3) 100%);
+  border: 2px solid var(--brand-200);
   border-radius: 10px;
   margin-bottom: 2rem;
 }
@@ -154,11 +154,11 @@
   gap: 1rem;
   margin-bottom: 1.5rem;
   padding-bottom: 1.5rem;
-  border-bottom: 2px solid #86efac;
+  border-bottom: 2px solid var(--brand-200);
 }
 
 .success-header svg {
-  color: #0b7a4f;
+  color: var(--brand-600);
   flex-shrink: 0;
 }
 
@@ -166,7 +166,7 @@
   margin: 0;
   font-weight: 700;
   font-size: 1.1rem;
-  color: #0d1a15;
+  color: var(--ink-900);
 }
 
 .sync-stats {
@@ -183,24 +183,24 @@
   padding: 1rem;
   background: white;
   border-radius: 8px;
-  border: 1px solid #e4ece8;
+  border: 1px solid var(--line);
   transition: all 0.2s ease;
 }
 
 .stat-item:hover {
-  border-color: #0b7a4f;
-  box-shadow: 0 2px 8px rgba(11, 122, 79, 0.1);
+  border-color: var(--brand-600);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--brand-600) 10%, transparent);
 }
 
 .stat-item svg {
-  color: #0b7a4f;
+  color: var(--brand-600);
   flex-shrink: 0;
 }
 
 .stat-label {
   margin: 0;
   font-size: 0.8rem;
-  color: #5d7167;
+  color: var(--ink-500);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   font-weight: 600;
@@ -210,7 +210,7 @@
   margin: 0.25rem 0 0 0;
   font-size: 1.5rem;
   font-weight: 700;
-  color: #0d1a15;
+  color: var(--ink-900);
 }
 
 .sync-message {
@@ -218,15 +218,15 @@
   padding: 1rem;
   background: white;
   border-radius: 6px;
-  color: #42544b;
+  color: var(--ink-600);
   font-size: 0.95rem;
-  border-left: 4px solid #0b7a4f;
+  border-left: 4px solid var(--brand-600);
 }
 
 .sync-close-btn {
   width: 100%;
   padding: 0.875rem;
-  background: linear-gradient(135deg, #12915f 0%, #07603f 100%);
+  background: linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%);
   color: white;
   border: none;
   border-radius: 8px;
@@ -238,7 +238,7 @@
 }
 
 .sync-close-btn:hover {
-  background: linear-gradient(135deg, #07603f 0%, #12915f 100%);
+  background: linear-gradient(135deg, var(--brand-700) 0%, var(--brand-500) 100%);
   transform: translateY(-2px);
 }
 

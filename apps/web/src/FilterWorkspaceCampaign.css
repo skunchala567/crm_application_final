@@ -7,7 +7,7 @@
   margin-left: auto;
   padding: 2px 5px;
   border-radius: 8px;
-  background: #e9eaff;
+  background: var(--brand-100);
   color: var(--primary);
   font-size: 8px;
   font-weight: 800;
@@ -22,9 +22,9 @@
   padding: 16px 18px;
   display: grid;
   gap: 4px;
-  border: 1px solid #dadcf4;
+  border: 1px solid var(--ink-200);
   border-radius: 10px;
-  background: linear-gradient(135deg, #f7f7ff, #fff);
+  background: linear-gradient(135deg, var(--brand-50), #fff);
 }
 
 .marketing-filter-intro span {
@@ -98,7 +98,7 @@
   flex: none;
   display: grid;
   place-items: center;
-  border: 1px solid #cfd1df;
+  border: 1px solid var(--ink-200);
   border-radius: 4px;
   color: #fff;
   font-size: 11px;
@@ -137,7 +137,7 @@
   height: 40px;
   border-radius: 8px;
   background: var(--surface);
-  box-shadow: 0 1px 3px #0d1a150d;
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--ink-900) 5.1%, transparent);
   overflow: visible;
 }
 
@@ -160,7 +160,7 @@
   max-height: 240px;
   padding: 5px;
   border-radius: 9px;
-  box-shadow: 0 12px 28px #20223c1f;
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--brand-900) 12.2%, transparent);
 }
 
 .saved-filter-loader .search-select-menu button {
@@ -230,7 +230,7 @@
   grid-template-columns: 1fr;
   gap: 10px;
   padding: 14px;
-  border: 1px solid #e1e4ef;
+  border: 1px solid var(--line);
   border-radius: 12px;
   background: #fff;
   min-width: 0;
@@ -240,7 +240,7 @@
   grid-column: 1 / -1;
   margin: 0;
   font: 800 12px 'Plus Jakarta Sans', sans-serif;
-  color: #343764;
+  color: var(--brand-800);
 }
 
 @media(max-width:760px){

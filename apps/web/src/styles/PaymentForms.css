@@ -18,7 +18,7 @@
 .payment-forms h1 {
   margin: 0.5rem 0 0.25rem;
   font-size: 1.75rem;
-  color: #16241e;
+  color: var(--ink-800);
 }
 
 .payment-forms header span {
@@ -26,12 +26,12 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #5d7167;
+  color: var(--ink-500);
 }
 
 .payment-forms header p {
   margin: 0.5rem 0 0;
-  color: #42544b;
+  color: var(--ink-600);
   font-size: 0.9rem;
 }
 
@@ -40,7 +40,7 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.75rem 1.5rem;
-  background: #0b7a4f;
+  background: var(--brand-600);
   color: white;
   border: none;
   border-radius: 6px;
@@ -52,9 +52,9 @@
 }
 
 .payment-forms header button:hover {
-  background: #3b3d8a;
+  background: var(--brand-700);
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(11, 122, 79, 0.3);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--brand-600) 30%, transparent);
 }
 
 .forms-list {
@@ -73,13 +73,13 @@
   flex-direction: column;
   padding: 1.5rem;
   background: #fbfdfc;
-  border: 1px solid #e4ece8;
+  border: 1px solid var(--line);
   border-radius: 8px;
   transition: all 0.2s;
 }
 
 .form-card:hover {
-  border-color: #0b7a4f;
+  border-color: var(--brand-600);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
@@ -93,7 +93,7 @@
 .form-card h3 {
   margin: 0;
   font-size: 1.1rem;
-  color: #16241e;
+  color: var(--ink-800);
 }
 
 .status {
@@ -105,13 +105,13 @@
 }
 
 .status.active {
-  background: rgba(18, 145, 95, 0.1);
-  color: #07603f;
+  background: color-mix(in srgb, var(--brand-500) 10%, transparent);
+  color: var(--brand-700);
 }
 
 .status.inactive {
-  background: rgba(93, 113, 103, 0.1);
-  color: #5d7167;
+  background: color-mix(in srgb, var(--ink-500) 10%, transparent);
+  color: var(--ink-500);
 }
 
 /* Expired is its own state: the form was left on, the date simply passed. */
@@ -135,11 +135,11 @@
 
 .forms-count {
   font-size: 0.8rem;
-  color: #5d7167;
+  color: var(--ink-500);
 }
 
 .payment-forms-table-wrap {
-  border: 1px solid #e4ece8;
+  border: 1px solid var(--line);
   border-radius: 10px;
   background: #fff;
   overflow-x: auto;
@@ -156,20 +156,20 @@
 .payment-forms-table th {
   padding: 0.7rem 1rem;
   background: #fbfdfc;
-  border-bottom: 1px solid #e4ece8;
+  border-bottom: 1px solid var(--line);
   text-align: center;
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #5d7167;
+  color: var(--ink-500);
 }
 
 .payment-forms-table td {
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid #eef3f0;
+  border-bottom: 1px solid var(--line-2);
   font-size: 0.82rem;
-  color: #2a3b33;
+  color: var(--ink-700);
   vertical-align: middle;
   text-align: center;
 }
@@ -188,7 +188,7 @@
 .payment-forms-table td strong {
   display: block;
   font-size: 0.86rem;
-  color: #16241e;
+  color: var(--ink-800);
 }
 
 .payment-forms-table td small {
@@ -198,13 +198,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 0.72rem;
-  color: #5d7167;
+  color: var(--ink-500);
 }
 
 /* Counts stay centred with the rest; tabular figures keep the digits from
    shuffling sideways as the numbers change width. */
 .payment-forms-table .num { font-variant-numeric: tabular-nums; }
-.payment-forms-table .muted { color: #8fa198; }
+.payment-forms-table .muted { color: var(--ink-400); }
 .payment-forms-table .expiry-past { color: #a33028; font-weight: 600; }
 .payment-forms-table .actions-col { width: 1%; }
 
@@ -221,19 +221,19 @@
   height: 30px;
   min-width: 30px;
   padding: 0;
-  border: 1px solid #e4ece8;
+  border: 1px solid var(--line);
   border-radius: 6px;
   background: #fff;
-  color: #5d7167;
+  color: var(--ink-500);
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .payment-forms-table .row-actions button:hover,
 .payment-forms-table .row-actions a:hover {
-  border-color: #0b7a4f;
-  color: #0b7a4f;
-  background: #f2f7f4;
+  border-color: var(--brand-600);
+  color: var(--brand-600);
+  background: var(--surface-3);
 }
 
 .payment-forms-table .row-actions .danger:hover {
@@ -250,7 +250,7 @@
   display: grid;
   gap: 0.75rem;
   font-size: 0.85rem;
-  color: #2a3b33;
+  color: var(--ink-700);
 }
 
 .confirm-delete-body p { margin: 0; line-height: 1.5; }
@@ -283,7 +283,7 @@
 .branch-info {
   margin: 0.5rem 0;
   font-size: 0.9rem;
-  color: #42544b;
+  color: var(--ink-600);
 }
 
 .amount-info {
@@ -292,16 +292,16 @@
   gap: 0.5rem;
   margin: 0.75rem 0;
   padding: 0.75rem;
-  background: rgba(11, 122, 79, 0.05);
+  background: color-mix(in srgb, var(--brand-600) 5%, transparent);
   border-radius: 4px;
   font-weight: 500;
-  color: #0b7a4f;
+  color: var(--brand-600);
 }
 
 .submission-count {
   margin: 0.5rem 0;
   font-size: 0.85rem;
-  color: #5d7167;
+  color: var(--ink-500);
 }
 
 .form-actions {
@@ -309,7 +309,7 @@
   gap: 0.5rem;
   margin-top: auto;
   padding-top: 1rem;
-  border-top: 1px solid #e4ece8;
+  border-top: 1px solid var(--line);
 }
 
 .form-actions button,
@@ -319,10 +319,10 @@
   align-items: center;
   justify-content: center;
   padding: 0.5rem;
-  background: #f2f7f4;
-  border: 1px solid #e4ece8;
+  background: var(--surface-3);
+  border: 1px solid var(--line);
   border-radius: 4px;
-  color: #5d7167;
+  color: var(--ink-500);
   cursor: pointer;
   text-decoration: none;
   transition: all 0.2s;
@@ -330,9 +330,9 @@
 
 .form-actions button:hover,
 .form-actions a:hover {
-  background: #0b7a4f;
+  background: var(--brand-600);
   color: white;
-  border-color: #0b7a4f;
+  border-color: var(--brand-600);
 }
 
 .empty {
@@ -346,12 +346,12 @@
 
 .empty h3 {
   margin: 0 0 0.5rem;
-  color: #16241e;
+  color: var(--ink-800);
 }
 
 .empty p {
   margin: 0;
-  color: #42544b;
+  color: var(--ink-600);
   font-size: 0.9rem;
 }
 
@@ -388,7 +388,7 @@
   justify-content: space-between;
   align-items: center;
   padding: 2rem;
-  border-bottom: 1px solid #e4ece8;
+  border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
 
@@ -396,13 +396,13 @@
   margin: 0;
   font-size: 1.25rem;
   font-weight: 600;
-  color: #16241e;
+  color: var(--ink-800);
 }
 
 .modal-header button {
   background: none;
   border: none;
-  color: #5d7167;
+  color: var(--ink-500);
   cursor: pointer;
   padding: 0;
   display: flex;
@@ -413,7 +413,7 @@
 }
 
 .modal-header button:hover {
-  color: #16241e;
+  color: var(--ink-800);
 }
 
 form {
@@ -433,7 +433,7 @@ form {
 
 .form-group label {
   font-weight: 500;
-  color: #2a3b33;
+  color: var(--ink-700);
   font-size: 0.9rem;
 }
 
@@ -441,11 +441,11 @@ form {
 .form-group select,
 .form-group textarea {
   padding: 0.75rem;
-  border: 1px solid #d5dfd9;
+  border: 1px solid var(--ink-200);
   border-radius: 6px;
   font-size: 0.9rem;
   background: white;
-  color: #16241e;
+  color: var(--ink-800);
   font-family: inherit;
 }
 
@@ -453,15 +453,15 @@ form {
 .form-group select:focus,
 .form-group textarea:focus {
   outline: none;
-  border-color: #0b7a4f;
-  box-shadow: 0 0 0 3px rgba(11, 122, 79, 0.1);
+  border-color: var(--brand-600);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-600) 10%, transparent);
 }
 
 .modal-footer {
   display: flex;
   gap: 1rem;
   padding: 1.5rem 2rem;
-  border-top: 1px solid #e4ece8;
+  border-top: 1px solid var(--line);
   justify-content: flex-end;
   flex-shrink: 0;
 }
@@ -471,39 +471,39 @@ form {
   border-radius: 6px;
   font-weight: 500;
   cursor: pointer;
-  border: 1px solid #d5dfd9;
+  border: 1px solid var(--ink-200);
   background: white;
-  color: #2a3b33;
+  color: var(--ink-700);
   transition: all 0.2s;
 }
 
 .modal-footer button:hover {
-  background: #f2f7f4;
-  border-color: #83968c;
+  background: var(--surface-3);
+  border-color: var(--ink-400);
 }
 
 .modal-footer button.primary {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  background: #0b7a4f;
+  background: var(--brand-600);
   color: white;
-  border-color: #0b7a4f;
+  border-color: var(--brand-600);
 }
 
 .modal-footer button.primary:hover {
-  background: #3b3d8a;
-  border-color: #3b3d8a;
+  background: var(--brand-700);
+  border-color: var(--brand-700);
 }
 
 .category-count {
   margin: 0.5rem 0;
   font-size: 0.85rem;
-  color: #5d7167;
+  color: var(--ink-500);
 }
 
 fieldset.categories-section {
-  border: 1px solid #d5dfd9;
+  border: 1px solid var(--ink-200);
   border-radius: 6px;
   padding: 1rem;
   margin: 1rem 0;
@@ -512,12 +512,12 @@ fieldset.categories-section {
 .categories-section legend {
   padding: 0 0.5rem;
   font-weight: 600;
-  color: #2a3b33;
+  color: var(--ink-700);
 }
 
 .legend-text {
   font-size: 0.85rem;
-  color: #5d7167;
+  color: var(--ink-500);
   margin-top: 0.25rem;
   margin-bottom: 1rem;
 }
@@ -533,19 +533,19 @@ fieldset.categories-section {
 .category-row input,
 .category-row select {
   padding: 0.75rem;
-  border: 1px solid #d5dfd9;
+  border: 1px solid var(--ink-200);
   border-radius: 6px;
   font-size: 0.9rem;
   background: white;
-  color: #16241e;
+  color: var(--ink-800);
   font-family: inherit;
 }
 
 .category-row input:focus,
 .category-row select:focus {
   outline: none;
-  border-color: #0b7a4f;
-  box-shadow: 0 0 0 3px rgba(11, 122, 79, 0.1);
+  border-color: var(--brand-600);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-600) 10%, transparent);
 }
 
 .category-row button {
@@ -571,17 +571,17 @@ fieldset.categories-section {
   gap: 0.5rem;
   padding: 0.75rem 1rem;
   background: white;
-  border: 1px dashed #d5dfd9;
+  border: 1px dashed var(--ink-200);
   border-radius: 6px;
-  color: #0b7a4f;
+  color: var(--brand-600);
   cursor: pointer;
   font-weight: 500;
   transition: all 0.2s;
 }
 
 .categories-section > button:hover {
-  border-color: #0b7a4f;
-  background: rgba(11, 122, 79, 0.05);
+  border-color: var(--brand-600);
+  background: color-mix(in srgb, var(--brand-600) 5%, transparent);
 }
 
 @media (max-width: 768px) {
@@ -597,14 +597,14 @@ fieldset.categories-section {
   max-height: 92vh;
   border-radius: 5px;
   overflow: hidden;
-  border: 1px solid #dce5e0;
-  box-shadow: 0 24px 70px rgba(15, 31, 24, 0.28);
+  border: 1px solid var(--ink-200);
+  box-shadow: 0 24px 70px color-mix(in srgb, var(--ink-900) 28%, transparent);
 }
 
 .payment-form-modal .modal-header {
   align-items: center;
   padding: 1rem 1.25rem;
-  background: #f7faf8;
+  background: var(--bg);
 }
 
 .payment-modal-title {
@@ -619,9 +619,9 @@ fieldset.categories-section {
   display: grid;
   place-items: center;
   border-radius: 5px;
-  color: #08734c;
-  background: #e5f6ee;
-  border: 1px solid #caeadc;
+  color: var(--brand-600);
+  background: var(--brand-50);
+  border: 1px solid var(--brand-100);
 }
 
 .payment-modal-title > div {
@@ -631,7 +631,7 @@ fieldset.categories-section {
 
 .payment-modal-title p {
   margin: 0;
-  color: #718078;
+  color: var(--ink-500);
   font-size: 0.75rem;
 }
 
@@ -641,17 +641,17 @@ fieldset.categories-section {
   padding: 0;
   display: grid;
   place-items: center;
-  border: 1px solid #d8e1dc;
+  border: 1px solid var(--ink-200);
   border-radius: 4px;
   background: #fff;
-  color: #53635b;
+  color: var(--ink-500);
   transform: none;
   box-shadow: none;
 }
 
 .payment-form-modal .modal-header > button:hover {
-  background: #edf5f1;
-  color: #08734c;
+  background: var(--line-2);
+  color: var(--brand-600);
   transform: none;
   box-shadow: none;
 }
@@ -705,7 +705,7 @@ fieldset.categories-section {
 .payment-form-create .field-hint {
   font-size: 0.68rem;
   font-weight: 400;
-  color: #5d7167;
+  color: var(--ink-500);
   text-transform: none;
   letter-spacing: 0;
 }
@@ -735,10 +735,10 @@ fieldset.categories-section {
   align-items: center;
   justify-content: flex-start;
   gap: 0.4rem;
-  border: 1px solid #d5dfd9;
+  border: 1px solid var(--ink-200);
   border-radius: 4px;
   background: #fff;
-  color: #52635a;
+  color: var(--ink-500);
   cursor: pointer;
   text-align: left;
 }
@@ -751,28 +751,28 @@ fieldset.categories-section {
 
 .selection-type-toggle button strong {
   font-size: 0.75rem;
-  color: #263a31;
+  color: var(--ink-700);
 }
 
 .selection-type-toggle button small {
   margin-top: 0.15rem;
   overflow: hidden;
-  color: #718078;
+  color: var(--ink-500);
   font-size: 0.62rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .selection-type-toggle button.active {
-  border-color: #0b7a4f;
-  background: #e7f6ef;
-  color: #08734c;
-  box-shadow: 0 0 0 1px rgba(11, 122, 79, 0.08);
+  border-color: var(--brand-600);
+  background: var(--brand-50);
+  color: var(--brand-600);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand-600) 8%, transparent);
 }
 
 .selection-type-toggle button.active strong,
 .selection-type-toggle button.active small {
-  color: #08734c;
+  color: var(--brand-600);
 }
 
 .payment-form-create .form-group {
@@ -788,7 +788,7 @@ fieldset.categories-section {
 
 .payment-form-create .form-group label svg,
 .payment-form-create .categories-section legend svg {
-  color: #08734c;
+  color: var(--brand-600);
   flex: none;
 }
 
@@ -825,7 +825,7 @@ fieldset.categories-section {
   z-index: 5;
   margin: 0 -1.25rem -1.25rem;
   padding: 0.9rem 1.25rem;
-  background: #f7faf8;
+  background: var(--bg);
 }
 
 .payment-form-create .modal-footer button,
@@ -864,9 +864,9 @@ fieldset.categories-section {
   flex-direction: column;
   gap: 1.5rem;
   padding: 1.5rem;
-  background: #f8f9fc;
+  background: var(--bg);
   border-radius: 8px;
-  border: 1px solid #e4ece8;
+  border: 1px solid var(--line);
 }
 
 .builder-header {
@@ -878,13 +878,13 @@ fieldset.categories-section {
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
-  color: #16241e;
+  color: var(--ink-800);
 }
 
 .builder-header p {
   margin: 0;
   font-size: 0.875rem;
-  color: #5d7167;
+  color: var(--ink-500);
 }
 
 .fields-list {
@@ -896,16 +896,16 @@ fieldset.categories-section {
 .empty-fields {
   padding: 2rem 1rem;
   text-align: center;
-  color: #83968c;
+  color: var(--ink-400);
   font-size: 0.875rem;
   background: white;
-  border: 1px dashed #d5dfd9;
+  border: 1px dashed var(--ink-200);
   border-radius: 6px;
 }
 
 .field-card {
   background: white;
-  border: 1px solid #d5dfd9;
+  border: 1px solid var(--ink-200);
   border-radius: 8px;
   padding: 1rem;
   display: grid;
@@ -929,7 +929,7 @@ fieldset.categories-section {
 
 .field-info strong {
   font-size: 0.95rem;
-  color: #16241e;
+  color: var(--ink-800);
 }
 
 .field-type {
@@ -990,26 +990,26 @@ fieldset.categories-section {
   gap: 0.5rem;
   font-size: 0.875rem;
   font-weight: 500;
-  color: #2a3b33;
+  color: var(--ink-700);
 }
 
 .field-grid input,
 .field-grid select {
   width: 100%;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #d5dfd9;
+  border: 1px solid var(--ink-200);
   border-radius: 6px;
   font-size: 0.875rem;
   background: white;
-  color: #16241e;
+  color: var(--ink-800);
   outline: none;
   transition: all 0.2s;
 }
 
 .field-grid input:focus,
 .field-grid select:focus {
-  border-color: #0b7a4f;
-  box-shadow: 0 0 0 3px rgba(11, 122, 79, 0.1);
+  border-color: var(--brand-600);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-600) 10%, transparent);
 }
 
 /* Both of these used to claim the whole row, which is what pushed the tick
@@ -1048,7 +1048,7 @@ fieldset.categories-section {
   display: grid;
   gap: 0.75rem;
   padding-top: 0.75rem;
-  border-top: 1px solid #e4ece8;
+  border-top: 1px solid var(--line);
 }
 
 /* Five across needs the width; on a phone each field takes its own line.
@@ -1067,7 +1067,7 @@ fieldset.categories-section {
   margin: 0;
   font-size: 0.875rem;
   font-weight: 500;
-  color: #2a3b33;
+  color: var(--ink-700);
 }
 
 .option-row {
@@ -1080,7 +1080,7 @@ fieldset.categories-section {
 .option-row input {
   width: 100%;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #d5dfd9;
+  border: 1px solid var(--ink-200);
   border-radius: 6px;
   font-size: 0.875rem;
 }
@@ -1107,9 +1107,9 @@ fieldset.categories-section {
   gap: 0.5rem;
   padding: 0.5rem 0.75rem;
   background: white;
-  border: 1px dashed #d5dfd9;
+  border: 1px dashed var(--ink-200);
   border-radius: 6px;
-  color: #0b7a4f;
+  color: var(--brand-600);
   cursor: pointer;
   font-weight: 500;
   font-size: 0.875rem;
@@ -1117,8 +1117,8 @@ fieldset.categories-section {
 }
 
 .add-option-btn:hover {
-  border-color: #0b7a4f;
-  background: rgba(11, 122, 79, 0.05);
+  border-color: var(--brand-600);
+  background: color-mix(in srgb, var(--brand-600) 5%, transparent);
 }
 
 .add-field-btn {
@@ -1128,15 +1128,15 @@ fieldset.categories-section {
   justify-self: flex-start;
   padding: 0.75rem 1rem;
   background: white;
-  border: 1px solid #0b7a4f;
+  border: 1px solid var(--brand-600);
   border-radius: 6px;
-  color: #0b7a4f;
+  color: var(--brand-600);
   cursor: pointer;
   font-weight: 500;
   transition: all 0.2s;
 }
 
 .add-field-btn:hover {
-  background: #f3f1ff;
-  border-color: #3a3fa1;
+  background: var(--brand-50);
+  border-color: var(--brand-700);
 }

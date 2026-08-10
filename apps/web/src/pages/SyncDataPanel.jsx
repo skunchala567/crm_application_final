@@ -73,7 +73,7 @@ export default function SyncDataPanel({ integrationId, provider }) {
 
       {syncInProgress && (
         <div className="sync-progress">
-          <Loader size={32} style={{ animation: 'spin 1s linear infinite', color: '#12915f' }} />
+          <Loader size={32} style={{ animation: 'spin 1s linear infinite', color: 'var(--brand-500)' }} />
           <div>
             <p className="progress-title">
               {syncType === 'import' ? 'Importing data...' : 'Exporting data...'}

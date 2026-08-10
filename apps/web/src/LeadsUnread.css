@@ -9,15 +9,15 @@
   place-items: center;
   border: 2px solid #fff;
   border-radius: 10px;
-  background: #16866a;
+  background: var(--brand-600);
   color: #fff;
   font: 800 8px 'Plus Jakarta Sans';
 }
 
 .row-followup-trigger.has-unread {
-  border-color: #7bc9b5;
-  background: #eef9f5;
-  color: #16866a;
+  border-color: var(--brand-300);
+  background: var(--brand-50);
+  color: var(--brand-600);
 }
 
 .header-action-icon i.has-count {

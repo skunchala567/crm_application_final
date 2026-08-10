@@ -1,15 +1,23 @@
 // Accent ramps derived from the reference tokens. Shared by the named
 // semantic colours and by the built-in palette overrides below.
+//
+// BRAND and NEUTRAL resolve through the design tokens rather than fixed hex,
+// so Tailwind-styled chrome (the sidebar, headers, buttons) retints with the
+// active business unit exactly like the hand-written CSS does. The hex values
+// they fall back to are the shipped green palette, which is what theme.css
+// defines when no unit colour has been applied yet.
 const BRAND = {
-  50: "#eef9f4", 100: "#d8f2e6", 200: "#a9e2c6", 300: "#69c99e", 400: "#2fae7a",
-  500: "#12915f", 600: "#0b7a4f", 700: "#07603f", 800: "#064e33", 900: "#04301f",
-  950: "#04301f", DEFAULT: "#0b7a4f",
+  50: "var(--brand-50, #eef9f4)", 100: "var(--brand-100, #d8f2e6)", 200: "var(--brand-200, #a9e2c6)",
+  300: "var(--brand-300, #69c99e)", 400: "var(--brand-400, #2fae7a)", 500: "var(--brand-500, #12915f)",
+  600: "var(--brand-600, #0b7a4f)", 700: "var(--brand-700, #07603f)", 800: "var(--brand-800, #064e33)",
+  900: "var(--brand-900, #04301f)", 950: "var(--brand-900, #04301f)", DEFAULT: "var(--brand-600, #0b7a4f)",
 };
 
 const NEUTRAL = {
-  50: "#f7faf8", 100: "#e9f0ec", 200: "#d5dfd9", 300: "#adbcb4", 400: "#83968c",
-  500: "#5d7167", 600: "#42544b", 700: "#2a3b33", 800: "#16241e", 900: "#0d1a15",
-  950: "#04100b", DEFAULT: "#5d7167",
+  50: "var(--surface-2, #f7faf8)", 100: "var(--ink-100, #e9f0ec)", 200: "var(--ink-200, #d5dfd9)",
+  300: "var(--ink-300, #adbcb4)", 400: "var(--ink-400, #83968c)", 500: "var(--ink-500, #5d7167)",
+  600: "var(--ink-600, #42544b)", 700: "var(--ink-700, #2a3b33)", 800: "var(--ink-800, #16241e)",
+  900: "var(--ink-900, #0d1a15)", 950: "var(--ink-900, #0d1a15)", DEFAULT: "var(--ink-500, #5d7167)",
 };
 
 const RED = {
@@ -56,23 +64,23 @@ export default {
         primary: BRAND,
         // Neutral scale, green-tinted to sit with the brand.
         secondary: NEUTRAL,
-        border: "#e4ece8",
-        background: "#f4f8f6",
-        foreground: "#0d1a15",
+        border: "var(--line, #e4ece8)",
+        background: "var(--bg, #f4f8f6)",
+        foreground: "var(--ink-900, #0d1a15)",
         card: "#ffffff",
-        "card-foreground": "#0d1a15",
-        muted: "#5d7167",
-        "muted-foreground": "#83968c",
-        accent: "#0b7a4f",
+        "card-foreground": "var(--ink-900, #0d1a15)",
+        muted: "var(--ink-500, #5d7167)",
+        "muted-foreground": "var(--ink-400, #83968c)",
+        accent: "var(--brand-600, #0b7a4f)",
         "accent-foreground": "#ffffff",
         surface: {
           DEFAULT: "#ffffff",
-          2: "#fbfdfc",
-          3: "#f2f7f4",
+          2: "var(--surface-2, #fbfdfc)",
+          3: "var(--surface-3, #f2f7f4)",
         },
         line: {
-          DEFAULT: "#e4ece8",
-          2: "#eef3f0",
+          DEFAULT: "var(--line, #e4ece8)",
+          2: "var(--line-2, #eef3f0)",
         },
         // Semantic accents from the reference.
         danger: { DEFAULT: "#c33d35", bg: "#fdeeed" },
@@ -130,14 +138,15 @@ export default {
         xl: "20px",
         "2xl": "26px",
       },
-      // Soft, green-tinted elevation from the reference.
+      // Elevation reuses the --sh-* tokens, which brand-theme.js retints with
+      // the active unit; the literals are the shipped green fallbacks.
       boxShadow: {
-        xs: "0 1px 2px rgba(9,42,29,.05)",
-        sm: "0 2px 6px rgba(9,42,29,.06), 0 1px 2px rgba(9,42,29,.04)",
-        md: "0 8px 22px -8px rgba(9,42,29,.16), 0 2px 6px rgba(9,42,29,.05)",
-        lg: "0 22px 48px -18px rgba(9,42,29,.28), 0 6px 16px rgba(9,42,29,.07)",
-        xl: "0 22px 48px -18px rgba(9,42,29,.28), 0 6px 16px rgba(9,42,29,.07)",
-        brand: "0 14px 30px -12px rgba(11,122,79,.45)",
+        xs: "var(--sh-xs, 0 1px 2px rgba(9,42,29,.05))",
+        sm: "var(--sh-sm, 0 2px 6px rgba(9,42,29,.06), 0 1px 2px rgba(9,42,29,.04))",
+        md: "var(--sh-md, 0 8px 22px -8px rgba(9,42,29,.16), 0 2px 6px rgba(9,42,29,.05))",
+        lg: "var(--sh-lg, 0 22px 48px -18px rgba(9,42,29,.28), 0 6px 16px rgba(9,42,29,.07))",
+        xl: "var(--sh-lg, 0 22px 48px -18px rgba(9,42,29,.28), 0 6px 16px rgba(9,42,29,.07))",
+        brand: "var(--sh-brand, 0 14px 30px -12px rgba(11,122,79,.45))",
       },
       // Keys are prefixed with `ease-` by Tailwind, so these produce
       // `ease-soft` and `ease-out-soft`.

@@ -164,7 +164,7 @@ button.secondary:hover,
   border: 1px solid var(--border);
   border-radius: 16px;
   background: #fff;
-  box-shadow: 0 18px 48px #17352a24;
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--brand-900) 14.1%, transparent);
 }
 
 .notification-popover-head {
@@ -212,16 +212,16 @@ button.secondary:hover,
 }
 .notification-item:last-child { border-bottom: 0; }
 .notification-item:hover { background: var(--primary-soft); }
-.notification-item.unread { background: #f2fbf7; }
-.notification-item.unread:hover { background: #e8f7f0; }
-.notification-item > i { width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: #d2ddd8; }
-.notification-item > i.unread { background: var(--primary); box-shadow: 0 0 0 3px #0b7a4f16; }
+.notification-item.unread { background: var(--brand-50); }
+.notification-item.unread:hover { background: var(--brand-50); }
+.notification-item > i { width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--ink-200); }
+.notification-item > i.unread { background: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-600) 8.6%, transparent); }
 .notification-item > span { min-width: 0; display: grid; gap: 4px; }
 .notification-item strong { overflow-wrap: anywhere; font-size: 13px; line-height: 1.4; }
 .notification-item > span > span { overflow-wrap: anywhere; color: var(--muted); font-size: 12px; line-height: 1.45; }
-.notification-item small { margin-top: 2px; color: #84958d; font-size: 10px; line-height: 1.35; }
+.notification-item small { margin-top: 2px; color: var(--ink-400); font-size: 10px; line-height: 1.35; }
 .notification-empty { margin: 0; padding: 38px 18px; color: var(--muted); font-size: 12px; text-align: center; }
-.live-notification-toast{position:fixed;z-index:1000;top:76px;right:20px;width:min(390px,calc(100vw - 32px));display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;gap:11px;padding:14px;border:1px solid #bfe4d7;border-radius:12px;background:#f2fbf7;color:var(--primary);box-shadow:0 16px 42px #0d1a1530;text-align:left;animation:toast-in .2s ease-out}.live-notification-toast>button{min-width:0;padding:0;border:0;background:transparent;text-align:left}.live-notification-toast>button:not(.live-notification-close){display:grid;gap:4px;cursor:pointer}.live-notification-toast strong{overflow-wrap:anywhere;color:var(--ink);font-size:13px;line-height:1.35}.live-notification-toast small{overflow-wrap:anywhere;color:var(--muted);font-size:11px;line-height:1.4}.live-notification-toast .live-notification-close{display:grid;place-items:center;color:var(--muted);cursor:pointer}.live-notification-toast:hover{background:#e8f7f0}
+.live-notification-toast{position:fixed;z-index:1000;top:76px;right:20px;width:min(390px,calc(100vw - 32px));display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;gap:11px;padding:14px;border:1px solid var(--ink-200);border-radius:12px;background:var(--brand-50);color:var(--primary);box-shadow:0 16px 42px color-mix(in srgb, var(--ink-900) 18.8%, transparent);text-align:left;animation:toast-in .2s ease-out}.live-notification-toast>button{min-width:0;padding:0;border:0;background:transparent;text-align:left}.live-notification-toast>button:not(.live-notification-close){display:grid;gap:4px;cursor:pointer}.live-notification-toast strong{overflow-wrap:anywhere;color:var(--ink);font-size:13px;line-height:1.35}.live-notification-toast small{overflow-wrap:anywhere;color:var(--muted);font-size:11px;line-height:1.4}.live-notification-toast .live-notification-close{display:grid;place-items:center;color:var(--muted);cursor:pointer}.live-notification-toast:hover{background:var(--brand-50)}
 
 @media (max-width: 520px) {
   .notification-popover { position: fixed; top: 64px; right: 10px; left: 10px; width: auto; }
@@ -520,15 +520,15 @@ table tbody tr:hover { background: var(--brand-50); }
   min-width: 16px;
   margin: 0;
   padding: 0;
-  accent-color: var(--purple, #0b7a4f);
+  accent-color: var(--purple, var(--brand-600));
   cursor: pointer;
 }
 
 /* A read-only field should not look like one you can type into. */
 .template-form-wrapper input.is-readonly,
 input.is-readonly {
-  background: var(--surface-3, #f4f8f6);
-  color: var(--text-secondary, #5d7167);
+  background: var(--surface-3, var(--bg));
+  color: var(--text-secondary, var(--ink-500));
   cursor: default;
 }
 
@@ -591,7 +591,7 @@ input.is-readonly {
   border: 1px solid var(--line);
   border-radius: 18px;
   background: transparent;
-  color: #2f3a5f;
+  color: var(--brand-800);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: .02em;
@@ -612,7 +612,7 @@ input.is-readonly {
 .automation-module-tabs > button:hover,
 .details-tabs > .tab:hover,
 .ui-tabs > .ui-tab:hover {
-  border-color: #d9dbeb;
+  border-color: var(--ink-200);
   background: var(--accent-softer);
   color: var(--ink);
 }
@@ -630,8 +630,8 @@ input.is-readonly {
 .automation-module-tabs > button.active,
 .details-tabs > .tab.active,
 .ui-tabs > .ui-tab[data-state="active"] {
-  border-color: #c9cbea;
-  border-bottom-color: #c9cbea;
+  border-color: var(--brand-200);
+  border-bottom-color: var(--brand-200);
   border-radius: 18px;
   background: var(--accent-soft);
   color: var(--ink);
@@ -697,7 +697,7 @@ input.is-readonly {
   text-align: center;
   white-space: normal;
   pointer-events: none;
-  box-shadow: 0 6px 18px rgba(9, 42, 29, .28);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--brand-900) 28%, transparent);
 }
 
 .app-tooltip[hidden] {

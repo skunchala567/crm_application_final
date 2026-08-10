@@ -569,12 +569,12 @@ function DashboardWidgetContent({ id, data, leads, cards, report }) {
 
 function DashboardActivityPreview({ trends }) {
   const [metric, setMetric] = useState("crmHours");
-  const options = { crmHours: ["CRM hours", "h", "#0b7a4f"], leadsAssigned: ["Leads added to me", "", "#4e8bd8"], followupsDone: ["Follow-ups done", "", "#d9823b"] };
+  const options = { crmHours: ["CRM hours", "h", "var(--brand-600)"], leadsAssigned: ["Leads added to me", "", "#4e8bd8"], followupsDone: ["Follow-ups done", "", "#d9823b"] };
   const [label, suffix, color] = options[metric];
   const values = trends.map(item => Number(item[metric]) || 0);
   const maximum = Math.max(...values, 1);
   const points = values.map((value, index) => `${30 + index * (580 / Math.max(values.length - 1, 1))},${175 - value / maximum * 130}`).join(" ");
-  return <article className="panel dashboard-report-widget"><div className="dashboard-report-widget-head"><span>Personal report</span><h3>My Daily CRM Activity</h3><select className="dashboard-activity-select" value={metric} onChange={event => setMetric(event.target.value)}>{Object.entries(options).map(([key, item]) => <option key={key} value={key}>{item[0]}</option>)}</select></div><div className="dashboard-activity-chart"><svg viewBox="0 0 640 210"><polyline points={points} fill="none" stroke={color} strokeWidth="3" />{values.map((value, index) => { const x=30+index*(580/Math.max(values.length-1,1)),y=175-value/maximum*130; return <g key={index}><circle cx={x} cy={y} r="4" fill="#fff" stroke={color} strokeWidth="3"/><text x={x} y={y-10} textAnchor="middle" className="activity-value-label">{`${metric==="crmHours"?value.toFixed(1):value}${suffix}`}</text></g>; })}</svg></div><div className="dashboard-activity-legend"><i style={{background:color}}/><span>{label}</span></div></article>;
+  return <article className="panel dashboard-report-widget"><div className="dashboard-report-widget-head"><span>Personal report</span><h3>My Daily CRM Activity</h3><select className="dashboard-activity-select" value={metric} onChange={event => setMetric(event.target.value)}>{Object.entries(options).map(([key, item]) => <option key={key} value={key}>{item[0]}</option>)}</select></div><div className="dashboard-activity-chart"><svg viewBox="0 0 640 210"><polyline points={points} fill="none" style={{ stroke: color }} strokeWidth="3" />{values.map((value, index) => { const x=30+index*(580/Math.max(values.length-1,1)),y=175-value/maximum*130; return <g key={index}><circle cx={x} cy={y} r="4" fill="#fff" style={{ stroke: color }} strokeWidth="3"/><text x={x} y={y-10} textAnchor="middle" className="activity-value-label">{`${metric==="crmHours"?value.toFixed(1):value}${suffix}`}</text></g>; })}</svg></div><div className="dashboard-activity-legend"><i style={{background:color}}/><span>{label}</span></div></article>;
 }
 
 function ReportsPage() {

@@ -28,7 +28,7 @@
 }
 
 .preview-header {
-  background: linear-gradient(135deg, #12915f 0%, #07603f 100%);
+  background: linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%);
   padding: 12px 16px;
   color: white;
 }
@@ -233,7 +233,7 @@
 
 @media (prefers-color-scheme: dark) {
   .message-bubble {
-    background: #056162;
+    background: var(--brand-700);
     color: white;
   }
 
@@ -260,7 +260,7 @@
   border-radius: 9px;
   border-color: var(--border);
   background: var(--canvas);
-  box-shadow: 0 2px 7px rgba(13, 26, 21, .04);
+  box-shadow: 0 2px 7px color-mix(in srgb, var(--ink-900) 4%, transparent);
 }
 
 .settings-create-template .preview-header {
@@ -289,7 +289,7 @@
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px 8px 8px 2px;
-  box-shadow: 0 1px 3px rgba(13, 26, 21, .06);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--ink-900) 6%, transparent);
 }
 
 .settings-create-template .message-text {

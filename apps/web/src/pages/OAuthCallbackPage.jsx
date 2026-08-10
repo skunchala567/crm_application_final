@@ -92,7 +92,7 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: '100vh',
-    background: 'linear-gradient(135deg, #12915f 0%, #07603f 100%)',
+    background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)',
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   },
   card: {
@@ -107,18 +107,18 @@ const styles = {
   icon: {
     margin: '0 auto 1.5rem',
     display: 'block',
-    color: '#12915f',
+    color: 'var(--brand-500)',
   },
   title: {
     margin: '0 0 1rem 0',
     fontSize: '1.8rem',
     fontWeight: 600,
-    color: '#0d1a15',
+    color: 'var(--ink-900)',
   },
   message: {
     margin: '0 0 2rem 0',
     fontSize: '1rem',
-    color: '#5d7167',
+    color: 'var(--ink-500)',
     lineHeight: 1.5,
   },
   button: {
@@ -126,7 +126,7 @@ const styles = {
     fontSize: '1rem',
     fontWeight: 500,
     color: 'white',
-    background: '#12915f',
+    background: 'var(--brand-500)',
     border: 'none',
     borderRadius: '6px',
     cursor: 'pointer',

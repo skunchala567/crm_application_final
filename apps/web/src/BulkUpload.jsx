@@ -371,7 +371,7 @@ export function BulkUploadModal({ onClose }) {
           <div className="bulk-upload-progress">
             <div className="success-checkmark">✅</div>
             <p>Import received and queued for processing</p>
-            <p style={{ fontSize: '0.9em', color: '#5d7167', marginTop: '0.5em' }}>
+            <p style={{ fontSize: '0.9em', color: 'var(--ink-500)', marginTop: '0.5em' }}>
               Redirecting to Bulk Actions...
             </p>
           </div>

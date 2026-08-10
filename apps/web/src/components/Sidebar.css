@@ -75,8 +75,8 @@
 .sidebar-brand-btn .brand-swap-icon {
   opacity: 0;
   border-radius: 13px;
-  background: var(--surface-3, #f2f7f4);
-  color: var(--primary, #0b7a4f);
+  background: var(--surface-3, var(--surface-3));
+  color: var(--primary, var(--brand-600));
 }
 
 .sidebar-brand-btn:hover .brand-swap-mark,

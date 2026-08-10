@@ -5,8 +5,8 @@
   bottom: 0;
   width: clamp(320px, 90vw, 500px);
   background: white;
-  border-left: 1px solid var(--border, #e4ece8);
-  box-shadow: -4px 0 16px rgba(13, 26, 21, 0.12);
+  border-left: 1px solid var(--border, var(--line));
+  box-shadow: -4px 0 16px color-mix(in srgb, var(--ink-900) 12%, transparent);
   display: flex;
   flex-direction: column;
   z-index: 999;
@@ -26,7 +26,7 @@
 
 .stage-change-header {
   padding: 24px;
-  border-bottom: 1px solid var(--border, #e4ece8);
+  border-bottom: 1px solid var(--border, var(--line));
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -41,20 +41,20 @@
   font: 600 11px 'Plus Jakarta Sans';
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #8a8c9b;
+  color: var(--ink-400);
   margin-bottom: 4px;
 }
 
 .stage-change-header h2 {
   font: 700 18px 'Plus Jakarta Sans';
   margin: 0 0 8px;
-  color: #16241e;
+  color: var(--ink-800);
 }
 
 .stage-change-header p {
   margin: 0;
   font-size: 13px;
-  color: #42544b;
+  color: var(--ink-600);
 }
 
 .stage-change-header .icon-btn {
@@ -62,7 +62,7 @@
   height: 32px;
   border: 0;
   background: none;
-  color: #8a8c9b;
+  color: var(--ink-400);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -73,8 +73,8 @@
 }
 
 .stage-change-header .icon-btn:hover {
-  background: #f5f5fc;
-  color: #07603f;
+  background: var(--surface-3);
+  color: var(--brand-700);
 }
 
 .stage-change-dialog form {
@@ -96,34 +96,34 @@
   flex-direction: column;
   gap: 6px;
   font: 600 12px 'Plus Jakarta Sans';
-  color: #16241e;
+  color: var(--ink-800);
 }
 
 .stage-change-dialog select {
   padding: 8px 12px;
-  border: 1px solid var(--border, #e4ece8);
+  border: 1px solid var(--border, var(--line));
   border-radius: 6px;
   background: white;
   font-size: 13px;
-  color: #16241e;
+  color: var(--ink-800);
   transition: all 0.15s ease;
 }
 
 .stage-change-dialog select:hover:not(:disabled) {
-  border-color: #aeb0d1;
-  background: #f9f9fd;
+  border-color: var(--ink-300);
+  background: var(--bg);
 }
 
 .stage-change-dialog select:focus {
   outline: none;
-  border-color: var(--icon, #12915f);
-  box-shadow: 0 0 0 3px rgba(18, 145, 95, 0.1);
+  border-color: var(--icon, var(--brand-500));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-500) 10%, transparent);
 }
 
 .stage-change-dialog select:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-  background: #f5f5f8;
+  background: var(--surface-3);
 }
 
 .stage-change-dialog .error-message {
@@ -139,7 +139,7 @@
 
 .stage-change-dialog footer {
   padding: 24px;
-  border-top: 1px solid var(--border, #e4ece8);
+  border-top: 1px solid var(--border, var(--line));
   display: flex;
   gap: 8px;
   justify-content: flex-end;
@@ -152,30 +152,30 @@
   font-size: 12px;
   cursor: pointer;
   transition: all 0.15s ease;
-  border: 1px solid var(--border, #dde0e8);
+  border: 1px solid var(--border, var(--ink-200));
 }
 
 .stage-change-dialog button.secondary {
   background: white;
-  color: #666875;
-  border-color: var(--border, #dde0e8);
+  color: var(--ink-500);
+  border-color: var(--border, var(--ink-200));
 }
 
 .stage-change-dialog button.secondary:hover:not(:disabled) {
-  background: #f5f5fc;
-  border-color: #aeb0d1;
-  color: #07603f;
+  background: var(--surface-3);
+  border-color: var(--ink-300);
+  color: var(--brand-700);
 }
 
 .stage-change-dialog button.primary {
-  background: var(--icon, #12915f);
+  background: var(--icon, var(--brand-500));
   color: white;
-  border-color: var(--icon, #12915f);
+  border-color: var(--icon, var(--brand-500));
 }
 
 .stage-change-dialog button.primary:hover:not(:disabled) {
-  background: #3d4289;
-  border-color: #3d4289;
+  background: var(--brand-700);
+  border-color: var(--brand-700);
 }
 
 .stage-change-dialog button:disabled {
@@ -187,7 +187,7 @@
   .stage-change-dialog {
     width: 100%;
     border-left: none;
-    border-top: 1px solid var(--border, #e4ece8);
+    border-top: 1px solid var(--border, var(--line));
   }
 
   @keyframes slideInRight {

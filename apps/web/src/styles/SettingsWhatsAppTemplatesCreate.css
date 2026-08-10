@@ -9,20 +9,20 @@
 .create-page-context{padding:6px 10px;color:var(--primary);background:var(--primary-soft,rgba(var(--primary-rgb),.08));border:1px solid rgba(var(--primary-rgb),.14);border-radius:16px;font-size:10px;font-weight:700;white-space:nowrap}
 .settings-create-template>.alert{margin:14px clamp(20px,3vw,34px) 0;flex-shrink:0}
 .create-container{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:18px;flex:1;min-height:0;overflow:hidden;padding:18px clamp(20px,3vw,34px) 22px}
-.template-form-wrapper{display:flex;flex-direction:column;min-height:0;padding:22px 22px 0;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 2px 7px rgba(13, 26, 21,.04)}
-.form-actions{display:flex;justify-content:flex-end;gap:9px;margin:24px -22px 0;padding:13px 22px;position:sticky;bottom:0;z-index:3;flex-shrink:0;background:var(--surface);border-top:1px solid var(--border);box-shadow:0 -5px 14px rgba(13, 26, 21,.035)}
+.template-form-wrapper{display:flex;flex-direction:column;min-height:0;padding:22px 22px 0;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 2px 7px color-mix(in srgb, var(--ink-900) 4%, transparent)}
+.form-actions{display:flex;justify-content:flex-end;gap:9px;margin:24px -22px 0;padding:13px 22px;position:sticky;bottom:0;z-index:3;flex-shrink:0;background:var(--surface);border-top:1px solid var(--border);box-shadow:0 -5px 14px color-mix(in srgb, var(--ink-900) 3.5%, transparent)}
 .form-actions .btn{flex:0 0 auto;min-width:130px;height:38px;padding:0 17px;border-radius:7px;box-shadow:none;font-size:12px;text-transform:none}
 .form-actions .btn-secondary{color:var(--primary);background:var(--surface);border:1px solid var(--primary)}
 .form-actions .btn-primary{min-width:165px;color:#fff;background:var(--primary);border:1px solid var(--primary)}
 .form-actions .btn:hover:not(:disabled){color:#fff;background:var(--primary-dark)}
-.preview-sidebar{min-height:0;overflow:hidden;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 2px 7px rgba(13, 26, 21,.04)}
+.preview-sidebar{min-height:0;overflow:hidden;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 2px 7px color-mix(in srgb, var(--ink-900) 4%, transparent)}
 .settings-create-template .template-form-builder{gap:22px}
 .settings-create-template .basic-info-title{margin-bottom:0;padding-bottom:12px;border-bottom:1px solid var(--border);font:700 15px 'Plus Jakarta Sans',sans-serif}
 .settings-create-template .template-basic-grid{column-gap:16px;row-gap:18px}
 .settings-create-template .grid-field,.settings-create-template .form-group{gap:6px}
-.settings-create-template .grid-field label,.settings-create-template .form-group label{color:#42544b;font-size:11px;font-weight:700}
+.settings-create-template .grid-field label,.settings-create-template .form-group label{color:var(--ink-600);font-size:11px;font-weight:700}
 .settings-create-template .grid-field label .field-hint,.settings-create-template .form-group label .help-text{color:var(--text-tertiary);font-size:10px}
-.settings-create-template .grid-field input,.settings-create-template .grid-field select,.settings-create-template .form-group input,.settings-create-template .form-group select,.settings-create-template .form-group textarea{min-height:40px;padding:9px 11px;color:var(--ink);background:var(--surface);border:1px solid #dcdde6;border-radius:8px;font-size:12px}
+.settings-create-template .grid-field input,.settings-create-template .grid-field select,.settings-create-template .form-group input,.settings-create-template .form-group select,.settings-create-template .form-group textarea{min-height:40px;padding:9px 11px;color:var(--ink);background:var(--surface);border:1px solid var(--ink-200);border-radius:8px;font-size:12px}
 .settings-create-template .form-group textarea{min-height:122px;line-height:1.5;resize:vertical}
 .settings-create-template .grid-field input:focus,.settings-create-template .grid-field select:focus,.settings-create-template .form-group input:focus,.settings-create-template .form-group select:focus,.settings-create-template .form-group textarea:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(var(--primary-rgb),.08)}
 .settings-create-template .char-count{color:var(--text-tertiary);font-size:10px}

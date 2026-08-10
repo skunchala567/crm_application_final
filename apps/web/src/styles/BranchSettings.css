@@ -54,7 +54,7 @@
 .branch-selector select:focus {
   outline: none;
   border-color: var(--brand-600);
-  box-shadow: 0 0 0 3px rgba(11, 122, 79, 0.1);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-600) 10%, transparent);
 }
 
 .jodo-config-form {
@@ -102,15 +102,15 @@
 .form-group input:focus {
   outline: none;
   border-color: var(--brand-600);
-  box-shadow: 0 0 0 3px rgba(11, 122, 79, 0.1);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-600) 10%, transparent);
 }
 
 .info-box {
   display: flex;
   gap: 1rem;
   padding: 1rem;
-  background: rgba(11, 122, 79, 0.05);
-  border: 1px solid rgba(11, 122, 79, 0.2);
+  background: color-mix(in srgb, var(--brand-600) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--brand-600) 20%, transparent);
   border-radius: 6px;
   font-size: 0.9rem;
   color: var(--text-secondary);

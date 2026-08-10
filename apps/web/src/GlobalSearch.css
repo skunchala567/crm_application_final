@@ -220,7 +220,7 @@
 }
 
 .global-search-highlight {
-  background-color: rgba(11, 122, 79, 0.2);
+  background-color: color-mix(in srgb, var(--brand-600) 20%, transparent);
   color: var(--primary);
   font-weight: 600;
 }

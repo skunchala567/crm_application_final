@@ -77,7 +77,7 @@
   flex-direction: column;
   border-left: 1px solid var(--border);
   background: var(--surface);
-  box-shadow: -5px 0 18px #0d1a1510;
+  box-shadow: -5px 0 18px color-mix(in srgb, var(--ink-900) 6.3%, transparent);
 }
 
 .applied-filters-panel.collapsed {
@@ -99,7 +99,7 @@
   border-radius: 50%;
   background: #fff;
   color: var(--primary);
-  box-shadow: 0 4px 12px #20224c20;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--brand-900) 12.5%, transparent);
   transition: transform .15s ease,background .15s ease;
 }
 
@@ -210,7 +210,7 @@
 }
 
 .applied-filter-sections article + article {
-  border-top: 1px solid #eef3f0;
+  border-top: 1px solid var(--line-2);
 }
 
 .applied-filter-sections article > span {
@@ -343,11 +343,11 @@
 }
 
 .leads-page tbody tr:nth-child(4n + 1) .lead-view-avatar {
-  background: #12915f;
+  background: var(--brand-500);
 }
 
 .leads-page tbody tr:nth-child(4n + 2) .lead-view-avatar {
-  background: #2f8b78;
+  background: var(--brand-500);
 }
 
 .leads-page tbody tr:nth-child(4n + 3) .lead-view-avatar {
@@ -355,12 +355,12 @@
 }
 
 .leads-page tbody tr:nth-child(4n + 4) .lead-view-avatar {
-  background: #7560b5;
+  background: var(--brand-500);
 }
 
 /* Touch status is communicated by the avatar, leaving the student name clear. */
 .leads-page tbody tr .lead-view-avatar.touched {
-  background: #18745b;
+  background: var(--brand-600);
 }
 
 .leads-page tbody tr .lead-view-avatar.untouched {
@@ -551,13 +551,13 @@
 }
 
 .leads-page .stage-tab:hover {
-  border-color: #d9dbeb;
+  border-color: var(--ink-200);
   background: var(--accent-softer);
 }
 
 .leads-page .stage-tab.active {
-  border-color: #c9cbea;
-  border-bottom-color: #c9cbea;
+  border-color: var(--brand-200);
+  border-bottom-color: var(--brand-200);
   border-radius: 18px;
   background: var(--accent-soft);
   box-shadow: inset 0 -2px 0 var(--primary);
