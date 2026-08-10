@@ -64,7 +64,7 @@
 
 .campaign-record-list {
   display: grid;
-  gap: 12px;
+  gap: 16px;
 }
 
 .campaign-record {
@@ -77,12 +77,14 @@
 .campaign-record-summary {
   position: relative;
   width: 100%;
-  min-height: 88px;
-  padding: 14px 48px 14px 16px;
+  height: auto !important;
+  min-height: 104px;
+  padding: 20px 54px 20px 22px;
   display: grid;
-  grid-template-columns: 1.25fr 0.9fr 1.1fr 1fr 1.1fr 1fr 0.8fr;
+  grid-template-columns: 1.15fr 1.1fr 1.15fr 1.15fr;
   align-items: center;
-  gap: 16px;
+  column-gap: 28px;
+  row-gap: 18px;
   border: 0;
   background: transparent;
   color: var(--ink);
@@ -109,7 +111,8 @@
 .campaign-record-summary strong,
 .campaign-record-summary b {
   overflow: hidden;
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -145,6 +148,9 @@
 .campaign-status-grid strong {
   font-size: 13px;
 }
+
+.campaign-detail-actions .automation-row-actions { justify-content: flex-start; }
+.campaign-no-actions { color: var(--muted); font-size: 10px; }
 
 .campaign-processing-head {
   padding: 14px 16px;
@@ -182,9 +188,10 @@
   color: var(--danger);
 }
 
-@media (max-width: 1150px) {
+@media (max-width: 900px) {
   .campaign-record-summary {
-    grid-template-columns: repeat(4, minmax(130px, 1fr));
+    grid-template-columns: repeat(2, minmax(140px, 1fr));
+    align-items: start;
   }
 
   .campaign-detail-grid {
@@ -197,7 +204,6 @@
 }
 
 @media (max-width: 700px) {
-  .campaign-record-summary,
   .campaign-detail-grid,
   .campaign-status-grid {
     grid-template-columns: 1fr 1fr;
@@ -210,5 +216,13 @@
 
   .campaign-processing-head .campaign-progress {
     width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  .campaign-record-summary,
+  .campaign-detail-grid,
+  .campaign-status-grid {
+    grid-template-columns: 1fr;
   }
 }

@@ -809,10 +809,9 @@
    ============================================ */
 
 .details-tabs {
+  /* Pill tabs: shape, spacing and states come from the shared tab block. */
   display: flex;
-  gap: 0;
-  border-bottom: 1px solid var(--border, #e4ece8);
-  background: var(--accent-soft, #fbfdfc);
+  background: transparent;
 }
 
 .tab {
@@ -1358,8 +1357,7 @@
 
 .details-tabs {
   display: flex;
-  border-bottom: 1px solid var(--border, #e0e0e0);
-  background: var(--accent-soft, #f9f9f9);
+  background: transparent;
 }
 
 .tab {

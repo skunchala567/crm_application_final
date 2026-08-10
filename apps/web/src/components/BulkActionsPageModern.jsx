@@ -1,10 +1,9 @@
-import { Fragment, useEffect, useState } from 'react';
-import { ChevronRight, Download, Eye, GitBranch, PhoneCall, RefreshCw, RotateCcw, Search, X, Upload, CheckCircle, AlertCircle, Clock } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Download, Eye, GitBranch, PhoneCall, RefreshCw, RotateCcw, Search, X, Upload, CheckCircle, AlertCircle, Clock } from 'lucide-react';
 import { api } from '../api';
 import { useBusinessUnit } from '../BusinessUnitContext';
 import { Button, Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Select, Tabs, TabsList, TabsTrigger, TabsContent, Badge, Skeleton } from './ui';
 import PageContainer from './PageContainer';
-import { cn } from '../lib/utils';
 
 export default function BulkActionsPageModern() {
   const { selectedId } = useBusinessUnit();
@@ -17,7 +16,6 @@ export default function BulkActionsPageModern() {
   const [statusFilter, setStatusFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const [expandedOperation, setExpandedOperation] = useState(null);
   const [selectedUpload, setSelectedUpload] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
 
@@ -26,7 +24,6 @@ export default function BulkActionsPageModern() {
     setOperations([]);
     setDialerCampaigns([]);
     setSelectedUpload(null);
-    setExpandedOperation(null);
     setLoading(true);
     loadData();
     const interval = setInterval(loadData, 10000);
@@ -40,8 +37,24 @@ export default function BulkActionsPageModern() {
         api('/bulk-operations'),
         api('/callerdesk/campaigns').catch(() => ({ data: [] }))
       ]);
-      setUploads(uploadData.data || []);
-      setOperations(operationData.data || []);
+      setUploads((uploadData.data || []).map(item=>({
+        ...item,type:item.type||'Lead import',
+        totalRecords:Number(item.totalRecords||0),
+        successCount:Number(item.successfulRecords||0),
+        failureCount:Number(item.failedRecords||0),
+        duplicateCount:Number(item.duplicateRecords||0),
+      })));
+      setOperations((operationData.data || [])
+        .filter(item => item.operationType === 'stage_change')
+        .map(item => ({
+          ...item,
+          type: 'Stage change',
+          description: item.summary || 'Lead stage updated',
+          affectedCount: Number(item.totalRecords || 0),
+          successfulCount: Number(item.successfulRecords || 0),
+          failureCount: Number(item.failedRecords || 0),
+          details: item.details || {},
+        })));
       setDialerCampaigns(dialerData.data || []);
     } catch (error) {
       console.error('Failed to load bulk operation history:', error);
@@ -53,8 +66,16 @@ export default function BulkActionsPageModern() {
   const openDetails = async (upload) => {
     setDetailsLoading(true);
     try {
-      const data = await api(`/bulk-uploads/${upload.id}`);
-      setSelectedUpload(data);
+      const payload = await api(`/bulk-uploads/${upload.id}`);
+      const detail=payload.upload||{};
+      const failedRecords=(payload.records||[])
+        .filter(record=>String(record.status).toLowerCase()==='failed')
+        .map(record=>({rowNumber:Number(record.rowNumber),reasons:Array.isArray(record.validationErrors)?record.validationErrors:[record.validationErrors].filter(Boolean)}));
+      setSelectedUpload({
+        ...detail,totalRecords:Number(detail.totalRecords||0),successCount:Number(detail.successfulRecords||0),
+        failureCount:Number(detail.failedRecords||failedRecords.length||0),duplicateCount:Number(detail.duplicateRecords||0),
+        failedRecords,events:payload.events||[],
+      });
     } catch (error) {
       console.error('Failed to load details:', error);
     } finally {
@@ -140,7 +161,7 @@ export default function BulkActionsPageModern() {
             </TabsTrigger>
             <TabsTrigger value="operations">
               <GitBranch size={18} className="mr-2" />
-              <span>Operations</span>
+              <span>Stage changes</span>
               <span className="ml-2 px-2 py-1 rounded-full bg-primary-100 text-primary-700 text-xs font-semibold">
                 {operations.length}
               </span>
@@ -250,7 +271,7 @@ export default function BulkActionsPageModern() {
                           >
                             <Eye size={16} />
                           </Button>
-                          {upload.successCount > 0 && (
+                          {upload.totalRecords > 0 && (
                             <Button
                               size="sm"
                               variant="secondary"
@@ -291,18 +312,14 @@ export default function BulkActionsPageModern() {
               <Card>
                 <CardContent className="py-12 text-center">
                   <GitBranch size={32} className="mx-auto mb-3 opacity-50 text-secondary-600" />
-                  <p className="font-medium text-foreground">No operations found</p>
-                  <p className="text-secondary-600 text-sm">Your bulk operations will appear here</p>
+                  <p className="font-medium text-foreground">No stage changes found</p>
+                  <p className="text-secondary-600 text-sm">Bulk stage changes will appear here</p>
                 </CardContent>
               </Card>
             ) : (
               <div className="space-y-3">
                 {filteredData.operations.map(operation => (
-                  <Fragment key={operation.id}>
-                    <Card
-                      className="hover:border-primary-300 transition-colors cursor-pointer"
-                      onClick={() => setExpandedOperation(expandedOperation === operation.id ? null : operation.id)}
-                    >
+                    <Card key={operation.id} className="hover:border-primary-300 transition-colors">
                       <CardContent className="p-4">
                         <div className="flex items-start justify-between gap-4">
                           <div className="flex-1">
@@ -313,22 +330,24 @@ export default function BulkActionsPageModern() {
                             <p className="text-sm text-secondary-600">{operation.description}</p>
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm text-secondary-600 mt-3">
                               <div>
-                                <span className="block text-xs text-secondary-500">Affected</span>
+                                <span className="block text-xs text-secondary-500">Total records</span>
                                 <span className="font-medium text-foreground">{operation.affectedCount}</span>
                               </div>
                               <div>
-                                <span className="block text-xs text-secondary-500">Date</span>
-                                <span className="font-medium text-foreground">{new Date(operation.createdAt).toLocaleDateString()}</span>
+                                <span className="block text-xs text-secondary-500">Changed to</span>
+                                <span className="font-medium text-foreground">{[operation.details.stageName, operation.details.substageName].filter(Boolean).join(' / ') || '—'}</span>
+                              </div>
+                              <div>
+                                <span className="block text-xs text-secondary-500">Changed by</span>
+                                <span className="font-medium text-foreground">{operation.createdBy || '—'}</span>
+                              </div>
+                              <div>
+                                <span className="block text-xs text-secondary-500">Changed on</span>
+                                <span className="font-medium text-foreground">{new Date(operation.createdAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</span>
                               </div>
                             </div>
                           </div>
                           <div className="flex gap-2">
-                            <Button size="sm" variant="secondary">
-                              <ChevronRight
-                                size={16}
-                                className={cn('transition-transform', expandedOperation === operation.id ? 'rotate-90' : '')}
-                              />
-                            </Button>
                             {operation.affectedCount > 0 && (
                               <Button
                                 size="sm"
@@ -342,18 +361,6 @@ export default function BulkActionsPageModern() {
                         </div>
                       </CardContent>
                     </Card>
-                    {expandedOperation === operation.id && (
-                      <Card className="bg-secondary-50">
-                        <CardContent className="p-4">
-                          <div className="text-sm text-secondary-600 space-y-2">
-                            <p><strong>Type:</strong> {operation.type}</p>
-                            <p><strong>Status:</strong> {operation.status}</p>
-                            <p><strong>Description:</strong> {operation.description}</p>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    )}
-                  </Fragment>
                 ))}
               </div>
             )}
@@ -466,21 +473,17 @@ export default function BulkActionsPageModern() {
                   {selectedUpload.failedRecords && selectedUpload.failedRecords.length > 0 && (
                     <div>
                       <h4 className="font-semibold mb-3">Failed Records</h4>
-                      <div className="space-y-2 max-h-40 overflow-auto">
-                        {selectedUpload.failedRecords.slice(0, 5).map((record, idx) => (
-                          <div key={idx} className="p-2 bg-red-50 rounded text-sm text-red-700">
-                            <p className="font-medium">{record.name || `Record ${idx + 1}`}</p>
-                            {record.reason && <p className="text-xs">{record.reason}</p>}
+                      <div className="space-y-2 max-h-72 overflow-auto">
+                        {selectedUpload.failedRecords.map((record, idx) => (
+                          <div key={`${record.rowNumber}-${idx}`} className="p-3 bg-red-50 rounded text-sm text-red-700">
+                            <p className="font-medium">CSV row {record.rowNumber}</p>
+                            {record.reasons.length?<ul className="mt-1 list-disc pl-5 text-xs space-y-1">{record.reasons.map((reason,reasonIndex)=><li key={reasonIndex}>{reason}</li>)}</ul>:<p className="text-xs">No failure reason was recorded.</p>}
                           </div>
                         ))}
-                        {selectedUpload.failedRecords.length > 5 && (
-                          <p className="text-xs text-secondary-600">
-                            ... and {selectedUpload.failedRecords.length - 5} more
-                          </p>
-                        )}
                       </div>
                     </div>
                   )}
+                  {selectedUpload.errorSummary&&<div className="p-3 rounded bg-red-50 text-sm text-red-700"><strong>Upload error</strong><p className="mt-1">{typeof selectedUpload.errorSummary==='string'?selectedUpload.errorSummary:JSON.stringify(selectedUpload.errorSummary)}</p></div>}
                 </>
               )}
             </CardContent>

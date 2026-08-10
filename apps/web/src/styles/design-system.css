@@ -151,6 +151,84 @@ button.secondary:hover,
 
 .text-btn { transition: color .18s var(--ease); }
 
+/* Notification popover: notification buttons must grow with their content.
+   Explicit layout prevents global compact-button rules from collapsing rows
+   and painting the following notification over the timestamp. */
+.notification-popover {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(420px, calc(100vw - 24px));
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 18px 48px #17352a24;
+}
+
+.notification-popover-head {
+  min-height: 74px;
+  padding: 15px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.notification-popover-head > div { min-width: 0; }
+.notification-popover-head strong { display: block; font-size: 15px; line-height: 1.3; }
+.notification-popover-head p { margin: 3px 0 0; color: var(--muted); font-size: 11px; line-height: 1.35; }
+.notification-popover-head > button {
+  flex: none;
+  height: auto;
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.notification-list { max-height: min(430px, calc(100vh - 130px)); overflow-y: auto; }
+.notification-item {
+  width: 100%;
+  height: auto !important;
+  min-height: 96px;
+  margin: 0;
+  padding: 14px 18px;
+  display: grid !important;
+  grid-template-columns: 9px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0 !important;
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+  white-space: normal;
+}
+.notification-item:last-child { border-bottom: 0; }
+.notification-item:hover { background: var(--primary-soft); }
+.notification-item.unread { background: #f2fbf7; }
+.notification-item.unread:hover { background: #e8f7f0; }
+.notification-item > i { width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: #d2ddd8; }
+.notification-item > i.unread { background: var(--primary); box-shadow: 0 0 0 3px #0b7a4f16; }
+.notification-item > span { min-width: 0; display: grid; gap: 4px; }
+.notification-item strong { overflow-wrap: anywhere; font-size: 13px; line-height: 1.4; }
+.notification-item > span > span { overflow-wrap: anywhere; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.notification-item small { margin-top: 2px; color: #84958d; font-size: 10px; line-height: 1.35; }
+.notification-empty { margin: 0; padding: 38px 18px; color: var(--muted); font-size: 12px; text-align: center; }
+.live-notification-toast{position:fixed;z-index:1000;top:76px;right:20px;width:min(390px,calc(100vw - 32px));display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;gap:11px;padding:14px;border:1px solid #bfe4d7;border-radius:12px;background:#f2fbf7;color:var(--primary);box-shadow:0 16px 42px #0d1a1530;text-align:left;animation:toast-in .2s ease-out}.live-notification-toast>button{min-width:0;padding:0;border:0;background:transparent;text-align:left}.live-notification-toast>button:not(.live-notification-close){display:grid;gap:4px;cursor:pointer}.live-notification-toast strong{overflow-wrap:anywhere;color:var(--ink);font-size:13px;line-height:1.35}.live-notification-toast small{overflow-wrap:anywhere;color:var(--muted);font-size:11px;line-height:1.4}.live-notification-toast .live-notification-close{display:grid;place-items:center;color:var(--muted);cursor:pointer}.live-notification-toast:hover{background:#e8f7f0}
+
+@media (max-width: 520px) {
+  .notification-popover { position: fixed; top: 64px; right: 10px; left: 10px; width: auto; }
+  .notification-popover-head { padding-inline: 15px; }
+  .notification-item { padding-inline: 15px; }
+}
+
 /* ---------- 5. FORM CONTROLS ---------- */
 input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
 select,
@@ -452,4 +530,191 @@ input.is-readonly {
   background: var(--surface-3, #f4f8f6);
   color: var(--text-secondary, #5d7167);
   cursor: default;
+}
+
+/* ---------------------------------------------------------------------
+   TABS — one pill language for every tab bar in the app.
+
+   The Leads stage tabs are the reference: an unselected tab is an outlined
+   pill, a selected tab is a tinted pill with a brand underline inside its
+   own border. Every other screen used to draw its own variant of the
+   underline tab (container border-bottom + a 3px bottom border per button),
+   so the rules below reset that chrome and restate the pill.
+
+   This block only restyles; nothing here changes which element is active or
+   how a tab is chosen. It lives at the end of the last stylesheet the app
+   loads so it wins ties against the per-page sheets it replaces.
+   --------------------------------------------------------------------- */
+.stage-tabs,
+.dashboard-tabs,
+.report-page-tabs,
+.config-tabs,
+.metadata-tabs,
+.pipeline-config-tabs,
+.dynamic-stage-tabs,
+.lead-detail-tabs,
+.whatsapp-settings-tabs,
+.automation-module-tabs,
+.details-tabs,
+.ui-tabs {
+  align-items: center;
+  gap: 6px;
+  padding-block: 8px;
+  border-bottom: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* Sticky tab strips keep their own backdrop; only the underline goes. */
+.business-units-page .unit-config-sticky .metadata-tabs {
+  border-bottom: 0;
+}
+
+.stage-tabs > .stage-tab,
+.dashboard-tabs > button,
+.report-page-tabs > button,
+.config-tabs > button,
+.metadata-tabs > button,
+.pipeline-config-tabs > button,
+.dynamic-stage-tabs > button,
+.lead-detail-tabs > button,
+.whatsapp-settings-tabs > button,
+.automation-module-tabs > button,
+.details-tabs > .tab,
+.ui-tabs > .ui-tab {
+  min-height: 34px;
+  height: auto;
+  padding: 7px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: transparent;
+  color: #2f3a5f;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  white-space: nowrap;
+  box-shadow: none;
+  transition: all .15s ease;
+}
+
+.stage-tabs > .stage-tab:hover,
+.dashboard-tabs > button:hover,
+.report-page-tabs > button:hover,
+.config-tabs > button:hover,
+.metadata-tabs > button:hover,
+.pipeline-config-tabs > button:hover,
+.dynamic-stage-tabs > button:hover,
+.lead-detail-tabs > button:hover,
+.whatsapp-settings-tabs > button:hover,
+.automation-module-tabs > button:hover,
+.details-tabs > .tab:hover,
+.ui-tabs > .ui-tab:hover {
+  border-color: #d9dbeb;
+  background: var(--accent-softer);
+  color: var(--ink);
+}
+
+.stage-tabs > .stage-tab.active,
+.dashboard-tabs > button.active,
+.dashboard-tabs > button[data-state="active"],
+.report-page-tabs > button.active,
+.config-tabs > button.active,
+.metadata-tabs > button.active,
+.pipeline-config-tabs > button.active,
+.dynamic-stage-tabs > button.active,
+.lead-detail-tabs > button.active,
+.whatsapp-settings-tabs > button.active,
+.automation-module-tabs > button.active,
+.details-tabs > .tab.active,
+.ui-tabs > .ui-tab[data-state="active"] {
+  border-color: #c9cbea;
+  border-bottom-color: #c9cbea;
+  border-radius: 18px;
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-weight: 700;
+  box-shadow: inset 0 -2px 0 var(--primary);
+}
+
+/* Counts and icons carried inside a tab keep their own chip shape. */
+.stage-tabs > .stage-tab svg,
+.dashboard-tabs > button svg,
+.config-tabs > button svg,
+.metadata-tabs > button svg,
+.pipeline-config-tabs > button svg,
+.automation-module-tabs > button svg,
+.ui-tabs > .ui-tab svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+@media (max-width: 760px) {
+  .stage-tabs > .stage-tab,
+  .dashboard-tabs > button,
+  .report-page-tabs > button,
+  .config-tabs > button,
+  .metadata-tabs > button,
+  .pipeline-config-tabs > button,
+  .dynamic-stage-tabs > button,
+  .lead-detail-tabs > button,
+  .whatsapp-settings-tabs > button,
+  .automation-module-tabs > button,
+  .details-tabs > .tab,
+  .ui-tabs > .ui-tab {
+    min-height: 32px;
+    padding: 6px 10px;
+  }
+}
+
+/* ---------------------------------------------------------------------
+   INSTANT TOOLTIP
+
+   `title` is a native tooltip: the browser waits about a second before it
+   appears and there is no way to shorten that. Anything that needs to
+   explain itself the moment the pointer lands on it carries
+   `data-tooltip="..."` instead and gets this, which has no delay and no
+   transition.
+   --------------------------------------------------------------------- */
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  z-index: 90;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 230px;
+  padding: 6px 9px;
+  border-radius: 7px;
+  background: var(--ink-900);
+  color: #fff;
+  font: 500 10px/1.45 var(--ff);
+  letter-spacing: .01em;
+  text-align: center;
+  white-space: normal;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+[data-tooltip]:hover::after,
+[data-tooltip]:focus::after,
+[data-tooltip]:focus-within::after {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* The badge overhangs its control and is click-through by default, which
+   left a dead patch where the pointer reached neither. Let it hover with
+   the control it belongs to. */
+.pending-followups-check .followup-due-badge {
+  pointer-events: auto !important;
 }

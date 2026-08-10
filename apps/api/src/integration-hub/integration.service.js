@@ -1059,21 +1059,13 @@ export class IntegrationHubService {
       const config = await this.configs.getById(integrationId, organizationId);
       if (!config) throw new Error('Integration not found');
 
-      // Create sync job
-      const jobId = await this.syncJobs.create({
-        integrationConfigId: integrationId,
+      // A manual sync is executed immediately. Persistence is handled by
+      // importData only when the provider actually creates lead records.
+      return await this.importData(integrationId, organizationId, {
+        ...options,
         syncType,
-        metadata: options
+        requestedById: userId
       });
-
-      // Audit log
-      await this.audit.log(integrationId, {
-        action: 'sync_started',
-        notes: `Sync type: ${syncType}`,
-        createdById: userId
-      });
-
-      return { jobId, status: 'pending' };
     } catch (error) {
       this.logger.error('Error starting sync', error);
       throw error;
@@ -1226,30 +1218,10 @@ export class IntegrationHubService {
       const oauthToken = await this.oauthTokens.get(integrationId);
       if (!oauthToken) throw new Error('No OAuth token available');
 
-      // Create sync job
-      const syncType = syncOptions.continuous ? 'continuous' : 'manual';
-      const jobId = await this.syncJobs.create({
-        integrationConfigId: integrationId,
-        syncType,
-        metadata: syncOptions
-      });
-
-      // Mark as running
-      await this.syncJobs.markRunning(jobId);
-
       try {
         // Perform import (this varies by provider)
         const syncService = new (await this.getProviderSyncService(config.provider_name))(this.pool, this.logger);
         const result = await syncService.importLeads(config, oauthToken, syncOptions);
-
-        // Mark completed
-        await this.syncJobs.markCompleted(jobId, 'success', {
-          recordsProcessed: result.imported + (result.updated || 0) + result.skipped + result.failed,
-          recordsCreated: result.imported,
-          recordsUpdated: result.updated || 0,
-          recordsFailed: result.failed,
-          errorMessage: null
-        });
 
         // Log sync (ensure all values are defined)
         const stats = {
@@ -1260,15 +1232,35 @@ export class IntegrationHubService {
           skipped: result.skipped || 0
         };
 
-        if (result.imported > 0) {
-          try {
+        let jobId = null;
+        if (stats.processed > 0) {
+          const requestedType = syncOptions.syncType || (syncOptions.continuous ? 'scheduled' : 'manual');
+          const syncType = ['manual', 'scheduled', 'webhook_triggered', 'retry'].includes(requestedType) ? requestedType : 'manual';
+          const completed=stats.created+stats.updated;
+          const outcome=stats.failed>0?(completed>0?'partial':'failed'):'success';
+          const errorSummary=result.errors?.length?JSON.stringify(result.errors.slice(0,20)):null;
+          jobId = await this.syncJobs.create({ integrationConfigId: integrationId, syncType, metadata: syncOptions });
+          await this.syncJobs.markCompleted(jobId, outcome, {
+            recordsProcessed: stats.processed,
+            recordsCreated: stats.created,
+            recordsUpdated: stats.updated,
+            recordsFailed: stats.failed,
+            errorMessage: errorSummary
+          });
+          if(stats.created>0)await this.audit.log(integrationId, {
+            action: 'data_imported',
+            notes: `Imported ${stats.created} leads`,
+            recordCount: stats.created,
+            createdById: syncOptions.requestedById || null
+          });
+          if (stats.created > 0) try {
             await this.syncLogs.create({
               integrationConfigId: integrationId,
               syncJobId: jobId,
               syncType,
-              status: 'success',
+              status: outcome,
               stats,
-              errorSummary: result.errors?.length ? JSON.stringify(result.errors.slice(0, 20)) : null
+              errorSummary
             });
           } catch (logError) {
             this.logger.warn('Failed to create sync log', logError.message);
@@ -1276,17 +1268,9 @@ export class IntegrationHubService {
           }
         }
 
-        return { jobId, status: 'success', result };
+        const status=stats.failed>0?((stats.created+stats.updated)>0?'partial':'failed'):'success';
+        return { jobId, status, result };
       } catch (error) {
-        // Mark failed
-        await this.syncJobs.markCompleted(jobId, 'failed', {
-          errorMessage: error.message || 'Unknown error',
-          recordsProcessed: 0,
-          recordsCreated: 0,
-          recordsUpdated: 0,
-          recordsFailed: 0
-        });
-
         throw error;
       }
     } catch (error) {
@@ -1309,41 +1293,32 @@ export class IntegrationHubService {
       const oauthToken = await this.oauthTokens.get(integrationId);
       if (!oauthToken) throw new Error('No OAuth token available');
 
-      // Create sync job
-      const jobId = await this.syncJobs.create({
-        integrationConfigId: integrationId,
-        syncType: 'manual',
-        metadata: syncOptions
-      });
-
-      // Mark as running
-      await this.syncJobs.markRunning(jobId);
-
       try {
         // Perform export (provider-specific)
         const syncService = new (await this.getProviderSyncService(config.provider_name))(this.pool, this.logger);
         const result = await syncService.exportLeads(config, oauthToken, syncOptions);
 
-        // Mark completed
-        await this.syncJobs.markCompleted(jobId, 'success', {
-          recordsProcessed: result.exported + result.failed,
-          recordsCreated: result.exported,
-          recordsUpdated: 0,
-          recordsFailed: result.failed,
-          errorMessage: null
-        });
+        let jobId = null;
+        const exported = Number(result.exported || 0);
+        if (exported > 0) {
+          jobId = await this.syncJobs.create({ integrationConfigId: integrationId, syncType: 'manual', metadata: syncOptions });
+          await this.syncJobs.markCompleted(jobId, 'success', {
+            recordsProcessed: exported + Number(result.failed || 0),
+            recordsCreated: exported,
+            recordsUpdated: 0,
+            recordsFailed: Number(result.failed || 0),
+            errorMessage: null
+          });
+          await this.audit.log(integrationId, {
+            action: 'data_exported',
+            notes: `Exported ${exported} leads`,
+            recordCount: exported,
+            createdById: syncOptions.requestedById || null
+          });
+        }
 
         return { jobId, status: 'success', result };
       } catch (error) {
-        // Mark failed
-        await this.syncJobs.markCompleted(jobId, 'failed', {
-          errorMessage: error.message || 'Unknown error',
-          recordsProcessed: 0,
-          recordsCreated: 0,
-          recordsUpdated: 0,
-          recordsFailed: 0
-        });
-
         throw error;
       }
     } catch (error) {

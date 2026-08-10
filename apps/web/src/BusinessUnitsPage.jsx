@@ -412,14 +412,11 @@ function EnquiryFormsPanel({config,selected,onAdd,onEdit,onDelete,onMessage}){
  * Mirrors the rule the Add/Edit lead screens use, so a form configured here
  * offers the same sources a counsellor would see. The mapping lives on the
  * source itself (crm_lead_sources.channel_id):
- *   - no channel chosen yet: everything, so the list is never empty on open
- *   - a source mapped to no channel stays available everywhere, or it could
- *     never be picked until an administrator maps it
+ * Only sources explicitly mapped to the selected channel are available.
  */
 function sourcesForChannel(sources=[],channelId){
-  if(!channelId) return sources;
-  return sources.filter(source=>
-    String(source.channelId||'')===String(channelId) || !source.channelId);
+  if(!channelId) return [];
+  return sources.filter(source=>String(source.channelId||'')===String(channelId));
 }
 
 function EnquiryFormEditor({form,setForm,config,saving,onCancel,onSubmit}){

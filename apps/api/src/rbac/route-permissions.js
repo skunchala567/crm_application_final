@@ -19,6 +19,7 @@ export const OPEN_ROUTES = [
   { test: /^\/api\/health/, why: 'liveness probe' },
   { test: /webhook/, why: 'inbound platform callbacks, verified by signature not by session' },
   { test: /^\/api\/usage\/(heartbeat|today)/, why: 'own session timer; every signed-in user has it' },
+  { test: /^\/api\/notifications/, why: 'each signed-in user may read and acknowledge only their own notifications' },
   { test: /^\/api\/rbac\/me$/, why: 'a user must be able to read their own permissions' },
   { test: /^\/api\/platform\/business-units$/, why: 'the shell cannot render before it knows the units' },
   { test: /^\/api\/oauth\//, why: 'OAuth redirect handling' },

@@ -439,9 +439,9 @@ export function MarketingCampaignBuilder({
           <section className="marketing-selected-audience">
             <CheckCircle2 />
             <div>
-              <strong>{leadIds.length} filtered leads selected</strong>
+              <strong>{leadIds.length} selected lead{leadIds.length === 1 ? "" : "s"}</strong>
               <span>
-                This campaign uses the filters applied on the Leads screen.
+                Only the leads explicitly checked on the Leads screen will receive this campaign.
               </span>
             </div>
           </section>
@@ -769,32 +769,33 @@ export function MarketingCampaignList({ campaigns, onStatus }) {
                 <span><small>Status</small><b className={`campaign-status ${campaign.status.toLowerCase()}`}>{campaign.status === "COMPLETED" && <CheckCircle2 />}{campaign.status}</b></span>
                 <span><small>Created on</small><b>{formatDate(campaign.createdAt)}</b></span>
                 <span><small>Created by</small><b>{campaign.createdBy || "—"}</b></span>
-                <span><small>Updated on</small><b>{formatDate(campaign.updatedAt)}</b></span>
-                <span><small>Rule</small><b>{ruleLabel(campaign)}</b></span>
-                <span className="campaign-summary-actions">
-                  <small>Actions</small>
-                  <span className="automation-row-actions">
-                    {campaign.status === "ACTIVE" ? (
-                      <button type="button" className="icon-btn" title="Pause campaign" onClick={(event) => statusAction(event, "PAUSED")}><Pause /></button>
-                    ) : campaign.status === "PAUSED" ? (
-                      <button type="button" className="icon-btn" title="Resume campaign" onClick={(event) => statusAction(event, "ACTIVE")}><Play /></button>
-                    ) : null}
-                    {!["COMPLETED", "CANCELLED"].includes(campaign.status) && (
-                      <button type="button" className="icon-btn danger" title="Cancel campaign" onClick={(event) => statusAction(event, "CANCELLED")}><Ban /></button>
-                    )}
-                  </span>
-                </span>
                 <ChevronDown className="campaign-expand-icon" />
               </button>
               {expanded && (
                 <div className="campaign-record-details">
                   <div className="campaign-detail-grid">
+                    <span><small>Updated on</small><strong>{formatDate(campaign.updatedAt)}</strong></span>
+                    <span><small>Rule</small><strong>{ruleLabel(campaign)}</strong></span>
                     <span><small>WhatsApp account</small><strong>{campaign.integrationName}</strong></span>
                     <span><small>Lead recipients</small><strong>{campaign.recipientCount}</strong></span>
                     <span><small>Primary mobile numbers</small><strong>{campaign.primaryCount}</strong></span>
                     <span><small>Alternate mobile numbers</small><strong>{campaign.alternateCount}</strong></span>
                     <span><small>Communications</small><strong>{campaign.communicationCount}</strong></span>
                     <span><small>First communication</small><strong>{formatDate(campaign.firstCommunicationAt)}</strong></span>
+                    <span className="campaign-detail-actions">
+                      <small>Actions</small>
+                      <span className="automation-row-actions">
+                        {campaign.status === "ACTIVE" ? (
+                          <button type="button" className="icon-btn" title="Pause campaign" onClick={(event) => statusAction(event, "PAUSED")}><Pause /></button>
+                        ) : campaign.status === "PAUSED" ? (
+                          <button type="button" className="icon-btn" title="Resume campaign" onClick={(event) => statusAction(event, "ACTIVE")}><Play /></button>
+                        ) : null}
+                        {!["COMPLETED", "CANCELLED"].includes(campaign.status) && (
+                          <button type="button" className="icon-btn danger" title="Cancel campaign" onClick={(event) => statusAction(event, "CANCELLED")}><Ban /></button>
+                        )}
+                        {["COMPLETED", "CANCELLED"].includes(campaign.status) && <span className="campaign-no-actions">No actions available</span>}
+                      </span>
+                    </span>
                   </div>
                   <div className="campaign-processing-head">
                     <div><strong>Processing status</strong><small>WhatsApp delivery summary across all scheduled communications.</small></div>

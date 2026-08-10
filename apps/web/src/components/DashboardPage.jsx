@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { TrendingUp, Clock, CheckCircle, Users } from 'lucide-react';
+import { TrendingUp, Clock, CheckCircle, Users, ChevronDown, ChevronRight, ChevronLeft, Columns3, Rows3, CalendarRange, Maximize2, Minimize2, Filter, FilterX } from 'lucide-react';
 import { api } from '../api';
 import { useBusinessUnit } from '../BusinessUnitContext';
 import StatCard from './StatCard';
@@ -9,6 +9,11 @@ import PageContainer from './PageContainer';
 import { cn } from '../lib/utils';
 import { DASHBOARD_LAYOUT_EVENT, dashboardLayoutKey, readDashboardLayout } from '../lib/dashboardLayout';
 import { ReportVisual, SavedReportsDashboard, buildLiveReportData, canViewSavedReport, readSavedReports } from '../ReportBuilder.jsx';
+
+function dashboardIstDateKey(value) {
+  if (!value) return '';
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value));
+}
 
 export function DashboardPage({ user }) {
   const { selectedUnit } = useBusinessUnit();
@@ -22,6 +27,28 @@ export function DashboardPage({ user }) {
   );
   const [layout, setLayout] = useState(() => readDashboardLayout(selectedUnit?.id));
   const [savedReports, setSavedReports] = useState(() => readSavedReports(selectedUnit?.id));
+  const [dashboardDateField, setDashboardDateField] = useState('addedAt');
+  const [dashboardDateFrom, setDashboardDateFrom] = useState('');
+  const [dashboardDateTo, setDashboardDateTo] = useState('');
+  const [dashboardBranchIds, setDashboardBranchIds] = useState([]);
+  const [dashboardLeadFilters, setDashboardLeadFilters] = useState({ owners: [], stages: [], substages: [], channels: [], sources: [], campaigns: [] });
+  const [dashboardFiltersOpen, setDashboardFiltersOpen] = useState(false);
+  const [dashboardFilterFlyout, setDashboardFilterFlyout] = useState(null);
+  const dashboardFilterMenuRef = useRef(null);
+
+  useEffect(() => {
+    if (!dashboardFiltersOpen) return undefined;
+    const close = event => { if (!dashboardFilterMenuRef.current?.contains(event.target)) setDashboardFiltersOpen(false); };
+    const escape = event => { if (event.key === 'Escape') setDashboardFiltersOpen(false); };
+    document.addEventListener('mousedown', close, true);
+    document.addEventListener('touchstart', close, true);
+    document.addEventListener('keydown', escape, true);
+    return () => {
+      document.removeEventListener('mousedown', close, true);
+      document.removeEventListener('touchstart', close, true);
+      document.removeEventListener('keydown', escape, true);
+    };
+  }, [dashboardFiltersOpen]);
 
   useEffect(() => {
     if (location.state?.dashboardTab === 'saved') {
@@ -92,12 +119,94 @@ export function DashboardPage({ user }) {
 
   const visibleSavedReports = savedReports.filter((report) => canViewSavedReport(report));
   const visibleLayout = layout.filter((item) => item.visible !== false);
+  const dashboardBranches = [...new Map(savedReportLeads.filter(lead => lead.branchId != null).map(lead => [String(lead.branchId), lead.branch || `Branch ${lead.branchId}`])).entries()].sort((left, right) => left[1].localeCompare(right[1]));
+  const branchScopedLeads = dashboardBranchIds.length ? savedReportLeads.filter(lead => dashboardBranchIds.includes(String(lead.branchId))) : savedReportLeads;
+  const optionList = (items, idKey, labelKey, fallback) => [...new Map(items.filter(item => item[idKey] != null).map(item => [String(item[idKey]), item[labelKey] || `${fallback} ${item[idKey]}`])).entries()].map(([value, label]) => ({ value, label })).sort((left, right) => left.label.localeCompare(right.label));
+  const ownerOptions = optionList(branchScopedLeads, 'ownerEmployeeId', 'owner', 'Owner');
+  const stageOptions = optionList(branchScopedLeads, 'stageId', 'stage', 'Stage');
+  const substageOptionLeads = dashboardLeadFilters.stages.length ? branchScopedLeads.filter(lead => dashboardLeadFilters.stages.includes(String(lead.stageId))) : branchScopedLeads;
+  const substageOptions = optionList(substageOptionLeads, 'substageId', 'substage', 'Sub-stage');
+  const channelOptions = optionList(branchScopedLeads, 'channelId', 'channel', 'Channel');
+  const sourceOptionLeads = dashboardLeadFilters.channels.length ? branchScopedLeads.filter(lead => dashboardLeadFilters.channels.includes(String(lead.channelId))) : branchScopedLeads;
+  const sourceOptions = optionList(sourceOptionLeads, 'sourceId', 'source', 'Source');
+  const campaignOptionLeads = branchScopedLeads.filter(lead => (!dashboardLeadFilters.channels.length || dashboardLeadFilters.channels.includes(String(lead.channelId))) && (!dashboardLeadFilters.sources.length || dashboardLeadFilters.sources.includes(String(lead.sourceId))));
+  const campaignOptions = optionList(campaignOptionLeads, 'campaignId', 'campaign', 'Campaign');
+  const matchesMulti = (lead, filterKey, leadKey) => !dashboardLeadFilters[filterKey].length || dashboardLeadFilters[filterKey].includes(String(lead[leadKey]));
+  const filteredDashboardLeads = savedReportLeads.filter(lead => {
+    if (dashboardBranchIds.length && !dashboardBranchIds.includes(String(lead.branchId))) return false;
+    if (!matchesMulti(lead, 'owners', 'ownerEmployeeId')) return false;
+    if (!matchesMulti(lead, 'stages', 'stageId')) return false;
+    if (!matchesMulti(lead, 'substages', 'substageId')) return false;
+    if (!matchesMulti(lead, 'channels', 'channelId')) return false;
+    if (!matchesMulti(lead, 'sources', 'sourceId')) return false;
+    if (!matchesMulti(lead, 'campaigns', 'campaignId')) return false;
+    if (!dashboardDateFrom && !dashboardDateTo) return true;
+    const value = lead[dashboardDateField];
+    if (!value) return false;
+    const day = dashboardIstDateKey(value);
+    return (!dashboardDateFrom || day >= dashboardDateFrom) && (!dashboardDateTo || day <= dashboardDateTo);
+  });
+  const dashboardFilterCount = [dashboardBranchIds.length > 0, dashboardDateFrom || dashboardDateTo, ...Object.values(dashboardLeadFilters).map(values => values.length > 0)].filter(Boolean).length;
+  const toggleDashboardBranch = value => setDashboardBranchIds(current => current.includes(value) ? current.filter(item => item !== value) : [...current, value]);
+  const toggleDashboardLeadFilter = (key, value) => setDashboardLeadFilters(current => {
+    const next = { ...current, [key]: current[key].includes(value) ? current[key].filter(item => item !== value) : [...current[key], value] };
+    if (key === 'stages') next.substages = [];
+    if (key === 'channels') { next.sources = []; next.campaigns = []; }
+    if (key === 'sources') next.campaigns = [];
+    return next;
+  });
+  const clearDashboardFilters = () => {
+    setDashboardBranchIds([]);
+    setDashboardDateField('addedAt');
+    setDashboardDateFrom('');
+    setDashboardDateTo('');
+    setDashboardLeadFilters({ owners: [], stages: [], substages: [], channels: [], sources: [], campaigns: [] });
+  };
+  const currentWeekStart = new Date();
+  currentWeekStart.setDate(currentWeekStart.getDate() - 7);
+  const previousWeekStart = new Date(currentWeekStart);
+  previousWeekStart.setDate(previousWeekStart.getDate() - 7);
+  const filteredNewThisWeek = filteredDashboardLeads.filter(lead => lead.addedAt && new Date(lead.addedAt) >= currentWeekStart).length;
+  const filteredNewPreviousWeek = filteredDashboardLeads.filter(lead => {
+    if (!lead.addedAt) return false;
+    const added = new Date(lead.addedAt);
+    return added >= previousWeekStart && added < currentWeekStart;
+  }).length;
+  const baseActivityTrends = data.activityTrends || [];
+  const activityByDay = new Map(baseActivityTrends.map(item => [String(item.day), item]));
+  const activityStart = dashboardDateFrom || baseActivityTrends[0]?.day;
+  const activityEnd = dashboardDateTo || (dashboardDateFrom ? dashboardIstDateKey(new Date()) : baseActivityTrends.at(-1)?.day);
+  const activityDays = [];
+  if (activityStart && activityEnd && activityStart <= activityEnd) {
+    const cursor = new Date(`${activityStart}T00:00:00Z`);
+    const end = new Date(`${activityEnd}T00:00:00Z`);
+    while (cursor <= end && activityDays.length < 732) {
+      activityDays.push(cursor.toISOString().slice(0, 10));
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+  }
+  const displayedActivityDays = dashboardDateFrom || dashboardDateTo
+    ? activityDays
+    : baseActivityTrends.map(item => String(item.day));
+  const filteredActivityTrends = displayedActivityDays.map(day => ({
+    ...(activityByDay.get(day) || { day, crmHours: 0, followupsDone: 0 }),
+    day,
+    leads: filteredDashboardLeads.filter(lead => {
+      const selectedDate = lead[dashboardDateField];
+      return selectedDate && dashboardIstDateKey(selectedDate) === day;
+    }).length,
+  }));
+  const filteredDashboardData = {
+    ...data,
+    funnel: (data.funnel || []).map(item => ({ ...item, value: filteredDashboardLeads.filter(lead => lead.stage === item.label).length })),
+    activityTrends: filteredActivityTrends,
+  };
 
   const comparisons = data.stats.comparisons || {};
   const statCards = [
     {
       label: 'Total Leads',
-      value: data.stats.totalLeads,
+      value: (dashboardBranchIds.length || dashboardDateFrom || dashboardDateTo) ? filteredDashboardLeads.length : data.stats.totalLeads,
       trend: getComparisonLabel(
         data.stats.totalLeads,
         comparisons.totalLeadsLastMonth,
@@ -108,10 +217,10 @@ export function DashboardPage({ user }) {
     },
     {
       label: 'New This Week',
-      value: data.stats.newThisWeek,
+      value: filteredNewThisWeek,
       trend: getComparisonLabel(
-        data.stats.newThisWeek,
-        comparisons.newPreviousWeek,
+        filteredNewThisWeek,
+        filteredNewPreviousWeek,
         'vs previous week'
       ),
       icon: TrendingUp,
@@ -151,48 +260,52 @@ export function DashboardPage({ user }) {
       >
       {/* Page Header */}
       <div className="bg-white border-b border-border sticky top-0 z-10">
-        <PageContainer className="py-6">
-          <div className="flex items-start justify-between gap-6 flex-wrap">
+        <PageContainer className="py-2">
+          <div className="dashboard-heading">
             <div>
-              <p className="text-sm text-secondary-600 uppercase tracking-wide font-semibold mb-2">
+              <p className="text-[10px] text-secondary-600 uppercase tracking-wide font-semibold mb-0.5">
                 {new Date().toLocaleDateString('en-US', {
                   weekday: 'long',
                   month: 'long',
                   day: 'numeric',
                 })}
               </p>
-              <h1 className="text-3xl font-bold text-foreground font-display mb-2">
+              <h1 className="text-xl font-bold text-foreground font-display mb-0.5">
                 Good {getGreeting()}, {user.name.split(' ')[0]}
               </h1>
-              <p className="text-secondary-600">
+              <p className="text-xs text-secondary-600">
                 Here's what needs your admissions team's attention today.
               </p>
             </div>
-            {/* Adding a lead lives on the Leads screen; not duplicated here. */}
-            <TabsList className="flex-shrink-0 self-center">
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="saved">Saved Reports</TabsTrigger>
-            </TabsList>
+            <div className="dashboard-toolbar">
+              <TabsList className="dashboard-tabs"><TabsTrigger value="overview">Overview</TabsTrigger><TabsTrigger value="saved">Saved Reports</TabsTrigger></TabsList>
+              <div className="dashboard-filter-menu" ref={dashboardFilterMenuRef}>
+                <button type="button" className={dashboardFilterCount ? 'active' : ''} onClick={() => { setDashboardFiltersOpen(value => !value); setDashboardFilterFlyout(null); }} aria-expanded={dashboardFiltersOpen} aria-label="Dashboard filters" title="Dashboard filters"><Filter size={18}/>{dashboardFilterCount > 0 && <b>{dashboardFilterCount}</b>}</button>
+                {/* Only worth showing once something is actually filtered. */}
+                {dashboardFilterCount > 0 && <button type="button" className="dashboard-clear-filters" onClick={clearDashboardFilters} aria-label="Clear dashboard filters" title="Clear filters"><FilterX size={18}/></button>}
+                {dashboardFiltersOpen && <div className="dashboard-filter-panel"><DashboardMultiFilter filterKey="branches" label="Branch" options={dashboardBranches.map(([value, label]) => ({ value, label }))} values={dashboardBranchIds} onToggle={toggleDashboardBranch} open={dashboardFilterFlyout === 'branches'} onOpenChange={open => setDashboardFilterFlyout(open ? 'branches' : null)}/><DashboardMultiFilter filterKey="owners" label="Lead Owner" options={ownerOptions} values={dashboardLeadFilters.owners} onToggle={value => toggleDashboardLeadFilter('owners', value)} open={dashboardFilterFlyout === 'owners'} onOpenChange={open => setDashboardFilterFlyout(open ? 'owners' : null)}/><DashboardMultiFilter filterKey="stages" label="Stage" options={stageOptions} values={dashboardLeadFilters.stages} onToggle={value => toggleDashboardLeadFilter('stages', value)} open={dashboardFilterFlyout === 'stages'} onOpenChange={open => setDashboardFilterFlyout(open ? 'stages' : null)}/><DashboardMultiFilter filterKey="substages" label="Sub-stage" options={substageOptions} values={dashboardLeadFilters.substages} onToggle={value => toggleDashboardLeadFilter('substages', value)} open={dashboardFilterFlyout === 'substages'} onOpenChange={open => setDashboardFilterFlyout(open ? 'substages' : null)}/><DashboardMultiFilter filterKey="channels" label="Channel" options={channelOptions} values={dashboardLeadFilters.channels} onToggle={value => toggleDashboardLeadFilter('channels', value)} open={dashboardFilterFlyout === 'channels'} onOpenChange={open => setDashboardFilterFlyout(open ? 'channels' : null)}/><DashboardMultiFilter filterKey="sources" label="Source" options={sourceOptions} values={dashboardLeadFilters.sources} onToggle={value => toggleDashboardLeadFilter('sources', value)} open={dashboardFilterFlyout === 'sources'} onOpenChange={open => setDashboardFilterFlyout(open ? 'sources' : null)}/><DashboardMultiFilter filterKey="campaigns" label="Campaign" options={campaignOptions} values={dashboardLeadFilters.campaigns} onToggle={value => toggleDashboardLeadFilter('campaigns', value)} open={dashboardFilterFlyout === 'campaigns'} onOpenChange={open => setDashboardFilterFlyout(open ? 'campaigns' : null)}/><DashboardDateFilter field={dashboardDateField} from={dashboardDateFrom} to={dashboardDateTo} onFieldChange={setDashboardDateField} onOpen={() => setDashboardFilterFlyout(null)} onChange={(from, to) => { setDashboardDateFrom(from); setDashboardDateTo(to); }}/></div>}
+              </div>
+            </div>
           </div>
         </PageContainer>
       </div>
 
       {/* Main Content */}
-      <PageContainer className="flex-1 py-8">
+      <PageContainer className="flex-1 py-5">
           <TabsContent value="overview">
             {/* Widgets, their order, width and visibility come from the
                 Reports > Dashboard layout editor. */}
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
               {visibleLayout.map((item) => {
                 const content = renderDashboardWidget(item, {
-                  data,
+                  data: filteredDashboardData,
                   statCards,
-                  leads: savedReportLeads,
+                  leads: filteredDashboardLeads,
                   savedReports: visibleSavedReports,
                 });
                 if (!content) return null;
                 return (
-                  <div key={item.id} className={cn('min-w-0', COLUMN_SPAN[item.size] || COLUMN_SPAN.half)}>
+                  <div key={item.id} className={cn('min-w-0 h-full', widgetMinHeight(item.id), COLUMN_SPAN[item.size] || COLUMN_SPAN.half)}>
                     {content}
                   </div>
                 );
@@ -218,8 +331,8 @@ export function DashboardPage({ user }) {
             {/* Renders the real store rather than a static empty state, and
                 refreshes itself on crm:saved-reports-changed. */}
             <SavedReportsDashboard
-              data={data}
-              leads={savedReportLeads}
+              data={filteredDashboardData}
+              leads={filteredDashboardLeads}
               onCreateNew={() => navigate('/saved-reports/new', {
                 state: { returnTo: 'dashboard-saved', createNewReportAt: Date.now() },
               })}
@@ -231,6 +344,47 @@ export function DashboardPage({ user }) {
   );
 }
 
+function DashboardMultiFilter({ label, options, values, onToggle, open, onOpenChange }) {
+  return <details className="dashboard-multi-filter" open={open}><summary onClick={event => { event.preventDefault(); onOpenChange(!open); }}><span>{label}</span><strong>{values.length ? `${values.length} selected` : `All ${label.toLowerCase()}s`}</strong><ChevronDown size={14}/></summary><div>{options.length ? options.map(option => <label key={option.value}><input type="checkbox" checked={values.includes(option.value)} onChange={() => onToggle(option.value)}/><span>{option.label}</span></label>) : <p>No options available</p>}</div></details>;
+}
+
+const DASHBOARD_DATE_FIELDS = { addedAt: 'Lead added', updatedAt: 'Lead updated', referredAt: 'Lead referred', nextFollowup: 'Next follow-up', reEnquiredAt: 'Re-enquired' };
+function DashboardCalendarMonth({ month, from, to, onSelect, onPrevious, onNext }) {
+  const year = month.getFullYear();
+  const monthIndex = month.getMonth();
+  const firstDay = new Date(year, monthIndex, 1).getDay();
+  const days = new Date(year, monthIndex + 1, 0).getDate();
+  const key = day => `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  return <section className="range-calendar-month"><header>{onPrevious ? <button type="button" aria-label="Previous month" onClick={onPrevious}><ChevronLeft/></button> : <span/>}<strong>{month.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</strong>{onNext ? <button type="button" aria-label="Next month" onClick={onNext}><ChevronRight/></button> : <span/>}</header><div className="range-weekdays">{['Su','Mo','Tu','We','Th','Fr','Sa'].map(day => <span key={day}>{day}</span>)}</div><div className="range-days">{Array.from({ length: firstDay }, (_, index) => <span key={`blank-${index}`}/>)}{Array.from({ length: days }, (_, index) => { const value = key(index + 1); return <button type="button" key={value} className={`${value === from || value === to ? 'selected ' : ''}${from && to && value > from && value < to ? 'in-range' : ''}`} onClick={() => onSelect(value)}>{index + 1}</button>; })}</div></section>;
+}
+
+function DashboardDateFilter({ field, from, to, onFieldChange, onChange, onOpen }) {
+  const [open, setOpen] = useState(false);
+  const [visibleMonth, setVisibleMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const rootRef = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = event => { if (!rootRef.current?.contains(event.target)) setOpen(false); };
+    const escape = event => { if (event.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', close, true);
+    document.addEventListener('keydown', escape, true);
+    return () => { document.removeEventListener('mousedown', close, true); document.removeEventListener('keydown', escape, true); };
+  }, [open]);
+  const key = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  const today = () => key(new Date());
+  const applyDays = (startOffset, endOffset = startOffset) => {
+    const start = new Date(); start.setDate(start.getDate() + startOffset);
+    const end = new Date(); end.setDate(end.getDate() + endOffset);
+    onChange(key(start), key(end));
+  };
+  const displayDate = value => value ? new Date(`${value}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+  const label = from && to ? `${displayDate(from)} – ${displayDate(to)}` : from ? `${displayDate(from)} – select end` : to ? `Till ${displayDate(to)}` : 'All dates';
+  const selectDate = value => { if (!from || to) onChange(value, ''); else if (value < from) onChange(value, from); else onChange(from, value); };
+  const nextMonth = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1);
+  const toggleOpen = () => { const initial = from ? new Date(`${from}T00:00:00`) : new Date(); setVisibleMonth(new Date(initial.getFullYear(), initial.getMonth(), 1)); onOpen?.(); setOpen(value => !value); };
+  return <div className="dashboard-date-filter" ref={rootRef}><button type="button" className={from || to ? 'active' : ''} onClick={toggleOpen} aria-expanded={open}><CalendarRange size={17}/><span><small>{DASHBOARD_DATE_FIELDS[field]}</small><strong>{label}</strong></span><ChevronDown size={14}/></button>{open && <div className="followup-range-popover leads-date-range-popover dashboard-date-popover"><div className="followup-range-header"><div className="followup-range-title"><CalendarRange size={18}/><div><strong>{DASHBOARD_DATE_FIELDS[field]}</strong><small>Select the {DASHBOARD_DATE_FIELDS[field].toLowerCase()} range</small></div></div><select value={field} onChange={event => onFieldChange(event.target.value)} className="date-type-select-popover">{Object.entries(DASHBOARD_DATE_FIELDS).map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></div><div className="range-calendar-panel"><aside><strong>Choose a period</strong><button type="button" onClick={() => applyDays(0)}>Today</button><button type="button" onClick={() => applyDays(-1)}>Yesterday</button><button type="button" onClick={() => onChange('', today())}>Till today</button><button type="button" onClick={() => { const date = new Date(); date.setDate(date.getDate() - 1); onChange('', key(date)); }}>Till yesterday</button><button type="button" onClick={() => applyDays(1)}>Next day</button><button type="button" onClick={() => applyDays(0, 7)}>Next 7 days</button><button type="button" onClick={() => applyDays(0, 30)}>Next 30 days</button></aside><div className="range-calendar-months"><DashboardCalendarMonth month={visibleMonth} from={from} to={to} onSelect={selectDate} onPrevious={() => setVisibleMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1))}/><DashboardCalendarMonth month={nextMonth} from={from} to={to} onSelect={selectDate} onNext={() => setVisibleMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1))}/></div></div><div className="followup-range-footer"><button type="button" className="range-clear" onClick={() => onChange('', '')}>Clear</button><button type="button" className="range-apply" onClick={() => setOpen(false)}>Apply dates</button></div></div>}</div>;
+}
+
 /** Tailwind needs literal class names, so widget widths map explicitly. */
 const COLUMN_SPAN = {
   quarter: 'lg:col-span-1',
@@ -238,6 +392,22 @@ const COLUMN_SPAN = {
   'three-quarter': 'lg:col-span-3',
   full: 'lg:col-span-4',
 };
+
+/**
+ * Every report-style widget gets the same floor height, so a row never mixes a
+ * tall chart with a card collapsed around two rows of data. The stats strip is
+ * sized by its own cards and is deliberately left out.
+ */
+const WIDGET_MIN_HEIGHT = {
+  stats: '',
+  activity: 'min-h-[420px]',
+  funnel: 'min-h-[420px]',
+  'curriculum-stage': 'min-h-[420px]',
+  report: 'min-h-[420px]',
+};
+
+const widgetMinHeight = (id) =>
+  WIDGET_MIN_HEIGHT[String(id || '').startsWith('report:') ? 'report' : String(id || '')] ?? 'min-h-[420px]';
 
 const STAT_COLUMNS = {
   quarter: 'grid-cols-1',
@@ -258,14 +428,128 @@ function renderDashboardWidget(item, { data, statCards, leads, savedReports }) {
   if (id === 'stats') return <StatsWidget statCards={statCards} size={item.size} />;
   if (id === 'activity') return <DailyActivityWidget data={data.activityTrends || []} />;
   if (id === 'funnel') return <FunnelWidget data={data} />;
-  if (id === 'tasks') return <PrioritiesWidget leads={leads} />;
-  if (id === 'recent') return <RecentLeadsWidget leads={leads} data={data} />;
+  if (id === 'curriculum-stage') return <CurriculumClassStageWidget leads={leads} stages={(data.funnel || []).map(item => item.label)} />;
   return null;
+}
+
+export function CurriculumClassStageWidget({ leads = [], stages = [] }) {
+  const [fullscreen, setFullscreen] = useState(false);
+  const [columnPickerOpen, setColumnPickerOpen] = useState(false);
+  const [rowPickerOpen, setRowPickerOpen] = useState(false);
+  const columnPickerRef = useRef(null);
+  const rowPickerRef = useRef(null);
+  const [selectedRowKeys, setSelectedRowKeys] = useState(['applyingClass']);
+  const [expandedRows, setExpandedRows] = useState(() => new Set());
+  const [hiddenStageColumns, setHiddenStageColumns] = useState(() => new Set());
+  const [showTotalColumn, setShowTotalColumn] = useState(true);
+  const [showPercentageColumn, setShowPercentageColumn] = useState(true);
+  useEffect(() => {
+    if (!columnPickerOpen && !rowPickerOpen) return undefined;
+    const close = event => {
+      if (!columnPickerRef.current?.contains(event.target)) setColumnPickerOpen(false);
+      if (!rowPickerRef.current?.contains(event.target)) setRowPickerOpen(false);
+    };
+    const escape = event => { if (event.key === 'Escape') { setColumnPickerOpen(false); setRowPickerOpen(false); } };
+    document.addEventListener('mousedown', close, true);
+    document.addEventListener('touchstart', close, true);
+    document.addEventListener('keydown', escape, true);
+    return () => {
+      document.removeEventListener('mousedown', close, true);
+      document.removeEventListener('touchstart', close, true);
+      document.removeEventListener('keydown', escape, true);
+    };
+  }, [columnPickerOpen, rowPickerOpen]);
+  const filteredLeads = leads;
+  const rowFields = [
+    { key: 'branch', label: 'Branch', value: lead => lead.branch || 'Not specified' },
+    { key: 'curriculum', label: 'Curriculum', value: lead => lead.curriculum || 'Not specified' },
+    { key: 'applyingClass', label: 'Class', value: lead => lead.applyingClass || 'Not specified' },
+  ];
+  const selectedRowFields = selectedRowKeys.map(key => rowFields.find(field => field.key === key)).filter(Boolean);
+  const stageNames = [...new Set([...stages.filter(Boolean), ...filteredLeads.map(lead => lead.stage).filter(Boolean)])];
+  const visibleStageNames = stageNames.filter(stage => !hiddenStageColumns.has(stage));
+  const visibleStageSet = new Set(visibleStageNames);
+  const visibleTotal = filteredLeads.filter(lead => visibleStageSet.has(lead.stage)).length;
+  const displayedStageNames = fullscreen ? visibleStageNames : [];
+  const displayedTotal = fullscreen ? visibleTotal : filteredLeads.length;
+  const displayTotalColumn = fullscreen ? showTotalColumn : true;
+  const displayPercentageColumn = fullscreen ? showPercentageColumn : true;
+  const percentageOfTotal = value => displayedTotal ? `${(Number(value || 0) / displayedTotal * 100).toFixed(1)}%` : '0.0%';
+  const visibleRowTotal = row => visibleStageNames.reduce((sum, stage) => sum + Number(row.counts[stage] || 0), 0);
+  const displayedRowTotal = row => fullscreen ? visibleRowTotal(row) : row.total;
+  const buildNodes = (items, depth = 0, parentKey = '') => {
+    const field = selectedRowFields[depth];
+    if (!field) return [];
+    const groups = new Map();
+    items.forEach(lead => { const value = field.value(lead); if (!groups.has(value)) groups.set(value, []); groups.get(value).push(lead); });
+    return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([label, groupLeads]) => {
+      const key = `${parentKey}/${field.key}:${label}`;
+      const counts = Object.fromEntries(stageNames.map(stage => [stage, groupLeads.filter(lead => lead.stage === stage).length]));
+      return { key, label, depth, counts, total: groupLeads.length, children: buildNodes(groupLeads, depth + 1, key) };
+    });
+  };
+  const rows = buildNodes(filteredLeads);
+  const allExpandableKeys = [];
+  const collectExpandable = nodes => nodes.forEach(node => { if (node.children.length) { allExpandableKeys.push(node.key); collectExpandable(node.children); } });
+  collectExpandable(rows);
+  const flatRows = [];
+  const flattenRows = nodes => nodes.forEach(node => { flatRows.push(node); if (expandedRows.has(node.key)) flattenRows(node.children); });
+  flattenRows(rows);
+  const totals = Object.fromEntries(stageNames.map(stage => [stage, filteredLeads.filter(lead => lead.stage === stage).length]));
+  const visibleRowFieldCount = Math.max(1, ...flatRows.map(row => row.depth + 1));
+  const visibleRowFields = selectedRowFields.slice(0, visibleRowFieldCount);
+  const allExpanded = allExpandableKeys.length > 0 && allExpandableKeys.every(key => expandedRows.has(key));
+  const toggleRow = key => setExpandedRows(current => {
+    const next = new Set(current);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+  const toggleRowField = key => setSelectedRowKeys(current => {
+    if (current.includes(key)) return current.length === 1 ? current : current.filter(value => value !== key);
+    return rowFields.filter(field => [...current, key].includes(field.key)).map(field => field.key);
+  });
+  const toggleStageColumn = stage => setHiddenStageColumns(current => {
+    const next = new Set(current);
+    if (next.has(stage)) next.delete(stage); else next.add(stage);
+    return next;
+  });
+  const toggleFullscreen = () => {
+    if (!fullscreen) {
+      setHiddenStageColumns(new Set());
+      setShowTotalColumn(true);
+      setShowPercentageColumn(true);
+      setColumnPickerOpen(false);
+    }
+    setFullscreen(value => !value);
+  };
+
+  return <Card className={`h-full curriculum-stage-widget ${fullscreen ? 'fullscreen' : ''}`}>
+    <CardHeader className="curriculum-stage-header flex-row items-center justify-between gap-4">
+      <div><CardTitle className="curriculum-stage-title">Leads by Branch, Curriculum, Class and Stage</CardTitle><CardDescription className="curriculum-stage-description">Lead count by configured stage</CardDescription></div>
+      <div className={`curriculum-report-controls ${fullscreen ? '' : 'compact'}`}>
+        <details className="dashboard-column-picker" ref={rowPickerRef} open={rowPickerOpen}><summary title="Select row fields" aria-label="Select row fields" onClick={event => { event.preventDefault(); setRowPickerOpen(value => !value); }}><Rows3 size={15}/><span>Rows</span><b>{selectedRowFields.length}</b></summary><div><strong>Display row fields</strong>{rowFields.map(field => <label key={field.key}><input type="checkbox" checked={selectedRowKeys.includes(field.key)} onChange={() => toggleRowField(field.key)}/><span>{field.label}</span></label>)}</div></details>
+        <details className="dashboard-column-picker" ref={columnPickerRef} open={columnPickerOpen}><summary title="Select columns" aria-label="Select columns" onClick={event => { event.preventDefault(); setColumnPickerOpen(value => !value); }}><Columns3 size={15}/><span>Columns</span><b>{visibleStageNames.length + (showTotalColumn ? 1 : 0) + (showPercentageColumn ? 1 : 0)}</b></summary><div><strong>Display columns</strong>{stageNames.map(stage => <label key={stage}><input type="checkbox" checked={!hiddenStageColumns.has(stage)} onChange={() => toggleStageColumn(stage)}/><span>{stage}</span></label>)}<label><input type="checkbox" checked={showTotalColumn} onChange={event => setShowTotalColumn(event.target.checked)}/><span>Total leads</span></label><label><input type="checkbox" checked={showPercentageColumn} onChange={event => setShowPercentageColumn(event.target.checked)}/><span>Percentage of total</span></label></div></details>
+        <button type="button" className="dashboard-report-maximize" onClick={toggleFullscreen} title={fullscreen ? 'Exit full screen' : 'View full screen'} aria-label={fullscreen ? 'Exit full screen report' : 'View report full screen'}>{fullscreen ? <Minimize2 size={17}/> : <Maximize2 size={17}/>}</button>
+      </div>
+    </CardHeader>
+    <CardContent className="curriculum-stage-content">
+      <div className="curriculum-stage-table-wrap">
+        <table className="curriculum-stage-table">
+          <thead><tr>{visibleRowFields.map((field, index) => <th className="curriculum-row-field" key={field.key}>{index === 0 ? <button type="button" className="curriculum-expand-all" onClick={() => setExpandedRows(allExpanded ? new Set() : new Set(allExpandableKeys))} aria-label={allExpanded ? 'Collapse all rows' : 'Expand all rows'}>{allExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>} {field.label}</button> : field.label}</th>)}{displayedStageNames.map(stage => <th className="curriculum-value-field" key={stage}>{stage}</th>)}{displayTotalColumn && <th className="curriculum-value-field">Total</th>}{displayPercentageColumn && <th className="curriculum-value-field">% of total</th>}</tr></thead>
+          <tbody>
+            {flatRows.map(row => <tr key={row.key} className={row.depth ? 'curriculum-child-row' : 'curriculum-parent-row'}>{visibleRowFields.map((field, index) => <td className="curriculum-row-field" key={field.key}>{index === row.depth && <button type="button" className="curriculum-row-toggle" onClick={() => row.children.length && toggleRow(row.key)} aria-expanded={expandedRows.has(row.key)} disabled={!row.children.length}>{row.children.length ? (expandedRows.has(row.key) ? <ChevronDown size={14}/> : <ChevronRight size={14}/>) : <span className="curriculum-child-indent"/>}<strong>{row.label}</strong>{row.children.length > 0 && <small>{row.children.length} {selectedRowFields[row.depth + 1]?.label.toLowerCase()}{row.children.length === 1 ? '' : 's'}</small>}</button>}</td>)}{displayedStageNames.map(stage => <td className="curriculum-value-field" key={stage}><strong>{row.counts[stage] || 0}</strong><small className="stage-contribution">{percentageOfTotal(row.counts[stage])}</small></td>)}{displayTotalColumn && <td className="curriculum-value-field"><strong>{displayedRowTotal(row)}</strong></td>}{displayPercentageColumn && <td className="curriculum-value-field"><strong>{percentageOfTotal(displayedRowTotal(row))}</strong></td>}</tr>)}
+            {!rows.length && <tr><td colSpan={displayedStageNames.length + visibleRowFields.length + (displayTotalColumn ? 1 : 0) + (displayPercentageColumn ? 1 : 0)} className="curriculum-stage-empty">No leads found for the selected filters.</td></tr>}
+          </tbody>
+          {rows.length > 0 && <tfoot><tr><td className="curriculum-row-field" colSpan={visibleRowFields.length}><strong>Total</strong></td>{displayedStageNames.map(stage => <td className="curriculum-value-field" key={stage}><strong>{totals[stage] || 0}</strong><small className="stage-contribution">{percentageOfTotal(totals[stage])}</small></td>)}{displayTotalColumn && <td className="curriculum-value-field"><strong>{displayedTotal}</strong></td>}{displayPercentageColumn && <td className="curriculum-value-field"><strong>{displayedTotal ? '100.0%' : '0.0%'}</strong></td>}</tr></tfoot>}
+        </table>
+      </div>
+    </CardContent>
+  </Card>;
 }
 
 function SavedReportWidget({ report, leads }) {
   return (
-    <Card>
+    <Card className="h-full">
       <CardHeader>
         <CardDescription className="uppercase tracking-wide text-xs font-semibold">
           Saved report
@@ -282,18 +566,17 @@ function SavedReportWidget({ report, leads }) {
 
 function StatsWidget({ statCards, size }) {
   return (
-    <div className={cn('grid gap-6', STAT_COLUMNS[size] || STAT_COLUMNS.full)}>
+    <div className={cn('grid gap-6 h-full', STAT_COLUMNS[size] || STAT_COLUMNS.full)}>
       {statCards.map((card) => (
-        <StatCard key={card.label} {...card} />
+        <StatCard key={card.label} {...card} compact className="h-full min-h-[156px]" />
       ))}
     </div>
   );
 }
 
 const ACTIVITY_SERIES = {
-  crmHours: { label: 'CRM hours', color: '#0b7a4f', suffix: 'h', decimals: 1 },
-  leadsAssigned: { label: 'Leads added to me', color: '#4e8bd8', suffix: '', decimals: 0 },
-  followupsDone: { label: 'Follow-ups done', color: '#d9823b', suffix: '', decimals: 0 },
+  crmHours: { label: 'CRM Usage', color: '#0b7a4f', suffix: '', decimals: 1 },
+  leads: { label: 'Lead', color: '#4e8bd8', suffix: '', decimals: 0 },
 };
 
 function DailyActivityWidget({ data }) {
@@ -302,8 +585,8 @@ function DailyActivityWidget({ data }) {
   const values = data.map(item => Math.max(0, Number(item[seriesKey]) || 0));
   const maximum = Math.max(...values, 1);
   const width = 680;
-  const height = 230;
-  const margin = { top: 28, right: 24, bottom: 42, left: 34 };
+  const height = 360;
+  const margin = { top: 42, right: 24, bottom: 48, left: 34 };
   const plotWidth = width - margin.left - margin.right;
   const plotHeight = height - margin.top - margin.bottom;
   const points = values.map((value, index) => ({
@@ -313,20 +596,28 @@ function DailyActivityWidget({ data }) {
     day: data[index]?.day,
   }));
   const pointString = points.map(point => `${point.x},${point.y}`).join(' ');
-  const displayValue = value => `${Number(value).toFixed(series.decimals)}${series.suffix}`;
+  const displayValue = value => {
+    if (seriesKey !== 'crmHours') return `${Math.round(Number(value) || 0)}`;
+    const totalMinutes = Math.max(0, Math.round((Number(value) || 0) * 60));
+    return `${String(Math.floor(totalMinutes / 60)).padStart(2, '0')}:${String(totalMinutes % 60).padStart(2, '0')}`;
+  };
+  const displayDay = day => new Date(`${day}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+  const periodScope = seriesKey === 'crmHours' ? 'signed-in user' : 'selected filters';
+  const periodLabel = data.length ? `${displayDay(data[0].day)} – ${displayDay(data.at(-1).day)} · ${periodScope}` : `No dates selected · ${periodScope}`;
+  const labelStep = Math.max(1, Math.ceil(data.length / 8));
 
-  return <Card className="h-full">
-    <CardHeader className="flex-row items-start justify-between gap-3">
-      <div><CardTitle>My Daily CRM Activity</CardTitle><CardDescription>Last 14 days · signed-in user</CardDescription></div>
-      <select className="dashboard-activity-select" value={seriesKey} onChange={event => setSeriesKey(event.target.value)} aria-label="Select activity report">
-        {Object.entries(ACTIVITY_SERIES).map(([key, option]) => <option key={key} value={key}>{option.label}</option>)}
-      </select>
+  return <Card className="h-full dashboard-activity-widget">
+    <CardHeader>
+      <div><CardTitle>My Daily CRM Activity</CardTitle><CardDescription>{periodLabel}</CardDescription></div>
     </CardHeader>
-    <CardContent>
+    <CardContent className="dashboard-activity-content">
+      <div className="dashboard-activity-tabs chart-tabs" role="tablist" aria-label="Select activity report">
+        {Object.entries(ACTIVITY_SERIES).map(([key, option]) => <button type="button" role="tab" aria-selected={seriesKey === key} className={seriesKey === key ? 'active' : ''} key={key} onClick={() => setSeriesKey(key)}>{option.label}</button>)}
+      </div>
       <div className="dashboard-activity-chart" aria-label={`${series.label} by day`}>
         <svg viewBox={`0 0 ${width} ${height}`} role="img">
           {[0, 0.5, 1].map(ratio => <line key={ratio} x1={margin.left} x2={width - margin.right} y1={margin.top + plotHeight * ratio} y2={margin.top + plotHeight * ratio} className="activity-grid-line" />)}
-          {points.length > 0 && <><polyline points={pointString} fill="none" stroke={series.color} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />{points.map((point, index) => <g key={point.day || index}><circle cx={point.x} cy={point.y} r="4" fill="#fff" stroke={series.color} strokeWidth="3"><title>{`${point.day}: ${displayValue(point.value)}`}</title></circle><text x={point.x} y={Math.max(13, point.y - 10)} textAnchor="middle" className="activity-value-label">{displayValue(point.value)}</text>{(index % 2 === 0 || index === points.length - 1) && <text x={point.x} y={height - 14} textAnchor="middle" className="activity-day-label">{new Date(`${point.day}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</text>}</g>)}</>}
+          {points.length > 0 && <><polyline points={pointString} fill="none" stroke={series.color} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />{points.map((point, index) => <g key={point.day || index}><circle cx={point.x} cy={point.y} r="4" fill="#fff" stroke={series.color} strokeWidth="3"><title>{`${point.day}: ${displayValue(point.value)}`}</title></circle><text x={point.x} y={Math.max(13, point.y - 10)} textAnchor="middle" className="activity-value-label">{displayValue(point.value)}</text>{(index % labelStep === 0 || index === points.length - 1) && <text x={point.x} y={height - 14} textAnchor="middle" className="activity-day-label">{displayDay(point.day)}</text>}</g>)}</>}
         </svg>
       </div>
       <div className="dashboard-activity-legend"><i style={{ background: series.color }} /><span>{series.label}</span><strong>{displayValue(values.reduce((sum, value) => sum + value, 0))} total</strong></div>
@@ -340,172 +631,52 @@ function FunnelWidget({ data }) {
   const maximumValue = Math.max(...stageValues, 0);
   const totalValue = stageValues.reduce((sum, value) => sum + value, 0);
   return (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Admissions Funnel</CardTitle>
-                  <CardDescription>Lead movement this academic year</CardDescription>
+              <Card className="h-full admissions-view-widget">
+                <CardHeader className="flex-row items-center justify-between gap-3">
+                  <div><CardTitle>Admissions view</CardTitle><CardDescription>Lead movement this academic year</CardDescription></div>
+                  <span className="admissions-live-label">Live</span>
                 </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
+                <CardContent className="admissions-view-content">
+                  <div className="admissions-view-list">
                     {funnel.map((item, index) => {
                       const value = stageValues[index];
-                      const previous = stageValues[index - 1] || 0;
                       const barPercentage = maximumValue ? (value / maximumValue) * 100 : 0;
+                      // Every row reads as a share of all leads, so the counts
+                      // and the percentages both add up to the total row below.
                       const share = totalValue ? Math.round((value / totalValue) * 100) : 0;
-                      const conversion = previous ? Math.round((value / previous) * 100) : null;
-                      const performanceLabel = index === 0
-                        ? `${share}% of current leads`
-                        : conversion === null
-                          ? `${share}% of current leads`
-                          : `${conversion}% conversion from ${funnel[index - 1].label}`;
 
                       return (
-                        <div key={item.label} className="space-y-2">
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="font-medium text-foreground">{item.label}</span>
-                            <span className="text-secondary-600">{item.value}</span>
+                        <div key={item.label} className="admissions-view-row">
+                          <div className="admissions-view-label">
+                            <span>{item.label}</span>
                           </div>
-                          <div className="h-2 bg-secondary-100 rounded-full overflow-hidden">
+                          <div className="admissions-view-track">
                             <div
-                              className="h-full rounded-full transition-all"
+                              className="admissions-view-fill"
                               style={{
                                 width: `${barPercentage}%`,
                                 backgroundColor: item.color,
                               }}
                             />
                           </div>
-                          <div className="text-xs text-secondary-600">
-                            {performanceLabel}
+                          <div className="admissions-view-analysis">
+                            <strong>{value}</strong> <span>({share}%)</span>
                           </div>
                         </div>
                       );
                     })}
-                  </div>
-                </CardContent>
-              </Card>
-  );
-}
-
-function PrioritiesWidget({ leads }) {
-  return (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Today's Priorities</CardTitle>
-                  <CardDescription>Follow-ups requiring action</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {leads
-                      .filter((lead) => lead.nextFollowup || lead.followupAt)
-                      .slice(0, 6)
-                      .map((lead) => (
-                        <div key={lead.id || lead.leadId} className="flex items-start gap-3 p-3 rounded-lg bg-secondary-50 hover:bg-secondary-100 transition-colors cursor-pointer">
-                          <div
-                            className="flex-shrink-0 w-2 h-2 rounded-full mt-1.5"
-                            style={{
-                              backgroundColor: lead.nextFollowup ? '#c47f0a' : '#c33d35',
-                            }}
-                          />
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-sm text-foreground truncate">
-                              {lead.studentName || 'Unnamed lead'}
-                            </p>
-                            <p className="text-xs text-secondary-600">
-                              {[lead.stage, lead.nextFollowup || lead.followupAt].filter(Boolean).join(' · ')}
-                            </p>
-                          </div>
-                        </div>
-                      ))}
-                    {!leads.filter((lead) => lead.nextFollowup || lead.followupAt).length && (
-                      <div className="text-center py-8 text-secondary-600">
-                        <CheckCircle className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                        <p className="font-medium mb-1">No pending follow-ups</p>
-                        <p className="text-sm">You're all caught up.</p>
+                    <div className="admissions-view-row admissions-view-total">
+                      <div className="admissions-view-label"><span>Total Leads</span></div>
+                      <div className="admissions-view-track">
+                        <div className="admissions-view-fill" style={{ width: totalValue ? '100%' : '0%' }} />
                       </div>
-                    )}
+                      <div className="admissions-view-analysis">
+                        <strong>{totalValue}</strong> <span>({totalValue ? 100 : 0}%)</span>
+                      </div>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
-  );
-}
-
-function RecentLeadsWidget({ leads, data }) {
-  return (
-            <Card>
-              <CardHeader>
-                <CardTitle>Recent Leads</CardTitle>
-                <CardDescription>Latest enquiries across all sources</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-border">
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-secondary-700 uppercase tracking-wider">
-                          Student
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-secondary-700 uppercase tracking-wider">
-                          Lead ID
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-secondary-700 uppercase tracking-wider">
-                          Applying for
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-secondary-700 uppercase tracking-wider">
-                          Stage
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-secondary-700 uppercase tracking-wider">
-                          Owner
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(leads?.length ? leads : data.recentLeads || [])
-                        .slice(0, 8)
-                        .map((lead) => (
-                          <tr
-                            key={lead.id}
-                            className="border-b border-border hover:bg-secondary-50 transition-colors"
-                          >
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-2">
-                                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary-100 text-xs font-semibold text-primary-700">
-                                  {String(lead.studentName || '?')
-                                    .split(' ')
-                                    .map((n) => n[0])
-                                    .join('')}
-                                </div>
-                                <div>
-                                  <p className="font-medium text-sm">{lead.studentName}</p>
-                                  <p className="text-xs text-secondary-600">{lead.phone}</p>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="px-4 py-3">
-                              <code className="text-xs font-mono text-primary-600 bg-primary-50 px-2 py-1 rounded">
-                                {lead.leadId}
-                              </code>
-                            </td>
-                            <td className="px-4 py-3 text-sm">{lead.applyingClass}</td>
-                            <td className="px-4 py-3">
-                              <span
-                                className={cn(
-                                  'inline-block px-2 py-1 rounded-full text-xs font-semibold',
-                                  getStageColor(lead.stage)
-                                )}
-                              >
-                                {lead.stage}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-sm text-secondary-600">
-                              {lead.owner}
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
   );
 }
 
@@ -523,17 +694,6 @@ function getComparisonLabel(current, previous, suffix, zeroBaselineLabel = '') {
   const change = ((currentValue - previousValue) / previousValue) * 100;
   const sign = change > 0 ? '+' : '';
   return `${sign}${change.toFixed(1)}% ${suffix}`;
-}
-
-function getStageColor(stage) {
-  const stageMap = {
-    new: 'bg-blue-100 text-blue-700',
-    application: 'bg-emerald-100 text-emerald-700',
-    admitted: 'bg-emerald-100 text-emerald-700',
-    'campus-visit': 'bg-amber-100 text-amber-700',
-    enrolled: 'bg-emerald-100 text-emerald-700',
-  };
-  return stageMap[stage?.toLowerCase()?.replace(' ', '-')] || 'bg-gray-100 text-gray-700';
 }
 
 export default DashboardPage;

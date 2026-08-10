@@ -231,7 +231,7 @@
 .report-studio.library-collapsed .library-toggle:hover,.report-studio.settings-collapsed .settings-toggle:hover{background:#3f449d;border-color:#3f449d;color:#fff}
 .report-preview{overflow:hidden}
 .report-preview .report-table-wrap{max-width:100%;overflow:auto;padding:18px;box-sizing:border-box}
-.resizable-report-table{width:auto;max-width:none}
+.resizable-report-table{width:100%;max-width:none}
 .resizable-report-table th,.resizable-report-table td{height:42px;border:1px solid #d9dce8!important;background-clip:padding-box}
 .resizable-report-table td:first-child{display:table-cell!important}
 .resizable-report-table .pivot-row-label{display:flex}
@@ -476,3 +476,102 @@
 .map-field-options label{display:grid;gap:6px;color:#696b7e;font-size:10px;font-weight:800}
 .map-field-options select{width:100%;border:1px solid #dfe0ea;border-radius:8px;background:#fff;padding:9px;color:#34364a;font-size:10px}
 @media(max-width:900px){.report-cards-visual{grid-template-columns:repeat(2,minmax(0,1fr))}.map-report{grid-template-columns:1fr}}
+
+/* Responsive report creation workspace -----------------------------------
+   Keep the canvas and options panel in the same grid row on large screens.
+   Earlier generic report breakpoints moved .report-settings to a new row but
+   left its grid column behind, producing the large blank area seen on laptops. */
+.report-studio.builder-focus{
+  width:100%;
+  max-width:100%;
+  min-width:0;
+  grid-template-columns:minmax(0,1fr) clamp(270px,22vw,320px);
+}
+.report-studio.builder-focus .report-canvas,
+.report-studio.builder-focus .report-preview,
+.report-studio.builder-focus .report-settings{min-width:0;box-sizing:border-box}
+.report-studio.builder-focus .report-settings{
+  grid-column:auto;
+  display:block;
+  padding:clamp(13px,1.2vw,17px);
+  border-top:0;
+  border-left:1px solid var(--line);
+}
+.report-studio.builder-focus .report-canvas{padding:clamp(14px,1.4vw,22px)}
+.report-studio.builder-focus .report-canvas-head>div:first-child{min-width:180px;flex:1}
+.report-studio.builder-focus .report-canvas-head>div:last-child{min-width:0;max-width:100%}
+.report-studio.builder-focus .action-visual-picker{
+  min-width:0;
+  max-width:min(46vw,520px);
+  overflow-x:auto;
+  overflow-y:hidden;
+  padding:2px;
+  scrollbar-width:thin;
+}
+.report-studio.builder-focus .action-visual-picker button{width:clamp(36px,2.4vw,44px);height:clamp(36px,2.4vw,44px)}
+.report-studio.builder-focus .report-preview{overflow:auto}
+
+@media(max-width:1450px){
+  .report-studio.builder-focus .report-canvas-head{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
+  .report-studio.builder-focus .report-canvas-head>div:last-child{width:100%;justify-content:flex-start;flex-wrap:nowrap}
+  .report-studio.builder-focus .action-visual-picker{max-width:none;flex:1}
+}
+
+/* Laptops and tablets: put configuration below the preview instead of
+   squeezing either panel. The workspace itself becomes the scroll owner. */
+@media(max-width:1100px){
+  .report-page.builder-active{height:auto;min-height:100dvh;max-height:none;overflow:visible;padding-inline:clamp(10px,2vw,18px)}
+  .report-studio.builder-focus{display:flex;flex-direction:column;height:auto;min-height:0;overflow:visible}
+  .report-studio.builder-focus .report-canvas{height:auto;overflow:visible;border-radius:13px 13px 0 0}
+  .report-studio.builder-focus .report-preview{height:auto;min-height:clamp(380px,54vh,560px);overflow:auto}
+  .report-studio.builder-focus .blank-report-preview{min-height:clamp(380px,54vh,560px)}
+  .report-studio.builder-focus .report-settings{
+    height:auto;
+    max-height:none;
+    overflow:visible;
+    border-top:1px solid var(--line);
+    border-left:0;
+  }
+  .report-studio.builder-focus .settings-pivot-shelves{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+
+@media(max-width:760px){
+  .report-page.builder-active{padding-inline:8px}
+  .report-studio.builder-focus{border-radius:10px}
+  .report-studio.builder-focus .report-canvas{padding:12px}
+  .report-studio.builder-focus .report-canvas-head input{font-size:18px}
+  .report-studio.builder-focus .report-canvas-head>div:last-child{display:grid;grid-template-columns:minmax(0,1fr) 1fr 1fr;gap:8px}
+  .report-studio.builder-focus .action-visual-picker{grid-column:1/-1;width:100%;overflow-x:auto}
+  .report-studio.builder-focus .generate-report,
+  .report-studio.builder-focus .report-canvas-head .primary{width:100%;min-width:0;padding-inline:9px}
+  .report-studio.builder-focus .report-preview{min-height:340px}
+  .report-studio.builder-focus .blank-report-preview{min-height:340px;padding:24px 14px}
+  .report-studio.builder-focus .preview-heading{align-items:flex-start;flex-direction:column;gap:5px;padding:14px}
+  .report-studio.builder-focus .settings-pivot-shelves{grid-template-columns:1fr}
+  .report-studio.builder-focus .report-settings{padding:14px 12px}
+  .report-studio.builder-focus .report-source-add{grid-template-columns:1fr}
+  .report-studio.builder-focus .report-source-add button{grid-column:auto}
+  .report-settings .report-date-popover .followup-range-header{grid-template-columns:1fr}
+  .report-settings .report-date-popover .range-calendar-panel{grid-template-columns:1fr}
+  .report-settings .report-date-popover .range-calendar-panel aside{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .report-settings .report-date-popover .range-calendar-months{grid-template-columns:1fr;min-width:280px}
+  .report-cards-visual{grid-template-columns:1fr!important;padding:14px}
+  .stacked-bar-report{padding:20px 14px}
+  .stacked-bar-row{grid-template-columns:84px minmax(120px,1fr) 34px;gap:8px}
+  .stacked-legend{margin-left:0}
+  .line-report{padding:14px}
+}
+
+@media(max-width:480px){
+  .report-studio.builder-focus .report-canvas-head>div:last-child{grid-template-columns:1fr 1fr}
+  .report-studio.builder-focus .action-visual-picker{grid-column:1/-1}
+  .report-studio.builder-focus .save-notice{grid-column:1/-1}
+  .report-studio.builder-focus .action-visual-picker button{width:36px;height:36px}
+  .report-studio.builder-focus .generate-report,
+  .report-studio.builder-focus .report-canvas-head .primary{font-size:9px}
+  .report-studio.builder-focus .report-preview{min-height:300px}
+  .report-studio.builder-focus .blank-report-preview{min-height:300px}
+  .pie-report{flex-direction:column;padding:20px 12px}
+  .funnel-legend{grid-template-columns:1fr}
+  .stacked-bar-row{grid-template-columns:70px minmax(100px,1fr) 30px}
+}

@@ -173,12 +173,12 @@ export default function PublicEnquiryForm({ formKey }) {
 function PublicField({ field, value, onChange }) {
   const label = <>{field.label || field.displayName}{field.required ? " *" : ""}</>;
   const type = field.fieldType === "email" ? "email" : field.fieldType === "phone" ? "tel" : ["date", "datetime"].includes(field.fieldType) ? (field.fieldType === "datetime" ? "datetime-local" : "date") : "text";
-  const pattern = field.fieldType === "phone" ? "^(?:\\+?91[\\s-]?)?[6-9]\\d{9}$|^0[6-9]\\d{9}$" : undefined;
-  const title = field.fieldType === "phone" ? "Enter a valid Indian mobile number, for example 9876543210 or +91 9876543210" : field.fieldType === "email" ? "Enter a valid email address" : undefined;
+  const pattern = field.fieldType === "phone" ? "[6-9][0-9]{9}" : undefined;
+  const title = field.fieldType === "phone" ? "Enter a valid 10-digit Indian mobile number starting with 6-9" : field.fieldType === "email" ? "Enter a valid email address" : undefined;
   if (["single_select", "multi_select"].includes(field.fieldType) || field.options?.length) {
     const multiple = field.fieldType === "multi_select";
     return <label>{label}<select required={field.required} multiple={multiple} value={multiple ? (Array.isArray(value) ? value : []) : value} onChange={event => onChange(multiple ? Array.from(event.target.selectedOptions, option => option.value) : event.target.value)}>{!multiple && <option value="">Select {String(field.label || field.displayName).toLowerCase()}</option>}{(field.options || []).map(option => <option key={option.value ?? option} value={option.value ?? option}>{option.label ?? option}</option>)}</select></label>;
   }
   if (field.fieldType === "textarea") return <label className="wide">{label}<textarea required={field.required} rows="4" value={value} onChange={event => onChange(event.target.value)} placeholder={field.placeholder || ""} /></label>;
-  return <label>{label}<input required={field.required} type={type} inputMode={field.fieldType === "phone" ? "tel" : undefined} pattern={pattern} title={title} value={value} onChange={event => onChange(field.fieldType === "phone" ? event.target.value.replace(/[^0-9+\-\s]/g, "").slice(0, 18) : event.target.value)} placeholder={field.placeholder || ""} /></label>;
+  return <label>{label}<input required={field.required} type={type} inputMode={field.fieldType === "phone" ? "numeric" : undefined} maxLength={field.fieldType === "phone" ? 10 : undefined} pattern={pattern} title={title} value={value} onChange={event => onChange(field.fieldType === "phone" ? event.target.value.replace(/\D/g, "").slice(0, 10) : event.target.value)} placeholder={field.placeholder || ""} /></label>;
 }

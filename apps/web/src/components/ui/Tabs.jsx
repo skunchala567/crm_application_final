@@ -41,10 +41,9 @@ const Tabs = ({ value: controlledValue, defaultValue, onValueChange, children, c
 const TabsList = forwardRef(({ className, children, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn(
-      'inline-flex items-center justify-center rounded-lg bg-secondary-100 p-1',
-      className
-    )}
+    // `ui-tabs`/`ui-tab` opt these into the shared pill tab styling in
+    // design-system.css, so every tab bar in the app looks the same.
+    className={cn('ui-tabs inline-flex items-center gap-1.5', className)}
     {...props}
   >
     {children}
@@ -59,11 +58,9 @@ const TabsTrigger = ({ value, children, className, ...props }) => {
   return (
     <button
       onClick={() => setValue(value)}
+      data-state={isActive ? 'active' : 'inactive'}
       className={cn(
-        'inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50',
-        isActive
-          ? 'bg-white text-foreground shadow-xs'
-          : 'text-secondary-600 hover:text-foreground',
+        'ui-tab justify-center ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50',
         className
       )}
       {...props}

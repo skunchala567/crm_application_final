@@ -272,6 +272,8 @@ export function createPaymentFormsRoutes(pool, authenticate, requireCrmAccess, r
 
   publicRouter.post('/:formKey/submit', wrap(async (req, res) => {
     const { name, email, phone, studentName, selectedCategoryIds, customFields } = req.body;
+    const payerPhone = clean(phone, 30).replace(/\D/g, '');
+    if (!/^[6-9]\d{9}$/.test(payerPhone)) return res.status(400).json({ message: 'Enter a valid 10-digit Indian mobile number' });
     // Student name is no longer demanded outright: it is only on the page if
     // the form configures it, and a form that does not ask for one could
     // never be submitted while this insisted on it.
@@ -317,7 +319,7 @@ export function createPaymentFormsRoutes(pool, authenticate, requireCrmAccess, r
     try {
       const config = await branchConfig(pool, form.branch_id);
       const payload = {
-        name: clean(name, 200), phone: clean(phone, 30).replace(/\D/g, ''), email: clean(email, 254),
+        name: clean(name, 200), phone: payerPhone, email: clean(email, 254),
         student_name: payerStudentName, new_admission: true,
         details: [{ component_type: 'Payment', amount }],
         notes: [{ key: 'form_key', value: form.form_key }, { key: 'categories', value: selectedCats.map(c => c.category_name).join(', ') }]

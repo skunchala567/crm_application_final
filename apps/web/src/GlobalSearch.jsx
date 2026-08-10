@@ -81,10 +81,10 @@ export default function GlobalSearch() {
     return () => clearTimeout(timer);
   }, [query, filtersLeads]);
 
-  // Global keyboard shortcut: Ctrl+Shift+F
+  // Global keyboard shortcut: Ctrl/Command+Shift+F
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.ctrlKey && e.shiftKey && (e.key === 'F' || e.key === 'f')) {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'F' || e.key === 'f')) {
         e.preventDefault();
         setTimeout(() => inputRef.current?.focus(), 0);
       }
@@ -166,6 +166,7 @@ export default function GlobalSearch() {
           autoComplete="off"
           spellCheck="false"
           aria-label="Search"
+          aria-keyshortcuts="Control+Shift+F Meta+Shift+F"
         />
         {query ? (
           <button
@@ -180,7 +181,7 @@ export default function GlobalSearch() {
           </button>
         ) : (
           <span className="global-search-inline-kbd" aria-hidden="true">
-            <kbd>Ctrl</kbd><kbd>⇧</kbd><kbd>F</kbd>
+            <kbd>Ctrl/⌘</kbd><kbd>⇧</kbd><kbd>F</kbd>
           </span>
         )}
 

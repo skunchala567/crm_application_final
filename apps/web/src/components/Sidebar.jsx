@@ -204,7 +204,7 @@ export function Sidebar({
           'app-sidebar fixed top-0 left-0 h-screen z-[60] flex flex-col bg-white border-r border-border',
           'transition-[width,transform] duration-300 ease-out',
           'md:relative md:z-0 md:translate-x-0',
-          rail ? 'w-[82px]' : 'w-[270px]',
+          rail ? 'w-[72px]' : 'w-[230px]',
           mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
         )}
         data-collapsed={rail ? 'true' : 'false'}

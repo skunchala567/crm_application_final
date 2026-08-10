@@ -637,11 +637,49 @@ export class SyncJobRepository {
   }
 
   async markCompleted(jobId, status, completedData) {
+    const data = completedData || {};
+    const [columns] = await this.pool.execute(
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='crm_integration_sync_jobs' AND TABLE_SCHEMA=DATABASE()"
+    );
+    const names = new Set(columns.map(column => column.COLUMN_NAME));
+    if (names.has('records_processed')) {
+      await this.pool.execute(`
+        UPDATE crm_integration_sync_jobs
+        SET status = ?, completed_at = CURRENT_TIMESTAMP,
+            records_processed = ?, records_created = ?, records_updated = ?, records_failed = ?,
+            error_message = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `, [
+        status,
+        Number(data.recordsProcessed || 0),
+        Number(data.recordsCreated || 0),
+        Number(data.recordsUpdated || 0),
+        Number(data.recordsFailed || 0),
+        data.errorMessage || null,
+        jobId
+      ]);
+      return;
+    }
+
+    // The legacy table stores only lifecycle columns. Preserve result details
+    // in metadata so completing a sync never fails after rows were processed.
+    const [[job]] = await this.pool.execute(
+      'SELECT metadata FROM crm_integration_sync_jobs WHERE id=? LIMIT 1',
+      [jobId]
+    );
+    let metadata = {};
+    try { metadata = typeof job?.metadata === 'string' ? JSON.parse(job.metadata || '{}') : (job?.metadata || {}); } catch { metadata = {}; }
     await this.pool.execute(`
       UPDATE crm_integration_sync_jobs
-      SET status = ?, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `, [status, jobId]);
+      SET status=?,completed_at=CURRENT_TIMESTAMP,metadata=?,updated_at=CURRENT_TIMESTAMP
+      WHERE id=?
+    `, [status, JSON.stringify({ ...metadata, result: {
+      recordsProcessed: Number(data.recordsProcessed || 0),
+      recordsCreated: Number(data.recordsCreated || 0),
+      recordsUpdated: Number(data.recordsUpdated || 0),
+      recordsFailed: Number(data.recordsFailed || 0),
+      errorMessage: data.errorMessage || null,
+    } }), jobId]);
   }
 
   async scheduleRetry(jobId, nextRetryAt, retryCount) {
@@ -674,13 +712,17 @@ export class SyncLogRepository {
       integrationConfigId, syncJobId, syncType, status, stats, errorSummary
     } = logData;
 
+    const parsedStats = typeof stats === 'string' ? JSON.parse(stats || '{}') : (stats || {});
+    // A sync-history row represents real CRM ingestion. Fetches that only
+    // skipped, rejected, failed or matched existing leads must not create one.
+    if (Number(parsedStats.created || 0) <= 0) return null;
+
     // Check if integration_id column exists (new schema after migration 005)
     const [columns] = await this.pool.execute(
       "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'crm_integration_sync_logs' AND TABLE_SCHEMA = DATABASE()"
     );
     const hasIntegrationIdColumn = columns.some(col => col.COLUMN_NAME === 'integration_id');
 
-    const parsedStats = typeof stats === 'string' ? JSON.parse(stats || '{}') : (stats || {});
     const statsData = JSON.stringify(parsedStats);
 
     if (hasIntegrationIdColumn) {
@@ -810,7 +852,11 @@ export class ErrorLogRepository {
   }
 
   async log(integrationConfigId, errorData) {
-    const { errorType, errorMessage, errorDetails, affectedRecords } = errorData;
+    const { errorType, errorMessage, errorDetails, affectedRecords, leadId, leadsCreated } = errorData;
+
+    // Error history is tied to an import that created at least one CRM lead.
+    // Validation/fetch/no-op failures belong in application logging instead.
+    if (Number(leadId || 0) <= 0 && Number(leadsCreated || 0) <= 0) return false;
 
     await this.pool.execute(`
       INSERT INTO crm_integration_error_logs
@@ -823,6 +869,7 @@ export class ErrorLogRepository {
       JSON.stringify(errorDetails || {}),
       affectedRecords || 0
     ]);
+    return true;
   }
 
   async list(integrationConfigId, filters = {}) {
@@ -855,7 +902,13 @@ export class AuditLogRepository {
 
   async log(integrationId, auditData) {
     try {
-      const { action, notes, createdById } = auditData;
+      const { action, notes, createdById, recordCount } = auditData;
+
+      // This table tracks real integration data movement, not configuration,
+      // authentication, connection tests, or no-op sync attempts.
+      if (!['data_imported', 'data_exported'].includes(action) || Number(recordCount || 0) <= 0) {
+        return false;
+      }
 
       await this.pool.execute(`
         INSERT INTO crm_integration_audit_logs

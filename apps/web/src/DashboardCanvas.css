@@ -37,6 +37,22 @@
   margin: 0;
 }
 
+.dashboard-heading{position:relative;width:100%;padding-right:390px}
+.dashboard-toolbar{width:auto;margin:0;display:flex;align-items:center;justify-content:flex-end;gap:8px;position:absolute;z-index:20;right:0;bottom:-27px}
+.dashboard-tabs{flex:none;align-self:flex-end}
+/* Pill shape and states come from the shared tab block in design-system.css. */
+.dashboard-heading .dashboard-tabs{display:flex;margin:0;padding:0;border:0;background:transparent}
+.dashboard-head-controls{margin-left:auto;display:flex;align-items:flex-end;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+.dashboard-filter-menu{position:relative;display:flex;align-items:center;gap:6px}.dashboard-filter-menu>button.dashboard-clear-filters{color:var(--muted)}.dashboard-filter-menu>button.dashboard-clear-filters:hover{border-color:#e7c9c6;background:#fdeeed;color:#c33d35}.dashboard-filter-menu>button{position:relative;width:42px;height:42px;display:grid;place-items:center;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--primary)}.dashboard-filter-menu>button.active{border-color:var(--primary);background:var(--primary-soft)}.dashboard-filter-menu>button>b{position:absolute;top:-7px;right:-7px;min-width:18px;height:18px;padding:0 4px;display:grid;place-items:center;border:2px solid #fff;border-radius:10px;background:#c33d35;color:#fff;font-size:8px}.dashboard-filter-panel{position:absolute;z-index:65;top:calc(100% + 8px);right:0;width:232px;padding:9px;display:grid;align-items:stretch;gap:7px;border:1px solid var(--line);border-radius:11px;background:#fff;box-shadow:0 16px 38px #0d1a1528}
+.dashboard-global-branch{display:grid;gap:3px;color:var(--muted);font-size:8px;font-weight:700}.dashboard-global-branch select{height:42px;min-width:190px;padding:0 30px 0 10px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);font-size:10px}
+.dashboard-filter-panel .dashboard-global-branch,.dashboard-filter-panel .dashboard-global-branch select,.dashboard-filter-panel .dashboard-date-filter,.dashboard-filter-panel .dashboard-date-filter>button{width:100%;min-width:0}
+.dashboard-multi-filter{position:relative}.dashboard-multi-filter summary{height:38px;padding:0 9px;display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:9px;background:#fff;list-style:none;cursor:pointer}.dashboard-multi-filter summary::-webkit-details-marker{display:none}.dashboard-multi-filter summary>span{color:var(--muted);font-size:8px;font-weight:700}.dashboard-multi-filter summary>strong{margin-left:auto;max-width:125px;overflow:hidden;text-overflow:ellipsis;color:var(--ink);font-size:9px;white-space:nowrap}.dashboard-multi-filter[open] summary{border-color:var(--primary);background:var(--primary-soft)}.dashboard-multi-filter[open] summary svg{transform:rotate(180deg)}.dashboard-multi-filter>div{position:absolute;z-index:70;top:0;right:calc(100% + 10px);width:min(230px,calc(100vw - 272px));max-height:240px;padding:6px;overflow:auto;border:1px solid var(--line);border-radius:9px;background:#fff;box-shadow:0 12px 30px #0d1a1528}.dashboard-multi-filter>div label{padding:7px 6px;display:flex;align-items:center;gap:8px;border-radius:6px;color:var(--ink);font-size:10px;cursor:pointer}.dashboard-multi-filter>div label:hover{background:var(--primary-soft)}.dashboard-multi-filter>div input{width:14px;height:14px;margin:0;accent-color:var(--primary)}.dashboard-multi-filter>div p{margin:0;padding:8px;color:var(--muted);font-size:9px}
+.dashboard-date-filter{position:relative}
+.dashboard-date-filter>button{height:38px;min-width:0;padding:0 9px;display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--primary);text-align:left}.dashboard-date-filter>button.active{background:var(--primary-soft);border-color:var(--primary)}.dashboard-date-filter>button>span{display:grid;min-width:0;flex:1;gap:1px}.dashboard-date-filter>button small{color:var(--muted);font-size:8px}.dashboard-date-filter>button strong{max-width:145px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);font-size:9px}
+.dashboard-date-popover{position:absolute;z-index:60;top:calc(100% + 7px);right:0}
+@media(max-width:760px){.dashboard-multi-filter>div{top:calc(100% + 5px);left:0;right:0;width:auto;max-height:190px}}
+@media(max-width:700px){.dashboard-heading{padding-right:0;padding-bottom:38px}.dashboard-toolbar{right:0;bottom:-8px}.dashboard-tabs{align-self:flex-start}.dashboard-filter-panel{position:fixed;top:88px;left:10px;right:10px;width:auto;align-items:stretch;flex-direction:column}.dashboard-global-branch select,.dashboard-date-filter>button{width:100%}.dashboard-date-popover{position:fixed;top:90px;left:10px;right:10px;width:auto}}
+
 .dashboard-stats-widget {
   margin-bottom: 0;
 }
@@ -316,6 +332,55 @@
 .dashboard-report-widget .column-chart {
   height: 260px;
 }
+
+.admissions-view-widget{display:flex;min-height:0;flex-direction:column}.admissions-view-content{display:flex;min-height:0;flex:1;flex-direction:column}.admissions-live-label{padding:7px 11px;border:1px solid var(--line);border-radius:8px;color:var(--muted);font-size:10px;font-weight:700}.admissions-view-list{display:grid;min-height:0;flex:1;grid-template-rows:repeat(7,minmax(0,1fr));gap:8px}.admissions-view-row{display:grid;grid-template-columns:minmax(105px,150px) minmax(100px,1fr) minmax(115px,170px);align-items:center;gap:12px}.admissions-view-label{min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;color:#55586f;font-size:11px}.admissions-view-label span{min-width:0;white-space:normal}.admissions-view-label strong{color:var(--ink)}.admissions-view-track{height:9px;overflow:hidden;border-radius:10px;background:#eef0f4}.admissions-view-fill{height:100%;border-radius:10px;transition:width .2s ease}.admissions-view-analysis{display:flex;align-items:baseline;gap:4px;color:#8a8da2;font-size:9px;line-height:1.35;white-space:nowrap}
+.admissions-view-analysis strong{color:var(--ink);font-size:12px;font-weight:700}
+.admissions-view-analysis span{font-size:10px}
+/* Summary row: the same three columns so the count and share stay in line. */
+.admissions-view-total{margin-top:4px;padding-top:11px;border-top:1px solid var(--line)}
+.admissions-view-total .admissions-view-label{color:var(--ink);font-weight:700}
+.admissions-view-total .admissions-view-fill{background:var(--primary)}
+.admissions-view-total .admissions-view-analysis strong{font-size:13px}
+@media(max-width:700px){.admissions-view-row{grid-template-columns:minmax(90px,120px) 1fr}.admissions-view-analysis{grid-column:2}}
+
+.dashboard-branch-filter{display:grid;gap:4px;min-width:190px;color:var(--muted);font-size:9px;font-weight:700}
+.dashboard-branch-filter select{height:38px;padding:0 30px 0 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);font-size:11px}
+.curriculum-report-controls{display:flex;align-items:flex-end;gap:9px}
+.curriculum-stage-widget:not(.fullscreen)>.curriculum-stage-header{position:relative;display:block;min-height:105px}.curriculum-stage-widget:not(.fullscreen)>.curriculum-stage-header>div:first-child{max-width:100%}.curriculum-stage-widget:not(.fullscreen)>.curriculum-stage-header .curriculum-report-controls.compact{position:absolute;right:14px;bottom:12px;z-index:5;align-items:center;gap:6px}.curriculum-report-controls.compact .dashboard-column-picker summary{width:38px;min-width:38px;padding:0;justify-content:center}.curriculum-report-controls.compact .dashboard-column-picker summary>span,.curriculum-report-controls.compact .dashboard-column-picker summary>b{display:none}.curriculum-report-controls.compact .dashboard-column-picker>div{right:0}.curriculum-stage-widget:not(.fullscreen) .curriculum-stage-title{max-width:100%;line-height:1.18}.curriculum-stage-widget:not(.fullscreen) .curriculum-stage-description{padding-right:125px}
+.dashboard-report-maximize{width:38px;height:38px;min-width:38px;padding:0;display:grid;place-items:center;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--primary)}.dashboard-report-maximize:hover{background:var(--primary-soft);border-color:var(--primary)}
+.curriculum-stage-widget.fullscreen{position:fixed;z-index:150;inset:12px;height:auto!important;display:flex;flex-direction:column;border-radius:13px;box-shadow:0 24px 70px #0d1a1545}.curriculum-stage-widget.fullscreen:before{content:"";position:fixed;z-index:-1;inset:-12px;background:#0d1a155c}.curriculum-stage-widget.fullscreen>.curriculum-stage-content{min-height:0;flex:1;display:flex;flex-direction:column}.curriculum-stage-widget.fullscreen .curriculum-stage-table-wrap{min-height:0;flex:1}.curriculum-stage-widget.fullscreen .curriculum-stage-table{min-width:100%}
+.dashboard-column-picker{position:relative}
+.dashboard-column-picker summary{height:38px;min-width:112px;padding:0 10px;display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);font-size:10px;font-weight:700;list-style:none;cursor:pointer}
+.dashboard-column-picker summary::-webkit-details-marker{display:none}.dashboard-column-picker summary b{min-width:18px;margin-left:auto;padding:2px 5px;border-radius:9px;background:var(--primary-soft);color:var(--primary);font-size:8px;text-align:center}
+.dashboard-column-picker>div{position:absolute;z-index:30;top:calc(100% + 6px);right:0;width:230px;max-height:310px;padding:9px;overflow:auto;border:1px solid var(--line);border-radius:9px;background:#fff;box-shadow:0 12px 28px #0d1a1524}
+.dashboard-column-picker>div>strong{display:block;padding:4px 5px 8px;color:var(--muted);font-size:9px;text-transform:uppercase}
+.dashboard-column-picker label{display:flex;align-items:center;gap:8px;padding:7px 6px;border-radius:6px;color:var(--ink);font-size:10px;cursor:pointer}.dashboard-column-picker label:hover{background:var(--primary-soft)}.dashboard-column-picker input{width:15px;height:15px;margin:0;accent-color:var(--primary)}
+.curriculum-stage-content{min-width:0}
+.curriculum-stage-table-wrap{max-width:100%;overflow:hidden;border:1px solid var(--line);border-radius:9px}
+.curriculum-stage-table{min-width:0;width:100%;table-layout:fixed}
+.curriculum-stage-table th,.curriculum-stage-table td{height:32px;padding:5px 7px;border-right:1px solid #edf1ef;overflow-wrap:anywhere;vertical-align:middle}
+.curriculum-stage-table .curriculum-row-field{text-align:left}
+.curriculum-stage-table .curriculum-value-field{text-align:center}
+.curriculum-stage-table th{font-size:clamp(7px,.72vw,10px);line-height:1.25;white-space:normal}
+.curriculum-stage-table th:first-child,.curriculum-stage-table td:first-child{width:23%}
+.curriculum-stage-widget:not(.fullscreen) .curriculum-stage-table th:first-child,.curriculum-stage-widget:not(.fullscreen) .curriculum-stage-table td:first-child{width:50%}
+.curriculum-stage-table th>small{display:block;margin-top:3px;color:var(--muted);font-size:7px;font-weight:500;letter-spacing:0;text-transform:none;white-space:nowrap}
+.curriculum-stage-table td .stage-contribution{display:block;margin-top:1px;color:var(--muted);font-size:8px;font-weight:500}
+.curriculum-stage-table th:last-child,.curriculum-stage-table td:last-child{position:static;box-shadow:none;border-right:0}
+.curriculum-stage-table tbody tr:last-child td{border-bottom:1px solid var(--line)}
+.curriculum-stage-table tfoot td{background:#f2f7f4;color:var(--ink)}
+.curriculum-stage-empty{text-align:center!important;color:var(--muted);padding:35px!important}
+.curriculum-parent-row td{background:#f8fbf9}
+.curriculum-expand-all,.curriculum-row-toggle{display:flex;align-items:center;gap:6px;padding:0;border:0;background:transparent;color:inherit;text-align:left}
+.curriculum-expand-all{font-weight:inherit;text-transform:inherit;letter-spacing:inherit}
+.curriculum-row-toggle{width:100%;min-width:0;flex-wrap:wrap;align-content:center;justify-content:flex-start}
+.curriculum-row-toggle strong{min-width:0;max-width:100%;overflow-wrap:anywhere;word-break:break-word;white-space:normal;line-height:1.25}
+.curriculum-row-toggle small{flex-basis:100%;margin-left:20px;color:var(--muted);font-size:8px;font-weight:500;white-space:normal}
+.curriculum-child-row td:first-child{position:relative}
+.curriculum-child-row td{background:#f7faf8;color:var(--ink)}
+.curriculum-child-indent{display:block;width:18px;height:18px;margin-left:8px;border-left:1px solid #cfdad4;border-bottom:1px solid #cfdad4}
+
+@media(max-width:700px){.curriculum-stage-widget .card-header{align-items:stretch;flex-direction:column}.curriculum-report-controls{align-items:stretch;flex-direction:column}.dashboard-branch-filter{width:100%}.dashboard-column-picker summary{width:100%}.dashboard-column-picker>div{left:0;right:auto;width:min(280px,90vw)}}
 
 @media (max-width: 1050px) {
   .dashboard-widget-grid {

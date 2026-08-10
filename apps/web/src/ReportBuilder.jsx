@@ -293,7 +293,17 @@ export function ReportVisual({ report, data, compact = false }) {
     {values.slice(0, compact ? 3 : 7).map(item => <article key={item.label}><i style={{ background: item.color }} /><span>{item.label}</span><strong>{formatValue(item.value)}</strong><small>{Math.round(item.value / total * 100)}% share</small></article>)}
   </div>;
   if (report.type === "table" && data?.pivot) {
-    const pivot = { ...data.pivot, valueFormat: data.pivot.valueFormat || valueFormat };
+    const configuredMeasures = report.values || [];
+    const measures = (data.pivot.measures || []).map((measure, index) => ({
+      ...measure,
+      label: configuredMeasures[index]?.label?.trim() || measure.label,
+    }));
+    const pivot = {
+      ...data.pivot,
+      measures,
+      valueLabel: configuredMeasures[0]?.label?.trim() || data.pivot.valueLabel,
+      valueFormat: data.pivot.valueFormat || valueFormat,
+    };
     return pivot.measures?.length > 1 ? <MultiMeasurePivotTable pivot={pivot} /> : <PivotTableVisual pivot={pivot} />;
   }
   if (report.type === "table") return (
@@ -706,7 +716,9 @@ function PivotTableVisual({ pivot }) {
     return rendered;
   });
   const leafRows = renderRows(pivot.rows);
-  const headers = [pivot.rowLabel, ...pivot.columns, ...(pivot.showRowTotals ? ["Total"] : [])];
+  const hasColumnDimension = pivot.columns.length > 1 || pivot.columns[0] !== "Value";
+  const valueHeaders = hasColumnDimension ? pivot.columns : [pivot.valueLabel || pivot.measures?.[0]?.label || "Value"];
+  const headers = [pivot.rowLabel, ...valueHeaders, ...(pivot.showRowTotals ? ["Total"] : [])];
   if ((pivot.columnPaths || []).some(path => path.length > 1)) {
     const columnPaths = (pivot.columnPaths || pivot.columns.map(column => [column]))
       .map((path, originalIndex) => ({ path, originalIndex }))
@@ -1296,7 +1308,11 @@ export default function ReportBuilder({ data, leads = [], leadFields = [], onMod
   const finishValueRename = (index, saveAlias = true) => {
     if (saveAlias) {
       const alias = valueAliasDraft.trim();
-      patch({ values: (report.values || []).map((item, itemIndex) => itemIndex === index ? { ...item, label: alias || undefined } : item) });
+      const values = (report.values || []).map((item, itemIndex) => itemIndex === index ? { ...item, label: alias || undefined } : item);
+      setReport(current => ({ ...current, values }));
+      // An alias only changes presentation, so keep the generated preview and
+      // update its configuration instead of forcing the user to regenerate.
+      setGeneratedReport(current => current ? ({ ...current, values }) : current);
     }
     setRenamingValueIndex(null);
     setValueAliasDraft("");

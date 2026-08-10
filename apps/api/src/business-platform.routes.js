@@ -1,4 +1,5 @@
 import express from 'express';
+import { notifyEmployee, notifyUser } from './notification-service.js';
 
 const parseJson = (value, fallback = {}) => {
   if (value == null) return fallback;
@@ -1110,6 +1111,12 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
       `INSERT INTO crm_operation_approvals(operation_record_id,approver_user_id,requested_by_user_id) VALUES(?,?,?)`,
       [Number(result.insertId),approverUserId,userId],
     );
+    await notifyEmployee(connection,{businessUnitId:unitId,employeeId:owner.ownerEmployeeId,actorUserId:userId,
+      type:'action_assigned',title:'Action item assigned to you',message:`${title} · ${recordNumber}`,
+      link:'/tracker',entityType:'operation',entityId:Number(result.insertId)});
+    for(const approverUserId of approverUserIds)await notifyUser(connection,{businessUnitId:unitId,userId:approverUserId,actorUserId:userId,
+      type:'approval_required',title:'Approval required',message:`${title} · ${recordNumber}`,
+      link:'/tracker',entityType:'approval',entityId:Number(result.insertId)});
     if(Number(body.minutesSpent)>0)await connection.execute(
       `INSERT INTO crm_operation_time_logs(operation_record_id,minutes_spent,work_note,logged_by_user_id) VALUES(?,?,?,?)`,
       [Number(result.insertId),Number(body.minutesSpent),text(body.timeNote,1000)||'Initial time recorded',userId],
@@ -1196,6 +1203,15 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
               -- rather than sending the reader to the Action Items tab.
               opr.description AS description,opr.status_key AS statusKey,
               opr.approval_status AS approvalStatus,opr.approval_required AS approvalRequired,
+              (SELECT GROUP_CONCAT(
+                 COALESCE(approver_employee.employee_name,CONCAT_WS(' ',approver_profile.first_name,approver_profile.last_name),approver_user.email)
+                 ORDER BY approval.id SEPARATOR ', '
+               )
+               FROM crm_operation_approvals approval
+               JOIN app_users approver_user ON approver_user.id=approval.approver_user_id
+               LEFT JOIN employees approver_employee ON approver_employee.id=approver_user.employee_id
+               LEFT JOIN crm_user_profiles approver_profile ON approver_profile.user_id=approver_user.id
+               WHERE approval.operation_record_id=opr.id) AS approvers,
               opr.minutes_spent AS minutesSpent,opr.created_at_utc AS createdAt
        FROM crm_mom_session_points p
        LEFT JOIN crm_operation_records opr ON opr.id=p.operation_record_id
@@ -1205,10 +1221,25 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
        ORDER BY p.session_id,p.position`,
       ids,
     );
+    const operationIds=[...new Set(points.map(point=>Number(point.operationRecordId)).filter(Boolean))];
+    const [pointApprovals]=operationIds.length?await pool.execute(
+      `SELECT oa.id,oa.operation_record_id AS operationRecordId,oa.decision,
+              oa.decision_remarks AS comments,
+              COALESCE(e.employee_name,CONCAT_WS(' ',p.first_name,p.last_name),u.email) AS approver
+       FROM crm_operation_approvals oa
+       JOIN app_users u ON u.id=oa.approver_user_id
+       LEFT JOIN employees e ON e.id=u.employee_id
+       LEFT JOIN crm_user_profiles p ON p.user_id=u.id
+       WHERE oa.operation_record_id IN (${operationIds.map(()=>'?').join(',')})
+       ORDER BY oa.operation_record_id,oa.id`,
+      operationIds,
+    ): [[]];
     res.json({data:sessions.map(session=>{
       const sessionPoints=points.filter(point=>Number(point.sessionId)===Number(session.id)).map(point=>({
         ...point,id:Number(point.id),sessionId:Number(point.sessionId),
         operationRecordId:point.operationRecordId?Number(point.operationRecordId):null,
+        approvalDetails:pointApprovals.filter(approval=>Number(approval.operationRecordId)===Number(point.operationRecordId))
+          .map(approval=>({...approval,id:Number(approval.id),operationRecordId:Number(approval.operationRecordId)})),
       }));
       return {...session,id:Number(session.id),actionItemCount:Number(session.actionItemCount),
         notes:session.notes||sessionPoints.map(point=>point.notes).filter(Boolean).join('\n\n'),points:sessionPoints};
@@ -1218,21 +1249,36 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
   router.get('/business-units/:id/tracker-approvals', async (req,res)=>{
     const unitId=Number(req.params.id),unit=await accessibleUnit(req,unitId);
     if(!unit)return res.status(403).json({message:'Business unit access denied'});
+    const admin=isAdmin(req.user);
+    const approvalScope=admin?'':`WHERE (oa.approver_user_id=? OR EXISTS(
+      SELECT 1 FROM app_users signed_in_user
+      JOIN app_users assigned_user ON assigned_user.id=oa.approver_user_id
+      WHERE signed_in_user.id=? AND signed_in_user.employee_id IS NOT NULL
+        AND assigned_user.employee_id=signed_in_user.employee_id
+    ))`;
     const [rows]=await pool.execute(
       `SELECT oa.id,oa.operation_record_id AS recordId,opr.record_number AS recordNumber,opr.title,
               oa.decision,oa.decision_remarks AS remarks,oa.document_references_json AS documentReferences,
               oa.requested_at_utc AS requestedAt,oa.decided_at_utc AS decidedAt,
               COALESCE(owner.employee_name,guest_owner.display_name,'Unassigned') AS owner,
-              COALESCE(requester_employee.employee_name,requester.email) AS requestedBy
+              COALESCE(requester_employee.employee_name,requester.email) AS requestedBy,
+              COALESCE(approver_employee.employee_name,CONCAT_WS(' ',approver_profile.first_name,approver_profile.last_name),approver.email) AS approver,
+              COALESCE(decider_employee.employee_name,CONCAT_WS(' ',decider_profile.first_name,decider_profile.last_name),decider.email) AS decidedBy
        FROM crm_operation_approvals oa
        JOIN crm_operation_records opr ON opr.id=oa.operation_record_id AND opr.business_unit_id=?
        LEFT JOIN employees owner ON owner.id=opr.owner_employee_id
        LEFT JOIN crm_tracker_guest_owners guest_owner ON guest_owner.id=opr.guest_owner_id
        JOIN app_users requester ON requester.id=oa.requested_by_user_id
        LEFT JOIN employees requester_employee ON requester_employee.id=requester.employee_id
-       WHERE oa.approver_user_id=?
-       ORDER BY (oa.decision='pending') DESC,oa.requested_at_utc DESC`,
-      [unitId,Number(req.user.id)],
+       JOIN app_users approver ON approver.id=oa.approver_user_id
+       LEFT JOIN employees approver_employee ON approver_employee.id=approver.employee_id
+       LEFT JOIN crm_user_profiles approver_profile ON approver_profile.user_id=approver.id
+       LEFT JOIN app_users decider ON decider.id=oa.decided_by_user_id
+       LEFT JOIN employees decider_employee ON decider_employee.id=decider.employee_id
+       LEFT JOIN crm_user_profiles decider_profile ON decider_profile.user_id=decider.id
+       ${approvalScope}
+       ORDER BY COALESCE(oa.decided_at_utc,oa.requested_at_utc) DESC,oa.id DESC`,
+      admin?[unitId]:[unitId,Number(req.user.id),Number(req.user.id)],
     );
     res.json({data:rows.map(row=>({...row,id:Number(row.id),recordId:Number(row.recordId),documentReferences:parseJson(row.documentReferences,[])}))});
   });
@@ -1361,6 +1407,10 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     try{
       await connection.beginTransaction();
       const owner=await resolveTrackerOwner(connection,unitId,req.body,Number(req.user.id));
+      const [[previousOperation]]=await connection.execute(
+        `SELECT owner_employee_id AS ownerEmployeeId FROM crm_operation_records WHERE id=? AND business_unit_id=? FOR UPDATE`,
+        [Number(req.params.id),unitId],
+      );
       const [result]=await connection.execute(
         `UPDATE crm_operation_records SET title=?,description=?,stage_id=?,owner_employee_id=?,guest_owner_id=?,due_at_utc=?,
                 updated_by_user_id=?,updated_at_utc=CURRENT_TIMESTAMP(6)
@@ -1369,6 +1419,10 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
          Number(req.user.id),Number(req.params.id),unitId],
       );
       if(!result.affectedRows){await connection.rollback();return res.status(404).json({message:'Tracker task not found'});}
+      if(Number(owner.ownerEmployeeId)&&Number(owner.ownerEmployeeId)!==Number(previousOperation?.ownerEmployeeId))
+        await notifyEmployee(connection,{businessUnitId:unitId,employeeId:owner.ownerEmployeeId,actorUserId:Number(req.user.id),
+          type:'action_assigned',title:'Action item assigned to you',message:text(req.body.title,200),
+          link:'/tracker',entityType:'operation',entityId:Number(req.params.id)});
       await connection.commit();res.json({message:'Tracker task updated'});
     }catch(error){await connection.rollback();if(error.statusCode)return res.status(error.statusCode).json({message:error.message});throw error;}finally{connection.release();}
   });
@@ -1396,19 +1450,31 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     const connection=await pool.getConnection();
     try{
       await connection.beginTransaction();
+      const admin=isAdmin(req.user);
       const [result]=await connection.execute(
         `UPDATE crm_operation_approvals oa JOIN crm_operation_records opr ON opr.id=oa.operation_record_id
-         SET oa.decision=?,oa.decision_remarks=?,oa.document_references_json=?,oa.decided_at_utc=CURRENT_TIMESTAMP(6)
-         WHERE oa.id=? AND oa.approver_user_id=? AND opr.business_unit_id=? AND oa.decision='pending'`,
-        [decision,remarks,JSON.stringify((req.body.documentReferences||[]).filter(Boolean)),Number(req.params.id),Number(req.user.id),unitId],
+         SET oa.decision=?,oa.decision_remarks=?,oa.document_references_json=?,oa.decided_by_user_id=?,oa.decided_at_utc=CURRENT_TIMESTAMP(6)
+         WHERE oa.id=? AND (oa.approver_user_id=? OR ?=1) AND opr.business_unit_id=? AND oa.decision='pending'`,
+        [decision,remarks,JSON.stringify((req.body.documentReferences||[]).filter(Boolean)),Number(req.user.id),Number(req.params.id),Number(req.user.id),admin?1:0,unitId],
       );
       if(!result.affectedRows){await connection.rollback();return res.status(404).json({message:'Pending approval request not found'});}
-      const [[approval]]=await connection.execute(`SELECT operation_record_id AS recordId FROM crm_operation_approvals WHERE id=?`,[Number(req.params.id)]);
+      const [[approval]]=await connection.execute(
+        `SELECT oa.operation_record_id AS recordId,oa.requested_by_user_id AS requestedByUserId,
+                opr.owner_employee_id AS ownerEmployeeId,opr.title,opr.record_number AS recordNumber
+         FROM crm_operation_approvals oa JOIN crm_operation_records opr ON opr.id=oa.operation_record_id
+         WHERE oa.id=?`,[Number(req.params.id)],
+      );
       const [[summary]]=await connection.execute(
         `SELECT SUM(decision='rejected') rejected,SUM(decision='pending') pending FROM crm_operation_approvals WHERE operation_record_id=?`,[Number(approval.recordId)],
       );
       const overall=Number(summary.rejected)>0?'rejected':Number(summary.pending)>0?'pending':'approved';
       await connection.execute(`UPDATE crm_operation_records SET approval_status=?,updated_at_utc=CURRENT_TIMESTAMP(6) WHERE id=?`,[overall,Number(approval.recordId)]);
+      if(decision==='approved'){
+        const notice={businessUnitId:unitId,actorUserId:Number(req.user.id),type:'approval_approved',title:'Action item approved',
+          message:`${approval.title} · ${approval.recordNumber}`,link:'/tracker',entityType:'operation',entityId:Number(approval.recordId)};
+        await notifyEmployee(connection,{...notice,employeeId:Number(approval.ownerEmployeeId)});
+        await notifyUser(connection,{...notice,userId:Number(approval.requestedByUserId)});
+      }
       await connection.commit();res.json({message:`Task ${decision}`});
     }catch(error){await connection.rollback();throw error;}finally{connection.release();}
   });

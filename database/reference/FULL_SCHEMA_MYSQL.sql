@@ -2031,6 +2031,7 @@ CREATE TABLE IF NOT EXISTS `crm_operation_approvals` (
   `decision_remarks` text COLLATE utf8mb4_unicode_ci,
   `document_references_json` json DEFAULT NULL,
   `requested_by_user_id` bigint unsigned NOT NULL,
+  `decided_by_user_id` bigint unsigned DEFAULT NULL,
   `requested_at_utc` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   `decided_at_utc` datetime(6) DEFAULT NULL,
   `updated_at_utc` datetime(6) DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP(6),
@@ -2038,8 +2039,10 @@ CREATE TABLE IF NOT EXISTS `crm_operation_approvals` (
   UNIQUE KEY `uq_crm_operation_approver` (`operation_record_id`,`approver_user_id`),
   KEY `ix_crm_operation_approval_queue` (`approver_user_id`,`decision`,`requested_at_utc`),
   KEY `fk_crm_operation_approval_requested_by` (`requested_by_user_id`),
+  KEY `ix_crm_operation_approval_decided_by` (`decided_by_user_id`),
   CONSTRAINT `fk_crm_operation_approval_record` FOREIGN KEY (`operation_record_id`) REFERENCES `crm_operation_records` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_crm_operation_approval_requested_by` FOREIGN KEY (`requested_by_user_id`) REFERENCES `app_users` (`id`),
+  CONSTRAINT `fk_crm_operation_approval_decided_by` FOREIGN KEY (`decided_by_user_id`) REFERENCES `app_users` (`id`),
   CONSTRAINT `fk_crm_operation_approval_user` FOREIGN KEY (`approver_user_id`) REFERENCES `app_users` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -2176,10 +2179,35 @@ CREATE TABLE IF NOT EXISTS `crm_public_enquiry_forms` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ------------------------------------------------------------
+-- crm_notifications
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `crm_notifications` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `business_unit_id` bigint unsigned NOT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `notification_type` varchar(40) NOT NULL,
+  `title` varchar(160) NOT NULL,
+  `message` varchar(500) NOT NULL,
+  `link_url` varchar(500) DEFAULT NULL,
+  `entity_type` varchar(40) DEFAULT NULL,
+  `entity_id` bigint unsigned DEFAULT NULL,
+  `actor_user_id` bigint unsigned DEFAULT NULL,
+  `read_at_utc` datetime(6) DEFAULT NULL,
+  `created_at_utc` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`id`),
+  KEY `ix_crm_notifications_user_recent` (`business_unit_id`,`user_id`,`created_at_utc`),
+  KEY `ix_crm_notifications_user_unread` (`business_unit_id`,`user_id`,`read_at_utc`),
+  CONSTRAINT `fk_crm_notifications_unit` FOREIGN KEY (`business_unit_id`) REFERENCES `crm_business_units` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_crm_notifications_user` FOREIGN KEY (`user_id`) REFERENCES `app_users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_crm_notifications_actor` FOREIGN KEY (`actor_user_id`) REFERENCES `app_users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ------------------------------------------------------------
 -- crm_saved_filters
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `crm_saved_filters` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `business_unit_id` bigint unsigned NOT NULL,
   `user_id` bigint unsigned NOT NULL,
   `name` varchar(150) NOT NULL,
   `filter_type` varchar(20) NOT NULL DEFAULT 'filter',
@@ -2187,8 +2215,9 @@ CREATE TABLE IF NOT EXISTS `crm_saved_filters` (
   `created_at_utc` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   `updated_at_utc` datetime(6) DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP(6),
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uq_crm_saved_filters_user_name` (`user_id`,`name`),
-  KEY `ix_crm_saved_filters_user_type` (`user_id`,`filter_type`),
+  UNIQUE KEY `uq_crm_saved_filters_unit_user_name` (`business_unit_id`,`user_id`,`name`),
+  KEY `ix_crm_saved_filters_unit_user_type` (`business_unit_id`,`user_id`,`filter_type`),
+  CONSTRAINT `fk_crm_saved_filters_unit` FOREIGN KEY (`business_unit_id`) REFERENCES `crm_business_units` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_crm_saved_filters_user` FOREIGN KEY (`user_id`) REFERENCES `app_users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `chk_crm_saved_filters_type` CHECK ((`filter_type` in (_utf8mb4'filter',_utf8mb4'funnel')))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

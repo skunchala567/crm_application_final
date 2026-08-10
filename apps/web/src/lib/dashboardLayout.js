@@ -10,8 +10,7 @@ export const DASHBOARD_WIDGETS = [
   { id: 'stats', title: 'Performance cards', size: 'half' },
   { id: 'activity', title: 'My daily CRM activity', size: 'half' },
   { id: 'funnel', title: 'Admissions funnel', size: 'half' },
-  { id: 'tasks', title: 'Today’s priorities', size: 'half' },
-  { id: 'recent', title: 'Recent leads', size: 'full' },
+  { id: 'curriculum-stage', title: 'Leads by curriculum, class and stage', size: 'full' },
 ];
 
 const DASHBOARD_SIZES = ['quarter', 'half', 'three-quarter', 'full'];
@@ -33,7 +32,9 @@ export function normalizeDashboardLayout(layout) {
     .map((item) => ({
       id: item.id,
       size: addingActivityWidget && item.id === 'stats' && item.size === 'full' ? 'half' : (validSizes.has(item.size) ? item.size : 'half'),
-      visible: item.visible !== false,
+      // Product widgets are permanent dashboard defaults. Visibility is only
+      // configurable for user-added saved reports.
+      visible: known.has(item.id) ? true : item.visible !== false,
     }));
 
   // Widgets added to the product after a layout was saved default to visible.

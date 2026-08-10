@@ -13,7 +13,7 @@
 }
 
 .leads-page.applied-filters-open {
-  padding-right: 300px;
+  padding-right: 240px;
 }
 
 .leads-page.applied-filters-collapsed {
@@ -36,6 +36,23 @@
   box-shadow: none;
 }
 
+.leads-page .funnel-filter-actions {
+  width: auto;
+  min-width: max-content;
+  margin-left: 0;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 760px) {
+  .leads-page .funnel-header-actions {
+    flex-wrap: wrap;
+  }
+
+  .leads-page .funnel-filter-actions {
+    width: auto;
+  }
+}
+
 .leads-page .leads-panel {
   min-height: 0;
   flex: 1 1 auto;
@@ -55,7 +72,7 @@
   top: 0;
   right: 0;
   bottom: 0;
-  width: 300px;
+  width: 240px;
   display: flex;
   flex-direction: column;
   border-left: 1px solid var(--border);
@@ -248,6 +265,42 @@
   overscroll-behavior: contain;
 }
 
+.pending-followups-check {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  overflow: visible;
+}
+
+.pending-followups-check:hover,
+.pending-followups-check.active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.pending-followups-check input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.pending-followups-check .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
 .leads-page .leads-panel thead {
   position: sticky;
   z-index: 7;
@@ -272,6 +325,7 @@
 
 .leads-page .student {
   gap: 7px;
+  width: max-content;
 }
 
 .leads-page .student > span:last-child,
@@ -304,6 +358,15 @@
   background: #7560b5;
 }
 
+/* Touch status is communicated by the avatar, leaving the student name clear. */
+.leads-page tbody tr .lead-view-avatar.touched {
+  background: #18745b;
+}
+
+.leads-page tbody tr .lead-view-avatar.untouched {
+  background: #c33d35;
+}
+
 .leads-page .lead-view-name {
   font-size: 11px;
   line-height: 1.15;
@@ -321,37 +384,15 @@
 }
 
 .leads-page .lead-name-line {
-  min-width: 0;
+  width: max-content;
   display: flex;
   align-items: center;
   gap: 5px;
 }
 
 .leads-page .lead-name-line .lead-view-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  display: block;
   white-space: nowrap;
-}
-
-.leads-page .lead-touch-badge {
-  flex: 0 0 auto;
-  padding: 2px 5px;
-  border-radius: 9px;
-  font-size: 8px;
-  font-style: normal;
-  font-weight: 700;
-  line-height: 1.1;
-}
-
-.leads-page .lead-touch-badge.touched {
-  background: #e7f6ef;
-  color: #18745b;
-}
-
-.leads-page .lead-touch-badge.untouched {
-  background: #fff1e7;
-  color: #b45f2d;
 }
 
 .leads-page .lead-view-name:hover {
@@ -369,20 +410,57 @@
   line-height: 1.15;
 }
 
+.leads-page .lead-source {
+  display: grid;
+  gap: 2px;
+}
+
+.leads-page .lead-source small {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.15;
+}
+
 .leads-page .stage {
   padding: 3px 6px;
   font-size: 9px;
 }
 
 .leads-page .row-action-group {
-  gap: 4px;
+  width: max-content;
+  gap: 3px;
 }
 
+/* Narrow, not shorter: 26px keeps the icon's 15px box with ~25% less padding
+   each side, while the 30px height keeps the row comfortable to hit. */
 .leads-page .row-followup-trigger,
 .leads-page .row-more-trigger {
-  width: 30px;
+  flex: 0 0 26px;
+  width: 26px;
+  min-width: 26px;
   height: 30px;
+  padding: 0;
   border-radius: 7px;
+}
+
+/* The Actions cell is the frozen column (th/td:last-child are sticky), and the
+   table is width:100% on auto layout -- so slack is redistributed across the
+   columns and this one simply re-absorbs whatever the buttons give up. Shrinking
+   the buttons alone changes nothing visible. width:1px is the shrink-to-fit
+   idiom: auto layout floors a column at its min-content width, so the cell ends
+   up exactly as wide as the button row and the slack goes to the lead data
+   instead. Safe because `table` is already white-space:nowrap. */
+.leads-page .leads-panel th:last-child,
+.leads-page .leads-panel td:last-child {
+  width: 1px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+/* The remarks badge hangs off the right edge; at the tighter gap its default
+   -8px reached onto the next button. Matches .lead-message-unread, already -5px. */
+.leads-page .remarks-count-badge {
+  right: -5px;
 }
 
 .leads-page .row-followup-trigger svg,
@@ -403,7 +481,8 @@
 .leads-page .stage-tab {
   min-height: 34px;
   padding: 7px 12px;
-  border: 1px solid transparent;
+  /* An unselected tab is an outlined pill — the same everywhere in the app. */
+  border: 1px solid var(--line);
   border-radius: 18px;
   background: transparent;
 }
@@ -454,7 +533,7 @@
   .applied-filters-panel {
     position: fixed;
     top: 0;
-    width: min(320px, 86vw);
+    width: min(280px, 86vw);
     z-index: 90;
   }
 

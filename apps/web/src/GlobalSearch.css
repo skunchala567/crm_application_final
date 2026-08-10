@@ -344,7 +344,7 @@
 .global-search-inline-kbd { display: none; gap: 3px; flex: none; }
 
 /* Only advertise the shortcut where there is room for it. */
-@media (min-width: 1400px) {
+@media (min-width: 768px) {
   .global-search-inline-kbd { display: flex; }
 }
 

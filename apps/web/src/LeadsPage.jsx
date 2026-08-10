@@ -156,7 +156,7 @@ function ConfiguredLeadFields({fields,form,setForm,meta,availableAdmissionTypes,
       admission_type_id:(availableAdmissionTypes.length?availableAdmissionTypes:meta.admissionTypes).map(item=>({id:item.id,label:item.displayName})),
       curriculum_id:(availableCurricula.length?availableCurricula:meta.curricula).map(item=>({id:item.id,label:item.displayName})),
       channel_id:meta.channels.map(item=>({id:item.id,label:item.displayName})),
-      source_id:meta.sources.map(item=>({id:item.id,label:item.displayName})),
+      source_id:sourcesForChannel(meta.sources,meta.sourceLinks,form.channelId).map(item=>({id:item.id,label:item.displayName})),
       campaign_id:meta.campaigns.map(item=>({id:item.id,label:item.displayName})),
       stage_id:meta.stages.map(item=>({id:item.id,label:item.displayName})),
       substage_id:meta.substages.filter(item=>!form.stageId||String(item.stageId)===String(form.stageId)).map(item=>({id:item.id,label:item.displayName})),
@@ -172,12 +172,14 @@ function ConfiguredLeadFields({fields,form,setForm,meta,availableAdmissionTypes,
       const options=optionsFor(field);
       if(options.length||["single_select","multi_select","user"].includes(field.fieldType)){
         if(field.fieldType==="multi_select")return <label key={field.id}>{label}<select multiple required={required} value={Array.isArray(value)?value:[]} onChange={event=>update(field,Array.from(event.target.selectedOptions,option=>option.value))}>{options.map(option=><option key={option.id} value={option.id}>{option.label}</option>)}</select></label>;
-        return <label key={field.id}>{label}<select required={required} value={value} onChange={event=>update(field,event.target.value)}><option value="">{required?"Select":"Not specified"} {field.displayName.toLowerCase()}</option>{options.map(option=><option key={option.id} value={option.id}>{option.label}</option>)}</select></label>;
+        const waitingForChannel=field.fieldKey==="source_id"&&!form.channelId;
+        return <label key={field.id}>{label}<select required={required} disabled={waitingForChannel} value={value} onChange={event=>update(field,event.target.value)}><option value="">{waitingForChannel?"Select channel first":`${required?"Select":"Not specified"} ${field.displayName.toLowerCase()}`}</option>{options.map(option=><option key={option.id} value={option.id}>{option.label}</option>)}</select></label>;
       }
       if(field.fieldType==="boolean")return <label key={field.id} className="configured-checkbox"><input type="checkbox" checked={Boolean(value)} onChange={event=>update(field,event.target.checked)}/>{field.displayName}</label>;
       if(["textarea"].includes(field.fieldType))return <label key={field.id} className="wide">{label}<textarea required={required} rows="4" placeholder={field.placeholder||""} value={value} onChange={event=>update(field,event.target.value)}/></label>;
       const type={phone:"tel",email:"email",number:"number",decimal:"number",date:"date",datetime:"datetime-local",file:"file"}[field.fieldType]||"text";
-      return <label key={field.id}>{label}<input ref={["name","student_name"].includes(field.fieldKey)?inputRef:undefined} required={required} type={type} step={field.fieldType==="decimal"?"any":undefined} placeholder={field.placeholder||""} value={type==="file"?undefined:value} onChange={event=>update(field,type==="file"?event.target.files?.[0]?.name||"":field.fieldType==="phone"?event.target.value.replace(/\D/g,"").slice(0,15):event.target.value)}/></label>;
+      const isPhone=field.fieldType==="phone";
+      return <label key={field.id}>{label}<input ref={["name","student_name"].includes(field.fieldKey)?inputRef:undefined} required={required} type={type} step={field.fieldType==="decimal"?"any":undefined} inputMode={isPhone?"numeric":undefined} maxLength={isPhone?10:undefined} pattern={isPhone?"[6-9][0-9]{9}":undefined} title={isPhone?"Enter a valid 10-digit Indian mobile number starting with 6-9":undefined} placeholder={field.placeholder||""} value={type==="file"?undefined:value} onChange={event=>update(field,type==="file"?event.target.files?.[0]?.name||"":isPhone?event.target.value.replace(/\D/g,"").slice(0,10):event.target.value)}/></label>;
     })}
   </div>;
 }
@@ -206,13 +208,13 @@ function RangeCalendarMonth({ month, from, to, onSelect, onPrevious, onNext, pre
   const firstDay = new Date(year, monthIndex, 1).getDay();
   const days = new Date(year, monthIndex + 1, 0).getDate();
   return <section className="range-calendar-month">
-    <header>{previous ? <button type="button" aria-label="Previous month" onClick={onPrevious}><ChevronLeft/></button> : <span/>}<strong>{month.toLocaleDateString("en-IN", { month: "long", year: "numeric" })}</strong>{next ? <button type="button" aria-label="Next month" onClick={onNext}><ChevronRight/></button> : <span/>}</header>
+    <header>{previous ? <button type="button" aria-label="Previous month" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onPrevious?.(); }}><ChevronLeft/></button> : <span/>}<strong>{month.toLocaleDateString("en-IN", { month: "long", year: "numeric" })}</strong>{next ? <button type="button" aria-label="Next month" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onNext?.(); }}><ChevronRight/></button> : <span/>}</header>
     <div className="range-weekdays">{["Su","Mo","Tu","We","Th","Fr","Sa"].map(day => <span key={day}>{day}</span>)}</div>
     <div className="range-days">{Array.from({ length: firstDay }, (_, index) => <span key={`blank-${index}`}/>)}{Array.from({ length: days }, (_, index) => { const key=localDateKey(new Date(year,monthIndex,index+1)); const selected=key===from||key===to; const within=from&&to&&key>from&&key<to; return <button type="button" key={key} className={`${selected?"selected ":""}${within?"in-range":""}`} onClick={() => onSelect(key)}>{index+1}</button>; })}</div>
   </section>;
 }
 
-function FollowupDateFilter({ from, to, onChange, dueCount = 0, dateType = "nextFollowup", onDateTypeChange }) {
+function FollowupDateFilter({ from, to, onChange, dateType = "nextFollowup", onDateTypeChange }) {
   const [open, setOpen] = useState(false);
   const [visibleMonth, setVisibleMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const rootRef = useRef(null);
@@ -268,7 +270,7 @@ function FollowupDateFilter({ from, to, onChange, dueCount = 0, dateType = "next
     {/* Reflects the selected type: the control filters by whichever date is
         chosen, so a fixed "Follow-ups" label contradicted it. */}
     <span>{dateTypeLabels[dateType] || "Follow-ups"}</span>
-    <button type="button" className={`followup-range-trigger ${from || to ? "active" : ""}`} aria-expanded={open} onClick={toggleOpen}><CalendarRange size={16}/><div style={{display:"flex",flexDirection:"column",alignItems:"flex-start",minWidth:0,flex:1}}><small style={{fontSize:"10px",color:"#83968c"}}>{dateTypeLabels[dateType]}</small><b>{label}</b></div><ChevronDown size={14}/><span className={`followup-due-badge ${dueCount>0?"has-due":""}`} title={`${dueCount} follow-ups due through today`}>{dueCount>99?"99+":dueCount}</span></button>
+    <button type="button" className={`followup-range-trigger ${from || to ? "active" : ""}`} aria-expanded={open} onClick={toggleOpen}><CalendarRange size={16}/><div style={{display:"flex",flexDirection:"column",alignItems:"flex-start",minWidth:0,flex:1}}><small style={{fontSize:"10px",color:"#83968c"}}>{dateTypeLabels[dateType]}</small><b>{label}</b></div><ChevronDown size={14}/></button>
     {open && <div className="followup-range-popover leads-date-range-popover">
       <div className="followup-range-header">
         <div className="followup-range-title"><CalendarRange size={18}/><div><strong>{dateTypeLabels[dateType]}</strong><small>Select the {dateTypeLabels[dateType].toLowerCase()} range</small></div></div>
@@ -295,6 +297,8 @@ function FunnelStrip({
   onDelete,
   onCreate,
   onAddLead,
+  onClearFilters,
+  onOpenFilters,
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const moreMenuRef = useRef(null);
@@ -366,10 +370,22 @@ function FunnelStrip({
         <button
           className="create-funnel add-lead-header"
           onClick={onAddLead}
+          title="Add lead (Ctrl/Command + Q)"
+          aria-keyshortcuts="Control+Q Meta+Q"
         >
           <Plus size={17} />
           Add lead
+          <span className="add-lead-shortcut" aria-hidden="true"><kbd>Ctrl/⌘</kbd><kbd>Q</kbd></span>
         </button>
+
+        <div className="lead-quick-actions funnel-filter-actions">
+          <button title="Clear filters" aria-label="Clear filters" onClick={onClearFilters}>
+            <RefreshCw />
+          </button>
+          <button title="Open filters" aria-label="Open filters" onClick={onOpenFilters}>
+            <Filter />
+          </button>
+        </div>
 
         {/* The messages and notifications icons used to be repeated here.
             They are global, not per-screen, and the universal topbar already
@@ -451,26 +467,18 @@ function splitReferralKey(key) {
  * Sources selectable under a channel.
  *
  * The mapping is configured on the source itself. Two rules:
- *   - no channel chosen yet: everything, so the list is not empty on open
- *   - a source with no channel configured stays available everywhere, or it
- *     would be impossible to pick until an administrator maps it
- *
- * The old rule also showed every source when the CHOSEN channel had no links,
- * which is why picking "Phone enquiry" listed Website and Meta Ads.
+ * A source is offered only when its configured channel matches the selected
+ * channel. Until a channel is selected, no source is selectable.
  */
 /** The active business unit, as the api layer reads it. */
 const savedFunnelKey = () => `crm_saved_funnel_${localStorage.getItem("crm_business_unit_id") || "default"}`;
 
 function sourcesForChannel(sources = [], sourceLinks = [], channelId) {
-  if (!channelId) return sources;
-  return sources.filter((source) => {
-    const linkedHere = sourceLinks.some(
-      (link) => String(link.channelId) === String(channelId)
-        && String(link.sourceId) === String(source.id),
-    );
-    const mappedAnywhere = sourceLinks.some((link) => String(link.sourceId) === String(source.id));
-    return linkedHere || !mappedAnywhere;
-  });
+  if (!channelId) return [];
+  return sources.filter((source) => sourceLinks.some(
+    (link) => String(link.channelId) === String(channelId)
+      && String(link.sourceId) === String(source.id),
+  ));
 }
 
 /**
@@ -946,6 +954,8 @@ export default function LeadsPage() {
           (!advancedFilters.admissionTypeId.length || advancedFilters.admissionTypeId.includes(String(lead.admissionTypeId))) &&
           (!advancedFilters.referredByEmployeeId.length || advancedFilters.referredByEmployeeId.includes(String(lead.referredByEmployeeId))) &&
           (!advancedFilters.touchStatus.length || advancedFilters.touchStatus.includes(String(lead.touchStatus))) &&
+          (!advancedFilters.leadEntryPath.length || advancedFilters.leadEntryPath.includes(String(lead.leadEntryPath))) &&
+          (!advancedFilters.pendingFollowupsOnly || Boolean(lead.pendingFollowupTillToday)) &&
           (!isCounsellor || matchesReferredFilter(lead, advancedFilters.isReferred, currentEmployeeId)) &&
           (!advancedFilters.isParent.length || advancedFilters.isParent.some(value => value === "yes" ? Boolean(lead.isParent) : !lead.isParent)) &&
           (!advancedFilters.lookingForAdmission.length || advancedFilters.lookingForAdmission.some(value => value === "yes" ? Boolean(lead.lookingForAdmission) : !lead.lookingForAdmission)) &&
@@ -1004,6 +1014,8 @@ export default function LeadsPage() {
     add(lead, "Search", search);
     add(lead, "Branch", findLabels(branchFilter, meta.branches));
     add(lead, "Touch status", advancedFilters.touchStatus.map(value => value === "touched" ? "Is touched" : value === "untouched" ? "Untouched" : value));
+    add(lead, "Lead added via", advancedFilters.leadEntryPath.map(value => ({manual:"Manually added",bulk_upload:"Bulk upload",google_sheets:"Google Sheets",integration:"Integration (Facebook and others)",website_form:"Website enquiry form"}[value] || value)));
+    add(lead, "Pending follow-ups", advancedFilters.pendingFollowupsOnly ? "Due through today" : "");
     add(lead, "Sub-stage", findLabels(advancedFilters.substageId, meta.substages));
     add(lead, "Lead source", findLabels(advancedFilters.sourceId, meta.sources));
     add(lead, "Counsellor", findLabels(advancedFilters.ownerEmployeeId, meta.employees));
@@ -1042,6 +1054,7 @@ export default function LeadsPage() {
     ].filter(([,items]) => items.length);
   }, [search, branchFilter, stageFilter, advancedFilters, followupDateType, meta]);
   const hasAppliedFilters = appliedFilterGroups.length > 0;
+  const showAppliedFiltersPanel = hasAppliedFilters && !advancedFilters.pendingFollowupsOnly;
   const totalRecords = filtered.length;
   const totalPages = Math.ceil(totalRecords / pageSize);
   const startIndex = (currentPage - 1) * pageSize;
@@ -1173,15 +1186,16 @@ export default function LeadsPage() {
     setWhatsAppRecipients(recipients);
   }
 
-  function openFilteredMarketingCampaign() {
-    if (!filtered.length) {
+  function openSelectedMarketingCampaign() {
+    const selectedVisibleIds = selectedIds.filter(id => filtered.some(lead => lead.id === id));
+    if (!selectedVisibleIds.length) {
       setMessage({
         type: "error",
-        text: "No leads match the currently applied filters",
+        text: "Select at least one lead for the campaign",
       });
       return;
     }
-    setMarketingLeadIds(filtered.map((lead) => lead.id));
+    setMarketingLeadIds(selectedVisibleIds);
   }
 
   function openCreate() {
@@ -1404,8 +1418,8 @@ export default function LeadsPage() {
       disabled: !selectedIds.length, onSelect: openBulkRefer },
     { key: "campaign", label: "Campaign", icon: Megaphone,
       permissions: ["bulk_actions.toolbar.view", "bulk_actions.campaign.create"],
-      title: `Add marketing campaign for ${filtered.length} filtered leads`,
-      disabled: !filtered.length, onSelect: openFilteredMarketingCampaign },
+      title: `Add marketing campaign for ${selectedIds.length || "selected"} leads`,
+      disabled: !selectedIds.length, onSelect: openSelectedMarketingCampaign },
     { key: "whatsapp", label: "WhatsApp", icon: MessageCircle,
       permissions: ["bulk_actions.toolbar.view", "bulk_actions.whatsapp.create"],
       title: `Send WhatsApp to ${selectedIds.length || "selected"} leads in this view`,
@@ -1431,10 +1445,10 @@ export default function LeadsPage() {
   }
 
   return (
-    <main className={`page leads-page ${hasAppliedFilters ? (appliedFiltersExpanded ? "applied-filters-open" : "applied-filters-collapsed") : ""}`}>
+    <main className={`page leads-page ${showAppliedFiltersPanel ? (appliedFiltersExpanded ? "applied-filters-open" : "applied-filters-collapsed") : ""}`}>
       <section className="lead-command-center">
         <div className="funnel-callout">
-          <FunnelStrip funnels={funnels} onApply={applyFunnel} onDelete={deleteFunnel} onCreate={createFunnel} onAddLead={openCreate}/>
+          <FunnelStrip funnels={funnels} onApply={applyFunnel} onDelete={deleteFunnel} onCreate={createFunnel} onAddLead={openCreate} onClearFilters={clearLeadFilters} onOpenFilters={() => setFilterPanel("filter")}/>
         </div>
         <div className="stage-tabs" role="tablist">
           <button className={`stage-tab ${!stageFilter ? "active" : ""}`} onClick={() => selectStage("")}><span className="stage-name">All</span> <span className="stage-count">{leadsMatchingActiveFilters.length}</span></button>
@@ -1446,20 +1460,18 @@ export default function LeadsPage() {
           <div className="inline-lead-filter touch-status-filter"><span>Touch status</span><div className="touch-status-control"><MultiSearchSelect label="Touch status" value={advancedFilters.touchStatus} onChange={value=>setAdvancedFilters(current=>({...current,touchStatus:value}))} options={[{value:"",label:"Any touch status"},{value:"touched",label:"Is touched"},{value:"untouched",label:"Untouched"}]}/><span className={`touch-status-count-badge ${untouchedAssignedCount>0?"has-untouched":""}`} title={`${untouchedAssignedCount} untouched leads assigned to you`}>{untouchedAssignedCount>99?"99+":untouchedAssignedCount}</span></div></div>
           <div className="inline-lead-filter"><span>Sub-stage</span><MultiSearchSelect label="Sub-stage" value={advancedFilters.substageId} onChange={value=>setAdvancedFilters(current=>({...current,substageId:value}))} options={[{value:"",label:"All sub-stages"},...meta.substages.filter(item=>!stageFilter||String(item.stageId)===String(meta.stages.find(stage=>stage.displayName===stageFilter)?.id)).map(item=>({value:String(item.id),label:item.displayName}))]}/></div>
           <div className="inline-lead-filter"><span>Source</span><MultiSearchSelect label="Source" value={advancedFilters.sourceId} onChange={value=>setAdvancedFilters(current=>({...current,sourceId:value}))} options={[{value:"",label:"All sources"},...meta.sources.map(item=>({value:String(item.id),label:item.displayName}))]}/></div>
+          <label className={`pending-followups-check ${advancedFilters.pendingFollowupsOnly?"active":""}`} data-tooltip="Show pending follow-ups due from the beginning through today">
+            <input type="checkbox" checked={Boolean(advancedFilters.pendingFollowupsOnly)} onChange={event=>setAdvancedFilters(current=>({...current,pendingFollowupsOnly:event.target.checked}))}/>
+            <span className="sr-only">Pending follow-ups due through today</span>
+            <span className={`followup-due-badge ${followupsTillToday>0?"has-due":""}`} aria-hidden="true">{followupsTillToday>99?"99+":followupsTillToday}</span>
+          </label>
           <FollowupDateFilter
             from={advancedFilters[dateFilterFromKey]}
             to={advancedFilters[dateFilterToKey]}
-            dueCount={followupsTillToday}
             dateType={followupDateType}
             onDateTypeChange={changeDateFilterType}
             onChange={(rangeFrom,rangeTo)=>setAdvancedFilters(current=>withDateRange(current,followupDateType,rangeFrom,rangeTo))}
           />
-          {/* Bulk actions moved to the topbar's lightning button; only the two
-              filter controls stay on this row. */}
-          <div className="lead-actions-wrap"><div className="lead-quick-actions">
-            <button title="Clear filters" aria-label="Clear filters" onClick={clearLeadFilters}><RefreshCw/></button>
-            <button title="Open filters" onClick={() => setFilterPanel("filter")}><Filter/></button>
-          </div></div>
         </div>
       </section>
       {downloadDialogOpen && <DownloadFieldsDialog title="Download Data" groups={leadExportGroups} onClose={() => setDownloadDialogOpen(false)} onDownload={exportLeads}/>}
@@ -1487,7 +1499,7 @@ export default function LeadsPage() {
                   <td><input type="checkbox" aria-label={`Select ${lead.studentName}`} checked={selectedIds.includes(lead.id)} onChange={event => setSelectedIds(current => event.target.checked ? [...new Set([...current, lead.id])] : current.filter(id => id !== lead.id))}/></td>
                   <td>
                     <div className="student">
-                      <button type="button" className="avatar muted lead-view-avatar" title={`View ${lead.studentName}`} aria-label={`View ${lead.studentName}`} onClick={()=>openLead(lead.id,"view")}>
+                      <button type="button" className={`avatar muted lead-view-avatar ${lead.touchStatus||"unassigned"}`} title={`${lead.studentName}${lead.touchStatus!=="unassigned"?` · ${lead.touchStatus}`:""}`} aria-label={`View ${lead.studentName}${lead.touchStatus!=="unassigned"?`, ${lead.touchStatus}`:""}`} onClick={()=>openLead(lead.id,"view")}>
                         {lead.studentName
                           .split(" ")
                           .map((name) => name[0])
@@ -1497,18 +1509,13 @@ export default function LeadsPage() {
                       <span>
                         <span className="lead-name-line">
                           <strong className="lead-view-name">{lead.studentName}</strong>
-                          {lead.touchStatus !== "unassigned" && (
-                            <em className={`lead-touch-badge ${lead.touchStatus}`}>
-                              {lead.touchStatus === "touched" ? "Touched" : "Untouched"}
-                            </em>
-                          )}
                         </span>
                         <small>{lead.phone}</small>
                       </span>
                     </div>
                   </td>
                   <td><div className="lead-academic"><strong>{[lead.curriculum,lead.applyingClass].filter(Boolean).join(" - ") || "—"}</strong><small>{lead.branch || "—"}</small></div></td>
-                  <td>{lead.source || "—"}</td>
+                  <td><div className="lead-source"><span>{lead.source || "—"}</span><small>{lead.addedAt?new Date(lead.addedAt).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}):"—"}</small></div></td>
                   <td>
                     <span
                       className={`stage ${String(lead.stage).toLowerCase().replaceAll(" ", "-")}`}
@@ -1618,7 +1625,7 @@ export default function LeadsPage() {
           </div>
         )}
       </article>
-      {hasAppliedFilters && (
+      {showAppliedFiltersPanel && (
         <aside className={`applied-filters-panel ${appliedFiltersExpanded ? "expanded" : "collapsed"}`} aria-label="Applied lead filters">
           <button
             className="applied-filter-toggle"

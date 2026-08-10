@@ -19,7 +19,7 @@ import AuthLayout from "./components/AuthLayout.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import Header from "./components/Header.jsx";
 import IdleWarning from "./components/IdleWarning.jsx";
-import DashboardPage from "./components/DashboardPage.jsx";
+import DashboardPage, { CurriculumClassStageWidget } from "./components/DashboardPage.jsx";
 import SettingsPageModern from "./components/SettingsPageModern.jsx";
 import OperationsPageModern from "./components/OperationsPageModern.jsx";
 import BulkActionsPageModern from "./components/BulkActionsPageModern.jsx";
@@ -514,7 +514,7 @@ function DashboardOverviewCanvas({ data, leads = [], cards, editable = false }) 
             <button type="button" title="Move down" aria-label={`Move ${definition.title} down`} onClick={() => move(item.id, "down")} disabled={!moveTargets.down}>↓</button>
             {report?.type === "cards" && <label className="dashboard-report-columns"><span>Cards/row</span><select value={reportColumnsFor(report)} onChange={event => stageReportColumns(report.id, Number(event.target.value))} aria-label={`Cards per row for ${definition.title}`}><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>}
             <label className="dashboard-widget-size"><span className="sr-only">Width for {definition.title}</span><select value={item.size} onChange={event => patchWidget(item.id, { size: event.target.value })} aria-label={`Width for ${definition.title}`}><option value="quarter">¼</option><option value="half">½</option><option value="three-quarter">¾</option><option value="full">Full</option></select></label>
-            <button onClick={() => patchWidget(item.id, { visible: false })}>Hide</button>
+            {String(item.id).startsWith("report:") && <button onClick={() => patchWidget(item.id, { visible: false })}>Remove</button>}
           </div>}
           <DashboardWidgetContent id={item.id} data={data} leads={leads} cards={cards} report={report ? { ...report, cardColumns: reportColumnsFor(report) } : null} />
         </article>;
@@ -541,6 +541,7 @@ function DashboardWidgetContent({ id, data, leads, cards, report }) {
     ))}
   </section>;
   if (id === "activity") return <DashboardActivityPreview trends={data.activityTrends || []} />;
+  if (id === "curriculum-stage") return <CurriculumClassStageWidget leads={leads} stages={(data.funnel || []).map(item => item.label)} />;
   if (id === "funnel") return <article className="panel funnel-panel">
     <PanelTitle title="Admissions view" subtitle="Lead movement this academic year" action="Live" />
     <div className="funnel">{(() => {
@@ -554,16 +555,11 @@ function DashboardWidgetContent({ id, data, leads, cards, report }) {
         const width = maximum ? value / maximum * 100 : 0;
         const share = total ? Math.round(value / total * 100) : 0;
         const conversion = previous ? Math.round(value / previous * 100) : null;
-        const label = index > 0 && conversion !== null ? `${conversion}% conversion from ${funnel[index - 1].label}` : `${share}% of current leads`;
+        const label = `${index > 0 && conversion !== null ? conversion : share}%`;
         return <div className="funnel-row" key={item.label}><div className="funnel-label"><span>{item.label}</span><strong>{item.value}</strong></div><div className="track"><span style={{ width: `${width}%`, background: item.color }} /></div><small>{label}</small></div>;
       });
     })()}</div>
   </article>;
-  if (id === "tasks") {
-    const due = (leads || []).filter(lead => lead.nextFollowup || lead.followupAt).slice(0, 6);
-    return <article className="panel tasks-panel"><PanelTitle title="Today’s priorities" subtitle="Follow-ups requiring action" action="Live" /><div className="task-list">{due.length ? due.map(lead => <div className="task" key={lead.id || lead.leadId}><span className="task-dot urgent" /><span className="avatar muted">{String(lead.studentName || "?").slice(0, 2).toUpperCase()}</span><div><strong>{lead.studentName || "Unnamed lead"}</strong><span>{[lead.stage, lead.nextFollowup || lead.followupAt].filter(Boolean).join(" · ")}</span></div></div>) : <div className="empty"><strong>No pending follow-ups</strong><span>You’re all caught up.</span></div>}</div></article>;
-  }
-  if (id === "recent") return <article className="panel recent"><PanelTitle title="Recent leads" subtitle="Latest enquiries across all sources" action="Live" /><LeadTable leads={(leads?.length ? leads : data.recentLeads || []).slice(0, 8)} /></article>;
   return null;
 }
 
@@ -644,72 +640,6 @@ function SavedReportCreatePage() {
   return <main className="page report-page builder-active saved-report-create-page">
     <ReportBuilder data={data} leads={reportLeads} leadFields={reportMeta?.leadFields || []} createNewSignal={createSignal} returnTo="dashboard-saved" />
   </main>;
-}
-
-function LeadTable({ leads }) {
-  return (
-    <div className="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Student</th>
-            <th>Lead ID</th>
-            <th>Applying for</th>
-            <th>Stage</th>
-            <th>Score</th>
-            <th>Owner</th>
-            <th>Next follow-up</th>
-          </tr>
-        </thead>
-        <tbody>
-          {leads.map((lead) => (
-            <tr key={lead.id}>
-              <td>
-                <div className="student">
-                  <span className="avatar muted">
-                    {lead.studentName
-                      .split(" ")
-                      .map((n) => n[0])
-                      .join("")}
-                  </span>
-                  <span>
-                    <strong>{lead.studentName}</strong>
-                    <small>{lead.phone}</small>
-                  </span>
-                </div>
-              </td>
-              <td>
-                <b className="lead-id">{lead.leadId}</b>
-              </td>
-              <td>{lead.applyingClass}</td>
-              <td>
-                <span
-                  className={`stage ${lead.stage.toLowerCase().replace(" ", "-")}`}
-                >
-                  {lead.stage}
-                </span>
-              </td>
-              <td>
-                <span className="score">
-                  <i style={{ width: `${lead.score}%` }} />
-                  {lead.score}
-                </span>
-              </td>
-              <td>{lead.owner}</td>
-              <td>{lead.nextFollowup}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {!leads.length && (
-        <div className="empty">
-          <UserRound />
-          <strong>No leads found</strong>
-          <span>Try a different search term.</span>
-        </div>
-      )}
-    </div>
-  );
 }
 
 function PanelTitle({ title, subtitle, action, link }) {

@@ -226,17 +226,23 @@ export default function PublicPaymentPage() {
                     />
                     {field.placeholder || 'Yes'}
                   </label>
-                ) : (
+                ) : (() => {
+                  const isPhone = field.type === 'phone' || field.type === 'tel';
+                  return (
                   <input
                     id={`pf-${field.name}`}
                     type={field.type === 'phone' ? 'tel' : (field.type || 'text')}
-                    inputMode={field.type === 'phone' || field.type === 'tel' ? 'numeric' : undefined}
+                    inputMode={isPhone ? 'numeric' : undefined}
+                    maxLength={isPhone ? 10 : undefined}
+                    pattern={isPhone ? '[6-9][0-9]{9}' : undefined}
+                    title={isPhone ? 'Enter a valid 10-digit Indian mobile number starting with 6-9' : undefined}
                     required={Boolean(field.required)}
                     placeholder={field.placeholder || ''}
                     value={valueOf(field)}
-                    onChange={e => setValue(field, e.target.value)}
+                    onChange={e => setValue(field, isPhone ? e.target.value.replace(/\D/g, '').slice(0, 10) : e.target.value)}
                   />
-                )}
+                  );
+                })()}
               </div>
             ))}
           </div>

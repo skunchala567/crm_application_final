@@ -308,24 +308,28 @@ table th{background:#f2f7f4}.avatar.muted{background:var(--accent-soft);color:va
 .followup-range-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 0 12px 0;border-bottom:1px solid #e1e2eb;margin-bottom:12px}.date-type-select-popover{appearance:none;border:1px solid #dcdde6;border-radius:8px;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%232fae7a' d='M1 1l5 5 5-5'/%3E%3C/svg%3E") no-repeat right 12px center;padding:10px 36px 10px 14px;color:#16241e;outline:none;font-size:13px;font-weight:500;cursor:pointer;width:250px;height:40px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-left:auto}.date-type-select-popover:hover{border-color:#b8bac7;box-shadow:0 2px 6px rgba(0,0,0,.12)}.date-type-select-popover:focus{border-color:#2fae7a;box-shadow:0 0 0 3px #2fae7a1b;outline:none}.followup-range-trigger{position:relative;overflow:visible !important}.followup-due-badge{position:absolute !important;top:-3px !important;right:-3px !important;min-width:18px !important;height:18px !important;border-radius:50% !important;background:#c33d35 !important;color:#fff !important;display:flex !important;align-items:center !important;justify-content:center !important;font-size:11px !important;font-weight:700 !important;border:2px solid #fff !important;z-index:10 !important;line-height:1 !important;pointer-events:none !important}.followup-due-badge.has-due{background:#c33d35 !important}
 
 /* Compact Leads date-range picker: keep the complete calendar inside the viewport. */
-.followup-range-popover.leads-date-range-popover{width:min(640px,calc(100vw - 32px));padding:12px;max-height:calc(100vh - 150px);overflow:auto}
+.followup-range-popover.leads-date-range-popover{width:min(560px,calc(100vw - 24px));padding:10px;max-height:calc(100vh - 120px);overflow:auto}
 .leads-date-range-popover .followup-range-header{padding-bottom:8px;margin-bottom:8px}
 .leads-date-range-popover .followup-range-title{padding-bottom:0;border-bottom:0}
-.leads-date-range-popover .date-type-select-popover{width:220px;height:36px;padding-top:7px;padding-bottom:7px;font-size:11px}
-.leads-date-range-popover .range-calendar-panel{grid-template-columns:105px minmax(0,1fr);margin-top:6px}
-.leads-date-range-popover .range-calendar-panel aside{display:grid;grid-template-rows:32px repeat(7,32px);align-content:start}
-.leads-date-range-popover .range-calendar-panel aside strong{height:32px;padding:0 7px;display:grid;place-items:center;font-size:9px}
-.leads-date-range-popover .range-calendar-panel aside button{width:100%;height:32px;min-height:32px;padding:0 8px;justify-content:flex-start;font-size:9px}
-.leads-date-range-popover .range-calendar-month{min-width:0;padding:7px}
-.leads-date-range-popover .range-calendar-month header{height:25px;grid-template-columns:24px 1fr 24px}
-.leads-date-range-popover .range-calendar-month header button{width:24px;height:24px}
-.leads-date-range-popover .range-calendar-month header strong{font-size:10px}
-.leads-date-range-popover .range-weekdays span{padding:4px 0 3px;font-size:8px}
-.leads-date-range-popover .range-days span,.leads-date-range-popover .range-days button{height:24px}
-.leads-date-range-popover .range-days button{font-size:9px}
-.leads-date-range-popover .followup-range-footer{margin-top:9px;padding-top:9px}
-.leads-date-range-popover .followup-range-footer button{height:31px;font-size:10px}
-@media(max-width:760px){.leads-date-range-popover{top:96px;max-height:calc(100vh - 108px)}.leads-date-range-popover .date-type-select-popover{width:min(190px,50%)}.leads-date-range-popover .range-calendar-panel{grid-template-columns:1fr}.leads-date-range-popover .range-calendar-panel aside{grid-template-columns:repeat(3,1fr);grid-template-rows:auto}.leads-date-range-popover .range-calendar-month:nth-child(2){display:none}}
+.leads-date-range-popover .date-type-select-popover{width:190px;height:33px;padding:6px 30px 6px 11px;font-size:10px}
+.leads-date-range-popover .range-calendar-panel{grid-template-columns:94px minmax(0,1fr);margin-top:5px}
+.leads-date-range-popover .range-calendar-panel aside{display:grid;grid-template-rows:repeat(8,26px);align-content:start}
+.leads-date-range-popover .range-calendar-panel aside strong{height:26px;padding:0 6px;display:grid;place-items:center;font-size:8px}
+.leads-date-range-popover .range-calendar-panel aside button{width:100%;height:26px;min-height:26px;padding:0 7px;justify-content:flex-start;font-size:8px}
+.leads-date-range-popover .range-calendar-month{min-width:0;padding:6px 5px}
+.leads-date-range-popover .range-calendar-month header{position:relative;top:auto;z-index:1;width:100%;height:24px;padding:0;display:grid;grid-template-columns:22px minmax(0,1fr) 22px;align-items:center;gap:0;border:0;background:transparent;box-shadow:none}
+.leads-date-range-popover .range-calendar-month header button{position:relative;z-index:2;width:22px;height:22px;padding:0;cursor:pointer;pointer-events:auto}
+.leads-date-range-popover .range-calendar-month header>span:first-child,.leads-date-range-popover .range-calendar-month header>button:first-child{grid-column:1;justify-self:start}
+.leads-date-range-popover .range-calendar-month header>strong{grid-column:2;min-width:0;justify-self:center;overflow:visible;font-size:9px;text-overflow:clip;white-space:nowrap}
+.leads-date-range-popover .range-calendar-month header>span:last-child,.leads-date-range-popover .range-calendar-month header>button:last-child{grid-column:3;justify-self:end}
+.leads-date-range-popover .range-calendar-month header button svg{position:static;inset:auto;display:block;margin:0;transform:none;pointer-events:none}
+.leads-date-range-popover .range-weekdays span{padding:3px 0 2px;font-size:7px}
+.leads-date-range-popover .range-days span,.leads-date-range-popover .range-days button{height:22px}
+.leads-date-range-popover .range-days button{font-size:8px}
+.leads-date-range-popover .followup-range-footer{margin-top:7px;padding-top:7px}
+.leads-date-range-popover .followup-range-footer button{height:29px;font-size:9px}
+@media(max-width:760px){.leads-date-range-popover{top:82px;max-height:calc(100vh - 94px)}.leads-date-range-popover .date-type-select-popover{width:min(180px,48%)}.leads-date-range-popover .range-calendar-panel{grid-template-columns:1fr}.leads-date-range-popover .range-calendar-panel aside{grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:auto}.leads-date-range-popover .range-calendar-panel aside strong{grid-column:1/-1}.leads-date-range-popover .range-calendar-month:nth-child(2){display:none}}
+@media(max-width:520px){.leads-date-range-popover .followup-range-header{align-items:stretch;flex-direction:column}.leads-date-range-popover .date-type-select-popover{width:100%;margin-left:0}.leads-date-range-popover .range-calendar-panel aside{grid-template-columns:repeat(2,minmax(0,1fr))}}
 /* Pagination controls */
 .pagination-controls{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 18px;border-top:1px solid var(--line);background:#fff;flex-wrap:wrap}.page-size-selector{display:flex;align-items:center;gap:8px;font-size:12px;color:#42544b;font-weight:600}.page-size-selector select{border:1px solid #dcdde6;border-radius:6px;background:#fff;padding:6px 8px;color:#42544b;outline:none;font-size:11px;cursor:pointer}.page-size-selector select:focus{border-color:#2fae7a;box-shadow:0 0 0 2px #2fae7a1b}.pagination-info{font-size:11px;color:#8a8c9b;white-space:nowrap}.pagination-buttons{display:flex;align-items:center;gap:4px}.pagination-btn{border:1px solid #dcdde6;border-radius:6px;background:#fff;color:#666875;width:32px;height:32px;display:grid;place-items:center;cursor:pointer;transition:all .15s ease;font-weight:500}.pagination-btn:hover:not(:disabled){border-color:#aeb0d1;background:#f5f5fc;color:var(--purple)}.pagination-btn:disabled{opacity:.5;cursor:not-allowed;color:#aaaaba}.page-indicator{padding:0 8px;font-size:11px;color:#42544b;font-weight:600;white-space:nowrap}@media(max-width:1000px){.pagination-controls{padding:12px 14px;gap:12px}.pagination-info{display:none}.pagination-buttons{order:2;width:100%}.page-size-selector{order:1;flex:1}.page-indicator{display:none}}@media(max-width:760px){.pagination-controls{flex-direction:column;gap:10px}.pagination-buttons{gap:2px}.pagination-btn{width:28px;height:28px;font-size:10px}.page-size-selector{justify-content:space-between}.page-size-selector select{flex:1;max-width:70px}}
 

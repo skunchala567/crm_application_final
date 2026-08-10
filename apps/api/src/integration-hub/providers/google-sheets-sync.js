@@ -7,6 +7,7 @@ import { GoogleSheetsProvider } from './google-sheets-provider.js';
 import { transformRow, transformCrmData } from '../data-transformer.js';
 import { decryptToken, getMasterKey } from '../crypto-utils.js';
 import crypto from 'node:crypto';
+import { notifyEmployee } from '../../notification-service.js';
 
 export class GoogleSheetsSyncService {
   constructor(pool, logger = console) {
@@ -82,6 +83,11 @@ export class GoogleSheetsSyncService {
 
           // Transform data
           const transformed = transformRow(rowData, fieldMappings);
+          // Metadata-driven mappings use database field keys, while this
+          // importer historically used friendly legacy names. Accept both so
+          // a saved mapping does not silently stop importing new sheet rows.
+          if(!transformed.data.campaign_name&&transformed.data.campaign_id)transformed.data.campaign_name=transformed.data.campaign_id;
+          if(!transformed.data.assign_to&&transformed.data.owner_employee_id)transformed.data.assign_to=transformed.data.owner_employee_id;
 
           if (!transformed.isValid) {
             result.failed++;
@@ -389,12 +395,16 @@ export class GoogleSheetsSyncService {
     const [refs, [[owner]]] = await Promise.all([
       this.resolveLeadReferences(leadData, numericBranchId),
       this.pool.execute(
-        `SELECT e.id FROM app_users u JOIN employees e ON e.id=u.employee_id
+        `SELECT e.id,u.id AS userId,
+                (SELECT ubu.business_unit_id FROM crm_user_business_units ubu
+                 WHERE ubu.user_id=u.id ORDER BY ubu.is_default DESC,ubu.business_unit_id LIMIT 1) AS businessUnitId
+         FROM app_users u JOIN employees e ON e.id=u.employee_id
          WHERE LOWER(u.email)=LOWER(?) AND u.is_active=TRUE AND e.status='Active' LIMIT 1`,
         [String(assign_to).trim()]
       )
     ]);
     if (!owner) throw new Error(`Active CRM user "${assign_to}" was not found`);
+    if(!owner.businessUnitId)throw new Error(`CRM user "${assign_to}" has no business unit assignment`);
 
     // Generate unique lead_number: LEAD-YYYYMMDD-XXXXXX
     const now = new Date();
@@ -404,13 +414,14 @@ export class GoogleSheetsSyncService {
 
     const [result] = await this.pool.execute(
       `INSERT INTO crm_leads (
-        lead_number, branch_id, student_name, phone, normalized_phone,
+        business_unit_id,lead_number, branch_id, student_name, phone, normalized_phone,
         applying_class, class_id, curriculum_id, academic_year, source_id, channel_id, campaign_id,
         admission_type_id, stage_id, substage_id,
         owner_employee_id, remarks, status,
         created_by_user_id, created_at_utc
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active', ?, CURRENT_TIMESTAMP(6))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active', ?, CURRENT_TIMESTAMP(6))`,
       [
+        Number(owner.businessUnitId),
         leadNumber,
         numericBranchId,
         String(student_name).trim(),
@@ -428,15 +439,26 @@ export class GoogleSheetsSyncService {
         refs.substageId,
         owner.id,
         remarks ? String(remarks).trim() : null,
-        Number(organizationId) || 1
+        Number(owner.userId)
       ]
     );
     await this.pool.execute(
       `INSERT INTO crm_lead_source_history
        (lead_id,academic_year,source_id,channel_id,campaign_id,is_primary,intake_method,created_by_user_id)
        VALUES(?,?,?,?,?,TRUE,'integration',?)`,
-      [result.insertId, refs.academicYear, refs.sourceId, refs.channelId, refs.campaignId, Number(organizationId) || 1]
+      [result.insertId, refs.academicYear, refs.sourceId, refs.channelId, refs.campaignId, Number(owner.userId)]
     );
+    await notifyEmployee(this.pool, {
+      businessUnitId: Number(owner.businessUnitId),
+      employeeId: Number(owner.id),
+      actorUserId: Number(owner.userId),
+      type: 'lead_assigned',
+      title: 'New lead added from Google Sheets',
+      message: `${String(student_name).trim()} · ${leadNumber}`,
+      link: `/leads?lead=${Number(result.insertId)}`,
+      entityType: 'lead',
+      entityId: Number(result.insertId),
+    });
 
     return result.insertId;
   }

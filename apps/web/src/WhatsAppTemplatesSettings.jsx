@@ -199,7 +199,7 @@ function WhatsAppDashboard({ integrations }) {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    api.get('/api/leads/referral-options/all')
+    api.get('/leads/referral-options/all')
       .then(response => {
         let branchesData = [];
 

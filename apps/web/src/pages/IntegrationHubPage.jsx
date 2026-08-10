@@ -83,7 +83,10 @@ export default function IntegrationHubPage() {
         await api.post('/smartflo/test', {}); alert('Smartflo connection is working'); fetchIntegrations(); return;
       }
       const response = await api.post(`/hub/integrations/${integration.id}/sync/manual`);
-      alert(`✅ Sync started: Job #${response.data.jobId}`);
+      const created = Number(response.data?.result?.imported || 0);
+      alert(created > 0
+        ? `✅ Sync complete: ${created} lead${created === 1 ? '' : 's'} added (Job #${response.data.jobId})`
+        : '✅ Sync complete: no new leads were added');
       fetchIntegrations();
     } catch (err) {
       alert('❌ Sync failed: ' + err.message);

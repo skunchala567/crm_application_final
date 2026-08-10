@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { decryptToken, getMasterKey } from '../integration-hub/crypto-utils.js';
 import { getLead } from './meta-client.js';
 import { recordLeadAttribution } from '../attribution/attribution-contract.js';
+import { notifyEmployee } from '../notification-service.js';
 
 /**
  * Turns a Meta leadgen event into a CRM lead.
@@ -359,6 +360,18 @@ async function persistLead(pool, { record, routing, unmapped, metaContext, logge
        VALUES (?,'created',?,?)`,
       [leadId, `Lead captured from Meta Lead Ads (form ${metaContext.formId || 'unknown'})`, routing.actorUserId],
     );
+
+    await notifyEmployee(connection, {
+      businessUnitId: Number(routing.businessUnitId),
+      employeeId: Number(routing.ownerEmployeeId),
+      actorUserId: Number(routing.actorUserId),
+      type: 'lead_assigned',
+      title: 'New lead added from Meta',
+      message: `${cleanOptional(record.studentName, 200) || 'New lead'} · ${leadNumber}`,
+      link: `/leads?lead=${leadId}`,
+      entityType: 'lead',
+      entityId: leadId,
+    });
 
     await connection.commit();
     return { outcome: 'imported', leadId, leadNumber };

@@ -118,18 +118,15 @@ function UserManagementTabs({ activeTab, onChange, canSeeAccess }) {
   ];
   if (tabs.length < 2) return null;
   return (
-    <div className="flex items-center gap-1 border-b border-border mb-4" role="tablist">
+    <div className="ui-tabs flex items-center mb-4" role="tablist">
       {tabs.map(({ key, label, icon: Icon }) => (
         <button
           key={key}
           role="tab"
           aria-selected={activeTab === key}
+          data-state={activeTab === key ? 'active' : 'inactive'}
           onClick={() => onChange(key)}
-          className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors ${
-            activeTab === key
-              ? 'border-primary-600 text-primary-700'
-              : 'border-transparent text-secondary-500 hover:text-foreground'
-          }`}
+          className="ui-tab"
         >
           <Icon size={15} /> {label}
         </button>
@@ -504,7 +501,7 @@ export default function UserManagementPage() {
                     </label>:<>
                     <label>First name *<input required value={form.firstName} onChange={event=>setForm({...form,firstName:event.target.value})}/></label>
                     <label>Last name *<input required value={form.lastName} onChange={event=>setForm({...form,lastName:event.target.value})}/></label>
-                    <label className="wide">Phone<input type="tel" value={form.phone} onChange={event=>setForm({...form,phone:event.target.value.replace(/[^0-9+()\-\s]/g,"").slice(0,30)})}/></label>
+                    <label className="wide">Phone<input type="tel" inputMode="numeric" maxLength="10" pattern="[6-9][0-9]{9}" title="Enter a valid 10-digit Indian mobile number starting with 6-9" placeholder="10-digit mobile number" value={form.phone} onChange={event=>setForm({...form,phone:event.target.value.replace(/\D/g,"").slice(0,10)})}/></label>
                   </>}
                   <label className="wide">
                     Login email *

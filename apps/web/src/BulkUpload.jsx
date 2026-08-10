@@ -192,6 +192,7 @@ export function BulkUploadModal({ onClose }) {
           return;
         }
         const values = rowResult.rows;
+        const sourceData = Object.fromEntries(headers.map((header, index) => [header, values[index]?.trim() || '']));
         const record = {
           studentName: values[headerMap['Student Name']]?.trim() || '',
           phone: values[headerMap['Phone']]?.trim() || '',
@@ -210,6 +211,7 @@ export function BulkUploadModal({ onClose }) {
           campaignId: '',
           ownerEmployeeId: '',
           normalizedPhone: '',
+          sourceData,
         };
         parsedRecords.push(record);
       }

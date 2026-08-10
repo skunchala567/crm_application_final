@@ -3,12 +3,12 @@ import { CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Filter, ListFilt
 import { api } from "./api";
 import "./FilterWorkspaceCampaign.css";
 
-const multiKeys = ["branchId","stage","substageId","sourceId","channelId","channelCategory","campaignId","campaignCategory","marketingCampaignId","marketingDeliveryStatus","ownerEmployeeId","classId","curriculumId","admissionTypeId","referredByEmployeeId","touchStatus","isParent","lookingForAdmission","whatsappResponse","contactAvailability"];
+const multiKeys = ["branchId","stage","substageId","sourceId","channelId","channelCategory","campaignId","campaignCategory","marketingCampaignId","marketingDeliveryStatus","ownerEmployeeId","classId","curriculumId","admissionTypeId","referredByEmployeeId","touchStatus","leadEntryPath","isParent","lookingForAdmission","whatsappResponse","contactAvailability"];
 const dateRangeKeys = ["addedFrom","addedTo","updatedFrom","updatedTo","referredFrom","referredTo","nextFollowupFrom","nextFollowupTo","reEnquiredFrom","reEnquiredTo"];
-export const emptyAdvancedFilters = { ...Object.fromEntries([...multiKeys.map(key => [key,[]]),...["studentName","primaryPhone","alternatePhone","email","parentName","followupFrom","followupTo","scoreMin","scoreMax","isReferred",...dateRangeKeys].map(key => [key,""])]), dateType:"nextFollowup", isReferred:"no" };
+export const emptyAdvancedFilters = { ...Object.fromEntries([...multiKeys.map(key => [key,[]]),...["studentName","primaryPhone","alternatePhone","email","parentName","followupFrom","followupTo","scoreMin","scoreMax","isReferred",...dateRangeKeys].map(key => [key,""])]), dateType:"nextFollowup", isReferred:"no", pendingFollowupsOnly:false };
 const legacyDateMap = { addedAt:["addedFrom","addedTo"], updatedAt:["updatedFrom","updatedTo"], referredAt:["referredFrom","referredTo"], nextFollowup:["nextFollowupFrom","nextFollowupTo"], reEnquiredAt:["reEnquiredFrom","reEnquiredTo"] };
 export function normalizeFilters(filters={}) {
-  const normalized = { ...emptyAdvancedFilters, ...filters, ...Object.fromEntries(multiKeys.map(key => [key, Array.isArray(filters[key]) ? filters[key].map(String) : filters[key] ? [String(filters[key])] : []])) };
+  const normalized = { ...emptyAdvancedFilters, ...filters, pendingFollowupsOnly:filters.pendingFollowupsOnly === true || filters.pendingFollowupsOnly === "true", ...Object.fromEntries(multiKeys.map(key => [key, Array.isArray(filters[key]) ? filters[key].map(String) : filters[key] ? [String(filters[key])] : []])) };
   if ((filters.followupFrom || filters.followupTo) && !dateRangeKeys.some(key => filters[key])) {
     const [fromKey,toKey] = legacyDateMap[filters.dateType || "nextFollowup"] || legacyDateMap.nextFollowup;
     normalized[fromKey] = filters.followupFrom || "";
@@ -67,7 +67,7 @@ function FilterCalendarMonth({ month, from, to, onSelect, previous, next, move }
   </div>;
 }
 
-function DateRangeFilterControl({ label, from, to, onChange }) {
+export function DateRangeFilterControl({ label, from, to, onChange, includeFuturePresets = true }) {
   const root = useRef(null);
   const [open, setOpen] = useState(false);
   const [month, setMonth] = useState(() => new Date());
@@ -121,7 +121,7 @@ function DateRangeFilterControl({ label, from, to, onChange }) {
     {open && <div className="followup-range-popover filter-workspace-date-popover" style={popoverStyle}>
       <div className="followup-range-title"><CalendarRange size={18}/><div><strong>{label}</strong><small>Select the {label.toLowerCase()} range</small></div></div>
       <div className="range-calendar-panel">
-        <aside><strong>Choose a period</strong><button type="button" onClick={() => preset("today")}>Today</button><button type="button" onClick={() => preset("yesterday")}>Yesterday</button><button type="button" onClick={() => preset("tillToday")}>Till today</button><button type="button" onClick={() => preset("till")}>Till yesterday</button><button type="button" onClick={() => preset("next", 1)}>Next day</button><button type="button" onClick={() => preset("next", 7)}>Next 7 days</button><button type="button" onClick={() => preset("next", 30)}>Next 30 days</button></aside>
+        <aside><strong>Choose a period</strong><button type="button" onClick={() => preset("today")}>Today</button><button type="button" onClick={() => preset("yesterday")}>Yesterday</button><button type="button" onClick={() => preset("tillToday")}>Till today</button><button type="button" onClick={() => preset("till")}>Till yesterday</button>{includeFuturePresets && <><button type="button" onClick={() => preset("next", 1)}>Next day</button><button type="button" onClick={() => preset("next", 7)}>Next 7 days</button><button type="button" onClick={() => preset("next", 30)}>Next 30 days</button></>}</aside>
         <div className="range-calendar-months"><FilterCalendarMonth month={month} from={from} to={to} onSelect={select} previous move={amount => setMonth(new Date(month.getFullYear(), month.getMonth() + amount, 1))}/><FilterCalendarMonth month={nextMonth} from={from} to={to} onSelect={select} next move={amount => setMonth(new Date(month.getFullYear(), month.getMonth() + amount, 1))}/></div>
       </div>
       <div className="followup-range-footer"><button type="button" className="range-clear" onClick={() => setRange("", "")}>Clear</button><button type="button" className="range-apply" onClick={() => setOpen(false)}>Apply dates</button></div>
@@ -245,6 +245,7 @@ export default function FilterWorkspace({
       <main className="filter-fields"><div className="field-search"><Search/><input value={fieldSearch} onChange={event => setFieldSearch(event.target.value)} placeholder="Search filter fields"/></div>
         {activeSection === "lead" && <div className="filter-grid">
           <Field label="Touch status" searchText={fieldSearch}><select value={filters.touchStatus} onChange={event => set("touchStatus",event.target.value)}><option value="">Any touch status</option><option value="touched">Is touched</option><option value="untouched">Untouched</option></select></Field>
+          <Field label="Lead added via" searchText={fieldSearch}><MultiSearchSelect label="Lead added via" value={filters.leadEntryPath} onChange={value => set("leadEntryPath",value)} options={[{value:"manual",label:"Manually added"},{value:"bulk_upload",label:"Bulk upload"},{value:"google_sheets",label:"Google Sheets"},{value:"integration",label:"Integration (Facebook and others)"},{value:"website_form",label:"Website enquiry form"}]}/></Field>
           <Field label="Branch" searchText={fieldSearch}><select value={filters.branchId} onChange={event => {set("branchId",event.target.value);set("ownerEmployeeId","");}}><option value="">All branches</option>{meta.branches.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
           <Field label="Current stage" searchText={fieldSearch}><select value={filters.stage} onChange={event => {set("stage",event.target.value);set("substageId","");}}><option value="">All stages</option>{meta.stages.map(item => <option key={item.id}>{item.displayName}</option>)}</select></Field>
           <Field label="Sub-stage" searchText={fieldSearch}><select value={filters.substageId} onChange={event => set("substageId",event.target.value)}><option value="">All sub-stages</option>{meta.substages.filter(item => !filters.stage.length || filters.stage.includes(String(meta.stages.find(stage => String(stage.id) === String(item.stageId))?.displayName))).map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></Field>

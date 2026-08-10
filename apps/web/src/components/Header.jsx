@@ -65,8 +65,32 @@ export function Header({ user, onLogout, onMenuClick, navCollapsed = false, mobi
   const [openPop, setOpenPop] = useState(null); // 'quick' | 'messages' | 'alerts' | 'profile'
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [followupsDue, setFollowupsDue] = useState(0);
+  const [untouchedLeads, setUntouchedLeads] = useState(0);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [liveNotification, setLiveNotification] = useState(null);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const wrapRef = useRef(null);
+  const alertedNotificationIdsRef = useRef(new Set());
+  const notificationAudioRef = useRef(null);
+
+  // Browsers only allow audible playback after a user gesture. Arm the audio
+  // context on the first interaction so a later background poll can chime.
+  useEffect(() => {
+    const armAudio = () => {
+      try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (AudioContext && !notificationAudioRef.current) notificationAudioRef.current = new AudioContext();
+        notificationAudioRef.current?.resume?.();
+      } catch { /* The in-app visual alert remains available without audio. */ }
+    };
+    window.addEventListener('pointerdown', armAudio, { once: true });
+    window.addEventListener('keydown', armAudio, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', armAudio);
+      window.removeEventListener('keydown', armAudio);
+    };
+  }, []);
 
   // Only the date label uses this now; the usage timer ticks in the hook, so
   // a minute is plenty and the blurred header repaints far less often.
@@ -110,14 +134,85 @@ export function Header({ user, onLogout, onMenuClick, navCollapsed = false, mobi
     (async () => {
       try {
         const dashboard = await api('/dashboard');
-        if (!cancelled) setFollowupsDue(Number(dashboard?.stats?.followupsDue || 0));
+        if (!cancelled) {
+          setFollowupsDue(Number(dashboard?.stats?.followupsDue || 0));
+          setUntouchedLeads(Number(dashboard?.stats?.untouchedAssignedCount || 0));
+        }
       } catch {
-        if (!cancelled) setFollowupsDue(0);
+        if (!cancelled) { setFollowupsDue(0); setUntouchedLeads(0); }
       }
     })();
 
     return () => { cancelled = true; };
   }, [selectedUnit?.id]);
+
+  const playNotificationSound = async () => {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      const context = notificationAudioRef.current || new AudioContext();
+      notificationAudioRef.current=context;
+      if(context.state==='suspended')await context.resume();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = 'sine'; oscillator.frequency.setValueAtTime(880,context.currentTime);
+      gain.gain.setValueAtTime(0.0001,context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.16,context.currentTime+0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001,context.currentTime+0.35);
+      oscillator.connect(gain); gain.connect(context.destination); oscillator.start(); oscillator.stop(context.currentTime+0.36);
+      oscillator.onended=()=>{};
+    } catch { /* Sound is best-effort when browser autoplay policy allows it. */ }
+  };
+
+  const loadNotifications = async ({ announce = true } = {}) => {
+    const result = await api('/notifications');
+    const items=result.data||[];
+    if(announce){
+      const fresh=items.filter(item=>!item.readAt&&!alertedNotificationIdsRef.current.has(Number(item.id)));
+      if(fresh.length){
+        fresh.forEach(item=>alertedNotificationIdsRef.current.add(Number(item.id)));
+        playNotificationSound().catch(()=>{});
+        setLiveNotification(fresh[0]);
+        if('Notification' in window&&Notification.permission==='granted'){
+          const item=fresh[0];
+          const systemNotice=new Notification(item.title,{body:item.message,tag:`crm-${item.id}`});
+          systemNotice.onclick=()=>{window.focus();if(item.link)navigate(item.link);systemNotice.close();};
+        }
+      }
+    }
+    setNotifications(items);setUnreadNotifications(Number(result.unread||0));
+  };
+
+  useEffect(()=>{
+    if(!selectedUnit?.id||!user?.id)return undefined;
+    alertedNotificationIdsRef.current=new Set();
+    let cancelled=false;
+    const refresh=()=>loadNotifications().catch(()=>{if(!cancelled){setNotifications([]);setUnreadNotifications(0);}});
+    refresh();const timer=window.setInterval(refresh,5000);
+    return()=>{cancelled=true;window.clearInterval(timer);};
+  },[selectedUnit?.id,user?.id]);
+
+  const openNotifications=async()=>{
+    toggle('alerts');
+    try{
+      const AudioContext=window.AudioContext||window.webkitAudioContext;
+      if(AudioContext&&!notificationAudioRef.current)notificationAudioRef.current=new AudioContext();
+      notificationAudioRef.current?.resume?.();
+    }catch{/* Audio remains optional. */}
+    if('Notification' in window&&Notification.permission==='default')await Notification.requestPermission().catch(()=>{});
+    loadNotifications({announce:false}).catch(()=>{});
+  };
+  const readNotification=async item=>{
+    if(!item.readAt)await api(`/notifications/${item.id}/read`,{method:'PUT'});
+    setNotifications(current=>current.map(entry=>entry.id===item.id?{...entry,readAt:new Date().toISOString()}:entry));
+    setUnreadNotifications(current=>Math.max(0,current-(item.readAt?0:1)));
+    setOpenPop(null);if(item.link)navigate(item.link);
+  };
+  const readAllNotifications=async()=>{
+    await api('/notifications/read-all',{method:'PUT'});
+    setNotifications(current=>current.map(item=>({...item,readAt:item.readAt||new Date().toISOString()})));
+    setUnreadNotifications(0);
+  };
 
   const crumbs = useMemo(() => {
     if (location.pathname.startsWith('/settings')) {
@@ -201,34 +296,20 @@ export function Header({ user, onLogout, onMenuClick, navCollapsed = false, mobi
         </div>
 
         {/* Search (existing global search component) */}
-        <div className="ml-auto min-w-[220px] flex-1 max-w-[400px] hidden xl:block">
+        <div className="ml-auto min-w-[180px] flex-1 max-w-[520px] hidden md:block">
           {children}
-        </div>
-
-        {/* Time actively spent in the app today, not the wall clock. */}
-        <div
-          className="hidden 2xl:block text-right pl-4 border-l border-border flex-none"
-          title={usageSaved
-            ? 'Active time in the CRM today. Signs you out after 10 minutes of inactivity.'
-            : 'Not being saved — this total will reset on next login. See the browser console.'}
-        >
-          <div className={cn(
-            'font-display font-bold text-[15px] tabular-nums tracking-tight',
-            usageSaved ? 'text-foreground' : 'text-warning'
-          )}>
-            {usageTime}
-          </div>
-          <div className="text-[11px] text-secondary-400 whitespace-nowrap">
-            {usageSaved
-              ? `Active today · ${now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`
-              : 'Active today · not saved'}
-          </div>
         </div>
 
         {/* Action cluster */}
         <div className="flex items-center gap-0.5 sm:gap-1.5 ml-auto xl:ml-0 flex-none">
           {/* Lead quick actions. Hidden unless a screen has registered some, so
-              the button never opens onto actions with nothing to act on. */}
+              the button never opens onto actions with nothing to act on.
+
+              The popover needs an explicit z-index: below md the search moves to
+              its own row further down the header, and as a later positioned
+              sibling with z-auto it would paint over this menu's top row. Kept
+              under .global-search-inline-results (z-80) so an open typeahead
+              still wins. */}
           {quickActions.length > 0 && (
             <div className="relative">
               <button
@@ -241,7 +322,7 @@ export function Header({ user, onLogout, onMenuClick, navCollapsed = false, mobi
                 <Zap size={18} />
               </button>
               {openPop === 'quick' && (
-                <div className="absolute right-0 top-[calc(100%+10px)] w-[300px] p-2.5 rounded-lg bg-white border border-border shadow-lg">
+                <div className="absolute right-0 top-[calc(100%+10px)] z-50 w-[300px] p-2.5 rounded-lg bg-white border border-border shadow-lg">
                   <div className="grid grid-cols-3 gap-1.5">
                     {quickActions.map(({ key, label, icon: Icon, title, disabled, onSelect }) => (
                       <button
@@ -275,18 +356,29 @@ export function Header({ user, onLogout, onMenuClick, navCollapsed = false, mobi
           </button>
           )}
 
-          {/* Follow-ups due -- lands on Leads, so it follows that permission. */}
-          {can('leads.list.view') && (
-          <button
-            onClick={() => navigate('/leads')}
-            className="relative grid place-items-center w-[38px] h-[38px] rounded-[11px] text-secondary-500 hover:bg-surface-3 hover:text-primary-600 active:scale-95 transition-all"
-            aria-label={`${followupsDue} follow-ups due`}
-            title={`${followupsDue} follow-ups due`}
-          >
-            <Bell size={18} />
-            {badge(followupsDue, 'alert')}
-          </button>
-          )}
+          <div className="relative">
+            <button
+              onClick={openNotifications}
+              className="relative grid place-items-center w-[38px] h-[38px] rounded-[11px] text-secondary-500 hover:bg-surface-3 hover:text-primary-600 active:scale-95 transition-all"
+              aria-label={`${unreadNotifications} unread notifications`}
+              title={`${unreadNotifications} unread notifications`}
+              aria-expanded={openPop==='alerts'}
+            >
+              <Bell size={18} />
+              {badge(unreadNotifications,'alert')}
+            </button>
+            {openPop==='alerts'&&(
+              <div className="notification-popover">
+                <div className="notification-popover-head">
+                  <div><strong>Notifications</strong><p>Latest 10 for this business unit</p></div>
+                  {unreadNotifications>0&&<button onClick={readAllNotifications}>Mark all read</button>}
+                </div>
+                <div className="notification-list">
+                  {notifications.length?notifications.map(item=><button key={item.id} onClick={()=>readNotification(item)} className={cn('notification-item',!item.readAt&&'unread')}><i className={item.readAt?'read':'unread'}/><span><strong>{item.title}</strong><span>{item.message}</span><small>{new Date(item.createdAt).toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short'})}</small></span></button>):<p className="notification-empty">No notifications yet.</p>}
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Profile */}
           <div className="relative">
@@ -300,13 +392,23 @@ export function Header({ user, onLogout, onMenuClick, navCollapsed = false, mobi
               </span>
               <span className="hidden sm:flex flex-col text-left leading-[1.25]">
                 <strong className="text-[12.5px] text-foreground">{user?.name}</strong>
-                <small className="text-[10.5px] text-secondary-400">{user?.role}</small>
+                <span className="flex items-center gap-1.5 whitespace-nowrap">
+                  <small className="text-[10.5px] text-secondary-400">{user?.role}</small>
+                  <small
+                    className={cn('text-[10.5px] font-bold tabular-nums', usageSaved ? 'text-primary-600' : 'text-warning')}
+                    title={usageSaved
+                      ? `Active time in the CRM today · ${now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`
+                      : 'Active time is not being saved and will reset on next login.'}
+                  >
+                    · {usageTime}
+                  </small>
+                </span>
               </span>
               <ChevronDown size={14} className="hidden sm:block text-secondary-400" />
             </button>
 
             {openPop === 'profile' && (
-              <div className="absolute right-0 top-[calc(100%+10px)] w-[240px] rounded-lg bg-white border border-border shadow-lg overflow-hidden">
+              <div className="absolute right-0 top-[calc(100%+10px)] z-50 w-[240px] rounded-lg bg-white border border-border shadow-lg overflow-hidden">
                 {/* Name and role already sit on the trigger, so only the email
                     — the detail not shown there — is repeated here. */}
                 {user?.email && (
@@ -321,7 +423,7 @@ export function Header({ user, onLogout, onMenuClick, navCollapsed = false, mobi
                   {canAny(SETTINGS_PERMISSIONS) && (
                   <button
                     onClick={() => go('/settings')}
-                    className="profile-menu-action w-full flex items-center justify-center gap-[9px] px-[11px] py-[9px] rounded-[10px] text-[13px] text-secondary-700 hover:bg-surface-3 hover:text-foreground transition-colors"
+                    className="profile-menu-action w-full flex items-center justify-start text-left gap-[9px] px-[11px] py-[9px] rounded-[10px] text-[13px] text-secondary-700 hover:bg-surface-3 hover:text-foreground transition-colors"
                   >
                     <Settings size={16} className="text-secondary-400" />
                     Settings
@@ -329,7 +431,7 @@ export function Header({ user, onLogout, onMenuClick, navCollapsed = false, mobi
                   )}
                   <button
                     onClick={() => { setOpenPop(null); setPasswordOpen(true); }}
-                    className="profile-menu-action w-full flex items-center justify-center gap-[9px] px-[11px] py-[9px] rounded-[10px] text-[13px] text-secondary-700 hover:bg-surface-3 hover:text-foreground transition-colors"
+                    className="profile-menu-action w-full flex items-center justify-start text-left gap-[9px] px-[11px] py-[9px] rounded-[10px] text-[13px] text-secondary-700 hover:bg-surface-3 hover:text-foreground transition-colors"
                   >
                     <KeyRound size={16} className="text-secondary-400" />
                     Change password
@@ -349,14 +451,23 @@ export function Header({ user, onLogout, onMenuClick, navCollapsed = false, mobi
         </div>
       </div>
 
-      {/* Search on small screens, where it cannot sit inline */}
-      <div className="xl:hidden px-3 sm:px-4 pb-3">{children}</div>
+      {/* Search on phones, where the header actions leave no safe inline width. */}
+      <div className="md:hidden px-3 sm:px-4 pb-3">{children}</div>
     </header>
 
     {/* Outside <header>: its backdrop-filter would otherwise make it the
         containing block for this fixed overlay. */}
     {passwordOpen && (
       <ChangePasswordDialog onClose={() => setPasswordOpen(false)} />
+    )}
+    {liveNotification && (
+      <div className="live-notification-toast" role="alert">
+        <Bell size={19} />
+        <button type="button" onClick={() => { const item = liveNotification; setLiveNotification(null); readNotification(item); }}>
+          <strong>{liveNotification.title}</strong><small>{liveNotification.message}</small>
+        </button>
+        <button type="button" className="live-notification-close" aria-label="Dismiss notification" onClick={() => setLiveNotification(null)}><X size={17} /></button>
+      </div>
     )}
     </>
   );

@@ -14,6 +14,7 @@ export function StatCard({
   trend,
   icon: Icon,
   color = 'blue',
+  compact = false,
   className,
 }) {
   const colorClass = colorVariants[color] || colorVariants.blue;
@@ -33,13 +34,44 @@ export function StatCard({
         className
       )}
     >
-      <CardContent className="p-6">
-        <div className="flex items-start justify-between gap-4">
+      <CardContent className={compact ? 'h-full p-5' : 'p-6'}>
+        {compact ? (
+          <div className="flex h-full w-full flex-col items-start gap-3 text-left">
+            <div className="flex items-center gap-3">
+              {Icon && (
+                <div
+                  className={cn(
+                    'flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl',
+                    'transition-transform duration-300 ease-[cubic-bezier(.16,1,.3,1)] group-hover:scale-110 group-hover:-rotate-[4deg]',
+                    colorClass
+                  )}
+                >
+                  <Icon size={20} className="flex-shrink-0" />
+                </div>
+              )}
+              <p className="m-0 text-3xl font-extrabold text-foreground font-display tracking-tight tabular-nums">
+                {typeof value === 'number' ? value.toLocaleString() : value}
+              </p>
+            </div>
+            <p className="m-0 min-h-4 text-[11px] font-semibold leading-4 text-secondary-500 uppercase tracking-wider">
+              {label}
+            </p>
+            {trend && (
+              <p className={cn(
+                'm-0 inline-flex max-w-full items-center rounded-full px-2 py-[3px] text-[10px] font-bold leading-4 whitespace-normal',
+                isNegative ? 'bg-danger-bg text-danger' : 'bg-primary-50 text-primary-700'
+              )}>
+                {trend}
+              </p>
+            )}
+          </div>
+        ) : (
+        <div className="flex w-full items-start justify-between gap-4">
           {/* Icon */}
           {Icon && (
             <div
               className={cn(
-                'flex items-center justify-center w-12 h-12 rounded-xl flex-shrink-0',
+                'flex h-12 w-12 items-center justify-center rounded-xl flex-shrink-0',
                 'transition-transform duration-300 ease-[cubic-bezier(.16,1,.3,1)] group-hover:scale-110 group-hover:-rotate-[4deg]',
                 colorClass
               )}
@@ -49,8 +81,11 @@ export function StatCard({
           )}
 
           {/* Content */}
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-secondary-500 uppercase tracking-wider">
+          <div className="w-full flex-1 min-w-0 text-left">
+            <p className={cn(
+              'font-semibold text-secondary-500 uppercase tracking-wider',
+              'text-xs'
+            )}>
               {label}
             </p>
             <p className="text-3xl font-extrabold text-foreground font-display tracking-tight mt-1 tabular-nums">
@@ -58,7 +93,8 @@ export function StatCard({
             </p>
             {trend && (
               <p className={cn(
-                'inline-flex items-center gap-1 text-[11px] font-bold mt-2 px-2 py-[3px] rounded-full',
+                'inline-flex items-center gap-1 font-bold mt-2 px-2 py-[3px] rounded-full',
+                'text-[11px]',
                 isNegative ? 'bg-danger-bg text-danger' : 'bg-primary-50 text-primary-700'
               )}>
                 {trend}
@@ -66,6 +102,7 @@ export function StatCard({
             )}
           </div>
         </div>
+        )}
       </CardContent>
     </Card>
   );
