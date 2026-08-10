@@ -72,8 +72,59 @@ const pool = mysql.createPool({
     waitForConnections: true,
     connectionLimit: Number(process.env.MYSQL_CONNECTION_LIMIT || 10),
     timezone: '+05:30',
+    // The database is reached over the open network, where anything in the
+    // path -- NAT tables, load balancers, the server's own wait_timeout --
+    // silently drops connections that have sat idle. Neither end is told, so
+    // mysql2 hands out a socket that is already gone and the next query dies
+    // with ECONNRESET. TCP keepalives stop the middle boxes from considering
+    // the connection idle in the first place.
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10_000,
+    // And if one is dropped anyway, retire it on our own schedule rather than
+    // discovering it mid-request. Four minutes sits under the usual 5-minute
+    // NAT idle window.
+    idleTimeout: Number(process.env.MYSQL_IDLE_TIMEOUT || 240_000),
+    maxIdle: Number(process.env.MYSQL_MAX_IDLE || 4),
 });
 pool.on('connection', (connection) => connection.query("SET time_zone = '+05:30'"));
+
+/* Keepalives make a dropped connection rare, not impossible -- a server
+   restart or a network blip still lands one in the pool. These are the codes
+   that mean "this socket is dead", as opposed to "the database rejected your
+   query". */
+const DEAD_CONNECTION_CODES = new Set([
+  'ECONNRESET', 'EPIPE', 'ETIMEDOUT', 'PROTOCOL_CONNECTION_LOST', 'ECONNREFUSED',
+]);
+// Deliberately no WITH: MySQL 8 allows `WITH ... UPDATE` and `WITH ... DELETE`,
+// so a leading CTE says nothing about whether the statement writes.
+const READ_ONLY_STATEMENT = /^\s*(?:\/\*[\s\S]*?\*\/\s*)?(?:SELECT|SHOW|DESCRIBE|DESC|EXPLAIN)\b/i;
+
+/* Retry a dead connection once, but only for reads.
+
+   When the socket was reaped while idle, the reset arrives as we write the
+   query and the server never saw it, so replaying is safe. We cannot prove
+   that from the error alone, though: a reset that arrives *after* the server
+   ran an autocommitted INSERT looks identical, and replaying that would
+   duplicate a lead. Reads carry no such risk, and they are the overwhelming
+   majority of what breaks after an idle spell. A failed write still surfaces
+   -- loudly -- rather than being silently doubled. */
+for (const method of ['execute', 'query']) {
+  const direct = pool[method].bind(pool);
+  pool[method] = async (...args) => {
+    try {
+      return await direct(...args);
+    } catch (error) {
+      const sql = typeof args[0] === 'string' ? args[0] : args[0]?.sql;
+      if (!DEAD_CONNECTION_CODES.has(error?.code)) throw error;
+      if (!READ_ONLY_STATEMENT.test(sql || '')) {
+        console.error(`[mysql] ${error.code} on a write; not retried:`, String(sql || '').slice(0, 120));
+        throw error;
+      }
+      console.warn(`[mysql] ${error.code} on a stale connection, retrying read`);
+      return await direct(...args);
+    }
+  };
+}
 
 // ============= Integration Hub Setup =============
 

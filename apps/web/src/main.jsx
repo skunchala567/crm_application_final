@@ -26,13 +26,32 @@ function showStartupError(error) {
   </div>`;
 }
 
-window.addEventListener('error', (event) => showStartupError(event.error || event.message));
-window.addEventListener('unhandledrejection', (event) => showStartupError(event.reason));
+/* These catch a failure to load or mount the app -- a bad chunk, a syntax
+   error -- and replace the blank page with something that says so.
+
+   They are removed the moment the app mounts. Left installed, they turn every
+   later unhandled rejection into the same full-page takeover: one API call
+   losing its database connection would wipe out a working session, mid-edit,
+   with "CRM could not start". After mount the app has its own error
+   boundaries and toasts, which fail at the scale of the thing that broke. */
+const reportStartupError = (event) => showStartupError(event.error ?? event.reason ?? event.message);
+window.addEventListener('error', reportStartupError);
+window.addEventListener('unhandledrejection', reportStartupError);
+const stopWatchingStartup = () => {
+  window.removeEventListener('error', reportStartupError);
+  window.removeEventListener('unhandledrejection', reportStartupError);
+};
 
 import('./App.jsx')
   .then(({ default: App }) => {
     createRoot(rootElement).render(
       <React.StrictMode><BrowserRouter><App /></BrowserRouter></React.StrictMode>,
     );
+    // After paint, so a component that throws during the first render is still
+    // reported rather than leaving a blank page.
+    requestAnimationFrame(() => requestAnimationFrame(stopWatchingStartup));
   })
-  .catch(showStartupError);
+  .catch((error) => {
+    stopWatchingStartup();
+    showStartupError(error);
+  });
