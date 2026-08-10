@@ -17,22 +17,35 @@ const STYLE_ELEMENT_ID = 'crm-brand-theme';
 export const DEFAULT_BRAND_COLOR = '#0b7a4f';
 
 /* The reference ramp is the hand-tuned green palette that shipped with the
-   design system, measured in OKLab. Lightness is fixed per step; chroma is
-   expressed as a ratio of the seed's chroma so a muted seed yields a muted
-   ramp and a vivid one stays vivid. Feeding DEFAULT_BRAND_COLOR back in
-   reproduces the original palette to within a rounding step. */
+   design system, measured in OKLab. Chroma is expressed as a ratio of the
+   seed's chroma so a muted seed yields a muted ramp and a vivid one stays
+   vivid. Feeding DEFAULT_BRAND_COLOR back in reproduces the original palette
+   to within a rounding step.
+
+   The third number is how much of the seed's own lightness offset each step
+   takes on. It is 1 at step 600 — the primary, which should be the colour that
+   was actually chosen — and tapers towards the ends, so a dark navy seed does
+   not drag the pale tints down into mid-greys, nor a light seed push the dark
+   end up into them. */
 const BRAND_STEPS = [
-  [50, 0.9725, 0.117],
-  [100, 0.9389, 0.278],
-  [200, 0.8659, 0.618],
-  [300, 0.7652, 0.982],
-  [400, 0.6698, 1.180],
-  [500, 0.5811, 1.127],
-  [600, 0.5125, 1.000],
-  [700, 0.4330, 0.828],
-  [800, 0.3758, 0.709],
-  [900, 0.2750, 0.497],
+  [50, 0.9725, 0.117, 0.10],
+  [100, 0.9389, 0.278, 0.18],
+  [200, 0.8659, 0.618, 0.32],
+  [300, 0.7652, 0.982, 0.50],
+  [400, 0.6698, 1.180, 0.70],
+  [500, 0.5811, 1.127, 0.88],
+  [600, 0.5125, 1.000, 1.00],
+  [700, 0.4330, 0.828, 0.88],
+  [800, 0.3758, 0.709, 0.75],
+  [900, 0.2750, 0.497, 0.55],
 ];
+
+/* How far the primary may sit from the reference lightness. Dark brand
+   colours are reproduced almost exactly; light ones are pulled down, because
+   a pale primary cannot carry the white text that the UI puts on it and its
+   tints would collapse into the page background. */
+const MIN_LIGHTNESS_SHIFT = -0.18;
+const MAX_LIGHTNESS_SHIFT = 0.06;
 
 /* The greys are not neutral — they carry a trace of the brand hue, which is
    what makes the chrome feel of a piece with the accent. Chroma here is
@@ -139,27 +152,34 @@ const contrastWithWhite = hex => 1.05 / (relativeLuminance(hex) + 0.05);
 
 export function buildBrandPalette(seedInput) {
   const seed = normaliseHexColor(seedInput) || DEFAULT_BRAND_COLOR;
-  const { C: seedChroma, h } = rgbToOklch(hexToRgb(seed));
+  const { L: seedLightness, C: seedChroma, h } = rgbToOklch(hexToRgb(seed));
   const hue = Number.isNaN(h) ? 0 : h;
+  const seedShift = Math.min(MAX_LIGHTNESS_SHIFT, Math.max(MIN_LIGHTNESS_SHIFT, seedLightness - 0.5125));
 
   /* The primary carries white text in dozens of places (buttons, the active
      sidebar row, badges). A yellow or cyan seed at the reference lightness
      is far brighter than the green it replaces, so white on it would fail
      AA. Darkening the mid-to-dark half of the ramp until the primary clears
      4.5:1 keeps every existing `color:#fff` rule legible. */
-  let lightnessShift = 0;
-  for (let attempt = 0; attempt < 24; attempt += 1) {
-    const candidate = oklchToHex({ L: 0.5125 - lightnessShift, C: seedChroma, h: hue });
+  let contrastShift = 0;
+  for (let attempt = 0; attempt < 32; attempt += 1) {
+    const candidate = oklchToHex({ L: 0.5125 + seedShift - contrastShift, C: seedChroma, h: hue });
     if (contrastWithWhite(candidate) >= MIN_WHITE_CONTRAST) break;
-    lightnessShift += 0.012;
+    contrastShift += 0.012;
   }
 
   const brand = {};
-  for (const [step, lightness, chromaRatio] of BRAND_STEPS) {
-    // Only the half that sits under white text moves; the tints stay put so
-    // pale backgrounds keep their contrast against brand-coloured text.
-    const shift = step >= 500 ? lightnessShift : 0;
-    brand[step] = oklchToHex({ L: Math.max(0.12, lightness - shift), C: seedChroma * chromaRatio, h: hue });
+  let previous = Infinity;
+  for (const [step, lightness, chromaRatio, seedWeight] of BRAND_STEPS) {
+    // Only the half that sits under white text takes the contrast correction;
+    // the tints stay put so pale backgrounds keep their contrast against
+    // brand-coloured text.
+    const corrected = lightness + seedShift * seedWeight - (step >= 500 ? contrastShift : 0);
+    // The ramp must stay strictly ordered even at the extremes, or two steps
+    // collapse onto one colour and the UI loses a level of hierarchy.
+    const resolved = Math.min(Math.max(0.14, corrected), previous - 0.012, 0.985);
+    previous = resolved;
+    brand[step] = oklchToHex({ L: resolved, C: seedChroma * chromaRatio, h: hue });
   }
 
   // A grey seed should not tint the chrome; a vivid one should not tint it

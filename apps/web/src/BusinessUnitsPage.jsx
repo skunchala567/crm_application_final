@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, Building2, CalendarRange, Check, ChevronDown, Chevr
 import { useSearchParams } from 'react-router-dom';
 import { api } from './api';
 import { useBusinessUnit } from './BusinessUnitContext.jsx';
+import { applyBrandTheme, DEFAULT_BRAND_COLOR } from './brand-theme.js';
 import AcademicConfigurationPage from './AcademicConfigurationPage.jsx';
 import LeadConfiguration from './LeadConfiguration.jsx';
 import ScrollableTabStrip from './components/ScrollableTabStrip.jsx';
@@ -96,6 +97,21 @@ export default function BusinessUnitsPage({onMessage}){
   const [pipelineTab,setPipelineTab]=useState('stages');
   const [dialog,setDialog]=useState(null);
   const [unitForm,setUnitForm]=useState(emptyUnit);
+
+  // Preview the theme colour live while the unit dialog is open — the colour
+  // drives the whole UI, so a swatch alone tells you very little about how it
+  // will actually read. Closing the dialog puts the saved colour back, so an
+  // abandoned edit leaves nothing behind. The colour is tracked in a ref
+  // because the restore runs on close, by which point a successful save has
+  // already moved it on; a value captured when the dialog opened would undo it.
+  const savedUnitColour=useRef(DEFAULT_BRAND_COLOR);
+  useEffect(()=>{savedUnitColour.current=context.selectedUnit?.color||DEFAULT_BRAND_COLOR;},[context.selectedUnit?.color]);
+  useEffect(()=>{
+    if(dialog!=='unit')return undefined;
+    return ()=>applyBrandTheme(savedUnitColour.current);
+  },[dialog]);
+  useEffect(()=>{if(dialog==='unit')applyBrandTheme(unitForm.color);},[dialog,unitForm.color]);
+
   const [fieldForm,setFieldForm]=useState(emptyField);
   const [enquiryForm,setEnquiryForm]=useState(emptyEnquiryForm);
   const [branchForm,setBranchForm]=useState(emptyBranchForm);
