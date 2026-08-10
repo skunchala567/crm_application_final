@@ -92,6 +92,12 @@ export function Header({ user, onLogout, onMenuClick, navCollapsed = false, mobi
     };
   }, []);
 
+  useEffect(() => {
+    if (!liveNotification) return undefined;
+    const timer = window.setTimeout(() => setLiveNotification(null), 7000);
+    return () => window.clearTimeout(timer);
+  }, [liveNotification]);
+
   // Only the date label uses this now; the usage timer ticks in the hook, so
   // a minute is plenty and the blurred header repaints far less often.
   useEffect(() => {
@@ -282,7 +288,7 @@ export function Header({ user, onLogout, onMenuClick, navCollapsed = false, mobi
         {/* Breadcrumbs. The business unit name used to sit above them, which
             left the row two lines tall and everything beside it optically high;
             the unit is already named in the sidebar. */}
-        <div className="min-w-0 flex-1 lg:flex-none hidden sm:flex items-center">
+        <div className="min-w-0 flex-1 xl:flex-none hidden sm:flex items-center">
           <nav className="hidden md:flex items-center gap-1.5 text-[12.5px] text-secondary-500 whitespace-nowrap overflow-hidden" aria-label="Breadcrumb">
             <Home size={13} />
             <button onClick={() => navigate('/')} className="hover:text-primary-600 transition-colors">Home</button>
@@ -296,12 +302,12 @@ export function Header({ user, onLogout, onMenuClick, navCollapsed = false, mobi
         </div>
 
         {/* Search (existing global search component) */}
-        <div className="ml-auto min-w-[180px] flex-1 max-w-[520px] hidden md:block">
+        <div className="ml-auto min-w-[140px] flex-1 max-w-[520px] hidden md:block">
           {children}
         </div>
 
         {/* Action cluster */}
-        <div className="flex items-center gap-0.5 sm:gap-1.5 ml-auto xl:ml-0 flex-none">
+        <div className="flex min-w-0 items-center gap-0.5 sm:gap-1.5 ml-auto xl:ml-0 flex-none">
           {/* Lead quick actions. Hidden unless a screen has registered some, so
               the button never opens onto actions with nothing to act on.
 
@@ -384,14 +390,14 @@ export function Header({ user, onLogout, onMenuClick, navCollapsed = false, mobi
           <div className="relative">
             <button
               onClick={() => toggle('profile')}
-              className="flex items-center gap-[9px] pl-[5px] pr-2.5 py-[5px] rounded-xl hover:bg-surface-3 transition-colors"
+              className="flex min-w-0 max-w-[clamp(150px,24vw,330px)] items-center gap-[9px] pl-[5px] pr-2.5 py-[5px] rounded-xl hover:bg-surface-3 transition-colors"
               aria-expanded={openPop === 'profile'}
             >
               <span className="grid place-items-center w-8 h-8 rounded-[10px] bg-gradient-to-br from-primary-500 to-primary-700 text-white text-[12px] font-bold">
                 {initials}
               </span>
-              <span className="hidden sm:flex flex-col text-left leading-[1.25]">
-                <strong className="text-[12.5px] text-foreground">{user?.name}</strong>
+              <span className="hidden min-w-0 sm:flex flex-col text-left leading-[1.25]">
+                <strong className="truncate whitespace-nowrap text-[12.5px] text-foreground" title={user?.name}>{user?.name}</strong>
                 <span className="flex items-center gap-1.5 whitespace-nowrap">
                   <small className="text-[10.5px] text-secondary-400">{user?.role}</small>
                   <small

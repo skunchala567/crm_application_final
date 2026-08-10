@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
-import { CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Download, Filter, History, Megaphone, NotebookPen, MessageCircle, MoreVertical, PanelRightClose, PanelRightOpen, PhoneCall, Pencil, Plus, RefreshCw, Search, Trash2, Upload, UserRoundPlus, X, GitBranch } from "lucide-react";
+import { CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Download, Filter, History, Megaphone, NotebookPen, MessageCircle, MoreVertical, PanelRightClose, PanelRightOpen, PhoneCall, Pencil, Plus, RotateCcw, Search, Trash2, Upload, UserRoundPlus, X, GitBranch } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { api } from "./api";
@@ -380,7 +380,7 @@ function FunnelStrip({
 
         <div className="lead-quick-actions funnel-filter-actions">
           <button title="Clear filters" aria-label="Clear filters" onClick={onClearFilters}>
-            <RefreshCw />
+            <RotateCcw />
           </button>
           <button title="Open filters" aria-label="Open filters" onClick={onOpenFilters}>
             <Filter />
@@ -627,6 +627,7 @@ export default function LeadsPage() {
     campaigns: [],
     admissionTypes: [],
     substages: [],
+    manualLeadDefaults: {},
     branches: [],
     employees: [],
     academicYears: [],
@@ -733,6 +734,36 @@ export default function LeadsPage() {
   const [whatsAppConversations, setWhatsAppConversations] = useState([]);
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
   const studentNameInputRef = useRef(null);
+  const stageTabsRef = useRef(null);
+  const [stageTabScroll, setStageTabScroll] = useState({ left: false, right: false, overflow: false });
+
+  useEffect(() => {
+    const tabs = stageTabsRef.current;
+    if (!tabs) return undefined;
+    const update = () => {
+      const max = Math.max(0, tabs.scrollWidth - tabs.clientWidth);
+      setStageTabScroll({
+        overflow: max > 2,
+        left: tabs.scrollLeft > 2,
+        right: tabs.scrollLeft < max - 2,
+      });
+    };
+    update();
+    tabs.addEventListener("scroll", update, { passive: true });
+    const observer = new ResizeObserver(update);
+    observer.observe(tabs);
+    Array.from(tabs.children).forEach(child => observer.observe(child));
+    return () => {
+      tabs.removeEventListener("scroll", update);
+      observer.disconnect();
+    };
+  }, [meta.stages.length]);
+
+  function moveStageTabs(direction) {
+    const tabs = stageTabsRef.current;
+    if (!tabs) return;
+    tabs.scrollBy({ left: direction * Math.max(220, tabs.clientWidth * .55), behavior: "smooth" });
+  }
 
   async function callLead(lead){
     setOpenActionId(null);
@@ -1202,12 +1233,20 @@ export default function LeadsPage() {
     const storedUser = localStorage.getItem("crm_user");
     const currentUser = storedUser ? JSON.parse(storedUser) : null;
     const defaultAcademicYear = meta.academicYears?.[0]?.academicYear || emptyForm.academicYear;
+    const defaults=meta.manualLeadDefaults||{};
+    const defaultStageId=meta.stages.some(item=>String(item.id)===String(defaults.stageId))?defaults.stageId:(meta.stages[0]?.id||"");
+    const defaultSubstageId=meta.substages.some(item=>String(item.id)===String(defaults.substageId)&&String(item.stageId)===String(defaultStageId))
+      ? defaults.substageId
+      : (meta.substages.find(item=>String(item.stageId)===String(defaultStageId))?.id||"");
     setForm({
       ...emptyForm,
       academicYear: defaultAcademicYear,
       branchId: meta.branches[0]?.id || "",
-      stageId: meta.stages[0]?.id || "",
-      substageId: meta.substages.find(item=>String(item.stageId)===String(meta.stages[0]?.id))?.id || "",
+      channelId: meta.channels.some(item=>String(item.id)===String(defaults.channelId))?defaults.channelId:"",
+      sourceId: meta.sources.some(item=>String(item.id)===String(defaults.sourceId))?defaults.sourceId:"",
+      campaignId: meta.campaigns.some(item=>String(item.id)===String(defaults.campaignId))?defaults.campaignId:"",
+      stageId: defaultStageId,
+      substageId: defaultSubstageId,
       classId: meta.classes[0]?.id || "",
       curriculumId: meta.curricula[0]?.id || "",
       admissionTypeId: meta.admissionTypes[0]?.id || "",
@@ -1450,10 +1489,14 @@ export default function LeadsPage() {
         <div className="funnel-callout">
           <FunnelStrip funnels={funnels} onApply={applyFunnel} onDelete={deleteFunnel} onCreate={createFunnel} onAddLead={openCreate} onClearFilters={clearLeadFilters} onOpenFilters={() => setFilterPanel("filter")}/>
         </div>
-        <div className="stage-tabs" role="tablist">
-          <button className={`stage-tab ${!stageFilter ? "active" : ""}`} onClick={() => selectStage("")}><span className="stage-name">All</span> <span className="stage-count">{leadsMatchingActiveFilters.length}</span></button>
-          {meta.stages.map(stage => <button key={stage.id} className={`stage-tab ${stageFilter === stage.displayName ? "active" : ""}`} onClick={() => selectStage(stage.displayName)}><span className="stage-name">{stage.displayName}</span> <span className="stage-count">{filteredStageCounts[stage.displayName] || 0}</span></button>)}
-          <button className={`stage-tab ${stageFilter === "Re-enquired" ? "active" : ""}`} onClick={() => selectStage("Re-enquired")}><span className="stage-name">Re-enquired</span> <span className="stage-count">{filteredStageCounts["Re-enquired"] || 0}</span></button>
+        <div className={`stage-tabs-shell ${stageTabScroll.overflow ? "has-overflow" : ""}`}>
+          <button type="button" className="stage-scroll-button previous" aria-label="Show previous lead stages" disabled={!stageTabScroll.left} onClick={() => moveStageTabs(-1)}><ChevronLeft size={15}/></button>
+          <div className="stage-tabs" role="tablist" ref={stageTabsRef}>
+            <button className={`stage-tab ${!stageFilter ? "active" : ""}`} onClick={() => selectStage("")}><span className="stage-name">All</span> <span className="stage-count">{leadsMatchingActiveFilters.length}</span></button>
+            {meta.stages.map(stage => <button key={stage.id} className={`stage-tab ${stageFilter === stage.displayName ? "active" : ""}`} onClick={() => selectStage(stage.displayName)}><span className="stage-name">{stage.displayName}</span> <span className="stage-count">{filteredStageCounts[stage.displayName] || 0}</span></button>)}
+            <button className={`stage-tab ${stageFilter === "Re-enquired" ? "active" : ""}`} onClick={() => selectStage("Re-enquired")}><span className="stage-name">Re-enquired</span> <span className="stage-count">{filteredStageCounts["Re-enquired"] || 0}</span></button>
+          </div>
+          <button type="button" className="stage-scroll-button next" aria-label="Show more lead stages" disabled={!stageTabScroll.right} onClick={() => moveStageTabs(1)}><ChevronRight size={15}/></button>
         </div>
         <div className="lead-control-row">
           <div className="inline-lead-filter"><span>Branch</span><MultiSearchSelect label="Branch" value={branchFilter} onChange={setBranchFilter} options={[{value:"",label:"All branches"},...meta.branches.map(branch=>({value:String(branch.id),label:branch.name}))]}/></div>
@@ -1650,7 +1693,7 @@ export default function LeadsPage() {
               ))}
             </div>
             <footer>
-              <button className="secondary" onClick={clearLeadFilters}><RefreshCw size={15}/>Reset</button>
+              <button className="secondary" onClick={clearLeadFilters}><RotateCcw size={15}/>Reset</button>
               <button className="primary" onClick={() => setFilterPanel("filter")}><Pencil size={15}/>Edit filters</button>
             </footer>
           </>}

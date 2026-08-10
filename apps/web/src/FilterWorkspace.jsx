@@ -238,7 +238,7 @@ export default function FilterWorkspace({
   ];
 
   return <div className="filter-workspace" role="dialog" aria-modal="true" aria-label="Filter leads">
-    <header className="filter-workspace-head"><div className="filter-title"><Filter/><h2>{mode === "funnel" ? "Create lead view" : "Filter leads"}</h2></div><div className="saved-filter-loader"><SearchSelect label={mode === "funnel" ? "Load saved view" : "Load saved filter"} value={selectedSaved} options={savedOptions} onChange={loadSaved}/></div><button className="filter-close" onClick={onClose}><X/></button></header>
+    <header className="filter-workspace-head"><div className="filter-title"><Filter/><h2>{mode === "funnel" ? "Create lead view" : "Filter leads"}</h2></div><div className="saved-filter-loader"><SearchSelect label={mode === "funnel" ? "Load saved view" : "Load saved filter"} value={selectedSaved} options={savedOptions} onChange={loadSaved}/></div><button className="filter-close" onClick={onClose} aria-label="Close filters"><X/></button></header>
     <div className="filter-chip-row"><span>Lead details <b>{Object.values(filters).filter(value=>Array.isArray(value)?value.length:Boolean(value)).length}</b></span>{notice && <em>{notice}</em>}</div>
     <div className="filter-workspace-body">
       <aside className="filter-sections">{sections.map(([key,label]) => <button key={key} className={activeSection === key ? "active" : ""} onClick={() => setActiveSection(key)}><i/>{label}</button>)}</aside>

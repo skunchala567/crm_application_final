@@ -674,24 +674,20 @@ input.is-readonly {
    INSTANT TOOLTIP
 
    `title` is a native tooltip: the browser waits about a second before it
-   appears and there is no way to shorten that. Anything that needs to
-   explain itself the moment the pointer lands on it carries
-   `data-tooltip="..."` instead and gets this, which has no delay and no
-   transition.
+   appears, cannot be styled, and is refused outright by embedded browsers.
+   `lib/tooltips.js` replaces it app-wide with the layer below, shown with no
+   delay from `data-tooltip`, from `title` (adopted on first hover), or from
+   `aria-label` on a control that has no visible text.
    --------------------------------------------------------------------- */
-[data-tooltip] {
-  position: relative;
-}
-
-[data-tooltip]::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  z-index: 90;
-  top: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
+/* The layer itself: one fixed element, so no ancestor's `overflow: hidden`
+   can clip it and no stacking context can bury it. */
+.app-tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 2000;
   width: max-content;
-  max-width: 230px;
+  max-width: 260px;
   padding: 6px 9px;
   border-radius: 7px;
   background: var(--ink-900);
@@ -700,16 +696,12 @@ input.is-readonly {
   letter-spacing: .01em;
   text-align: center;
   white-space: normal;
-  opacity: 0;
-  visibility: hidden;
   pointer-events: none;
+  box-shadow: 0 6px 18px rgba(9, 42, 29, .28);
 }
 
-[data-tooltip]:hover::after,
-[data-tooltip]:focus::after,
-[data-tooltip]:focus-within::after {
-  opacity: 1;
-  visibility: visible;
+.app-tooltip[hidden] {
+  display: none;
 }
 
 /* The badge overhangs its control and is click-through by default, which
@@ -717,4 +709,102 @@ input.is-readonly {
    the control it belongs to. */
 .pending-followups-check .followup-due-badge {
   pointer-events: auto !important;
+}
+
+/* ---------------------------------------------------------------------
+   WhatsApp branch mapping — account chips.
+
+   BulkUpload.css styles the bare `button` element globally (44px tall, 20px
+   side padding, 14px bold). That rule is unlayered, so it outranks the
+   Tailwind utility classes on these chips no matter their specificity, and
+   the row could not fit on one line. Sizing them here, from a sheet that
+   loads later, is what actually takes effect.
+   --------------------------------------------------------------------- */
+.wa-account-chip {
+  height: 24px;
+  min-height: 0;
+  width: auto;
+  min-width: 0;
+  padding: 0 8px;
+  gap: 4px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.wa-account-chip > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wa-account-chip > span.flex-none {
+  flex: none;
+  overflow: visible;
+}
+
+/* ---------------------------------------------------------------------
+   SCROLLABLE TAB STRIP
+
+   A tab bar that would otherwise wrap or be cut off keeps to one line and
+   scrolls, with arrows that appear only when there is something to scroll to.
+   See components/ScrollableTabStrip.jsx.
+
+   The strip must not carry an `order` of its own: grid placement follows
+   order-modified document order, so an ordered strip lands in the arrow's
+   column instead of the middle. That is what broke the Leads stage tabs.
+   --------------------------------------------------------------------- */
+.tab-scroll-shell {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 0 minmax(0, 1fr) 0;
+  align-items: stretch;
+  overflow: hidden;
+  transition: grid-template-columns .18s ease;
+}
+
+.tab-scroll-shell.has-overflow {
+  grid-template-columns: 28px minmax(0, 1fr) 28px;
+}
+
+.tab-scroll-shell > .tab-scroll-strip {
+  order: 0;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
+}
+
+.tab-scroll-shell > .tab-scroll-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.tab-scroll-button {
+  width: 28px;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--primary);
+  cursor: pointer;
+}
+
+.tab-scroll-button:hover:not(:disabled) {
+  background: var(--primary-soft);
+}
+
+.tab-scroll-button:disabled {
+  color: var(--muted);
+  opacity: .4;
+  cursor: default;
 }

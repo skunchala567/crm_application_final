@@ -1,17 +1,55 @@
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:3001/api";
 
+/**
+ * Deletion-password challenges used to call `window.prompt`, which embedded
+ * browsers and sandboxed frames refuse to run -- deleting a lead there failed
+ * with "prompt() is not supported." instead of asking for the password.
+ * `DeletionPasswordDialog` registers a real dialog here at start-up.
+ */
+let deletionPasswordPrompt = null;
+
+export function setDeletionPasswordPrompt(handler) {
+  deletionPasswordPrompt = handler;
+  return () => { if (deletionPasswordPrompt === handler) deletionPasswordPrompt = null; };
+}
+
+async function askDeletionPassword(message) {
+  if (deletionPasswordPrompt) return deletionPasswordPrompt(message);
+  // The dialog should always be mounted; fall back rather than lose the
+  // delete, and report it plainly if this browser blocks prompts too.
+  try {
+    return window.prompt(message);
+  } catch {
+    throw new Error("A deletion password is required, but this browser cannot show the prompt.");
+  }
+}
+
 export async function api(path, options = {}) {
   const token = localStorage.getItem("crm_token");
   const businessUnitId = localStorage.getItem("crm_business_unit_id");
-  const response = await fetch(`${API_URL}${path}`, {
+  const request = extraHeaders => fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(businessUnitId ? { "X-Business-Unit-Id": businessUnitId } : {}),
       ...options.headers,
+      ...extraHeaders,
     },
   });
+
+  let response = await request();
+  if (response.status === 428 && String(options.method || 'GET').toUpperCase() === 'DELETE') {
+    let challenge;
+    try { challenge = await response.json(); } catch { challenge = {}; }
+    if (challenge.code === 'DELETION_PASSWORD_REQUIRED') {
+      const password = await askDeletionPassword(
+        challenge.message || 'Enter the deletion password to confirm this deletion:'
+      );
+      if (password == null) throw new Error('Deletion cancelled');
+      response = await request({ 'X-Deletion-Password': password });
+    }
+  }
 
   let body;
   try {

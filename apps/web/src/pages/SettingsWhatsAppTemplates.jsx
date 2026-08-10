@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, Search, Trash2, Edit2, Copy, RefreshCw, Loader, AlertCircle, Funnel, X, ChevronLeft, ChevronRight, MessageSquarePlus, Send, History } from 'lucide-react';
 import { api } from '../api';
 import WhatsAppPreview from '../components/WhatsAppPreview';
@@ -23,6 +23,24 @@ export default function SettingsWhatsAppTemplates({ integrationId, integrations,
   const [syncMessage, setSyncMessage] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const advancedFilterRef = useRef(null);
+
+  // Dismiss the filter popover on an outside click or Escape.
+  useEffect(() => {
+    if (!showFilters) return undefined;
+    const close = event => {
+      if (!advancedFilterRef.current?.contains(event.target)) setShowFilters(false);
+    };
+    const escape = event => { if (event.key === 'Escape') setShowFilters(false); };
+    document.addEventListener('mousedown', close, true);
+    document.addEventListener('touchstart', close, true);
+    document.addEventListener('keydown', escape, true);
+    return () => {
+      document.removeEventListener('mousedown', close, true);
+      document.removeEventListener('touchstart', close, true);
+      document.removeEventListener('keydown', escape, true);
+    };
+  }, [showFilters]);
 
   // Load templates once on mount
   useEffect(() => {
@@ -243,13 +261,24 @@ export default function SettingsWhatsAppTemplates({ integrationId, integrations,
               onChange={(e) => setSearch(e.target.value)}
             />
           </label>
-          <button className="template-header-button secondary" onClick={handleSync} disabled={syncing}>
+          {/* Sync and History are icon-only so the whole toolbar stays on one
+              row; the label lives in the tooltip and the accessible name. */}
+          <button
+            className="template-header-button secondary icon-only"
+            onClick={handleSync}
+            disabled={syncing}
+            aria-label={syncing ? 'Syncing templates' : 'Sync templates'}
+            data-tooltip={syncing ? 'Syncing…' : 'Sync'}
+          >
             <RefreshCw size={17} className={syncing ? 'spinning' : ''} />
-            <span>Sync</span>
           </button>
-          <button className="template-header-button secondary" onClick={onMessageHistory}>
+          <button
+            className="template-header-button secondary icon-only"
+            onClick={onMessageHistory}
+            aria-label="Message history"
+            data-tooltip="History"
+          >
             <History size={17} />
-            <span>History</span>
           </button>
           <button className="template-header-button secondary" onClick={onSendMessage}>
             <Send size={17} />
@@ -307,7 +336,7 @@ export default function SettingsWhatsAppTemplates({ integrationId, integrations,
                 <option value="">All integrations</option>
                 {integrations.map(item=><option key={item.id} value={item.id}>{item.integration_name}</option>)}
               </select>
-              <div className="advanced-filter">
+              <div className="advanced-filter" ref={advancedFilterRef}>
                 <button
                   className={`list-nav-icon-button ${showFilters || activeAdvancedFilterCount ? 'active' : ''}`}
                   onClick={() => setShowFilters(open => !open)}

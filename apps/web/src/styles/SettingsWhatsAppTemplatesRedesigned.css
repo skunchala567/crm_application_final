@@ -123,6 +123,14 @@
   background: var(--primary-dark);
 }
 .template-header-button:disabled { opacity: .55; cursor: wait; }
+/* Square icon button — same height as the rest of the toolbar. */
+.template-header-button.icon-only {
+  width: 38px;
+  min-width: 38px;
+  padding: 0;
+  flex: 0 0 38px;
+  gap: 0;
+}
 
 @media (max-width: 900px) {
   .template-page-header {
@@ -407,7 +415,10 @@
   padding: 10px 14px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  z-index: 2;
+  /* Above `.template-table-header` (sticky, z-index 3). This element is a
+     stacking context, so the filter popover inside it can never rise past the
+     table header on its own z-index -- the nav has to outrank it. */
+  z-index: 20;
   min-height: auto;
   flex-wrap: wrap;
 }
@@ -2026,23 +2037,30 @@
     font-size: 25px;
   }
 
+  /* Search, the two icon buttons and the two labelled buttons stay on one
+     row; only the search field gives up width as the sidebar squeezes it. */
   .template-header-controls {
     width: 100%;
     margin-left: 0;
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    display: flex;
+    flex-wrap: nowrap;
     gap: 8px;
   }
 
   .template-integration-filter,
   .template-header-search {
-    width: 100%;
+    width: auto;
     min-width: 0;
-    grid-column: span 2;
+    flex: 1 1 140px;
   }
 
   .template-header-button {
-    width: 100%;
+    width: auto;
+    flex: 0 0 auto;
+  }
+
+  .template-header-button.icon-only {
+    flex: 0 0 38px;
   }
 
   .templates-list-nav {
@@ -2099,17 +2117,10 @@
     font-size: 22px;
   }
 
-  .template-header-controls {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
-
-  .template-integration-filter,
-  .template-header-search {
-    grid-column: 1 / -1;
-  }
-
+  /* The toolbar is a single flex row here, so buttons keep their own width
+     rather than stretching to fill a grid cell. */
   .template-header-button {
-    width: 100%;
+    width: auto;
   }
 
   .templates-list-nav {
@@ -2165,5 +2176,26 @@
 
   .advanced-filter-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Below this width a single row would squeeze the search field to nothing,
+   so the toolbar wraps: search on its own line, buttons sharing the next. */
+@media (max-width: 560px) {
+  .template-header-controls {
+    flex-wrap: wrap;
+  }
+
+  .template-header-search {
+    flex: 1 1 100%;
+  }
+
+  .template-header-button {
+    width: auto;
+    flex: 1 1 auto;
+  }
+
+  .template-header-button.icon-only {
+    flex: 0 0 38px;
   }
 }

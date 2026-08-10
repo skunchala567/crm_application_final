@@ -162,7 +162,7 @@ function SkippedLeadsScreen({ integrationId, googleIntegrations, onBack }) {
   const setFilter = (name, value) => setFilters(current => ({ ...current, [name]: value }));
 
   return <section className="skipped-leads-screen">
-      <header className="skipped-screen-header"><div><button onClick={onBack}><ArrowLeft size={17}/></button><span><h2>Skipped Leads</h2><p>Review Google Sheet rows that were not imported and their exact reason.</p></span></div><div><button onClick={load}><RefreshCw size={15}/> Refresh</button><button className="primary" disabled={!filtered.length} onClick={exportCsv}><Download size={15}/> Export CSV</button></div></header>
+      <header className="skipped-screen-header"><div><button onClick={onBack} aria-label="Back"><ArrowLeft size={17}/></button><span><h2>Skipped Leads</h2><p>Review Google Sheet rows that were not imported and their exact reason.</p></span></div><div><button onClick={load}><RefreshCw size={15}/> Refresh</button><button className="primary" disabled={!filtered.length} onClick={exportCsv}><Download size={15}/> Export CSV</button></div></header>
       <div className="skipped-summary"><div><strong>{filtered.length}</strong><span>Filtered records</span></div><div><strong>{records.length}</strong><span>Total skipped leads</span></div><div><strong>{branches.length}</strong><span>Affected branches</span></div></div>
       <div className="skipped-filters">
         <label className="skipped-search"><Search size={15}/><input value={filters.search} onChange={event=>setFilter('search',event.target.value)} placeholder="Search student, phone, lead or reason"/></label>
@@ -243,7 +243,7 @@ function SheetConfiguration({ integrationId, source }) {
   };
   useEffect(() => { load(); }, [integrationId, source.sheetId]);
   return <section className="google-workspace-card">
-    <div className="google-section-heading"><div><h2>Configuration</h2><p>Sheet and destination settings for this source.</p></div><button className="google-icon-button" onClick={load}><RefreshCw size={16}/></button></div>
+    <div className="google-section-heading"><div><h2>Configuration</h2><p>Sheet and destination settings for this source.</p></div><button className="google-icon-button" onClick={load} aria-label="Refresh"><RefreshCw size={16}/></button></div>
     <div className="sheet-config-summary"><div><span>Spreadsheet</span><strong>{source.sheetName}</strong></div><div><span>Destination branch</span><strong>{source.branchName}</strong></div><div><span>Sync mode</span><strong>Continuous · every minute</strong></div><div><span>Status</span><strong>{source.status === 'active' ? 'Active' : 'Mapping required'}</strong></div></div>
     {loading ? <div className="google-state">Loading sheet preview…</div> : preview?.headers?.length ? <div className="google-table-wrap"><table><thead><tr>{preview.headers.map((header,index)=><th key={index}>{header}</th>)}</tr></thead><tbody>{(preview.rows||[]).map((row,index)=><tr key={index}>{preview.headers.map((_,cell)=><td key={cell}>{row[cell] || '—'}</td>)}</tr>)}</tbody></table></div> : <div className="google-state">No preview data is available.</div>}
   </section>;

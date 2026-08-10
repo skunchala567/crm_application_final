@@ -5,6 +5,7 @@ import { useBusinessUnit } from '../BusinessUnitContext';
 import Toast from '../Toast.jsx';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, Select, Input, Button, Tabs, TabsList, TabsTrigger, TabsContent } from './ui';
 import PageContainer from './PageContainer';
+import ScrollableTabStrip from './ScrollableTabStrip.jsx';
 import StatCard from './StatCard';
 import { cn } from '../lib/utils';
 import { DateRangeFilterControl } from '../FilterWorkspace.jsx';
@@ -658,7 +659,9 @@ export default function OperationsPageModern() {
       <PageContainer className="py-6">
         <Tabs value={tab} onValueChange={setTab}>
           <div className="flex items-center gap-3 mb-8">
-            <TabsList className="grid flex-1 grid-cols-3">
+            {/* Tabs keep their natural width and scroll when the pane is
+                too narrow, rather than squeezing into equal thirds. */}
+            <ScrollableTabStrip as={TabsList} shellClassName="flex-1" label="tracker tabs">
             <TabsTrigger value="tasks" className="relative">
               <ListChecks size={18} className="mr-2" />
               <span>Action Items</span>
@@ -682,11 +685,18 @@ export default function OperationsPageModern() {
                 </span>
               )}
             </TabsTrigger>
-            </TabsList>
-            <Button onClick={load} variant="secondary" className="flex-shrink-0">
-              <RefreshCw size={16} />
-              Refresh
-            </Button>
+            </ScrollableTabStrip>
+        <Button
+          onClick={load}
+          variant="secondary"
+          size="icon"
+          className="flex-shrink-0"
+          title="Refresh tracker records"
+          data-tooltip="Refresh tracker records"
+          aria-label="Refresh tracker records"
+        >
+          <RefreshCw size={17} />
+        </Button>
           </div>
 
           <TabsContent value="tasks" className="space-y-6">

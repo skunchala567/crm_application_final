@@ -312,10 +312,10 @@ async function requireCrmAccess(req, res, next) {
   const requestedClause=Number.isInteger(requestedUnitId)&&requestedUnitId>0?'AND bu.id=?':'';
   const [[businessUnit]]=await pool.execute(
     isAdmin
-      ? `SELECT bu.id,bu.unit_code AS unitCode,bu.display_name AS displayName,bu.compatibility_mode AS compatibilityMode
+      ? `SELECT bu.id,bu.unit_code AS unitCode,bu.display_name AS displayName,bu.compatibility_mode AS compatibilityMode,bu.deletion_password_hash AS deletionPasswordHash
          FROM crm_business_units bu WHERE bu.is_active=TRUE ${requestedClause}
          ORDER BY bu.is_default DESC,bu.id LIMIT 1`
-      : `SELECT bu.id,bu.unit_code AS unitCode,bu.display_name AS displayName,bu.compatibility_mode AS compatibilityMode
+      : `SELECT bu.id,bu.unit_code AS unitCode,bu.display_name AS displayName,bu.compatibility_mode AS compatibilityMode,bu.deletion_password_hash AS deletionPasswordHash
          FROM crm_business_units bu
          JOIN crm_user_business_units ubu ON ubu.business_unit_id=bu.id AND ubu.user_id=?
          WHERE bu.is_active=TRUE ${requestedClause}
@@ -325,6 +325,11 @@ async function requireCrmAccess(req, res, next) {
   if(!businessUnit)return res.status(403).json({message:'You do not have access to the selected Business Unit'});
   req.businessUnit={...businessUnit,id:Number(businessUnit.id)};
   req.user.businessUnitId=Number(businessUnit.id);
+  if(req.method==='DELETE'&&businessUnit.deletionPasswordHash){
+    const supplied=String(req.headers['x-deletion-password']||'');
+    if(!supplied)return res.status(428).json({code:'DELETION_PASSWORD_REQUIRED',message:'Enter the Business Unit deletion password to continue'});
+    if(!verifyAttendancePassword(supplied,businessUnit.deletionPasswordHash))return res.status(403).json({code:'DELETION_PASSWORD_INVALID',message:'Incorrect deletion password'});
+  }
   return next();
 }
 
@@ -629,7 +634,7 @@ async function publicFormDefinition(formKey, activeOnly = true) {
   return form;
 }
 
-async function publicFieldOptions(businessUnitId, fieldKeys) {
+async function publicFieldOptions(businessUnitId, fieldKeys, { branchId, academicYear } = {}) {
   const [fields]=await pool.execute(
     `SELECT field_key AS fieldKey,display_name AS displayName,field_type AS fieldType,placeholder,options_json AS options,is_required AS isRequired,validation_json AS validation
      FROM crm_metadata_fields WHERE business_unit_id=? AND module_key='leads' AND is_active=TRUE ORDER BY position,display_name`,
@@ -637,9 +642,20 @@ async function publicFieldOptions(businessUnitId, fieldKeys) {
   );
   const selected=new Set(fieldKeys);
   const visible=fields.filter(field=>selected.has(field.fieldKey));
+  const configurationParams=[String(academicYear||''),Number(branchId)||0];
   const [[classes],[curricula],[admissionTypes]]=await Promise.all([
-    pool.query(`SELECT id AS value,display_name AS label FROM crm_classes WHERE is_active=TRUE ORDER BY position,display_name`),
-    pool.query(`SELECT id AS value,display_name AS label FROM crm_curricula WHERE is_active=TRUE ORDER BY position,display_name`),
+    pool.query(`SELECT DISTINCT cl.id AS value,cl.display_name AS label,cl.position AS sortPosition,acc.curriculum_id AS curriculumId,acc.admission_type_id AS admissionTypeId
+      FROM crm_admission_class_configurations acc
+      JOIN crm_admission_class_configuration_details d ON d.configuration_id=acc.id AND d.is_active=TRUE
+      JOIN crm_classes cl ON cl.id=d.class_id AND cl.is_active=TRUE
+      WHERE acc.academic_year=? AND acc.branch_id=? AND acc.is_active=TRUE
+      ORDER BY sortPosition,label`,configurationParams),
+    pool.query(`SELECT DISTINCT c.id AS value,c.display_name AS label,c.position AS sortPosition
+      FROM crm_admission_class_configurations acc
+      JOIN crm_admission_class_configuration_details d ON d.configuration_id=acc.id AND d.is_active=TRUE
+      JOIN crm_curricula c ON c.id=acc.curriculum_id AND c.is_active=TRUE
+      WHERE acc.academic_year=? AND acc.branch_id=? AND acc.is_active=TRUE
+      ORDER BY sortPosition,label`,configurationParams),
     pool.query(`SELECT id AS value,display_name AS label FROM crm_admission_types WHERE is_active=TRUE ORDER BY display_name`),
   ]);
   const optionMap={class_id:classes,curriculum_id:curricula,admission_type_id:admissionTypes};
@@ -905,9 +921,12 @@ app.get('/api/public/enquiry-forms/:formKey', async (req,res)=>{
   const form=await publicFormDefinition(req.params.formKey,true);
   if(!form)return res.status(404).json({message:'This enquiry form is not available'});
   const schema=Array.isArray(form.fieldSchema)?form.fieldSchema:[];
-  const fields=await publicFieldOptions(form.businessUnitId,schema.map(field=>field.fieldKey));
-  const fieldsByKey=new Map(fields.map(field=>[field.fieldKey,field]));
   const resolvedTracking=await resolvePublicTracking(form,req.query);
+  const fields=await publicFieldOptions(form.businessUnitId,schema.map(field=>field.fieldKey),{
+    branchId:resolvedTracking.branchId,
+    academicYear:resolvedTracking.academicYear||form.settings?.defaultAcademicYear,
+  });
+  const fieldsByKey=new Map(fields.map(field=>[field.fieldKey,field]));
   const paymentConfig=resolvePaymentContext(form,await branchPaymentConfig(resolvedTracking.branchId));
   const paymentVisible=publicPaymentVisible(paymentConfig);
   res.json({
@@ -1005,6 +1024,18 @@ app.post('/api/public/enquiry-forms/:formKey/submit', async (req,res)=>{
   if(!branch)return res.status(400).json({message:'This enquiry form is not mapped to an active branch'});
   const [[stage]]=await pool.execute(`SELECT id FROM crm_lead_stages WHERE id=? AND business_unit_id=? AND is_active=TRUE LIMIT 1`,[body.stageId,Number(form.businessUnitId)]);
   if(!stage)return res.status(400).json({message:'This enquiry form is not mapped to an active stage'});
+  if(body.curriculumId||body.classId){
+    const admissionTypeId=Number(body.admissionTypeId)||null;
+    const classId=Number(body.classId)||null;
+    const [[configuredOffering]]=await pool.execute(
+      `SELECT acc.id FROM crm_admission_class_configurations acc
+       LEFT JOIN crm_admission_class_configuration_details d ON d.configuration_id=acc.id AND d.is_active=TRUE
+       WHERE acc.academic_year=? AND acc.branch_id=? AND acc.curriculum_id=? AND acc.is_active=TRUE
+         AND (? IS NULL OR acc.admission_type_id=?) AND (? IS NULL OR d.class_id=?) LIMIT 1`,
+      [String(body.academicYear),Number(body.branchId),Number(body.curriculumId),admissionTypeId,admissionTypeId,classId,classId],
+    );
+    if(!configuredOffering)return res.status(400).json({message:'The selected curriculum and class are not configured for this branch'});
+  }
   if(body.sourceId&&body.channelId){
     const sourceValidationError=await validateSourceDetails(body);
     if(sourceValidationError)return res.status(400).json({message:sourceValidationError});
@@ -1652,6 +1683,10 @@ async function validateSourceDetails(body) {
 
 app.get('/api/leads/meta', authenticate, requireCrmAccess, async (req, res) => {
   const scope = scopedWhere(req.user, 'b.id');
+  const [[unitDefaultsRow]] = await pool.execute(
+    `SELECT manual_lead_defaults_json AS manualLeadDefaults FROM crm_business_units WHERE id=?`,
+    [Number(req.businessUnit.id)],
+  );
   const [stages] = await pool.execute(`SELECT id, name, display_name AS displayName, color_code AS color, requires_followup AS requiresFollowup FROM crm_lead_stages WHERE business_unit_id=? AND is_active = TRUE ORDER BY position`,[Number(req.businessUnit.id)]);
   const [sources] = await pool.query(`SELECT id, name, display_name AS displayName FROM crm_lead_sources WHERE is_active = TRUE ORDER BY display_name`);
   const [classes] = await pool.query(`SELECT id, class_code AS code, display_name AS displayName FROM crm_classes WHERE is_active = TRUE ORDER BY position`);
@@ -1707,6 +1742,7 @@ app.get('/api/leads/meta', authenticate, requireCrmAccess, async (req, res) => {
     employeeScope.params,
   );
   res.json({ stages, sources, classes, curricula, channels, campaigns, sourceLinks, campaignLinks, admissionTypes, substages, branches, academicYears, employees,
+    manualLeadDefaults:parseJsonValue(unitDefaultsRow?.manualLeadDefaults,{}),
     leadFields:leadFields.map(field=>({
       ...field,
       options:field.fieldKey==='source'
@@ -2760,21 +2796,30 @@ app.get('/api/automations', authenticate, requireCrmAccess, async (req,res)=>{
     SELECT w.id,w.name,w.category,w.start_at AS startAt,
            w.definition_json AS definition,w.is_active AS isActive,
            w.created_at_utc AS createdAt,COALESCE(e.employee_name,u.email) AS createdBy,
-           x.lastRunAt,x.lastStatus,x.completedCount,x.failedCount,x.pendingCount
+           x.lastRunAt,x.lastStatus,x.completedCount,x.failedCount,x.skippedCount,
+           COALESCE(q.pendingCount,0) AS pendingCount
     FROM crm_automation_workflows w
     JOIN app_users u ON u.id=w.created_by
     LEFT JOIN employees e ON e.id=u.employee_id
+    -- Run totals come from the append-only log. Reading them from
+    -- crm_automation_executions reported 0 for any workflow whose rules had
+    -- been edited, because that queue is cleared on every rule change.
     LEFT JOIN (
-      SELECT workflow_id,MAX(COALESCE(executed_at_utc,created_at_utc)) AS lastRunAt,
-             SUBSTRING_INDEX(GROUP_CONCAT(status ORDER BY COALESCE(executed_at_utc,created_at_utc) DESC, id DESC), ',', 1) AS lastStatus,
+      SELECT workflow_id,MAX(executed_at_utc) AS lastRunAt,
+             SUBSTRING_INDEX(GROUP_CONCAT(status ORDER BY executed_at_utc DESC, id DESC), ',', 1) AS lastStatus,
              SUM(status='completed') AS completedCount,
              SUM(status='failed') AS failedCount,
-             SUM(status IN ('pending','running')) AS pendingCount
-      FROM crm_automation_executions GROUP BY workflow_id
+             SUM(status='skipped') AS skippedCount
+      FROM crm_automation_execution_log GROUP BY workflow_id
     ) x ON x.workflow_id=w.id
+    -- Still queued work only exists in the live queue.
+    LEFT JOIN (
+      SELECT workflow_id,SUM(status IN ('pending','running')) AS pendingCount
+      FROM crm_automation_executions GROUP BY workflow_id
+    ) q ON q.workflow_id=w.id
     WHERE w.business_unit_id=?
     ORDER BY w.created_at_utc DESC`,[Number(req.businessUnit.id)]);
-  res.json({data:rows.map(row=>({...row,id:Number(row.id),isActive:Boolean(row.isActive),completedCount:Number(row.completedCount||0),failedCount:Number(row.failedCount||0),pendingCount:Number(row.pendingCount||0),definition:typeof row.definition==='string'?JSON.parse(row.definition):row.definition}))});
+  res.json({data:rows.map(row=>({...row,id:Number(row.id),isActive:Boolean(row.isActive),completedCount:Number(row.completedCount||0),failedCount:Number(row.failedCount||0),skippedCount:Number(row.skippedCount||0),pendingCount:Number(row.pendingCount||0),definition:typeof row.definition==='string'?JSON.parse(row.definition):row.definition}))});
 });
 
 async function validateAutomationDefinition(definition, organizationId) {
@@ -5140,7 +5185,7 @@ async function processBulkUploadImport(uploadId, records, branchId, userId, pool
 
 // ============= Integration Hub Routes =============
 app.use('/api/hub', createIntegrationHubRoutes(integrationHubService, authenticate, requireCrmAccess));
-app.use('/api/platform', createBusinessPlatformRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
+app.use('/api/platform', createBusinessPlatformRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin, hashAttendancePassword));
 app.use('/api/usage', createUsageRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
 app.use('/api/callerdesk', createCallerDeskRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
 app.use('/api/callerdesk', createCallerDeskWebhookRoutes(pool));

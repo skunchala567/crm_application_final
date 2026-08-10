@@ -58,6 +58,7 @@ export default function SpreadsheetPicker({ integrationId, onClose, onSelect, pe
             style={styles.closeBtn}
             onClick={onClose}
             disabled={saving}
+            aria-label="Close"
           >
             <X size={24} />
           </button>

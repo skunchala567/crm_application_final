@@ -110,7 +110,22 @@ export default function PublicEnquiryForm({ formKey }) {
   }, [formKey]);
   const color = form?.color || "#0b7a4f";
   const fields = useMemo(() => form?.fields || [], [form]);
-  const update = (fieldKey, value) => setValues(current => ({ ...current, [fieldKey]: value }));
+  const update = (fieldKey, value) => setValues(current => ({
+    ...current,
+    [fieldKey]: value,
+    ...(["curriculum_id", "admission_type_id"].includes(fieldKey) ? { class_id: "" } : {}),
+  }));
+  const fieldForDisplay = field => {
+    if (field.fieldKey !== "class_id") return field;
+    const curriculumId = String(values.curriculum_id || "");
+    const admissionTypeId = String(values.admission_type_id || "");
+    return {
+      ...field,
+      options: (field.options || []).filter(option =>
+        (!curriculumId || String(option.curriculumId) === curriculumId)
+        && (!admissionTypeId || String(option.admissionTypeId) === admissionTypeId)),
+    };
+  };
   function validateForm() {
     const emailValue = String(values.email || values.student_email || "").trim();
     if (form?.payment?.enabled && !emailValue) return "Email is required before payment";
@@ -160,7 +175,7 @@ export default function PublicEnquiryForm({ formKey }) {
     <section className="public-enquiry-card">
       <header><span>{form.businessUnitName}</span><h1>{form.name}</h1>{form.description && <p>{form.description}</p>}</header>
       <form onSubmit={submit}>
-        {fields.map(field => <PublicField key={field.fieldKey} field={field} value={values[field.fieldKey] ?? ""} onChange={value => update(field.fieldKey, value)} />)}
+        {fields.map(field => <PublicField key={field.fieldKey} field={fieldForDisplay(field)} value={values[field.fieldKey] ?? ""} onChange={value => update(field.fieldKey, value)} />)}
         {form.payment?.enabled && <div className="public-payment-note"><strong>Application fee</strong><span>₹{Number(form.payment.amount||0).toLocaleString("en-IN")} · {form.payment.componentType || "Payable Amount"}</span><small>After submitting, you will be taken to the secure payment page.</small></div>}
         <input className="website-field" tabIndex="-1" autoComplete="off" value="" readOnly name="website" />
         {status.error && <div className="public-form-error">{status.error}</div>}

@@ -150,7 +150,7 @@ export default function WhatsAppBranchMapping({ onMessage }) {
       ) : (
         <section className="panel card p-0 overflow-hidden">
           <div className="hidden sm:flex items-center gap-3 px-4 py-2.5 bg-surface-3 border-b border-border text-[11px] font-bold uppercase tracking-wide text-secondary-500">
-            <span className="w-[220px] flex-none">Branch</span>
+            <span className="w-[170px] flex-none">Branch</span>
             <span>WhatsApp accounts</span>
           </div>
 
@@ -159,8 +159,8 @@ export default function WhatsAppBranchMapping({ onMessage }) {
               const id = Number(branch.id);
               const selected = mapping[id] || [];
               return (
-                <div key={id} className="flex items-start gap-3 px-4 py-2.5 flex-wrap sm:flex-nowrap">
-                  <div className="w-[220px] flex-none min-w-0">
+                <div key={id} className="flex items-start gap-3 px-4 py-2 flex-wrap sm:flex-nowrap">
+                  <div className="w-[170px] flex-none min-w-0">
                     <div className="text-[13px] font-semibold text-foreground truncate">
                       {branch.branch_name || branch.name}
                     </div>
@@ -169,7 +169,9 @@ export default function WhatsAppBranchMapping({ onMessage }) {
                     )}
                   </div>
 
-                  <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                  {/* One line per branch: the chips shrink and their names
+                      truncate rather than wrapping onto a second row. */}
+                  <div className="flex flex-1 items-center gap-1.5 flex-nowrap min-w-0">
                     {accounts.map((account) => {
                       const on = selected.includes(account.id);
                       const isDefault = on && selected[0] === account.id;
@@ -179,17 +181,18 @@ export default function WhatsAppBranchMapping({ onMessage }) {
                           type="button"
                           onClick={() => toggle(id, account.id)}
                           aria-pressed={on}
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11.5px] font-semibold transition-colors ${
+                          title={account.name}
+                          className={`wa-account-chip inline-flex min-w-0 items-center border transition-colors ${
                             on
                               ? 'border-primary-500 bg-primary-50 text-primary-700'
                               : 'border-border text-secondary-500 hover:bg-surface-3'
                           }`}
                         >
-                          <Smartphone size={12} />
-                          {account.name}
+                          <Smartphone size={11} className="flex-none" />
+                          <span className="truncate">{account.name}</span>
                           {/* Only meaningful when a branch carries more than one. */}
                           {isDefault && selected.length > 1 && (
-                            <span className="text-[9.5px] font-bold uppercase text-primary-600">default</span>
+                            <span className="flex-none text-[8.5px] font-bold uppercase text-primary-600">default</span>
                           )}
                         </button>
                       );

@@ -393,7 +393,7 @@ export function WhatsAppMessageHistory({ open, onClose }) {
 
   if (!open) return null;
   return <div className="wa-history-screen">
-    <header><div><History/><span><h2>WhatsApp message history</h2><p>Template messages and their latest delivery status.</p></span></div><button onClick={onClose}><X/></button></header>
+    <header><div><History/><span><h2>WhatsApp message history</h2><p>Template messages and their latest delivery status.</p></span></div><button onClick={onClose} aria-label="Close"><X/></button></header>
     <div className="wa-history-toolbar">
       <div className="wa-history-toolbar-left">
         <input placeholder="Search number or template" value={search} onChange={event => setSearch(event.target.value)} onKeyDown={event => event.key === 'Enter' && load()}/>

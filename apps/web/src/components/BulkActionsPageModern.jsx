@@ -11,6 +11,7 @@ export default function BulkActionsPageModern() {
   const [operations, setOperations] = useState([]);
   const [dialerCampaigns, setDialerCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('uploads');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -61,6 +62,20 @@ export default function BulkActionsPageModern() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const refreshData = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try { await loadData(); }
+    finally { setRefreshing(false); }
+  };
+
+  const resetFilters = () => {
+    setSearch('');
+    setStatusFilter('');
+    setDateFrom('');
+    setDateTo('');
   };
 
   const openDetails = async (upload) => {
@@ -133,11 +148,11 @@ export default function BulkActionsPageModern() {
   const filteredData = {
     uploads: uploads.filter(item =>
       (!search || `${item.fileName} ${item.type}`.toLowerCase().includes(search.toLowerCase())) &&
-      (!statusFilter || item.status === statusFilter)
+      (!statusFilter || String(item.status || '').toLowerCase() === statusFilter)
     ),
     operations: operations.filter(item =>
       (!search || `${item.type} ${item.description}`.toLowerCase().includes(search.toLowerCase())) &&
-      (!statusFilter || item.status === statusFilter)
+      (!statusFilter || String(item.status || '').toLowerCase() === statusFilter)
     ),
     dialerCampaigns: dialerCampaigns.filter(item =>
       !search || `${item.campaignName} ${item.description}`.toLowerCase().includes(search.toLowerCase())
@@ -175,13 +190,11 @@ export default function BulkActionsPageModern() {
             </TabsTrigger>
             </TabsList>
             <div className="flex gap-2 flex-shrink-0">
-              <Button onClick={loadData} variant="secondary">
-                <RefreshCw size={16} />
-                <span className="hidden sm:inline ml-2">Refresh</span>
+              <Button onClick={refreshData} disabled={refreshing} variant="secondary" size="icon" aria-label="Refresh bulk action history" title="Refresh" data-tooltip="Refresh records">
+                <RefreshCw size={17} className={refreshing ? 'animate-spin' : ''} />
               </Button>
-              <Button onClick={() => { setSearch(''); setStatusFilter(''); }} variant="secondary">
-                <RotateCcw size={16} />
-                <span className="hidden sm:inline ml-2">Reset</span>
+              <Button onClick={resetFilters} disabled={!search && !statusFilter && !dateFrom && !dateTo} variant="secondary" size="icon" aria-label="Reset bulk action filters" title="Reset" data-tooltip="Reset filters">
+                <RotateCcw size={17} />
               </Button>
             </div>
           </div>

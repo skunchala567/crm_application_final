@@ -1,456 +1,266 @@
 # Admissions CRM — Project Memory
 
-Last updated: 2026-07-26
+Last updated: 2026-08-10
 
-## Purpose
+The consolidated development and operational reference for the whole project.
+For what each screen does, see [`FUNCTIONAL_SPECIFICATION.md`](FUNCTIONAL_SPECIFICATION.md).
+For the step-by-step WhatsApp implementation guide, see
+[`WHATSAPP_INTEGRATION_GUIDE.md`](WHATSAPP_INTEGRATION_GUIDE.md).
 
-Admissions CRM is a production-oriented admissions lead-management application connected to the existing `attendance_biometric` MySQL database. It provides a single workspace for lead intake, ownership, follow-ups, academic configuration, bulk operations, Google Sheets imports, WhatsApp template management, and WhatsApp conversations.
+---
 
-This file is the consolidated development and operational reference. Historical phase reports, fix notes, RCA documents, and duplicate implementation summaries have been removed.
+## 1. Purpose
 
-For the standalone, step-by-step WhatsApp implementation guide, see `docs/WHATSAPP_INTEGRATION_GUIDE.md`.
+A multi-tenant admissions CRM for education groups. It captures enquiries from
+web forms, ad platforms, spreadsheets and phone systems, moves them through a
+configurable pipeline, and drives follow-up through WhatsApp, telephony and
+automation.
 
-## Technology
+It is grafted onto an existing **attendance/biometric** system: it shares that
+MySQL database, its `app_users`, `employees`, `branches` and `roles` tables, and
+its login credentials. Everything the CRM owns is prefixed `crm_`
+(113 tables today, alongside 26 shared/legacy ones).
 
-- Web: React, React Router, Vite, Lucide icons
-- API: Node.js, Express
-- Database: MySQL through `mysql2`
-- Authentication: JWT using existing Attendance users and CRM role/access records
-- Integrations: Google OAuth 2.0, Google Sheets API, AiSensy/Smartping WhatsApp APIs
-- Workspace: npm workspaces for `apps/api` and `apps/web`
+## 2. Technology
 
-## Project layout
+- **Web** — React 18, React Router, Vite, Tailwind v4 over legacy CSS sheets, Lucide icons
+- **API** — Node.js, Express (ESM), `mysql2/promise` pool, JWT auth
+- **Database** — MySQL 8 (`attendance_biometric`); exportable to MariaDB 10.11 (§11)
+- **Integrations** — Google OAuth 2.0 + Sheets API, Meta Lead Ads, AiSensy/Smartping WhatsApp, CallerDesk, Smartflo, Jodo payments
+- **Workspace** — npm workspaces (`apps/api`, `apps/web`)
+
+## 3. Project layout
 
 ```text
-CRM Application/
-|-- apps/
-|   |-- api/
-|   |   |-- src/                 # API application source
-|   |   `-- scripts/             # Diagnostics, maintenance, experiments
-|   `-- web/
-|       |-- public/              # Static and import-template assets
-|       `-- src/                 # React application source
-|-- database/
-|   |-- mysql/                   # Active ordered migrations
-|   |-- diagnostics/             # Optional investigation queries
-|   `-- reference/               # Schema reference snapshots
-|-- docs/
-|   `-- memory.md                # Consolidated project reference
-|-- .env.example
-|-- package.json
-`-- README.md
+apps/api/src/
+  server.js                  ~5200 lines: auth, leads, dashboard, admin, bulk, automations
+  automation-engine.js       workflow evaluation + execution queue
+  marketing-campaign-engine.js
+  rbac/                      permission registry, route→permission map, guards
+  integration-hub/           provider framework, repositories, providers/
+  whatsapp/ meta/ callerdesk/ smartflo/ partner/
+  migrations/                app-managed SQL
+  scripts/                   diagnostics, maintenance
+apps/web/src/
+  App.jsx                    routes, shell, sidebar, permission gating
+  components/                shared UI; components/ui = design-system primitives
+  lib/                       utils, tooltips, dashboard layout, usage tracking
+  pages/                     settings and integration screens
+  styles/design-system.css   MUST stay the last stylesheet imported
+database/mysql/              NNN_name.sql ordered migrations
+database/reference/          schema snapshots
+docs/                        this file, functional spec, integration guides
 ```
 
-## Commands
+## 4. Commands
 
-```powershell
+```bash
 npm install
-npm run migrate -w apps/api
-npm run dev
-npm run check
+npm run dev                  # API (3001) + web (3000)
+npm run build -w apps/web    # production bundle
+npm run check -w apps/api    # permission-map audit
+npm run check                # API syntax + web build
 ```
 
-- Web: `http://localhost:3000`
-- API: `http://localhost:3001`
-- Production web build: `npm run build -w apps/web`
+## 5. Core domain model
 
-## Authentication and authorization
+- **Business unit** (`crm_business_units`) is the tenant boundary. Almost every
+  table carries `business_unit_id`; the web sends `X-Business-Unit-Id` and the
+  API scopes queries to it. Switching units remounts the page tree
+  (`key={activeBusinessUnitId}`), so screens must not cache across units.
+- **Lead** (`crm_leads`) — student, phone, branch, class, curriculum,
+  stage/substage, source/channel/campaign, owner employee.
+- **Pipeline** is configurable per unit (`crm_lead_stages`,
+  `crm_lead_substages`, plus a metadata variant for dynamic modules). No stage
+  name is hard-coded except "Re-enquired", which is derived.
+- **Attribution** — source history in `crm_lead_source_history`; re-enquiries
+  append a source rather than overwriting.
+- **Activity trail** — `crm_lead_activities` records every automated and manual
+  action, and is the only durable record of some automation outcomes.
 
-- Login uses the existing Attendance account.
-- JWTs are stored in browser local storage and checked for expiration.
-- CRM access is controlled by CRM roles and the CRM user-access status table.
-- Supported CRM roles include `ADMIN`, `CRM_ADMIN`, `ADMISSION_MANAGER`, `COUNSELLOR`, and `CRM_VIEWER`.
-- Lead write, lead delete, and user-administration operations have separate permission checks.
-- Branch scope is applied to lead data and relevant operations.
-- `INTEGRATION_MASTER_KEY` must remain a stable secret of at least 32 characters. It encrypts Google OAuth access and refresh tokens with AES-256-GCM. Changing it makes existing OAuth tokens unreadable and requires Google reauthorization.
+## 6. Authentication and authorization
 
-## Navigation and UI system
+- Login uses the existing Attendance account; JWTs live in `localStorage` and
+  are checked for expiry on every start-up.
+- CRM access is gated by CRM roles plus `crm_user_access_status`.
+- Roles: `SUPER_ADMIN`, `CRM_ADMIN`, `ADMISSION_MANAGER`, `COUNSELLOR`,
+  `CRM_VIEWER`.
+- Permissions are `domain.subject.action` strings held in
+  `crm_permission_registry` and mapped to routes in
+  `apps/api/src/rbac/route-permissions.js`. `npm run check -w apps/api` fails if
+  an endpoint is unmapped — currently **257 mapped, 21 deliberately open**.
+- The web mirrors the same keys: `usePermissions().can(key)` hides navigation,
+  `<RequirePermission do="...">` blocks the route. A hidden link and a blocked
+  route can never disagree.
+- Branch scope is applied to lead queries and related operations.
+- `INTEGRATION_MASTER_KEY` must be a stable secret of ≥32 characters. It
+  encrypts OAuth access/refresh tokens with AES-256-GCM; changing it makes
+  existing tokens unreadable and forces reauthorization.
 
-Primary navigation:
+## 7. Lead identity and duplicate rules
 
-- Dashboard
-- Leads
-- Bulk Actions
-- Reports
-- Automations
-- Settings
-
-Settings navigation is collapsible and expands automatically for settings routes. It contains:
-
-- User Management
-- Lead Configuration
-- Academic Configuration
-- Integrations
-- Google Sheets
-- WhatsApp Templates
-
-UI work completed across the platform:
-
-- Leads screen is the visual baseline for buttons, filters, cards, tabs, spacing, tables, and empty states.
-- Responsive headers and toolbars avoid overlap at reduced widths.
-- Sidebar supports collapsed and expanded states and is responsive on mobile.
-- Browser navigation uses React Router locations correctly.
-- Academic Years and Admission Classes are combined under Academic Configuration with top tabs.
-- Integrations are located under Settings.
-- WhatsApp template list, creation form, details drawer, filters, empty state, and responsive layouts follow the project theme.
-
-## Leads
-
-The Leads screen supports:
-
-- Search by lead number, name, phone, and related fields
-- Branch, ownership, stage, sub-stage, academic, source, channel, campaign, score, and date filters
-- Saved filters/funnels
-- Expandable lead rows and detailed information
-- Lead creation and editing
-- Stage changes and bulk stage changes
-- Follow-up notes and date tracking
-- Lead referral and bulk referral
-- Re-enquiry tracking
-- Source history
-- Per-lead and filtered-selection WhatsApp messaging
-- Role- and branch-scoped access
-
-Tracked timestamps include:
-
-- Added
-- Updated
-- Referred
-- Next follow-up
-- Re-enquired
-
-Dates are stored consistently by the backend and displayed in the application’s India time context.
-
-## Lead identity and duplicate rules
-
-Duplicate handling is shared by manual lead creation, bulk import, Google Sheets import, and other intake paths.
-
-Business rule:
+Shared by manual creation, bulk import, Google Sheets, public forms and every
+other intake path:
 
 - A mobile number may appear across different branches.
-- A mobile number may have multiple sources in the same branch.
-- The same mobile number, branch, and source combination is the true duplicate boundary.
-- A repeated enquiry in the same branch from a different source links the new source to the existing lead.
-- Such enquiries are presented as re-enquired leads instead of being discarded.
-- Source ID is accepted directly.
-- Channel is derived from Source ID.
-- Academic information is derived through Class ID.
-
-Relevant migrations:
-
-- `012_lead_source_history.sql`
-- `020_unique_lead_branch_source.sql`
-- `021_source_channel_relationship.sql`
-
-## Bulk actions and imports
-
-Bulk functionality includes:
-
-- Downloadable import template
-- Validation before import
-- Branch-aware lead import
-- Successful, duplicate, skipped, and failed result tracking
-- Downloadable error and success outputs
-- Bulk stage changes
-- Bulk referrals
-- Bulk WhatsApp sends
-
-The public sample import description is retained at `apps/web/public/Sample_Import_Format.md`.
-
-## Lead and academic configuration
-
-Settings provides administration for:
-
-- Lead stages and sub-stages
-- Sources and source-to-channel relationships
-- Channels and campaigns
-- Branch-aware ownership/configuration values
-- Academic years
-- Admission class configurations
-- Curricula
-- Admission types
-
-Academic Years and Admission Classes share the Academic Configuration screen with tabs.
-
-## Integration Hub
-
-The Integration Hub manages provider connections through the `crm_integrations` table and supporting OAuth, audit, error, sync, and mapping tables.
-
-Common capabilities:
-
-- Create, update, test, authorize, disconnect, and delete integrations
-- Provider-specific configuration
-- OAuth token storage
-- Manual sync
-- Sync history
-- Field mappings
-- Error records
-- Audit records
-
-Credentials are stored per integration rather than using numbered environment variables.
-
-## Google Sheets integration
-
-Each Google Sheets integration represents one authorized Google account. Each integration can own multiple sheet sources, commonly one per branch.
-
-Workflow:
-
-1. Create a Google Sheets integration.
-2. Enter that integration’s Google OAuth credentials.
-3. Authorize the intended Google account.
-4. Add a sheet source.
-5. Choose the spreadsheet, worksheet, and destination branch.
-6. Map CRM fields to sheet columns before activation.
-7. Activate continuous import.
-
-Per-sheet actions are presented as side-by-side icons:
-
-- Configuration
-- Field mapping
-- Sync data
-- Sync logs
-- Delete
-
-The Google Sheets screen supports:
-
-- Multiple Google integrations
-- An integration filter with no forced selection by default
-- Multiple sheet sources per integration
-- Sheet-specific mapping and sync state
-- Continuous polling/import
-- Manual refresh/import
-- Import history
-- Skipped-lead records with reasons
-- Full-screen skipped-lead view
-- Filters and export
-
-No successful empty sync log is stored merely because polling occurred; meaningful records are created when lead processing occurs.
-
-### Google OAuth credential storage
-
-Dedicated `crm_integrations` columns:
-
-- `google_client_id`
-- `google_client_secret`
-- `google_redirect_uri`
-
-The credentials are editable per Google integration under Integration Settings. They are used for:
-
-- OAuth authorization URL generation
-- Authorization-code exchange
-- Access-token refresh
-- Connection tests
-- Spreadsheet listing and synchronization
-
-Google client credentials are no longer read from `.env` and are not duplicated in the `config` JSON.
-
-OAuth access and refresh tokens remain encrypted in the OAuth token table using `INTEGRATION_MASTER_KEY`.
-
-## WhatsApp/AiSensy integrations
-
-Multiple WhatsApp accounts are supported. Templates and messages are always scoped to the selected integration.
-
-Dedicated `crm_integrations` columns:
-
-- `project_id`
-- `project_api_password`
-- `aisensy_base_url`
-- `aisensy_api_key`
-- `media_public_base_url`
-
-The former `AISENSY_API_KEY_1`, `_2`, `_3`, and `AISENSY_BASE_URL` environment values were migrated into the appropriate integration rows and removed from `.env`.
-
-Per-account settings are editable under Integration Settings:
-
-- Project ID
-- Project API Password
-- AiSensy Base URL
-- AiSensy API Key
-- Public Media Base URL
-
-The Project API is used for direct template messaging so users do not have to create a separate campaign manually in another portal.
-
-## WhatsApp templates
-
-Template management supports:
-
-- Integration filter
-- Template synchronization
-- Status tabs: All, Approved, Pending, Draft, Rejected, Archived
-- Search and filters
-- Responsive table layout
-- Template creation scoped to a selected WhatsApp account
-- Template detail drawer that does not overlap navigation
-- Edit, duplicate, and delete actions
-- Themed empty state
-- Message sending and message history
-
-Template creation supports:
-
-- Name, label, category, language, and type
-- Body parameters
-- Footer
-- Quick replies and call-to-action buttons
-- Text, image, video, and file/document template types
-- WhatsApp-style preview
-
-Template message bodies are read-only when sending. Only parameter values and required media are supplied at send time.
-
-## WhatsApp conversations and messaging
-
-Leads open a mobile-style WhatsApp conversation drawer rather than a modal.
-
-Conversation UX:
-
-- Contact header and phone
-- Refresh button
-- Five-second automatic refresh
-- Incoming and outgoing bubbles
-- Image previews
-- Download/open cards for documents and other attachments
-- Delivery status display
-- Responsive full-screen mobile layout
-- Account and approved-template selectors below the message area
-
-Messaging rules:
-
-- A template is required to initiate a conversation.
-- Template body text cannot be edited.
-- Free-text replies unlock only after the contact has sent an incoming message.
-- Template parameters remain editable.
-- Image/video/document/file attachments appear only when required by the selected template type.
-- The Send action remains disabled until required media has uploaded successfully.
-- Client request IDs prevent duplicate sends.
-- Bulk upload and selected-lead sending are supported.
-
-Message history records template name, destination, status, provider response, retry information, and failure reason.
-
-Supported states include:
-
-- Pending
-- Queued
-- Accepted
-- Sent
-- Delivered
-- Read
-- Failed
-- Rejected
-
-## WhatsApp media uploads
-
-Users select files from their system instead of entering public URLs.
-
-Validation:
-
-- Image: JPG, PNG, WebP, GIF; maximum 5 MB
-- Video: MP4; maximum 16 MB
-- Document/File: PDF, DOC, DOCX; maximum 20 MB
-
-Files are isolated by integration ID under `uploads/whatsapp/<integrationId>/`. The public URL is built from the selected integration’s `media_public_base_url`.
-
-The configured base URL must be a publicly reachable HTTPS API origin because AiSensy downloads media from it. A localhost address cannot be used by the external provider.
-
-## WhatsApp webhooks
-
-Supported inbound paths:
-
-- `/hub/smartping/webhook`
-- `/api/hub/smartping/webhook`
-- `/api/webhooks/whatsapp/messages`
-
-The webhook parser supports the documented AiSensy event model:
-
-- `type`
-- `id`
-- `project_id`
-- `phone_number`
-- `contact_id`
-- `sender`
-- `message_content`
-- `message_type`
-- `status`
-- lifecycle timestamps
-- `messageId`
-
-`CONTACT`, `CUSTOMER`, `USER`, `CLIENT`, and equivalent senders are normalized as incoming. Events are matched to the WhatsApp integration by project ID and stored in the normalized conversation/message tables.
-
-Webhook endpoints must be reachable through a public HTTPS deployment or secure development tunnel. Messages that never reach the callback cannot be reconstructed from the local database.
-
-## WhatsApp persistence
-
-Primary normalized tables:
-
-- `crm_whatsapp_conversations`
-- `crm_whatsapp_messages`
-- `crm_whatsapp_attachments`
-- `crm_whatsapp_api_logs`
-- WhatsApp template tables and template logs
-
-The current chat drawer reads these normalized tables. Legacy Smartping message tables remain only for compatibility with older implementation paths.
-
-## Important database migrations
-
-CRM migrations are ordered under `database/mysql`.
-
-Key integration and messaging migrations:
-
-- `014_integration_hub_tables.sql`
-- `019_google_sheet_skipped_leads.sql`
-- `022_backfill_smartping_credentials.sql`
-- `023_consolidate_integration_audit_logs.sql`
-- `024_whatsapp_messaging.sql`
-- `025_whatsapp_campaign_name.sql`
-- `026_aisensy_integration_credentials.sql`
-- `027_google_oauth_integration_credentials.sql`
-
-Run migrations before starting a version that references new columns:
-
-```powershell
-npm run migrate -w apps/api
+- A mobile number may have multiple sources within the same branch.
+- **(mobile, branch, source) is the true duplicate boundary.**
+- A repeat enquiry in the same branch from a *different* source links the new
+  source to the existing lead and surfaces it as **re-enquired**, not discarded.
+- Source ID is accepted directly; channel is derived from source; academic
+  information is derived through class.
+
+Relevant migrations: `012_lead_source_history.sql`,
+`020_unique_lead_branch_source.sql`, `021_source_channel_relationship.sql`.
+
+## 8. Integrations
+
+| Integration | Direction | Notes |
+|---|---|---|
+| Google Sheets | inbound | OAuth, field mapping, 60s sync, duplicates → `crm_integration_skipped_leads` |
+| Meta Lead Ads | inbound | webhook + page/form subscription |
+| WhatsApp (AiSensy / Smartping) | in + out | templates synced from provider, per-branch account mapping, media uploads, webhooks |
+| CallerDesk / Smartflo | telephony | click-to-call, dialer campaigns, webhook call logging |
+| Jodo | payments | per-branch API keys, payment links |
+| Partner API | inbound | API-key authenticated |
+
+The **integration hub** (`integration-hub/`) is the generic framework:
+`crm_integrations` + OAuth tokens + field mappings + sync jobs. Per-account
+Google and AiSensy credentials belong in `crm_integrations`, never `.env`.
+
+Sync history is in `crm_integration_sync_logs`; it and
+`crm_integration_error_logs` only take a row when a lead was actually created,
+so a fetch that found nothing new leaves no noise.
+
+## 9. Automation
+
+`crm_automation_workflows` hold `{conditions, actions, logic}` JSON. Every 30
+seconds the engine evaluates active workflows whose `start_at` has passed
+against a single immutable lead snapshot, and inserts one row per
+(workflow, lead, action) into `crm_automation_executions`.
+
+That table is a **work queue**: editing a workflow's rules deletes its rows so
+every lead is re-evaluated (the unique key on `(workflow_id, lead_id,
+action_index)` would otherwise block re-scheduling). Durable run history is
+appended separately to `crm_automation_execution_log` — that is what the UI
+counts, so totals survive edits.
+
+## 10. Conventions and traps
+
+- **`api()` returns the parsed body, not an axios `{data}` envelope.** Several
+  bugs have come from `response.data.x` against an endpoint answering `{x}`.
+- **`BulkUpload.css` styles the bare `button` element globally** (44px tall,
+  `padding: 0 20px`, `min-width: max-content`) and is *unlayered*, so it
+  outranks every Tailwind utility regardless of specificity. Component button
+  sizing must be plain CSS in a later-loading sheet.
+- **`styles/design-system.css` must remain the last stylesheet imported** — it
+  wins ties against the legacy sheets it overrides.
+- **Grid placement follows order-modified document order.** A tab strip with a
+  stale `order` lands in the wrong grid column; scope `order` rules with `>`.
+- **Migrations are numbered `database/mysql/NNN_*.sql`** and applied manually. A
+  missing one surfaces as `Unknown column …` at API start-up. Do not reuse a
+  number.
+- Timezone is pinned to `+05:30` on every pooled connection; user-facing dates
+  are formatted in `Asia/Kolkata`.
+- **Tooltips** — `lib/tooltips.js` turns `data-tooltip`, `title` and
+  `aria-label` (on icon-only controls) into one instant, non-clipping layer.
+  Prefer `data-tooltip`; never rely on the native `title` delay.
+- **Tabs** share one visual language: outlined pill when unselected, tinted pill
+  with a brand underline when selected. Overflowing bars use
+  `components/ScrollableTabStrip.jsx`.
+- `window.prompt` is unavailable in embedded browsers — the deletion-password
+  challenge uses a React dialog registered through `setDeletionPasswordPrompt`.
+
+## 11. Database export and MariaDB conversion
+
+The application runs on MySQL 8, but the database can be exported as a single
+self-contained script that provisions the same database on **MariaDB 10.11**.
+Both scripts read `apps/api/.env` directly, so `--env-file` is not needed, and
+both are read-only against the source.
+
+```bash
+cd apps/api
+node scripts/export/export-mariadb.js       # generate
+node scripts/export/verify-mariadb-export.js # prove it matches the source
 ```
 
-## Environment configuration
+| Flag | Effect |
+|---|---|
+| `--schema-only` | DROP + CREATE only, no `INSERT` statements |
+| `--include-attendance` | Also drop, create and populate the attendance-only tables (~790k rows, ~400 MB) |
+| `--out <path>` | Write somewhere other than `database/exports/MARIADB_1011_FULL_EXPORT.sql` |
 
-Application/environment concerns that remain appropriate in `.env`:
+**What the conversion does.**
+
+- `utf8mb4_0900_ai_ci` — MySQL-8-only, absent in MariaDB — is rewritten to
+  `utf8mb4_unicode_ci` throughout.
+- `DROP TABLE IF EXISTS` + `CREATE` for CRM-owned tables and the shared
+  identity/master tables the CRM has foreign keys into.
+- `CREATE TABLE IF NOT EXISTS` (never dropped, no data) for attendance-only
+  tables, unless `--include-attendance` is passed — so a CRM restore cannot
+  destroy attendance history.
+- `AUTO_INCREMENT=<n>` is stripped from every `CREATE TABLE`; populated tables
+  instead get an explicit `ALTER TABLE … AUTO_INCREMENT = MAX(id)+1` after their
+  data, so an empty table starts at 1.
+- **Row IDs are written explicitly and never renumbered**, so every foreign key,
+  JSON payload reference and audit-log target id stays valid.
+
+**Verification** (`verify-mariadb-export.js`) runs three checks: coverage (every
+managed table has a DROP and a CREATE), row count against `COUNT(*)` on the
+source, and content — the server evaluates the exported value literals and the
+resulting hash is compared with the same hash over the live table, which is what
+proves the escaping of text, JSON, binary and datetime values. `--file <path>`
+verifies a specific export.
+
+**Output lands in `database/exports/`, which is git-ignored**: it contains lead
+PII, password hashes and integration credentials. Regenerate rather than share.
+
+Related: `database/reference/FULL_SCHEMA_MYSQL.sql` is a
+`CREATE TABLE IF NOT EXISTS` snapshot of the live schema. It is safe to re-run
+but, because every statement is `IF NOT EXISTS`, it cannot upgrade an existing
+database — use the ordered migrations for that.
+
+## 12. Environment configuration
+
+In `.env` (see `.env.example`):
 
 - API port and allowed web origin
 - JWT signing secret and expiry
-- MySQL connection
+- MySQL connection (`MYSQL_HOST/PORT/USER/PASSWORD/DATABASE`)
 - `INTEGRATION_MASTER_KEY`
-- Optional provider endpoint/retry defaults still listed in `.env.example`
-
-Per-account Google and AiSensy credentials belong in `crm_integrations`, not `.env`.
+- Optional provider endpoint/retry defaults
 
 Never commit live credentials.
 
-## Operational requirements
+## 13. Operational requirements
 
 - MySQL must be available; demo mode is disabled.
-- Apply database migrations before deployment.
-- Keep `INTEGRATION_MASTER_KEY` backed up securely and unchanged.
+- Apply database migrations before deploying a version that references new
+  columns.
+- Keep `INTEGRATION_MASTER_KEY` backed up and unchanged.
 - Configure Google redirect URIs exactly in Google Cloud Console.
-- Use public HTTPS URLs for Google callbacks, WhatsApp webhooks, and WhatsApp media in deployed environments.
-- Persist `uploads/whatsapp` or replace it with durable object storage before horizontally scaling the API.
-- Configure reverse-proxy upload limits to allow the supported attachment sizes.
+- Use public HTTPS URLs for Google callbacks, WhatsApp webhooks and media.
+- Persist `uploads/whatsapp` or move to object storage before scaling the API
+  horizontally; set reverse-proxy upload limits for attachment sizes.
 
-## Validation
+## 14. Known gaps
 
-Standard validation:
+- **Migration 005** (integrations consolidation) is not applied on the current
+  database. The API logs a warning at start-up and runs a backward-compatible
+  fallback for `integration_type`, `provider_name`, `integration_name`.
+- Automation execution counts are cumulative across rule edits.
+- Backfilled automation history records `action_index` 0, since the activity
+  trail does not store which action fired.
 
-```powershell
-npm run check
+## 15. Validation
+
+```bash
+npm run check                # API syntax + web build
+npm run check -w apps/api    # permission-map audit
 ```
 
-This checks API syntax and builds the web application.
+Additional smoke and QA scripts live under `apps/api/src` for leads, users,
+filters and configuration.
 
-Additional smoke and QA scripts exist under `apps/api/src` for leads, users, filters, configuration, and visual checks.
-
-Expected non-blocking build warning:
-
-- React Router package-level `"use client"` directives may be ignored by Vite during bundling.
-
-## Current status
-
-- Core CRM, leads, settings, academic configuration, bulk actions, automation configuration, Google Sheets integration, WhatsApp templates, WhatsApp sending, conversation history, media rendering, and per-account credentials are implemented.
-- Recent API syntax checks and Vite production builds pass.
-- External OAuth, webhook, and media delivery still depend on correctly configured public provider URLs and credentials.
+Expected non-blocking build warning: React Router's package-level `"use client"`
+directives may be ignored by Vite during bundling.

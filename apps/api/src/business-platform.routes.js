@@ -51,7 +51,7 @@ const brandLogo = value => {
 
 const isAdmin = user => (user.roles || []).some(role => ['CRM_ADMIN','SUPER_ADMIN'].includes(String(role).toUpperCase()));
 
-export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin) {
+export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin, hashPassword) {
   const router = express.Router();
   router.use(authenticate, requireCrmAccess);
 
@@ -93,6 +93,7 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
       brandTitle:row.brand_title,brandSubtitle:row.brand_subtitle,brandLogo:row.brand_logo,
       helpUrl:row.help_url,helpTitle:row.help_title,helpSubtitle:row.help_subtitle,
       compatibilityMode:row.compatibility_mode,isDefault:Boolean(row.is_default),isActive:Boolean(row.is_active),
+      deletionPasswordConfigured:Boolean(row.deletion_password_hash),
       accessLevel:row.accessLevel||'admin',leadCount:Number(row.dynamicLeadCount||0)+Number(row.legacyLeadCount||0),
     }))});
   });
@@ -105,12 +106,13 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
       await connection.beginTransaction();
       const [result]=await connection.execute(
         `INSERT INTO crm_business_units
-         (unit_code,display_name,brand_title,brand_subtitle,brand_logo,help_url,help_title,help_subtitle,industry_type,description,icon_key,color_code,compatibility_mode,is_default,is_active,created_by_user_id)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'metadata',FALSE,TRUE,?)`,
+         (unit_code,display_name,brand_title,brand_subtitle,brand_logo,help_url,help_title,help_subtitle,industry_type,description,icon_key,color_code,deletion_password_hash,compatibility_mode,is_default,is_active,created_by_user_id)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'metadata',FALSE,TRUE,?)`,
         [code,name,text(req.body.brandTitle,80),text(req.body.brandSubtitle,120),brandLogo(req.body.brandLogo),
          helpUrl(req.body.helpUrl),text(req.body.helpTitle,80),text(req.body.helpSubtitle,160),
          text(req.body.industryType,80)||'General',text(req.body.description,500),text(req.body.iconKey,50)||'building',
-         /^#[0-9a-f]{6}$/i.test(req.body.color||'')?req.body.color:'#4A4FB1',Number(req.user.id)],
+         /^#[0-9a-f]{6}$/i.test(req.body.color||'')?req.body.color:'#4A4FB1',
+         text(req.body.deletionPassword,200)?hashPassword(text(req.body.deletionPassword,200)):null,Number(req.user.id)],
       );
       const unitId=Number(result.insertId);
       await connection.execute(`INSERT INTO crm_user_business_units(user_id,business_unit_id,access_level,is_default) VALUES(?,?,'admin',FALSE)`,[Number(req.user.id),unitId]);
@@ -204,12 +206,13 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
       `UPDATE crm_business_units
           SET display_name=?,brand_title=?,brand_subtitle=?,brand_logo=?,
               help_url=?,help_title=?,help_subtitle=?,
-              industry_type=?,description=?,color_code=?,updated_by_user_id=?
+              industry_type=?,description=?,color_code=?,deletion_password_hash=?,updated_by_user_id=?
         WHERE id=?`,
       [name,text(req.body.brandTitle,80),text(req.body.brandSubtitle,120),brandLogo(req.body.brandLogo),
        helpUrl(req.body.helpUrl),text(req.body.helpTitle,80),text(req.body.helpSubtitle,160),
        text(req.body.industryType,80)||'General',text(req.body.description,500),
-       /^#[0-9a-f]{6}$/i.test(req.body.color||'')?req.body.color:'#4A4FB1',Number(req.user.id),unitId],
+       /^#[0-9a-f]{6}$/i.test(req.body.color||'')?req.body.color:'#4A4FB1',
+       text(req.body.deletionPassword,200)?hashPassword(text(req.body.deletionPassword,200)):null,Number(req.user.id),unitId],
     );
     if(!result.affectedRows)return res.status(404).json({message:'Business unit not found'});
     res.json({message:'Business unit updated'});
@@ -357,7 +360,7 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     res.json({unit:{
       id:Number(unit.id),code:unit.unit_code,name:unit.display_name,industryType:unit.industry_type,
       compatibilityMode:unit.compatibility_mode,color:unit.color_code,
-    },fields:normalize(fields),forms:normalize(forms),pipelines:resolvedPipelines,pipelineStages:resolvedPipelineStages,
+    },manualLeadDefaults:parseJson(unit.manual_lead_defaults_json,{}),fields:normalize(fields),forms:normalize(forms),pipelines:resolvedPipelines,pipelineStages:resolvedPipelineStages,
     leadSubstages:normalize(leadSubstages),enquiryForms:normalize(enquiryForms),branches:normalize(branches),sources:normalize(sources),channels:normalize(channels),campaigns:normalize(campaigns),employees:normalize(employees),academicYears:normalize(academicYears),workflows:normalize(workflows),operationStages:normalize(operationStages),modules:normalize(modules)});
   });
 
@@ -631,7 +634,7 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
         pool.query(`SELECT id,category_code code,display_name displayName,is_active isActive FROM crm_channel_categories ORDER BY display_name`),
         pool.query(`SELECT c.id,c.channel_code code,c.display_name displayName,c.category_id parentId,COALESCE(cc.display_name,c.category) parentName,c.is_active isActive FROM crm_lead_channels c LEFT JOIN crm_channel_categories cc ON cc.id=c.category_id ORDER BY parentName,c.display_name`),
       ]);
-      return res.json({sources,campaignCategories,campaigns,channelCategories,channels});
+      return res.json({sources,campaignCategories,campaigns,channelCategories,channels,manualLeadDefaults:parseJson(unit.manual_lead_defaults_json,{})});
     }
     const [[channelCategories],[channels],[sources],[campaignCategories],[campaigns]]=await Promise.all([
       pool.execute(`SELECT id,category_key code,display_name displayName,is_active isActive FROM crm_business_channel_categories WHERE business_unit_id=? ORDER BY display_name`,[unitId]),
@@ -640,7 +643,40 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
       pool.execute(`SELECT id,category_key code,display_name displayName,is_active isActive FROM crm_business_campaign_categories WHERE business_unit_id=? ORDER BY display_name`,[unitId]),
       pool.execute(`SELECT c.id,c.campaign_key code,c.display_name displayName,c.category_id parentId,cc.display_name parentName,c.is_active isActive FROM crm_business_campaigns c JOIN crm_business_campaign_categories cc ON cc.id=c.category_id WHERE c.business_unit_id=? ORDER BY cc.display_name,c.display_name`,[unitId]),
     ]);
-    res.json({sources,campaignCategories,campaigns,channelCategories,channels});
+    res.json({sources,campaignCategories,campaigns,channelCategories,channels,manualLeadDefaults:parseJson(unit.manual_lead_defaults_json,{})});
+  });
+
+  router.put('/business-units/:id/manual-lead-defaults', requireUserAdmin, async (req,res)=>{
+    const unitId=Number(req.params.id),unit=await accessibleUnit(req,unitId,true);
+    if(!unit)return res.status(403).json({message:'Business unit management access required'});
+    const current=parseJson(unit.manual_lead_defaults_json,{});
+    const allowed=['channelId','sourceId','campaignId','stageId','substageId'];
+    const next={...current};
+    for(const key of allowed){
+      if(Object.prototype.hasOwnProperty.call(req.body||{},key))next[key]=req.body[key]?Number(req.body[key]):null;
+    }
+    const legacy=unit.compatibility_mode==='legacy_school';
+    const ensure=async(key,sql,params,message)=>{
+      if(!next[key])return true;
+      const [[row]]=await pool.execute(sql,params);
+      if(!row){res.status(400).json({message});return false;}
+      return true;
+    };
+    if(legacy){
+      if(!await ensure('channelId','SELECT id FROM crm_lead_channels WHERE id=? AND is_active=TRUE',[next.channelId],'Select an active default channel'))return;
+      if(!await ensure('sourceId','SELECT id FROM crm_lead_sources WHERE id=? AND is_active=TRUE AND (? IS NULL OR channel_id=?)',[next.sourceId,next.channelId,next.channelId],'The default source must belong to the selected channel'))return;
+      if(!await ensure('campaignId','SELECT id FROM crm_campaigns WHERE id=? AND is_active=TRUE',[next.campaignId],'Select an active default campaign'))return;
+      if(!await ensure('stageId','SELECT id FROM crm_lead_stages WHERE id=? AND business_unit_id=? AND is_active=TRUE',[next.stageId,unitId],'Select an active default stage'))return;
+      if(!await ensure('substageId','SELECT ss.id FROM crm_lead_substages ss JOIN crm_lead_stages s ON s.id=ss.stage_id WHERE ss.id=? AND s.business_unit_id=? AND ss.is_active=TRUE AND (? IS NULL OR ss.stage_id=?)',[next.substageId,unitId,next.stageId,next.stageId],'The default sub-stage must belong to the selected stage'))return;
+    }else{
+      if(!await ensure('channelId','SELECT id FROM crm_business_channels WHERE id=? AND business_unit_id=? AND is_active=TRUE',[next.channelId,unitId],'Select an active default channel'))return;
+      if(!await ensure('sourceId','SELECT id FROM crm_business_sources WHERE id=? AND business_unit_id=? AND is_active=TRUE AND (? IS NULL OR channel_id=?)',[next.sourceId,unitId,next.channelId,next.channelId],'The default source must belong to the selected channel'))return;
+      if(!await ensure('campaignId','SELECT id FROM crm_business_campaigns WHERE id=? AND business_unit_id=? AND is_active=TRUE',[next.campaignId,unitId],'Select an active default campaign'))return;
+      if(!await ensure('stageId','SELECT ps.id FROM crm_metadata_pipeline_stages ps JOIN crm_metadata_pipelines p ON p.id=ps.pipeline_id WHERE ps.id=? AND p.business_unit_id=? AND ps.is_active=TRUE',[next.stageId,unitId],'Select an active default stage'))return;
+      if(!await ensure('substageId','SELECT ss.id FROM crm_metadata_pipeline_substages ss JOIN crm_metadata_pipeline_stages ps ON ps.id=ss.stage_id JOIN crm_metadata_pipelines p ON p.id=ps.pipeline_id WHERE ss.id=? AND p.business_unit_id=? AND ss.is_active=TRUE AND (? IS NULL OR ss.stage_id=?)',[next.substageId,unitId,next.stageId,next.stageId],'The default sub-stage must belong to the selected stage'))return;
+    }
+    await pool.execute('UPDATE crm_business_units SET manual_lead_defaults_json=?,updated_by_user_id=? WHERE id=?',[JSON.stringify(next),Number(req.user.id),unitId]);
+    res.json({manualLeadDefaults:next,message:'Manual Add Lead defaults saved'});
   });
 
   router.post('/business-units/:id/source-config/:type', requireUserAdmin, async (req,res)=>{

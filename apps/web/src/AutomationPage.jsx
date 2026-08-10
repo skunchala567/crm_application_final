@@ -1002,6 +1002,9 @@ export default function AutomationPage() {
                         {item.failedCount
                           ? ` · ${item.failedCount} failed`
                           : ""}
+                        {item.skippedCount
+                          ? ` · ${item.skippedCount} skipped`
+                          : ""}
                         {item.pendingCount
                           ? ` · ${item.pendingCount} pending`
                           : ""}

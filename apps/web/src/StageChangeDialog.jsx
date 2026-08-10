@@ -68,7 +68,7 @@ export function StageChangeDialog({ leads, meta, onClose, onSuccess, onError }) 
               <p>{lead?.studentName} · {lead?.leadId}</p>
             )}
           </div>
-          <button className="icon-btn" onClick={onClose}>
+          <button className="icon-btn" onClick={onClose} aria-label="Close">
             <X />
           </button>
         </div>

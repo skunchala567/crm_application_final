@@ -19,6 +19,7 @@ import AuthLayout from "./components/AuthLayout.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import Header from "./components/Header.jsx";
 import IdleWarning from "./components/IdleWarning.jsx";
+import DeletionPasswordDialog from "./components/DeletionPasswordDialog.jsx";
 import DashboardPage, { CurriculumClassStageWidget } from "./components/DashboardPage.jsx";
 import SettingsPageModern from "./components/SettingsPageModern.jsx";
 import OperationsPageModern from "./components/OperationsPageModern.jsx";
@@ -262,6 +263,9 @@ function Shell({ user, onLogout }) {
         />
       )}
 
+      {/* Answers the API's deletion-password challenge from anywhere in the app. */}
+      <DeletionPasswordDialog />
+
       <Sidebar
         menu={visibleMenu}
         settings={settingsMenu}
@@ -271,7 +275,7 @@ function Shell({ user, onLogout }) {
         onToggle={toggleNav}
       />
 
-      <div className="flex flex-col flex-1 overflow-hidden">
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         {/* One topbar for every screen. GlobalSearch is passed through so the
             search field sits inside it rather than in a bar of its own. */}
         <Header user={user} onLogout={signOut} onMenuClick={toggleNav} navCollapsed={navCollapsed} mobileNavOpen={mobileNavOpen} usageTime={usageTime} usageSaved={usageSaved}>
@@ -282,7 +286,7 @@ function Shell({ user, onLogout }) {
           {can('leads.search.view') && <GlobalSearch />}
         </Header>
 
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
           <Routes location={location}>
             <Route path="/" element={<RequirePermission do="dashboard.overview.view"><DashboardPage key={activeBusinessUnitId} user={user} /></RequirePermission>} />
             <Route path="/leads" element={<RequirePermission do="leads.list.view"><BusinessUnitLeadRouter key={activeBusinessUnitId} /></RequirePermission>} />

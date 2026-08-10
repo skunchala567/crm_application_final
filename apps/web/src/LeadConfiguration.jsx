@@ -14,12 +14,24 @@ export default function LeadConfiguration({onMessage,embedded=false,businessUnit
   const [parentId,setParentId]=useState('');
   const [editing,setEditing]=useState(null);
   const [saving,setSaving]=useState(false);
+  const [defaults,setDefaults]=useState({channelId:'',sourceId:'',campaignId:''});
+  const [savingDefaults,setSavingDefaults]=useState(false);
 
   const endpoint=useBusinessUnitSources&&businessUnitId?`/platform/business-units/${businessUnitId}/source-config`:'/admin/lead-config';
   async function load(){
     try{
       const result=await api(endpoint);
+      // Legacy School Admissions values are managed through the adapter, while
+      // the defaults themselves belong to the selected Business Unit.
+      const defaultsResult=businessUnitId&&!result.manualLeadDefaults
+        ? await api(`/platform/business-units/${businessUnitId}/source-config`)
+        : result;
       setData(current=>({...current,...result}));
+      setDefaults({
+        channelId:defaultsResult.manualLeadDefaults?.channelId||'',
+        sourceId:defaultsResult.manualLeadDefaults?.sourceId||'',
+        campaignId:defaultsResult.manualLeadDefaults?.campaignId||'',
+      });
     }catch(error){onMessage({type:'error',text:error.message});}
   }
   useEffect(()=>{load();},[endpoint]);
@@ -49,10 +61,29 @@ export default function LeadConfiguration({onMessage,embedded=false,businessUnit
       onMessage({type:'success',text:result.message});await load();
     }catch(error){onMessage({type:'error',text:error.message});}
   }
+  async function saveDefaults(event){
+    event.preventDefault();
+    if(!businessUnitId)return;
+    setSavingDefaults(true);
+    try{
+      const result=await api(`/platform/business-units/${businessUnitId}/manual-lead-defaults`,{method:'PUT',body:JSON.stringify(defaults)});
+      onMessage({type:'success',text:result.message});
+      await load();
+    }catch(error){onMessage({type:'error',text:error.message});}finally{setSavingDefaults(false);}
+  }
+
+  const defaultSources=data.sources.filter(item=>!defaults.channelId||String(item.parentId)===String(defaults.channelId));
 
   return <section className={`lead-config-panel panel ${embedded?'embedded':''}`}>
     {!embedded&&<div className="lead-config-head"><div><span className="eyebrow">Lead acquisition master data</span><h2>Source configuration</h2><p>Manage channel categories, channels, sources, and campaigns without affecting existing lead history.</p></div><Settings2/></div>}
     <div className="config-tabs">{types.map(([key,label])=><button key={key} className={active===key?'active':''} onClick={()=>setActive(key)}>{label}<span>{data[key].filter(item=>item.isActive).length}</span></button>)}</div>
+    {businessUnitId&&<form className="manual-defaults-panel" onSubmit={saveDefaults}>
+      <div><strong>Manual Add Lead defaults</strong><small>These values are preselected in Add Lead and can still be changed before saving.</small></div>
+      <label>Channel<select value={defaults.channelId} onChange={event=>setDefaults(current=>({...current,channelId:event.target.value,sourceId:''}))}><option value="">No default</option>{data.channels.filter(item=>item.isActive).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
+      <label>Source<select value={defaults.sourceId} onChange={event=>setDefaults(current=>({...current,sourceId:event.target.value}))}><option value="">No default</option>{defaultSources.filter(item=>item.isActive).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
+      <label>Campaign<select value={defaults.campaignId} onChange={event=>setDefaults(current=>({...current,campaignId:event.target.value}))}><option value="">No default</option>{data.campaigns.filter(item=>item.isActive).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
+      <button className="primary" disabled={savingDefaults}>{savingDefaults?'Saving…':'Save defaults'}</button>
+    </form>}
     <div className="config-content">
       <form className={`config-add ${editing?'editing':''}`} onSubmit={submit}>
         <div className="config-form-title"><h3>{editing?'Edit':'Add'} {definition[1].toLowerCase()}</h3>{editing&&<button type="button" title="Cancel editing" onClick={cancelEdit}><X size={15}/></button>}</div>

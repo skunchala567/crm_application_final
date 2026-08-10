@@ -199,26 +199,19 @@ function WhatsAppDashboard({ integrations }) {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    // `api.get` resolves to the parsed body, not an axios `{ data }` envelope,
+    // and this endpoint answers with `{ branches, employees, ... }`. Reading
+    // `response.data.branches` therefore always came back empty and, resolving
+    // after the dashboard request, wiped the branch list it had just loaded.
     api.get('/leads/referral-options/all')
       .then(response => {
-        let branchesData = [];
-
-        // Try multiple response structure formats
-        if (response.data?.branches) {
-          branchesData = Array.isArray(response.data.branches) ? response.data.branches : [];
-        } else if (response.data?.data?.branches) {
-          branchesData = Array.isArray(response.data.data.branches) ? response.data.data.branches : [];
-        } else if (Array.isArray(response.data)) {
-          branchesData = response.data;
-        } else if (response.data?.data && Array.isArray(response.data.data)) {
-          branchesData = response.data.data;
-        }
-
-        setBranches(branchesData);
+        const list = Array.isArray(response) ? response : (response?.branches || []);
+        // Only replace a populated list with another populated one; the
+        // dashboard response carries the same branches.
+        if (Array.isArray(list) && list.length) setBranches(list);
       })
       .catch(error => {
         console.error('Error fetching branches:', error);
-        setBranches([]);
       });
   }, []);
 

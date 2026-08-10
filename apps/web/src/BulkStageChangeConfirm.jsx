@@ -8,7 +8,7 @@ export function BulkStageChangeConfirm({ count, onCancel, onContinue, loading = 
       <div className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
         <header>
           <h2 id="confirm-title">Bulk Lead / Application Stage Change</h2>
-          <button className="icon-btn" onClick={onCancel} disabled={loading}>
+          <button className="icon-btn" onClick={onCancel} disabled={loading} aria-label="Cancel">
             <X />
           </button>
         </header>

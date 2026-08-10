@@ -470,17 +470,80 @@
 }
 
 .leads-page .stage-tabs {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding: 8px 10px 9px;
+  padding-right: 18px;
   align-items: center;
   gap: 6px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
   border: 0;
   background: var(--surface);
-  scrollbar-width: thin;
+  scrollbar-width: none;
+}
+
+.leads-page .stage-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.leads-page .stage-tabs-shell {
+  order: 2;
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 0 minmax(0, 1fr) 0;
+  align-items: stretch;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  transition: grid-template-columns .18s ease;
+}
+
+.leads-page .stage-tabs-shell.has-overflow {
+  grid-template-columns: 30px minmax(0, 1fr) 30px;
+}
+
+.leads-page .stage-scroll-button {
+  width: 30px;
+  min-width: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 0;
+  background: #fff;
+  color: var(--primary);
+  cursor: pointer;
+}
+
+.leads-page .stage-scroll-button.previous {
+  border-right: 1px solid var(--border);
+}
+
+.leads-page .stage-scroll-button.next {
+  border-left: 1px solid var(--border);
+}
+
+.leads-page .stage-scroll-button:hover:not(:disabled) {
+  background: var(--primary-soft);
+}
+
+.leads-page .stage-scroll-button:disabled {
+  color: var(--muted);
+  cursor: default;
+  opacity: .4;
 }
 
 .leads-page .stage-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  justify-content: center;
   min-height: 34px;
-  padding: 7px 12px;
+  padding: 7px 8px;
   /* An unselected tab is an outlined pill — the same everywhere in the app. */
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -501,10 +564,45 @@
 }
 
 .leads-page .stage-count {
+  flex: 0 0 auto;
   min-width: 20px;
   padding: 2px 6px;
   border-radius: 10px;
   text-align: center;
+}
+
+/* Keep the primary filters in one compact desktop row. The base theme uses
+   flex-basis values intended for wrapping; a grid makes every control yield
+   evenly before the date control is pushed onto a second line. */
+@media (min-width: 1101px) {
+  .leads-page .lead-control-row {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(120px, 1fr)) 36px minmax(190px, .95fr);
+    gap: 6px;
+    padding: 7px 10px;
+  }
+
+  .leads-page .lead-control-row > .inline-lead-filter,
+  .leads-page .lead-control-row > .followup-date-filter {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .leads-page .pending-followups-check {
+    width: 36px;
+    align-self: center;
+  }
+}
+
+/* At narrower workspace widths preserve complete labels and keep overflow
+   local to the stage strip rather than widening or clipping the page. */
+@media (max-width: 1300px) {
+  .leads-page .stage-tab {
+    flex: 0 0 auto;
+    min-width: max-content;
+    padding-inline: 10px;
+  }
 }
 
 @media (max-width: 760px) {

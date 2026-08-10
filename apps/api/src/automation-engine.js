@@ -185,6 +185,7 @@ async function performExecution(pool, execution, handlers) {
          WHERE id = ?`,
         [claimed.id],
       );
+      await logExecution(connection, claimed, 'skipped', 'Lead no longer matches the workflow conditions');
       await connection.commit();
       return;
     }
@@ -248,19 +249,49 @@ async function performExecution(pool, execution, handlers) {
        WHERE id = ?`,
       [JSON.stringify({ message: result }), claimed.id],
     );
+    await logExecution(connection, claimed, 'completed', null);
     await connection.commit();
     transactionOpen = false;
   } catch (error) {
     if (transactionOpen) await connection.rollback();
+    const message = String(error.message || error).slice(0, 1000);
     await pool.execute(
       `UPDATE crm_automation_executions
        SET status = 'failed', error_message = ?, attempts = attempts + 1,
            executed_at_utc = CURRENT_TIMESTAMP(6)
        WHERE id = ?`,
-      [String(error.message || error).slice(0, 1000), execution.id],
+      [message, execution.id],
     );
+    await logExecution(pool, execution, 'failed', message);
   } finally {
     connection.release();
+  }
+}
+
+/**
+ * `crm_automation_executions` is a work queue: editing a workflow's rules
+ * clears it so every lead can be re-evaluated against the new definition.
+ * That made the run history disappear with it, so the list always read
+ * "Not run / 0 completed" after any edit. This log is append-only and is what
+ * the counts are read from.
+ */
+async function logExecution(runner, execution, status, errorMessage) {
+  if (!execution?.workflow_id) return;
+  try {
+    await runner.execute(
+      `INSERT INTO crm_automation_execution_log
+       (workflow_id, lead_id, action_index, status, error_message, executed_at_utc)
+       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP(6))`,
+      [
+        execution.workflow_id,
+        execution.lead_id ?? null,
+        execution.action_index ?? 0,
+        status,
+        errorMessage,
+      ],
+    );
+  } catch {
+    // History must never take an execution down with it.
   }
 }
 
@@ -290,6 +321,25 @@ export async function ensureAutomationRuntimeSchema(pool) {
         REFERENCES crm_leads(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   `);
+
+  // Append-only run history. The queue above is cleared whenever a workflow's
+  // rules change, so it cannot answer "how many times has this run?".
+  // No FK on lead_id: removing a lead must not erase what the workflow did.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS crm_automation_execution_log (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      workflow_id BIGINT UNSIGNED NOT NULL,
+      lead_id BIGINT UNSIGNED NULL,
+      action_index SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+      status ENUM('completed','skipped','failed') NOT NULL,
+      error_message VARCHAR(1000) NULL,
+      executed_at_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+      PRIMARY KEY (id),
+      KEY ix_crm_automation_log_workflow (workflow_id, executed_at_utc),
+      CONSTRAINT fk_crm_automation_log_workflow FOREIGN KEY (workflow_id)
+        REFERENCES crm_automation_workflows(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  `);
 }
 
 export function createAutomationEngine(pool, options = {}) {
@@ -304,7 +354,7 @@ export function createAutomationEngine(pool, options = {}) {
     const workflowClause = workflowId ? 'AND e.workflow_id = ?' : '';
     if (workflowId) params.push(workflowId);
     const [due] = await pool.execute(
-      `SELECT e.id, w.name AS workflow_name
+      `SELECT e.id, e.workflow_id, e.lead_id, e.action_index, w.name AS workflow_name
        FROM crm_automation_executions e
        JOIN crm_automation_workflows w ON w.id = e.workflow_id
        WHERE e.status = 'pending' AND e.scheduled_for <= NOW()

@@ -369,7 +369,12 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
       const from = String(req.query.from || '').slice(0, 10);
       const to = String(req.query.to || '').slice(0, 10);
       const integrationId = req.query.integrationId ? Number(req.query.integrationId) : null;
-      const branchId = req.query.branchId ? Number(req.query.branchId) : null;
+      // The branch picker is a multi-select and sends a comma-separated list.
+      // `Number('3,5')` is NaN, so more than one branch used to filter nothing.
+      const branchIdList = String(req.query.branchId || '')
+        .split(',')
+        .map(value => Number(value.trim()))
+        .filter(value => Number.isInteger(value) && value > 0);
       const params = [organizationId];
       let dateFilter = 'AND COALESCE(m.sent_at,m.created_at) >= DATE_SUB(CURDATE(), INTERVAL ? DAY)';
       if (/^\d{4}-\d{2}-\d{2}$/.test(from) && /^\d{4}-\d{2}-\d{2}$/.test(to)) {
@@ -384,9 +389,9 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
         params.push(integrationId);
       }
       let branchFilter = '';
-      if (branchId) {
-        branchFilter = ' AND l.branch_id = ?';
-        params.push(branchId);
+      if (branchIdList.length) {
+        branchFilter = ` AND l.branch_id IN (${branchIdList.map(() => '?').join(',')})`;
+        params.push(...branchIdList);
       }
       const [branchOptions] = await pool.query(`
         SELECT id, branch_name AS name

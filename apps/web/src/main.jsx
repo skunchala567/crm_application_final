@@ -4,6 +4,10 @@ import { BrowserRouter } from 'react-router-dom';
 import './styles/tailwind.css';
 import './styles.css';
 import './theme.css';
+import { initTooltips } from './lib/tooltips.js';
+
+// Every button and filter explains itself on hover, with no delay.
+initTooltips();
 
 const rootElement = document.getElementById('root');
 globalThis.React = React;
