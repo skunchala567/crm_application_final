@@ -1923,6 +1923,30 @@ app.post('/api/leads', authenticate, requireCrmAccess, requireLeadWrite, async (
     followup = await validateStageFollowup(req.body);
     if (followup.error) return res.status(400).json({ message: followup.error });
   }
+  const academicYear=cleanOptional(req.body.academicYear,20);
+  const branchId=Number(req.body.branchId);
+  const admissionTypeId=Number(req.body.admissionTypeId);
+  const curriculumId=Number(req.body.curriculumId);
+  const classId=Number(req.body.classId);
+  if(!academicYear||![branchId,admissionTypeId,curriculumId,classId].every(value=>Number.isInteger(value)&&value>0)){
+    return res.status(400).json({message:'Select all academic requirements from the configured options'});
+  }
+  const [[academicConfiguration]]=await pool.execute(
+    `SELECT acc.id
+     FROM crm_admission_class_configurations acc
+     JOIN crm_admission_class_configuration_details detail
+       ON detail.configuration_id=acc.id AND detail.class_id=? AND detail.is_active=TRUE
+     JOIN crm_academic_years ay ON ay.academic_year=acc.academic_year AND ay.is_active=TRUE
+     JOIN branches b ON b.id=acc.branch_id AND b.is_active=TRUE
+     JOIN crm_admission_types admission_type ON admission_type.id=acc.admission_type_id AND admission_type.is_active=TRUE
+     JOIN crm_curricula curriculum ON curriculum.id=acc.curriculum_id AND curriculum.is_active=TRUE
+     JOIN crm_classes class ON class.id=detail.class_id AND class.is_active=TRUE
+     WHERE acc.academic_year=? AND acc.branch_id=?
+       AND acc.admission_type_id=? AND acc.curriculum_id=? AND acc.is_active=TRUE
+     LIMIT 1`,
+    [classId,academicYear,branchId,admissionTypeId,curriculumId],
+  );
+  if(!academicConfiguration)return res.status(400).json({message:'The selected academic requirements are not an active configured combination'});
   if (!(await accessibleBranch(req.user, req.body.branchId))) return res.status(403).json({ message: 'You do not have access to the selected branch' });
   const connection = await pool.getConnection();
   const submittedPhone = cleanOptional(req.body.phone,30);

@@ -108,7 +108,19 @@ function SearchSuggestion({
           list={listId}
           value={query}
           placeholder={placeholder}
-          onChange={(event) => update(event.target.value)}
+          onChange={(event) => {
+            update(event.target.value);
+            const exactMatch = options.some(option => option.label.toLowerCase() === event.target.value.trim().toLowerCase());
+            event.target.setCustomValidity(event.target.value && !exactMatch ? `Select a configured ${label.toLowerCase()} from the list` : "");
+          }}
+          onBlur={(event) => {
+            const exactMatch = options.find(option => option.label.toLowerCase() === event.target.value.trim().toLowerCase());
+            if (!exactMatch) {
+              setQuery("");
+              onChange("");
+              event.target.setCustomValidity("");
+            }
+          }}
           autoComplete="off"
         />
         <datalist id={listId}>
@@ -130,6 +142,31 @@ const configuredFieldProperties = {
   owner_employee_id:"ownerEmployeeId",next_followup_at_utc:"nextFollowupAt",
   followup_type:"followupType",remarks:"remarks",lead_score:"leadScore",
 };
+
+// The Add-lead form presents the configured fields in these sections rather than
+// one long list. Fields render in the order listed here, not by their configured
+// position, so a section reads in a sensible order regardless of how the lead
+// fields happen to be sorted in Business Unit settings.
+const leadFieldGroups = [
+  {title:"Lead name & contact details",keys:["student_name","name","phone","primary_phone","alternate_phone","email","parent_name","city"]},
+  {title:"Academic requirements",keys:["academic_year","branch_id","admission_type_id","curriculum_id","class_id"]},
+  {title:"Source details",keys:["channel_id","source_id","campaign_id"]},
+  {title:"Follow-up details",keys:["stage_id","substage_id","owner_employee_id","next_followup_at_utc","followup_type","remarks","lead_score"]},
+];
+const groupedLeadFieldKeys = new Set(leadFieldGroups.flatMap(group => group.keys));
+
+// Anything an admin adds that isn't in a group above lands in a trailing
+// "Additional details" section, so a new custom field can never silently
+// vanish from the form.
+function groupLeadFields(fields = []) {
+  const sections = leadFieldGroups.map(group => ({
+    title: group.title,
+    fields: group.keys.map(key => fields.find(field => field.fieldKey === key)).filter(Boolean),
+  }));
+  const ungrouped = fields.filter(field => !groupedLeadFieldKeys.has(field.fieldKey));
+  if (ungrouped.length) sections.push({ title: "Additional details", fields: ungrouped });
+  return sections.filter(section => section.fields.length);
+}
 
 function ConfiguredLeadFields({fields,form,setForm,meta,availableAdmissionTypes,availableCurricula,availableClasses,inputRef}){
   const update=(field,value)=>{
@@ -153,8 +190,8 @@ function ConfiguredLeadFields({fields,form,setForm,meta,availableAdmissionTypes,
     const map={
       academic_year:meta.academicYears.map(item=>({id:item.academicYear,label:item.displayName||item.academicYear})),
       branch_id:meta.branches.map(item=>({id:item.id,label:item.name})),
-      admission_type_id:(availableAdmissionTypes.length?availableAdmissionTypes:meta.admissionTypes).map(item=>({id:item.id,label:item.displayName})),
-      curriculum_id:(availableCurricula.length?availableCurricula:meta.curricula).map(item=>({id:item.id,label:item.displayName})),
+      admission_type_id:availableAdmissionTypes.map(item=>({id:item.id,label:item.displayName})),
+      curriculum_id:availableCurricula.map(item=>({id:item.id,label:item.displayName})),
       channel_id:meta.channels.map(item=>({id:item.id,label:item.displayName})),
       source_id:sourcesForChannel(meta.sources,meta.sourceLinks,form.channelId).map(item=>({id:item.id,label:item.displayName})),
       campaign_id:meta.campaigns.map(item=>({id:item.id,label:item.displayName})),
@@ -791,9 +828,14 @@ export default function LeadsPage() {
   }
 
   async function loadMeta() {
+    // Marketing campaigns are supplementary. They used to share a Promise.all
+    // with /leads/meta, so a failure there (RBAC, outage) rejected the pair and
+    // setMeta never ran — leaving lead fields, stages, sources and branches at
+    // their empty initial state and rendering an empty "Add new lead" form.
+    // Degrade to an empty campaign list instead and keep the form usable.
     const [result, marketingResult] = await Promise.all([
       api("/leads/meta"),
-      api("/marketing-campaigns"),
+      api("/marketing-campaigns").catch(() => ({ data: [] })),
     ]);
     const combined = {
       ...result,
@@ -1783,10 +1825,15 @@ export default function LeadsPage() {
             </nav>}
             <form onSubmit={save}>
               <fieldset disabled={drawer.mode === "view"}>
-                {drawer.mode==="create"&&<div className="form-section">
-                  <h3>Lead details</h3>
-                  <ConfiguredLeadFields fields={meta.leadFields||[]} form={form} setForm={setForm} meta={meta} availableAdmissionTypes={availableAdmissionTypes} availableCurricula={availableCurricula} availableClasses={availableClasses} inputRef={studentNameInputRef}/>
-                </div>}
+                {drawer.mode==="create"&&((meta.leadFields||[]).length
+                  ? groupLeadFields(meta.leadFields).map(section=><div className="form-section" key={section.title}>
+                      <h3>{section.title}</h3>
+                      <ConfiguredLeadFields fields={section.fields} form={form} setForm={setForm} meta={meta} availableAdmissionTypes={availableAdmissionTypes} availableCurricula={availableCurricula} availableClasses={availableClasses} inputRef={studentNameInputRef}/>
+                    </div>)
+                  : <div className="form-section">
+                      <h3>Lead details</h3>
+                      <p className="form-load-error">Lead fields could not be loaded, so this form is empty. Reload the page to try again — if it keeps happening, check that lead fields are configured under Settings → Business Units → Lead fields.</p>
+                    </div>)}
                 {drawer.mode!=="create"&&<>
                 <div className={`form-section ${drawerTab!=="student"?"tab-hidden":""}`}>
                   <h3>Student and contact</h3>
@@ -1883,7 +1930,7 @@ export default function LeadsPage() {
                       Admission type
                       <select value={form.admissionTypeId || ""} onChange={(e) => setForm({...form,admissionTypeId:e.target.value,curriculumId:"",classId:""})}>
                         <option value="">Not specified</option>
-                        {(availableAdmissionTypes.length > 0 ? availableAdmissionTypes : meta.admissionTypes).map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}
+                        {availableAdmissionTypes.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}
                       </select>
                     </label>
                     <label>

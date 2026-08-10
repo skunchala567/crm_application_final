@@ -437,12 +437,14 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     const [result]=await pool.execute(
       `UPDATE branches
        SET branch_name=?,short_name=?,is_active=?,jodo_payment_enabled=?,jodo_api_key=COALESCE(?,jodo_api_key),
-           jodo_secret_key=COALESCE(?,jodo_secret_key),jodo_collector_code=?,application_amount=?,
-           application_stage_id=?,application_payment_component=?,callerdesk_did_id=?,callerdesk_did_number=?,callerdesk_call_group=?,
+           jodo_secret_key=COALESCE(?,jodo_secret_key),jodo_collector_code=?,
+           application_amount=COALESCE(?,application_amount),
+           application_stage_id=COALESCE(?,application_stage_id),
+           application_payment_component=COALESCE(?,application_payment_component),callerdesk_did_id=?,callerdesk_did_number=?,callerdesk_call_group=?,
            callerdesk_inbound_enabled=?,callerdesk_outbound_enabled=?,smartflo_did_id=?,smartflo_did_number=?,smartflo_ivr_id=?,smartflo_ivr_name=?,smartflo_department_id=?,
            smartflo_inbound_enabled=?,smartflo_outbound_enabled=?
        WHERE id=?`,
-      [name,text(req.body.shortName,50)||name,req.body.isActive===false?0:1,req.body.jodoPaymentEnabled?1:0,text(req.body.jodoApiKey,255),text(req.body.jodoSecretKey,255),text(req.body.jodoCollectorCode,100),req.body.applicationAmount?Number(req.body.applicationAmount):null,req.body.applicationStageId?Number(req.body.applicationStageId):null,text(req.body.applicationPaymentComponent,120)||'Payable Amount',text(req.body.callerdeskDidId,100),text(req.body.callerdeskDidNumber,30),text(req.body.callerdeskCallGroup,120),req.body.callerdeskInboundEnabled===false?0:1,req.body.callerdeskOutboundEnabled===false?0:1,text(req.body.smartfloDidId,100),text(req.body.smartfloDidNumber,30),text(req.body.smartfloIvrId,100),text(req.body.smartfloIvrName,150),text(req.body.smartfloDepartmentId,100),req.body.smartfloInboundEnabled===false?0:1,req.body.smartfloOutboundEnabled===false?0:1,Number(req.params.id)],
+      [name,text(req.body.shortName,50)||name,req.body.isActive===false?0:1,req.body.jodoPaymentEnabled?1:0,text(req.body.jodoApiKey,255),text(req.body.jodoSecretKey,255),text(req.body.jodoCollectorCode,100),req.body.applicationAmount?Number(req.body.applicationAmount):null,req.body.applicationStageId?Number(req.body.applicationStageId):null,text(req.body.applicationPaymentComponent,120)||null,text(req.body.callerdeskDidId,100),text(req.body.callerdeskDidNumber,30),text(req.body.callerdeskCallGroup,120),req.body.callerdeskInboundEnabled===false?0:1,req.body.callerdeskOutboundEnabled===false?0:1,text(req.body.smartfloDidId,100),text(req.body.smartfloDidNumber,30),text(req.body.smartfloIvrId,100),text(req.body.smartfloIvrName,150),text(req.body.smartfloDepartmentId,100),req.body.smartfloInboundEnabled===false?0:1,req.body.smartfloOutboundEnabled===false?0:1,Number(req.params.id)],
     );
     if(!result.affectedRows)return res.status(404).json({message:'Branch not found'});
     res.json({message:'Branch/payment configuration updated'});

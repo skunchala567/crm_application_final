@@ -450,3 +450,26 @@
      right; let the block scroll away rather than cover the content. */
   .business-units-page .unit-config-sticky{position:static;box-shadow:none}
 }
+
+/* Branch configuration dialog — grouped into sections so the long list of
+   calling + payment settings reads as four short blocks rather than one
+   20-field grid. Overrides the two-column `.metadata-dialog form` default. */
+.metadata-dialog:has(.branch-config-form){width:min(660px,calc(100vw - 28px))}
+.branch-config-form{grid-template-columns:1fr!important;gap:16px!important}
+.branch-config-form fieldset{
+  display:grid;gap:11px;margin:0;padding:14px;
+  border:1px solid var(--line);border-radius:10px;
+}
+.branch-config-form legend{
+  padding:0 6px;color:var(--ink-400);
+  font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;
+}
+.branch-field-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.branch-field-grid>label{display:grid;gap:6px;font-size:10px;font-weight:700}
+.branch-check-row{display:flex;flex-wrap:wrap;gap:18px}
+.branch-config-form .check-option{font-size:10px;font-weight:700}
+.branch-config-form fieldset>small{color:var(--ink-400);font-size:9px;font-weight:500;line-height:1.5}
+
+@media(max-width:720px){
+  .branch-field-grid{grid-template-columns:1fr}
+}
