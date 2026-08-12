@@ -1692,19 +1692,20 @@ export class IntegrationHubService {
         )`
       : '';
     /*
-     * A conversation about a lead belongs to that lead's branch, so someone
-     * who cannot open the lead should not read its chat either. Conversations
-     * with nobody attached carry no branch and stay visible to the unit.
+     * A WhatsApp conversation is visible to the linked lead's owner and to
+     * admins only. A conversation with no lead attached (or a lead nobody
+     * owns yet) has no owner to match, so it stays admin-only until someone
+     * claims the lead.
      */
-    let branchSql = '';
-    const branchIds = Array.isArray(filters.branchIds)
-      ? filters.branchIds.map(Number).filter(Number.isFinite) : [];
-    if (branchIds.length) {
-      branchSql = ` AND (c.lead_id IS NULL OR l.branch_id IN (${branchIds.map(() => '?').join(',')}))`;
-      params.push(...branchIds);
-    } else if (filters.restrictToBranches) {
-      // Told to restrict but holding no branches: no lead conversations.
-      branchSql = ' AND c.lead_id IS NULL';
+    let ownerSql = '';
+    if (!filters.isAdmin) {
+      const employeeId = Number(filters.employeeId);
+      if (Number.isInteger(employeeId) && employeeId > 0) {
+        ownerSql = ' AND l.owner_employee_id = ?';
+        params.push(employeeId);
+      } else {
+        ownerSql = ' AND 1=0';
+      }
     }
 
     if (filters.search) {
@@ -1723,7 +1724,7 @@ export class IntegrationHubService {
        LEFT JOIN branches b ON b.id=l.branch_id
        LEFT JOIN crm_lead_stages s ON s.id=l.stage_id
        WHERE c.organization_id = ? AND c.business_unit_id = ?
-             ${branchSql} ${searchSql} ${incomingSql}
+             ${ownerSql} ${searchSql} ${incomingSql}
        ORDER BY c.last_message_time DESC
        LIMIT ${limit} OFFSET ${offset}`,
       params
@@ -1735,7 +1736,9 @@ export class IntegrationHubService {
    * Messages in one conversation.
    *
    * Scoped to the business unit as well, or the list could be narrowed while
-   * the thread behind it stayed readable by passing its id.
+   * the thread behind it stayed readable by passing its id. Also scoped to
+   * the linked lead's owner (admins exempt) so a conversation hidden from
+   * the inbox list cannot be read directly by guessing its id.
    */
   async getWhatsAppConversationMessages(organizationId, conversationId, filters = {}) {
     const limit = Math.min(Math.max(Number(filters.limit) || 50, 1), 100);
@@ -1748,12 +1751,23 @@ export class IntegrationHubService {
       beforeSql = ' AND m.id < ?';
       params.push(beforeId);
     }
+    let ownerSql = '';
+    if (!filters.isAdmin) {
+      const employeeId = Number(filters.employeeId);
+      if (Number.isInteger(employeeId) && employeeId > 0) {
+        ownerSql = ' AND lead.owner_employee_id = ?';
+        params.push(employeeId);
+      } else {
+        ownerSql = ' AND 1=0';
+      }
+    }
     const [rows] = await this.pool.query(
       `SELECT m.*
        FROM crm_whatsapp_messages m
        JOIN crm_whatsapp_conversations c ON c.id = m.conversation_id
+       LEFT JOIN crm_leads lead ON lead.id = c.lead_id AND lead.deleted_at_utc IS NULL
        WHERE m.conversation_id = ? AND c.organization_id = ?
-             AND c.business_unit_id = ? ${beforeSql}
+             AND c.business_unit_id = ? ${ownerSql} ${beforeSql}
        ORDER BY m.id DESC
        LIMIT ${limit}`,
       params
@@ -1829,14 +1843,28 @@ export class IntegrationHubService {
   }
 
   /** Scoped to the unit for the same reason the read paths are. */
-  async markWhatsAppConversationRead(organizationId, conversationId, businessUnitId) {
-    const unitId = Number(businessUnitId);
+  async markWhatsAppConversationRead(organizationId, conversationId, scope = {}) {
+    const unitId = Number(scope.businessUnitId);
     if (!Number.isInteger(unitId) || unitId <= 0) return { success: false };
+    const params = [conversationId, organizationId, unitId];
+    let ownerSql = '';
+    if (!scope.isAdmin) {
+      const employeeId = Number(scope.employeeId);
+      if (Number.isInteger(employeeId) && employeeId > 0) {
+        ownerSql = ` AND EXISTS (
+          SELECT 1 FROM crm_leads lead
+          WHERE lead.id = crm_whatsapp_conversations.lead_id AND lead.owner_employee_id = ?
+        )`;
+        params.push(employeeId);
+      } else {
+        ownerSql = ' AND 1=0';
+      }
+    }
     await this.pool.query(
       `UPDATE crm_whatsapp_conversations
        SET unread_count = 0, updated_at = NOW()
-       WHERE id = ? AND organization_id = ? AND business_unit_id = ?`,
-      [conversationId, organizationId, unitId]
+       WHERE id = ? AND organization_id = ? AND business_unit_id = ? ${ownerSql}`,
+      params
     );
     return { success: true };
   }

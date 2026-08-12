@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Filter, Pencil, Play, Megaphone, Plus, Save, Trash2, Workflow, Zap } from "lucide-react";
+import { ArrowLeft, Filter, Pencil, Play, Megaphone, Plus, Save, Trash2, UserCog, Workflow, Zap } from "lucide-react";
 import { api } from "./api";
 import { useBusinessUnit } from "./BusinessUnitContext.jsx";
 import { MultiSearchSelect, SearchSelect } from "./FilterWorkspace.jsx";
 import { MarketingCampaignList } from "./MarketingCampaigns.jsx";
+import { AssignmentRuleList } from "./AssignmentRules.jsx";
 
 const categories = [
   {
@@ -81,6 +82,7 @@ export default function AutomationPage() {
   const [view, setView] = useState("list"),
     [items, setItems] = useState([]),
     [campaigns, setCampaigns] = useState([]),
+    [assignmentRules, setAssignmentRules] = useState([]),
     [meta, setMeta] = useState(null),
     [whatsappIntegrations, setWhatsappIntegrations] = useState([]),
     [whatsappTemplates, setWhatsappTemplates] = useState({}),
@@ -89,6 +91,7 @@ export default function AutomationPage() {
     [notice, setNotice] = useState(""),
     [editingId, setEditingId] = useState(null);
   const [automationTab, setAutomationTab] = useState("workflows");
+  const [ruleModal, setRuleModal] = useState(null); // null | { editingRule: rule|null }
   const [activeStep, setActiveStep] = useState("if");
   const [form, setForm] = useState({
     name: "",
@@ -101,16 +104,18 @@ export default function AutomationPage() {
     noRecheckAfterDelay: false,
   });
   async function load() {
-    const [workflows, leadMeta, integrations, campaignResult] =
+    const [workflows, leadMeta, integrations, campaignResult, ruleResult] =
       await Promise.all([
       api("/automations"),
       api("/leads/meta"),
       api("/whatsapp/integrations?provider=SMARTPING"),
       api("/marketing-campaigns"),
+      api("/assignment-rules"),
     ]);
     setItems(workflows.data);
     setMeta(leadMeta);
     setCampaigns(campaignResult.data || []);
+    setAssignmentRules(ruleResult.data || []);
     setWhatsappIntegrations(
       (integrations.data || []).filter(
         (item) =>
@@ -124,10 +129,12 @@ export default function AutomationPage() {
   useEffect(() => {
     setItems([]);
     setCampaigns([]);
+    setAssignmentRules([]);
     setMeta(null);
     setWhatsappTemplates({});
     setView("list");
     setEditingId(null);
+    setRuleModal(null);
     load().catch((error) => setNotice(error.message));
   }, [selectedId]);
   const visible = useMemo(
@@ -583,6 +590,27 @@ export default function AutomationPage() {
     setNotice(result.message);
     await load();
   }
+  async function createAssignmentRule(payload) {
+    await api("/assignment-rules", { method: "POST", body: JSON.stringify(payload) });
+    setNotice("Assignment rule created");
+    await load();
+  }
+  async function updateAssignmentRule(rule, payload) {
+    await api(`/assignment-rules/${rule.id}`, { method: "PUT", body: JSON.stringify(payload) });
+    setNotice("Assignment rule updated");
+    await load();
+  }
+  async function toggleAssignmentRuleStatus(rule) {
+    await api(`/assignment-rules/${rule.id}/status`, {
+      method: "PUT",
+      body: JSON.stringify({ isActive: !rule.isActive }),
+    });
+    await load();
+  }
+  async function deleteAssignmentRule(rule) {
+    await api(`/assignment-rules/${rule.id}`, { method: "DELETE" });
+    await load();
+  }
   if (view === "builder")
     return (
       <main className="page automation-page">
@@ -922,10 +950,22 @@ export default function AutomationPage() {
         >
           <Megaphone /> Bulk campaigns <span>{campaigns.length}</span>
         </button>
-        </nav>
-        <button className="primary" onClick={() => begin("attribute")}>
-          <Plus size={18} /> Add workflow
+        <button
+          className={automationTab === "assignmentRules" ? "active" : ""}
+          onClick={() => setAutomationTab("assignmentRules")}
+        >
+          <UserCog /> Assignment rules <span>{assignmentRules.length}</span>
         </button>
+        </nav>
+        {automationTab === "assignmentRules" ? (
+          <button className="primary" onClick={() => setRuleModal({ editingRule: null })}>
+            <Plus size={18} /> Add assignment rule
+          </button>
+        ) : (
+          <button className="primary" onClick={() => begin("attribute")}>
+            <Plus size={18} /> Add workflow
+          </button>
+        )}
       </div>
       {notice && <div className="notice success">{notice}</div>}
       {automationTab === "campaigns" ? (
@@ -935,6 +975,22 @@ export default function AutomationPage() {
             updateCampaignStatus(campaign, statusValue).catch((error) =>
               setNotice(error.message),
             )
+          }
+        />
+      ) : automationTab === "assignmentRules" ? (
+        <AssignmentRuleList
+          rules={assignmentRules}
+          meta={meta || { branches: [], sources: [], employees: [] }}
+          modal={ruleModal}
+          onOpenEdit={(rule) => setRuleModal({ editingRule: rule })}
+          onCloseModal={() => setRuleModal(null)}
+          onCreate={createAssignmentRule}
+          onUpdate={updateAssignmentRule}
+          onToggleStatus={(rule) =>
+            toggleAssignmentRuleStatus(rule).catch((error) => setNotice(error.message))
+          }
+          onDelete={(rule) =>
+            deleteAssignmentRule(rule).catch((error) => setNotice(error.message))
           }
         />
       ) : (

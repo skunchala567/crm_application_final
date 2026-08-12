@@ -1,4 +1,4 @@
-# Fixing the Meta webhook: routing `/api` to the Node API
+# Fixing the webhooks: routing `/api` (and root POSTs) to the Node API
 
 ## What is wrong
 
@@ -14,13 +14,29 @@ Meta reads that as **"delivered successfully"**, marks the lead as sent, and
 never tries again. The lead is lost without any error appearing anywhere. That
 is why *Recent imports* in the CRM is empty.
 
-Nothing is wrong with the CRM's code. The webhook works correctly and has been
-tested. Only the routing in front of it is wrong.
+The same thing happens to WhatsApp: Smartping registered the bare domain
+`https://crm.test.marketfarmer.in/` as its webhook URL, so incoming WhatsApp
+messages arrive as `POST /`, get the React page back with HTTP 200, and are
+silently dropped. That is why the WhatsApp inbox never shows replies.
+
+Nothing is wrong with the CRM's code. The webhooks work correctly and have
+been tested. Only the routing in front of them is wrong.
 
 ## What the fix does
 
-It tells Apache: anything starting with `/api/` goes to the CRM's API on the
-server; everything else keeps going to the website, exactly as now.
+It tells Apache two things:
+
+1. anything starting with `/api/` goes to the CRM's API on the server;
+2. a `POST` to the bare domain `/` is forwarded to the API's Smartping
+   webhook endpoint (`/api/webhooks/smartping/webhook`).
+
+Everything else keeps going to the website, exactly as now — opening
+`https://crm.test.marketfarmer.in/` in a browser (a `GET`) still shows the CRM.
+
+If Smartping's dashboard allows editing the webhook URL, the cleaner long-term
+setup is to point it directly at
+`https://crm.test.marketfarmer.in/api/webhooks/smartping/webhook` — the root
+forward then simply becomes a harmless safety net.
 
 ## How to run it
 
@@ -61,4 +77,15 @@ curl -i https://crm.test.marketfarmer.in/api/meta/webhook
 
 - **Correct:** `HTTP/1.1 403 Forbidden` — the API is refusing a webhook call
   that has no verification details, which is exactly what it should do.
+- **Still broken:** `HTTP/1.1 200 OK` with `Content-Type: text/html`.
+
+For the Smartping webhook:
+
+```bash
+curl -i -X POST -H 'Content-Type: application/json' -d '{}' https://crm.test.marketfarmer.in/
+```
+
+- **Correct:** `HTTP/1.1 400 Bad Request` with a JSON body saying
+  `messageId and mobile number are required` — the API received the POST and
+  rejected the empty test payload, which is exactly what it should do.
 - **Still broken:** `HTTP/1.1 200 OK` with `Content-Type: text/html`.

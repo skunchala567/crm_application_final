@@ -510,8 +510,14 @@ function leadScopedWhere(user, widerScope = null, options = {}) {
 
     if (branchIds.length === 0) return { sql: '1=0', params: [] };
     const placeholders = branchIds.map(() => '?').join(',');
+    // A lead with no branch (currently only WhatsApp-originated leads
+    // awaiting a claim -- see webhook.routes.js) belongs to no one's branch
+    // list, so the branch test alone would hide it from everyone. Letting it
+    // through here leaves the narrow (own/team/department) predicate below
+    // as the sole gate, which is exactly "owner and admin only" once someone
+    // claims it, and "admin only" (unrestricted, above) until then.
     const restricted = compose({
-        sql: `(l.branch_id IN (${placeholders}) OR l.referred_to_branch_id IN (${placeholders}))`,
+        sql: `(l.branch_id IN (${placeholders}) OR l.referred_to_branch_id IN (${placeholders}) OR l.branch_id IS NULL)`,
         params: [...branchIds, ...branchIds],
     });
 

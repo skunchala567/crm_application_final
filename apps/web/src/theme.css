@@ -164,6 +164,34 @@ table th{background:var(--surface-3)}.avatar.muted{background:var(--accent-soft)
   .automation-tab-bar>.primary{width:100%;justify-content:center}
 }
 
+/* Assignment rules status pill, mirroring the other status pills in the app
+   (e.g. payment forms) but scoped to this table so it can't pick up an
+   unrelated ".status" rule from another page. */
+.assignment-rule-status{display:inline-flex;padding:4px 10px;border-radius:12px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+.assignment-rule-status.active{background:var(--primary-soft);color:var(--primary)}
+.assignment-rule-status.inactive{background:var(--line-2);color:var(--muted)}
+/* Same specificity trick as .automation-row-actions .icon-btn.danger above:
+   needs to out-rank ".automation-page .icon-btn{color:var(--ink)}" so the
+   enable/disable icon keeps its red/green tint instead of going flat ink. */
+.automation-row-actions .icon-btn.status-action.deactivate{color:#c33d35}
+.automation-row-actions .icon-btn.status-action.activate{color:var(--brand-600)}
+
+/* Add/Edit Assignment Rule: centered modal. No shared modal component exists
+   in the main app shell (other screens use a side drawer), so this is its
+   own small, self-contained overlay rather than importing another page's
+   modal CSS wholesale. */
+.assignment-rule-overlay{position:fixed;inset:0;z-index:120;background:color-mix(in srgb, var(--ink-900) 40%, transparent);display:flex;align-items:center;justify-content:center;padding:20px}
+.assignment-rule-modal{width:min(560px,100%);max-height:90vh;overflow-y:auto;background:#fff;border-radius:14px;box-shadow:0 24px 60px color-mix(in srgb, var(--ink-900) 22%, transparent)}
+.assignment-rule-modal .modal-header{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--border)}
+.assignment-rule-modal .modal-header h2{margin:0;font:800 17px 'Plus Jakarta Sans'}
+.assignment-rule-modal .modal-header button{border:0;background:transparent;color:var(--muted);display:grid;place-items:center;width:30px;height:30px;border-radius:8px}
+.assignment-rule-modal .modal-header button:hover{background:var(--ink-100);color:var(--ink)}
+.assignment-rule-modal form{display:grid;gap:14px;padding:20px 22px}
+.assignment-rule-modal form>label{display:grid;gap:6px;font-size:12px;font-weight:700;color:var(--ink-600)}
+.assignment-rule-modal form>label>input{height:42px;border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:0 12px;font-size:13px;color:var(--ink)}
+.assignment-rule-modal .modal-footer{display:flex;justify-content:flex-end;gap:10px;padding:16px 22px;border-top:1px solid var(--border)}
+@media(max-width:650px){.assignment-rule-modal{width:100%}}
+
 /* Actions-only row left behind where a page header was removed. Keeps the
    buttons right-aligned without reserving header-sized whitespace. */
 .page-action-row{display:flex;align-items:center;justify-content:flex-end;gap:9px;margin:0 0 16px;flex-wrap:wrap;min-height:0;padding:0;border:0;background:none}

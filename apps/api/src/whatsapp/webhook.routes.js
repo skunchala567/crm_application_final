@@ -3,7 +3,88 @@
 // Receives template status updates from AiSensy
 // =====================================================
 
+import crypto from 'node:crypto';
 import express from 'express';
+
+/**
+ * A first-time inbound message from a number with no matching lead becomes
+ * one -- unbranched and unassigned until someone in the CRM claims it (see
+ * leadScopedWhere in app.js, which is what keeps it hidden from everyone but
+ * admins until then). Channel and source are both fixed to WhatsApp.
+ *
+ * Guarded with GET_LOCK, mirroring the public-enquiry-form lead-creation
+ * path in app.js: two webhook deliveries for the same brand-new number
+ * arriving close together must not create two leads.
+ */
+async function createLeadFromWhatsApp(pool, { businessUnitId, integrationId, mobile, normalizedMobile, contactName }, logger) {
+  const lockName = `crm-whatsapp-lead:${businessUnitId}:${normalizedMobile}`;
+  const connection = await pool.getConnection();
+  try {
+    const [[lock]] = await connection.query('SELECT GET_LOCK(?,10) AS acquired', [lockName]);
+    if (!Number(lock.acquired)) return null;
+    await connection.beginTransaction();
+    const [[existing]] = await connection.query(
+      `SELECT id FROM crm_leads WHERE normalized_phone=? AND deleted_at_utc IS NULL
+       ORDER BY updated_at_utc DESC LIMIT 1`,
+      [normalizedMobile]
+    );
+    if (existing) {
+      await connection.commit();
+      return existing.id;
+    }
+    // crm_lead_stages is scoped per business unit (041_business_unit_shared_lead_pipeline),
+    // so 'new' must be looked up within this lead's own unit.
+    const [[stage]] = await connection.query(
+      `SELECT id FROM crm_lead_stages WHERE business_unit_id=? AND name='new' LIMIT 1`,
+      [businessUnitId]
+    );
+    const [[source]] = await connection.query(`SELECT id FROM crm_lead_sources WHERE name='whatsapp' LIMIT 1`);
+    const [[channel]] = await connection.query(`SELECT id FROM crm_lead_channels WHERE channel_code='whatsapp' LIMIT 1`);
+    const [[creator]] = await connection.query(
+      `SELECT COALESCE(
+         i.created_by,
+         (SELECT u.id FROM app_users u
+          JOIN user_roles ur ON ur.user_id=u.id
+          JOIN roles r ON r.id=ur.role_id
+          WHERE r.normalized_name IN ('CRM_ADMIN','SUPER_ADMIN')
+          ORDER BY u.id LIMIT 1)
+       ) AS id
+       FROM crm_integrations i WHERE i.id=?`,
+      [integrationId]
+    );
+    if (!stage?.id || !creator?.id) {
+      await connection.commit();
+      return null;
+    }
+    const temporaryNumber = `PENDING-${crypto.randomUUID()}`;
+    const [result] = await connection.query(
+      `INSERT INTO crm_leads
+        (business_unit_id, lead_number, branch_id, student_name, phone, normalized_phone,
+         stage_id, source_id, channel_id, owner_employee_id, remarks, created_by_user_id)
+       VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+      [
+        businessUnitId, temporaryNumber,
+        contactName || `WhatsApp ${mobile}`,
+        mobile, normalizedMobile,
+        stage.id, source?.id || null, channel?.id || null,
+        'Auto-created from an inbound WhatsApp message.',
+        creator.id
+      ]
+    );
+    const leadNumber = `ADM-${new Date().getFullYear()}-${String(result.insertId).padStart(6, '0')}`;
+    await connection.query('UPDATE crm_leads SET lead_number=? WHERE id=?', [leadNumber, result.insertId]);
+    await connection.commit();
+    logger.info('[Webhook] Auto-created lead from inbound WhatsApp message', { leadId: result.insertId, mobile });
+    return result.insertId;
+  } catch (error) {
+    await connection.rollback().catch(() => {});
+    logger.error('[Webhook] Failed to auto-create lead from WhatsApp message', { message: error.message, mobile });
+    return null;
+  } finally {
+    await connection.query('SELECT RELEASE_LOCK(?)', [lockName]).catch(() => {});
+    connection.release();
+  }
+}
 
 export function createWebhookRoutes(pool, logger = console) {
   const router = express.Router();
@@ -155,6 +236,16 @@ export function createWebhookRoutes(pool, logger = console) {
         'SELECT id FROM crm_business_units WHERE is_default=TRUE ORDER BY id LIMIT 1'
       );
       const conversationUnitId = linkedLead?.businessUnitId || fallbackUnit?.id || null;
+      let leadId = linkedLead?.id || null;
+      if (!leadId && direction === 'incoming' && normalizedMobile && conversationUnitId) {
+        leadId = await createLeadFromWhatsApp(pool, {
+          businessUnitId: conversationUnitId,
+          integrationId: integration.id,
+          mobile,
+          normalizedMobile,
+          contactName: payload.contact_name || payload.userName || null,
+        }, logger);
+      }
       const [conversationResult] = await pool.query(
         `INSERT INTO crm_whatsapp_conversations
           (organization_id, business_unit_id, integration_id, mobile, contact_name, lead_id, last_message,
@@ -175,7 +266,7 @@ export function createWebhookRoutes(pool, logger = console) {
           integration.id,
           mobile,
           payload.contact_name || payload.userName || null,
-          linkedLead?.id || null,
+          leadId,
           text || `[${payload.type || 'message'}]`,
           direction === 'incoming' ? 1 : 0
         ]
@@ -190,7 +281,7 @@ export function createWebhookRoutes(pool, logger = console) {
         [
           conversationId,
           integration.id,
-          linkedLead?.id || null,
+          leadId,
           messageId,
           `webhook:${messageId}`,
           direction,

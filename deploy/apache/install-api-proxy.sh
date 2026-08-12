@@ -122,6 +122,41 @@ PY
 fi
 
 # --------------------------------------------------------------------------
+say "5b. Forwarding webhook POSTs on the bare domain to the API"
+# --------------------------------------------------------------------------
+# Smartping registered https://${DOMAIN}/ (no path) as its webhook URL, so
+# incoming WhatsApp messages arrive as POST /. Without this rule Apache
+# answers them with the React index.html and HTTP 200, and the messages are
+# silently dropped. Only POST is forwarded; GET / keeps serving the app.
+if grep -q "api/webhooks/smartping/webhook" "$TARGET"; then
+  ok "root POST forward already present - leaving it alone"
+else
+  python3 - "$TARGET" "$API_PORT" <<'PY'
+import re, sys
+path, port = sys.argv[1], sys.argv[2]
+src = open(path).read()
+
+block = f"""
+    # --- CRM webhook root-POST forward (added by install-api-proxy.sh) ---
+    # Smartping's webhook URL is the bare domain. Send only POST / to the
+    # API's webhook endpoint; every other request to / is left to the SPA.
+    RewriteEngine On
+    RewriteCond %{{REQUEST_METHOD}} =POST
+    RewriteRule ^/?$ http://127.0.0.1:{port}/api/webhooks/smartping/webhook [P,L]
+    # --- end CRM webhook root-POST forward ---
+"""
+
+m = re.search(r'(<VirtualHost[^>]*>)', src)
+if not m:
+    sys.exit("no <VirtualHost> opening tag found")
+src = src[:m.end()] + "\n" + block + src[m.end():]
+open(path, 'w').write(src)
+print("inserted root-POST forward")
+PY
+  ok "root POST forward added"
+fi
+
+# --------------------------------------------------------------------------
 say "6. Making sure the React fallback skips /api"
 # --------------------------------------------------------------------------
 # A SPA fallback usually rewrites everything to index.html. If it does not
@@ -174,6 +209,16 @@ esac
 
 FRONT="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "https://${DOMAIN}/" || echo 000)"
 [ "$FRONT" = "200" ] && ok "the CRM front end still loads (HTTP 200)" || bad "front end returned HTTP ${FRONT} - check ${BACKUP}"
+
+# A POST to the bare domain must reach the API, not the React page. An empty
+# JSON body is rejected by the API with a JSON error - that JSON content type
+# is exactly the proof that the webhook forward works.
+HOOK_CT="$(curl -s -o /dev/null -w '%{content_type}' --max-time 15 -X POST -H 'Content-Type: application/json' -d '{}' "https://${DOMAIN}/" || echo unknown)"
+case "$HOOK_CT" in
+  *json*) ok "POST / reaches the API webhook (Smartping messages will be stored)" ;;
+  *html*) bad "POST / still returns HTML - Smartping webhooks are being dropped." ;;
+  *) warn "POST / returned unexpected content type: ${HOOK_CT}" ;;
+esac
 
 say "Done."
 echo "  Backup of the original vhost: ${BACKUP}"
