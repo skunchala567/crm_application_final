@@ -204,6 +204,15 @@ async function performExecution(pool, execution, handlers) {
       if (!action.integrationId || !action.templateName || !action.templateBody) {
         throw new Error('WhatsApp account and approved template are required');
       }
+      // The organisation comes from the integration, not from the workflow's
+      // creator: created_by is a user id, and passing it as the organisation
+      // made the send fail with "Integration not found" for every workflow
+      // not authored by user 1.
+      const [[integrationOwner]] = await connection.execute(
+        'SELECT organization_id AS organizationId FROM crm_integrations WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+        [Number(action.integrationId)],
+      );
+      if (!integrationOwner) throw new Error('The selected WhatsApp account no longer exists');
       // The messaging service creates conversation/message rows that reference
       // this lead. Release the lead row lock before that separate service uses
       // another pooled connection, otherwise the FK check waits on our lock.
@@ -211,7 +220,7 @@ async function performExecution(pool, execution, handlers) {
       transactionOpen = false;
       const sent = await handlers.sendWhatsApp({
         integrationId: Number(action.integrationId),
-        organizationId: Number(claimed.created_by),
+        organizationId: Number(integrationOwner.organizationId),
         phoneNumber: claimed.phone,
         message: action.templateBody,
         options: {
@@ -319,7 +328,7 @@ export async function ensureAutomationRuntimeSchema(pool) {
         REFERENCES crm_automation_workflows(id) ON DELETE CASCADE,
       CONSTRAINT fk_crm_automation_execution_lead FOREIGN KEY (lead_id)
         REFERENCES crm_leads(id) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 
   // Append-only run history. The queue above is cleared whenever a workflow's
@@ -338,7 +347,7 @@ export async function ensureAutomationRuntimeSchema(pool) {
       KEY ix_crm_automation_log_workflow (workflow_id, executed_at_utc),
       CONSTRAINT fk_crm_automation_log_workflow FOREIGN KEY (workflow_id)
         REFERENCES crm_automation_workflows(id) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 }
 

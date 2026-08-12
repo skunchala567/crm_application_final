@@ -23,6 +23,8 @@ export default function WhatsAppInbox() {
   const [profileOpen, setProfileOpen] = useState(false);
   const selectedIdRef = useRef(null);
   const messageRequestRef = useRef(0);
+  const messagesScrollRef = useRef(null);
+  const scrollAnchorRef = useRef({ conversationId: null, lastMessageId: null });
 
   const selected = conversations.find((item) => Number(item.id) === Number(selectedId));
   const filtered = useMemo(() => {
@@ -79,6 +81,20 @@ export default function WhatsAppInbox() {
       messageRequestRef.current += 1;
     };
   }, [selectedId]);
+
+  useEffect(() => {
+    const container = messagesScrollRef.current;
+    if (!container || !messages.length) return;
+    const lastMessageId = messages[messages.length - 1]?.id ?? null;
+    const anchor = scrollAnchorRef.current;
+    const conversationChanged = anchor.conversationId !== selectedId;
+    if (!conversationChanged && anchor.lastMessageId === lastMessageId) return;
+    // Keep the reader's place in history: only follow new messages when the
+    // view is already near the bottom (or the conversation just opened).
+    const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 120;
+    scrollAnchorRef.current = { conversationId: selectedId, lastMessageId };
+    if (conversationChanged || nearBottom) container.scrollTop = container.scrollHeight;
+  }, [messages, selectedId]);
 
   useEffect(() => {
     if (!selected?.lead_id) {
@@ -138,7 +154,7 @@ export default function WhatsAppInbox() {
         <section className="wa-inbox-chat">
           {selected ? <>
             <header><span className="wa-inbox-avatar">{String(selected.contact_name || selected.student_name || selected.mobile).charAt(0).toUpperCase()}</span><div><strong>{selected.contact_name || selected.student_name || selected.mobile}</strong><small>+91 {cleanPhone(selected.mobile)} · {selected.integration_name}</small></div><span className="wa-sync-state"><CheckCheck /> Synced</span><button type="button" className="wa-profile-toggle" title="View lead details" aria-label="View lead details" onClick={() => setProfileOpen(true)}><UserRound /></button></header>
-            <div className="wa-inbox-messages">
+            <div className="wa-inbox-messages" ref={messagesScrollRef}>
               {messages.map((message) => <article key={message.id} className={String(message.direction).toLowerCase()}>
                 {message.media_url && <a href={message.media_url} target="_blank" rel="noreferrer">View attachment</a>}
                 <p>{message.message || message.caption || `[${message.type}]`}</p>

@@ -228,7 +228,7 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
           REFERENCES crm_whatsapp_templates(id) ON DELETE CASCADE,
         CONSTRAINT fk_whatsapp_template_visibility_user FOREIGN KEY (user_id)
           REFERENCES app_users(id) ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
     visibilitySchemaReady = true;
   }
@@ -316,15 +316,18 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
   router.get('/integrations', authenticate, async (req, res, next) => {
     try {
       await ensureWhatsAppPricingSchema();
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const { provider } = req.query;
 
       let query = 'SELECT * FROM crm_integrations WHERE organization_id = ? AND deleted_at IS NULL';
       const params = [organizationId];
 
       if (provider) {
-        query += ' AND type = ?';
-        params.push(provider.toUpperCase());
+        // Older rows carry the ENUM in `type`; hub-created rows also set
+        // `provider` (e.g. 'smartping'). Accept either so an account is not
+        // hidden by which of the two columns happened to be filled in.
+        query += " AND (UPPER(COALESCE(type, '')) = ? OR UPPER(COALESCE(provider, '')) = ?)";
+        params.push(provider.toUpperCase(), provider.toUpperCase());
       }
 
       const [integrations] = await pool.query(query, params);
@@ -364,7 +367,7 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
   router.get('/dashboard', authenticate, async (req, res, next) => {
     try {
       await ensureWhatsAppPricingSchema();
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const days = Math.min(Math.max(Number(req.query.days || 7), 1), 365);
       const from = String(req.query.from || '').slice(0, 10);
       const to = String(req.query.to || '').slice(0, 10);
@@ -517,7 +520,7 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
    */
   router.get('/integrations/:integrationId', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.integrationId);
 
       if (isNaN(integrationId)) {
@@ -731,7 +734,7 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
    */
   router.post('/integrations/:integrationId/sync', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.integrationId);
 
       if (isNaN(integrationId)) {
@@ -760,7 +763,7 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
    */
   router.get('/integrations/:integrationId/templates/status/counts', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.integrationId);
 
       if (isNaN(integrationId)) {

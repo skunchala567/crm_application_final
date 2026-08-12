@@ -22,7 +22,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
           REFERENCES crm_whatsapp_templates(id) ON DELETE CASCADE,
         CONSTRAINT fk_whatsapp_template_visibility_user FOREIGN KEY (user_id)
           REFERENCES app_users(id) ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
     templateVisibilitySchemaReady = true;
   }
@@ -111,7 +111,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // List integrations
   router.get('/integrations', async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const { status, type, provider, page = 1, limit = 20 } = req.query;
 
       const integrations = await service.listIntegrations(organizationId, {
@@ -135,7 +135,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Get integration details
   router.get('/integrations/:id', async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.id);
 
       const integration = await service.getIntegration(integrationId, organizationId);
@@ -152,7 +152,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Debug: Check what token is stored
   router.get('/integrations/:id/debug/token-info', async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.id);
 
       const integration = await service.getIntegration(integrationId, organizationId);
@@ -181,7 +181,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Create integration
   router.post('/integrations', async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const { integrationName, integrationType, providerName, config } = req.body;
 
       if (!integrationName || !integrationType || !providerName) {
@@ -206,7 +206,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Update integration
   router.put('/integrations/:id', async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.id);
       const { integrationName, config, status } = req.body;
 
@@ -232,7 +232,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Delete/Disconnect integration
   router.delete('/integrations/:id', async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.id);
 
       await service.deleteIntegration(integrationId, organizationId, req.user.id);
@@ -247,7 +247,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
 
   router.post('/integrations/:id/test-connection', async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.id);
 
       const result = await service.testConnection(integrationId, organizationId);
@@ -265,7 +265,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Start OAuth flow
   router.post('/integrations/:id/auth/start', async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.id);
       const { callbackUrl } = req.body;
 
@@ -313,7 +313,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // OAuth callback
   router.post('/integrations/:id/auth/callback', async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.id);
       const { code, state } = req.body;
 
@@ -345,7 +345,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Refresh OAuth token
   router.post('/integrations/:id/auth/refresh', async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.id);
 
       const result = await service.refreshOAuthToken(integrationId, organizationId);
@@ -359,7 +359,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Disconnect OAuth
   router.post('/integrations/:id/auth/disconnect', async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.id);
 
       const result = await service.disconnectOAuth(integrationId, organizationId, req.user.id);
@@ -375,7 +375,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Start manual sync
   router.post('/integrations/:id/sync/manual', async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.id);
       const { options } = req.body;
 
@@ -409,7 +409,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Get sync history
   router.get('/integrations/:id/sync/history', async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.id);
       const { status, since, page = 1, limit = 20 } = req.query;
 
@@ -430,7 +430,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
 
   router.get('/integrations/:id/field-mappings', async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.id);
 
       const mappings = await service.getFieldMappings(integrationId, organizationId);
@@ -443,7 +443,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
 
   router.post('/integrations/:id/field-mappings', async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.id);
       const mappingData = req.body;
 
@@ -459,7 +459,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
 
   router.get('/integrations/:id/errors', async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.id);
 
       const errors = await service.getErrors(integrationId, organizationId);
@@ -487,7 +487,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
 
   router.get('/integrations/:id/audit-logs', async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.id);
 
       const logs = await service.getAuditLogs(integrationId, organizationId);
@@ -503,7 +503,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Import data from external source
   router.post('/integrations/:id/import', async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.id);
       const { options } = req.body || {};
 
@@ -518,7 +518,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Export data to external destination
   router.post('/integrations/:id/export', async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.id);
       const { options } = req.body || {};
 
@@ -535,7 +535,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // List available spreadsheets
   router.get('/integrations/:integrationId/spreadsheets', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.integrationId);
 
       // Check if integration exists and is authorized
@@ -572,7 +572,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Select a spreadsheet for this integration
   router.post('/integrations/:integrationId/spreadsheets/:sheetId/select', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.integrationId);
       const sheetId = req.params.sheetId;
       const { sheetName } = req.body;
@@ -617,21 +617,21 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
 
   router.get('/integrations/:integrationId/sheet-sources', authenticate, async (req, res, next) => {
     try {
-      const sources = await service.listSheetSources(Number(req.params.integrationId), req.user?.id || 1);
+      const sources = await service.listSheetSources(Number(req.params.integrationId), req.user?.organizationId || 1);
       res.json({ success: true, data: sources });
     } catch (error) { next(error); }
   });
 
   router.post('/integrations/:integrationId/sheet-sources', authenticate, async (req, res, next) => {
     try {
-      const source = await service.addSheetSource(Number(req.params.integrationId), req.user?.id || 1, req.body || {});
+      const source = await service.addSheetSource(Number(req.params.integrationId), req.user?.organizationId || 1, req.body || {});
       res.status(201).json({ success: true, data: source });
     } catch (error) { next(error); }
   });
 
   router.delete('/integrations/:integrationId/sheet-sources/:sourceId', authenticate, async (req, res, next) => {
     try {
-      await service.removeSheetSource(Number(req.params.integrationId), req.user?.id || 1, req.params.sourceId);
+      await service.removeSheetSource(Number(req.params.integrationId), req.user?.organizationId || 1, req.params.sourceId);
       res.json({ success: true, message: 'Sheet source removed' });
     } catch (error) { next(error); }
   });
@@ -639,7 +639,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   router.post('/integrations/:integrationId/sheet-sources/:sourceId/import', authenticate, async (req, res, next) => {
     try {
       const integrationId = Number(req.params.integrationId);
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const sources = await service.listSheetSources(integrationId, organizationId);
       const source = sources.find(item => item.id === req.params.sourceId);
       if (!source) return res.status(404).json({ success: false, message: 'Sheet source not found' });
@@ -659,7 +659,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
     try {
       const rows = await service.getSheetSourceHistory(
         Number(req.params.integrationId),
-        req.user?.id || 1,
+        req.user?.organizationId || 1,
         req.params.sourceId
       );
       res.json({ success: true, data: rows });
@@ -670,7 +670,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
     try {
       const rows = await service.getSkippedSheetLeads(
         Number(req.params.integrationId),
-        req.user?.id || 1
+        req.user?.organizationId || 1
       );
       res.json({ success: true, data: rows });
     } catch (error) {
@@ -681,7 +681,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Get spreadsheet preview (first few rows and headers)
   router.get('/integrations/:integrationId/spreadsheets/:sheetId/preview', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.integrationId);
       const sheetId = req.params.sheetId;
 
@@ -743,7 +743,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Get sheet headers for mapping
   router.get('/integrations/:integrationId/field-mapping/headers', authenticate, requireCrmAccess, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.integrationId);
 
       const headers = await service.getSheetHeaders(integrationId, organizationId, req.query.sheetId || null);
@@ -763,7 +763,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Get current field mapping
   router.get('/integrations/:integrationId/field-mapping', authenticate, requireCrmAccess, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.integrationId);
 
       const mapping = await service.getFieldMapping(integrationId, organizationId, req.query.sourceId || null);
@@ -783,7 +783,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Save field mapping
   router.post('/integrations/:integrationId/field-mapping', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.integrationId);
       const { mappings, sourceId } = req.body;
 
@@ -807,7 +807,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Import data from Google Sheets to CRM
   router.post('/integrations/:integrationId/import', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.integrationId);
 
       const result = await service.importData(integrationId, organizationId);
@@ -821,7 +821,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Export data from CRM to Google Sheets
   router.post('/integrations/:integrationId/export', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.integrationId);
 
       const result = await service.exportData(integrationId, organizationId);
@@ -837,7 +837,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Send message to individual contact
   router.post('/integrations/:integrationId/smartping/send', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.integrationId);
       const {
         phoneNumber, message, templateName, campaignName, leadId, clientRequestId,
@@ -877,7 +877,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Send bulk messages to phone numbers
   router.post('/integrations/:integrationId/smartping/send-bulk', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.integrationId);
       const {
         phoneNumbers, message, templateName, campaignName, source, templateParams,
@@ -920,7 +920,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
 
   router.get('/smartping/message-history', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const data = await service.getSmartpingMessageHistory(organizationId, req.query);
       res.json({ success: true, data });
     } catch (error) {
@@ -943,7 +943,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
 
   router.get('/smartping/conversations', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const scope = inboxScope(req);
       const data = await service.getWhatsAppConversations(organizationId, {
         ...req.query,
@@ -959,7 +959,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
 
   router.get('/smartping/conversations/:conversationId/messages', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const data = await service.getWhatsAppConversationMessages(
         organizationId,
         Number(req.params.conversationId),
@@ -973,7 +973,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
 
   router.put('/smartping/conversations/:conversationId/read', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const data = await service.markWhatsAppConversationRead(
         organizationId,
         Number(req.params.conversationId),
@@ -987,7 +987,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
 
   router.post('/integrations/:integrationId/smartping/messages/:messageId/refresh', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const data = await service.refreshWhatsAppMessage(
         Number(req.params.integrationId),
         organizationId,
@@ -1001,7 +1001,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
 
   router.post('/smartping/messages/:messageId/retry', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const data = await service.retryWhatsAppMessage(organizationId, Number(req.params.messageId));
       res.json({ success: true, data });
     } catch (error) {
@@ -1012,7 +1012,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Create WhatsApp template
   router.post('/integrations/:integrationId/smartping/templates', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.integrationId);
       const templateData = req.body;
 
@@ -1031,7 +1031,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Get Smartping message templates
   router.get('/integrations/:integrationId/smartping/templates', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.integrationId);
 
       const templates = await service.getSmartpingTemplates(integrationId, organizationId);
@@ -1045,7 +1045,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Get specific template
   router.get('/integrations/:integrationId/smartping/templates/:templateId', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.integrationId);
       const templateId = req.params.templateId;
 
@@ -1099,7 +1099,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Initiate OAuth flow
   router.post('/oauth/initiate', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       let { integrationId, providerName, returnTo, confirmAccount } = req.body;
 
       // Ensure integrationId is a number
@@ -1137,7 +1137,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Refresh OAuth token
   router.post('/oauth/refresh/:integrationId', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.integrationId);
 
       const result = await service.refreshOAuthToken(integrationId, organizationId);
@@ -1151,7 +1151,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   // Disconnect OAuth
   router.post('/oauth/disconnect/:integrationId', authenticate, async (req, res, next) => {
     try {
-      const organizationId = req.user?.id || 1;
+      const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.integrationId);
 
       await service.disconnectOAuth(integrationId, organizationId, req.user?.id || null);

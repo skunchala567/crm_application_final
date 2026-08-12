@@ -39,6 +39,10 @@
   height: 100%;
   min-height: 0;
   min-width: 0;
+  /* Without an explicit row the implicit one auto-sizes to the tallest
+     column, growing past the fixed-height layout and clipping the panes,
+     so neither the conversation list nor the messages can scroll. */
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .wa-inbox-list,

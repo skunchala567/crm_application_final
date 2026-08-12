@@ -25,7 +25,7 @@ export async function ensureMarketingCampaignSchema(pool) {
         REFERENCES app_users(id) ON DELETE RESTRICT,
       CONSTRAINT fk_crm_marketing_campaign_integration FOREIGN KEY (integration_id)
         REFERENCES crm_integrations(id) ON DELETE RESTRICT
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS crm_marketing_campaign_touches (
@@ -46,7 +46,7 @@ export async function ensureMarketingCampaignSchema(pool) {
         REFERENCES crm_marketing_campaigns(id) ON DELETE CASCADE,
       CONSTRAINT fk_crm_marketing_touch_template FOREIGN KEY (template_id)
         REFERENCES crm_whatsapp_templates(id) ON DELETE RESTRICT
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
   const [touchColumns] = await pool.query(`
     SELECT COLUMN_NAME
@@ -85,7 +85,7 @@ export async function ensureMarketingCampaignSchema(pool) {
         REFERENCES crm_marketing_campaigns(id) ON DELETE CASCADE,
       CONSTRAINT fk_crm_marketing_recipient_lead FOREIGN KEY (lead_id)
         REFERENCES crm_leads(id) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS crm_marketing_campaign_deliveries (
@@ -112,7 +112,7 @@ export async function ensureMarketingCampaignSchema(pool) {
         REFERENCES crm_marketing_campaign_recipients(id) ON DELETE CASCADE,
       CONSTRAINT fk_crm_marketing_delivery_touch FOREIGN KEY (touch_id)
         REFERENCES crm_marketing_campaign_touches(id) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 }
 
@@ -150,8 +150,8 @@ export function createMarketingCampaignEngine(pool, { sendWhatsApp, logger = con
       await pool.query(`
         UPDATE crm_marketing_campaign_deliveries d
         JOIN crm_whatsapp_messages m
-          ON CONVERT(m.message_id USING utf8mb4) COLLATE utf8mb4_0900_ai_ci = d.whatsapp_message_id
-        SET d.status=CASE UPPER(CONVERT(m.status USING utf8mb4) COLLATE utf8mb4_0900_ai_ci)
+          ON CONVERT(m.message_id USING utf8mb4) COLLATE utf8mb4_unicode_ci = d.whatsapp_message_id
+        SET d.status=CASE UPPER(CONVERT(m.status USING utf8mb4) COLLATE utf8mb4_unicode_ci)
               WHEN 'READ' THEN 'READ'
               WHEN 'DELIVERED' THEN 'DELIVERED'
               WHEN 'FAILED' THEN 'FAILED'
@@ -161,7 +161,7 @@ export function createMarketingCampaignEngine(pool, { sendWhatsApp, logger = con
             END,
             d.error_message=COALESCE(m.failed_reason,d.error_message)
         WHERE d.status IN ('QUEUED','SENT','DELIVERED')
-          AND UPPER(CONVERT(m.status USING utf8mb4) COLLATE utf8mb4_0900_ai_ci) IN ('SENT','DELIVERED','READ','FAILED','REJECTED')
+          AND UPPER(CONVERT(m.status USING utf8mb4) COLLATE utf8mb4_unicode_ci) IN ('SENT','DELIVERED','READ','FAILED','REJECTED')
       `);
       await pool.query(`
         UPDATE crm_marketing_campaign_deliveries

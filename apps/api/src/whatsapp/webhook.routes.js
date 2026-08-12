@@ -11,33 +11,67 @@ export function createWebhookRoutes(pool, logger = console) {
   const handleMessageWebhook = async (req, res) => {
     try {
       const root = req.body || {};
-      const nested = root.data && typeof root.data === 'object'
-        ? root.data
-        : root.message && typeof root.message === 'object'
-          ? root.message
-          : root.eventData && typeof root.eventData === 'object'
-            ? root.eventData
-            : {};
+
+      // ── Payload normalisation ────────────────────────────────────────────
+      // Smartping wraps the actual message two levels deep:
+      //   root → root.data (object) → root.data.message (object)
+      // Older flat payloads (AiSensy, test calls) put fields directly in
+      // root.data, root.message, or root.eventData.
+      const dataLevel = root.data && typeof root.data === 'object' ? root.data : null;
+      const nested =
+        // Smartping v2: root.data.message holds the real message object
+        (dataLevel?.message && typeof dataLevel.message === 'object') ? dataLevel.message
+        // Flat data envelope: root.data has the fields directly
+        : dataLevel
+        // Legacy: root.message envelope
+        ?? (root.message && typeof root.message === 'object' ? root.message : null)
+        // Legacy: root.eventData envelope
+        ?? (root.eventData && typeof root.eventData === 'object' ? root.eventData : null)
+        ?? {};
+
+      // Merge so root-level fields (project_id, topic, etc.) are accessible
+      // alongside the unwrapped message fields.
       const payload = { ...root, ...nested };
+
+      // ── Message ID ──────────────────────────────────────────────────────
+      // Prefer the WhatsApp-native messageId (wamid.HBg...) over internal IDs.
       const messageId = payload.messageId || payload.message_id || payload.messageIdString
-        || payload.id || payload.key?.id || root.id;
+        || nested.id || payload.id || payload.key?.id || root.id;
+
+      // ── Status / sender / direction ─────────────────────────────────────
       const normalizedStatus = String(payload.status || 'RECEIVED').toUpperCase();
       const sender = String(payload.sender || payload.sender_type || payload.from_type || '').toUpperCase();
       const incomingSenders = new Set(['CONTACT', 'CUSTOMER', 'USER', 'CLIENT', 'RECEIVER']);
+      // topic 'message.sender.user' means the end-user (contact) sent the message.
+      const topicIsIncoming = typeof root.topic === 'string' && root.topic.includes('sender.user');
+      const hasExplicitInboundPhone = !!(payload.from || payload.phone_number || payload.phoneNumber);
+      const hasExplicitTo = !!(payload.to || payload.destination);
       const direction = String(
         payload.direction
         || root.direction
-        || (incomingSenders.has(sender) || root.eventType === 'user-event' ? 'incoming' : 'outgoing')
+        || (incomingSenders.has(sender) || root.eventType === 'user-event'
+            || topicIsIncoming
+            || (hasExplicitInboundPhone && !hasExplicitTo)
+          ? 'incoming'
+          : 'outgoing')
       ).toLowerCase();
+
+      // ── Phone number ─────────────────────────────────────────────────────
+      // Smartping incoming payloads use 'phone_number'. Outbound status
+      // callbacks use 'to' / 'destination'. Always fall back across both so
+      // a missing 'sender' field never drops a valid message.
       const mobileDigits = String(
         direction === 'incoming'
           ? payload.from || payload.phone_number || payload.phoneNumber || payload.mobile
             || payload.wa_id || payload.contact?.phone || payload.user?.phone
+            || payload.to || payload.destination
           : payload.to || payload.destination || payload.phone_number || payload.phoneNumber
-            || payload.mobile || payload.wa_id
+            || payload.mobile || payload.wa_id || payload.from
       ).replace(/\D/g, '');
       const mobile = /^91[6-9]\d{9}$/.test(mobileDigits) ? mobileDigits.slice(2) : mobileDigits;
-      const projectId = payload.project_id || payload.projectId || root.project_id || root.projectId;
+
+      // project_id lives at root level in Smartping's envelope.
+      const projectId = root.project_id || root.projectId || payload.project_id || payload.projectId;
 
       logger.info('[Webhook] WhatsApp message event received', {
         type: payload.type || root.type,
@@ -198,6 +232,9 @@ export function createWebhookRoutes(pool, logger = console) {
   // replies while newer AiSensy connections use the canonical endpoint.
   router.post('/whatsapp/messages', handleMessageWebhook);
   router.post('/smartping/webhook', handleMessageWebhook);
+  // Smartping registered the bare domain as its webhook URL, so message
+  // events also arrive at the mount root with no path of their own.
+  router.post('/', handleMessageWebhook);
 
   /**
    * Webhook endpoint for template status updates
