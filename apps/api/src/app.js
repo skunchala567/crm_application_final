@@ -29,6 +29,7 @@ import { scopeNarrowingSql, scopeCovers } from './rbac/permission-service.js';
 import { createRbacRoutes } from './rbac/rbac.routes.js';
 import { bootstrapRbac } from './rbac/rbac-bootstrap.js';
 import { notifyEmployee } from './notification-service.js';
+import { resolveAssignmentRuleOwner } from './assignment-rules/engine.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -1049,6 +1050,11 @@ app.post('/api/public/enquiry-forms/:formKey/submit', async (req, res) => {
         campaignId: resolvedTracking.campaignId, ownerEmployeeId: form.defaultOwnerEmployeeId ? Number(form.defaultOwnerEmployeeId) : null,
         intakeMethod: 'website', leadScore: 0, customValues: {},
     };
+    // This form has no default owner of its own -- fall back to whichever
+    // Assignment Rule matches the resolved branch and source, if any.
+    if (!body.ownerEmployeeId && body.branchId && body.sourceId) {
+        body.ownerEmployeeId = await resolveAssignmentRuleOwner(pool, { businessUnitId: Number(form.businessUnitId), branchId: body.branchId, sourceId: body.sourceId });
+    }
     for (const [fieldKey, value] of Object.entries(values)) {
         if (standard[fieldKey]) body[standard[fieldKey]] = value;
         else body.customValues[fieldKey] = value;
@@ -3045,6 +3051,79 @@ app.post('/api/automations/:id/run', authenticate, requireCrmAccess, requireLead
 
 app.delete('/api/automations/:id', authenticate, requireCrmAccess, requireLeadDelete, async (req, res) => {
     const [result] = await pool.execute(`DELETE FROM crm_automation_workflows WHERE id=? AND business_unit_id=?`, [Number(req.params.id), Number(req.businessUnit.id)]); if (!result.affectedRows) return res.status(404).json({ message: 'Automation workflow not found' }); res.json({ message: 'Automation workflow deleted' });
+});
+
+// ---- Automations > Assignment Rules ------------------------------------
+
+function assignmentRuleIdList(value, label) {
+    const ids = Array.isArray(value) ? [...new Set(value.map(Number).filter((id) => Number.isInteger(id) && id > 0))] : [];
+    if (!ids.length) throw Object.assign(new Error(`Select at least one ${label}`), { status: 400 });
+    return ids;
+}
+
+app.get('/api/assignment-rules', authenticate, requireCrmAccess, async (req, res) => {
+    const [rows] = await pool.execute(
+        `SELECT r.id,r.name,r.branch_ids_json AS branchIds,r.source_ids_json AS sourceIds,
+            r.employee_ids_json AS employeeIds,r.is_active AS isActive,r.created_at_utc AS createdAt,
+            COALESCE(e.employee_name,u.email) AS createdBy
+     FROM crm_assignment_rules r
+     JOIN app_users u ON u.id=r.created_by
+     LEFT JOIN employees e ON e.id=u.employee_id
+     WHERE r.business_unit_id=?
+     ORDER BY r.created_at_utc DESC`,
+        [Number(req.businessUnit.id)],
+    );
+    res.json({
+        data: rows.map((row) => ({
+            ...row,
+            id: Number(row.id),
+            isActive: Boolean(row.isActive),
+            branchIds: parseJsonValue(row.branchIds, []).map(Number),
+            sourceIds: parseJsonValue(row.sourceIds, []).map(Number),
+            employeeIds: parseJsonValue(row.employeeIds, []).map(Number),
+        })),
+    });
+});
+
+app.post('/api/assignment-rules', authenticate, requireCrmAccess, requireLeadWrite, async (req, res) => {
+    const name = cleanOptional(req.body.name, 180);
+    if (!name) return res.status(400).json({ message: 'Rule name is required' });
+    const branchIds = assignmentRuleIdList(req.body.branchIds, 'branch');
+    const sourceIds = assignmentRuleIdList(req.body.sourceIds, 'source');
+    const employeeIds = assignmentRuleIdList(req.body.employeeIds, 'user to assign leads to');
+    const [result] = await pool.execute(
+        `INSERT INTO crm_assignment_rules(business_unit_id,name,branch_ids_json,source_ids_json,employee_ids_json,is_active,created_by)
+     VALUES(?,?,?,?,?,1,?)`,
+        [Number(req.businessUnit.id), name, JSON.stringify(branchIds), JSON.stringify(sourceIds), JSON.stringify(employeeIds), Number(req.user.id)],
+    );
+    res.status(201).json({ message: 'Assignment rule created', id: Number(result.insertId) });
+});
+
+app.put('/api/assignment-rules/:id', authenticate, requireCrmAccess, requireLeadWrite, async (req, res) => {
+    const name = cleanOptional(req.body.name, 180);
+    if (!name) return res.status(400).json({ message: 'Rule name is required' });
+    const branchIds = assignmentRuleIdList(req.body.branchIds, 'branch');
+    const sourceIds = assignmentRuleIdList(req.body.sourceIds, 'source');
+    const employeeIds = assignmentRuleIdList(req.body.employeeIds, 'user to assign leads to');
+    const [result] = await pool.execute(
+        `UPDATE crm_assignment_rules SET name=?,branch_ids_json=?,source_ids_json=?,employee_ids_json=?
+     WHERE id=? AND business_unit_id=?`,
+        [name, JSON.stringify(branchIds), JSON.stringify(sourceIds), JSON.stringify(employeeIds), Number(req.params.id), Number(req.businessUnit.id)],
+    );
+    if (!result.affectedRows) return res.status(404).json({ message: 'Assignment rule not found' });
+    res.json({ message: 'Assignment rule updated' });
+});
+
+app.put('/api/assignment-rules/:id/status', authenticate, requireCrmAccess, requireLeadWrite, async (req, res) => {
+    const [result] = await pool.execute(`UPDATE crm_assignment_rules SET is_active=? WHERE id=? AND business_unit_id=?`, [req.body.isActive ? 1 : 0, Number(req.params.id), Number(req.businessUnit.id)]);
+    if (!result.affectedRows) return res.status(404).json({ message: 'Assignment rule not found' });
+    res.json({ message: `Assignment rule ${req.body.isActive ? 'enabled' : 'disabled'}` });
+});
+
+app.delete('/api/assignment-rules/:id', authenticate, requireCrmAccess, requireLeadDelete, async (req, res) => {
+    const [result] = await pool.execute(`DELETE FROM crm_assignment_rules WHERE id=? AND business_unit_id=?`, [Number(req.params.id), Number(req.businessUnit.id)]);
+    if (!result.affectedRows) return res.status(404).json({ message: 'Assignment rule not found' });
+    res.json({ message: 'Assignment rule deleted' });
 });
 
 function campaignScheduleDates(body) {

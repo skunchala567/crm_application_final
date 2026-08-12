@@ -110,6 +110,11 @@ export const ROUTE_RULES = [
   { method: '*', test: /^\/api\/dashboard/, key: 'dashboard.layout.edit' },
 
   // ---- Automations ------------------------------------------------------
+  // Assignment Rules is a tab within the Automations screen, not a separate
+  // module, so it answers to the same permission as Workflows rather than
+  // needing its own registry entry and role migration.
+  { method: 'GET', test: /^\/api\/assignment-rules/, key: 'automations.workflows.view' },
+  { method: '*', test: /^\/api\/assignment-rules/, key: 'automations.workflows.edit' },
   { method: 'GET', test: /^\/api\/automations/, key: 'automations.workflows.view' },
   { method: '*', test: /^\/api\/automations/, key: 'automations.workflows.edit' },
 

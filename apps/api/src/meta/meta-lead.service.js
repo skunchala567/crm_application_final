@@ -3,6 +3,7 @@ import { decryptToken, getMasterKey } from '../integration-hub/crypto-utils.js';
 import { getLead } from './meta-client.js';
 import { recordLeadAttribution } from '../attribution/attribution-contract.js';
 import { notifyEmployee } from '../notification-service.js';
+import { resolveAssignmentRuleOwner } from '../assignment-rules/engine.js';
 
 /**
  * Turns a Meta leadgen event into a CRM lead.
@@ -187,6 +188,13 @@ export async function resolveRouting(pool, { form, page, config }) {
 
   const actorUserId = Number(firstDefined(config?.actorUserId, 0)) || null;
 
+  // No per-form or per-integration default owner -- fall back to whichever
+  // Assignment Rule matches this lead's resolved branch and source, if any.
+  let ownerEmployeeId = Number(firstDefined(form?.owner_employee_id, config?.defaultOwnerEmployeeId, 0)) || null;
+  if (!ownerEmployeeId && branchId && sourceId) {
+    ownerEmployeeId = await resolveAssignmentRuleOwner(pool, { businessUnitId, branchId, sourceId });
+  }
+
   return {
     businessUnitId,
     branchId,
@@ -195,7 +203,7 @@ export async function resolveRouting(pool, { form, page, config }) {
     campaignId,
     stageId,
     substageId: Number(firstDefined(form?.substage_id, 0)) || null,
-    ownerEmployeeId: Number(firstDefined(form?.owner_employee_id, config?.defaultOwnerEmployeeId, 0)) || null,
+    ownerEmployeeId,
     academicYear: firstDefined(form?.academic_year, config?.defaultAcademicYear),
     classId: Number(firstDefined(form?.class_id, 0)) || null,
     curriculumId: Number(firstDefined(form?.curriculum_id, 0)) || null,
