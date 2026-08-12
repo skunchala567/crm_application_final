@@ -69,11 +69,26 @@ export default function WhatsAppInbox() {
     return () => window.clearInterval(timer);
   }, []);
 
+  // Runs after the thread paints, so the pane is measured at its real height.
+  useEffect(() => {
+    const pane = messagesRef.current;
+    if (!pane || !messages.length || !pinnedToLatestRef.current) return;
+    pane.scrollTop = pane.scrollHeight;
+  }, [messages]);
+
+  function trackScrollPosition(event) {
+    const pane = event.currentTarget;
+    // A few pixels of tolerance: fractional scroll heights rarely land exactly.
+    pinnedToLatestRef.current = pane.scrollHeight - pane.scrollTop - pane.clientHeight <= 24;
+  }
+
   useEffect(() => {
     if (!selectedId) return undefined;
     selectedIdRef.current = selectedId;
     setProfileOpen(false);
     setMessages([]);
+    // Opening a different contact always starts at their newest message.
+    pinnedToLatestRef.current = true;
     loadMessages(selectedId);
     const timer = window.setInterval(() => loadMessages(selectedId, false), 5000);
     return () => {
@@ -120,6 +135,8 @@ export default function WhatsAppInbox() {
         clientRequestId: globalThis.crypto?.randomUUID?.() || `inbox-${Date.now()}`,
       });
       setReply("");
+      // Your own reply is worth jumping to even if you were reading history.
+      pinnedToLatestRef.current = true;
       await loadMessages(selected.id, false);
       await loadConversations(true);
     } catch (error) {

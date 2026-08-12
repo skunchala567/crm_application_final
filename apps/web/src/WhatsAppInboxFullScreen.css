@@ -1,8 +1,12 @@
 .wa-inbox-page {
   width: 100%;
   min-width: 0;
-  height: calc(100vh - 76px);
-  min-height: 600px;
+  /* Fills the scroll area it is dropped into. A `100vh` calculation has to
+     guess the app header's height, and a `min-height` floor pushed the
+     composer below the fold on short screens; every pane scrolls on its own,
+     so the page itself never needs to be taller than its container. */
+  height: 100%;
+  min-height: 0;
   padding: 14px 16px 16px;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
@@ -49,12 +53,36 @@
 .wa-inbox-chat,
 .wa-inbox-profile {
   min-width: 0;
+  /* A grid item's automatic minimum size is its content, so a long thread
+     stretched the chat column past the pane and the message list never became
+     a scroll container. `min-height: 0` lets the pane's height win instead. */
+  min-height: 0;
+  height: 100%;
   padding: 0;
+}
+
+.wa-inbox-messages,
+.wa-conversation-scroll,
+.wa-profile-history {
+  min-height: 0;
 }
 
 .wa-conversation-scroll {
   min-width: 0;
   overflow-x: hidden;
+}
+
+/* The newest message is the last one, so a thread that fills less than the
+   pane should still sit against the composer rather than float mid-panel. */
+.wa-inbox-messages {
+  overflow-anchor: auto;
+}
+
+/* An auto margin rather than `justify-content: flex-end`, which would put the
+   oldest messages above the scroll origin and out of reach once the thread
+   overflows. With free space the margin pushes down; without it, it is zero. */
+.wa-inbox-messages > :first-child {
+  margin-top: auto;
 }
 
 .wa-conversation-scroll > button {
@@ -229,10 +257,6 @@
 }
 
 @media (max-width: 1280px) {
-  .wa-inbox-page {
-    height: calc(100vh - 68px);
-  }
-
   .wa-inbox-layout {
     grid-template-columns: minmax(230px, 280px) minmax(0, 1fr);
   }
@@ -316,8 +340,6 @@
 
 @media (max-width: 720px) {
   .wa-inbox-page {
-    height: calc(100dvh - 58px);
-    min-height: 480px;
     padding: 8px;
   }
 
