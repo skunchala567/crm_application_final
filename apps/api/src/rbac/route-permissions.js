@@ -136,6 +136,17 @@ export const ROUTE_RULES = [
   { method: 'GET', test: /^\/api\/whatsapp/, key: 'whatsapp.inbox.view' },
   { method: '*', test: /^\/api\/whatsapp/, key: 'whatsapp.inbox.create' },
 
+  // ---- Email ------------------------------------------------------------
+  { method: 'GET', test: /^\/api\/email\/configuration$/, key: 'email.configuration.view' },
+  { method: '*', test: /^\/api\/email\/configuration/, key: 'email.configuration.edit' },
+  { method: 'GET', test: /^\/api\/email\/templates/, key: 'email.templates.view' },
+  { method: 'POST', test: /^\/api\/email\/templates\/[^/]+\/(preview)$/, key: 'email.messages.create' },
+  { method: 'POST', test: /^\/api\/email\/templates/, key: 'email.templates.create' },
+  { method: 'DELETE', test: /^\/api\/email\/templates/, key: 'email.templates.delete' },
+  { method: '*', test: /^\/api\/email\/templates/, key: 'email.templates.edit' },
+  { method: 'GET', test: /^\/api\/email\/(merge-fields|leads\/[^/]+\/messages)/, key: 'email.messages.view' },
+  { method: '*', test: /^\/api\/email\/(send|attachments|messages\/[^/]+\/retry)/, key: 'email.messages.create' },
+
   // ---- Integrations -----------------------------------------------------
   { method: 'GET', test: /^\/api\/meta/, key: 'integrations.meta_lead_ads.view' },
   { method: '*', test: /^\/api\/meta/, key: 'integrations.meta_lead_ads.manage' },

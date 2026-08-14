@@ -220,7 +220,7 @@ export class IntegrationHubService {
       }
 
       // Initialize provider with appropriate parameters
-      const providerInstance = providerName === 'smartping'
+      const providerInstance = ['smartping', 'smartping_sms'].includes(providerName)
         ? new provider(providerConfig, this.logger)
         : new provider(providerConfig, decryptedAccessToken, this.logger);
 
@@ -1355,6 +1355,99 @@ export class IntegrationHubService {
   }
 
   // ============= Smartping Messaging =============
+
+  async sendSmartpingSms(integrationId, organizationId, phoneNumber, message, options = {}) {
+    const config = await this.configs.getById(integrationId, organizationId);
+    if (!config) throw new Error('Integration not found');
+    if (config.provider_name !== 'smartping_sms') throw new Error('Integration is not SmartPing SMS');
+    const Provider = this.getProvider('smartping_sms');
+    if (!Provider) throw new Error('SmartPing SMS provider not registered');
+
+    const correlationId = String(options.correlationId || crypto.randomUUID());
+    const recipient = String(phoneNumber || '').replace(/\D/g, '');
+    const normalizedRecipient = /^[6-9]\d{9}$/.test(recipient) ? `91${recipient}` : recipient;
+    const [existing] = await this.pool.execute(
+      `SELECT * FROM crm_sms_messages WHERE integration_id=? AND correlation_id=? LIMIT 1`,
+      [integrationId, correlationId]
+    );
+    if (existing.length) return { success: existing[0].status !== 'FAILED', duplicate: true, ...existing[0] };
+
+    const senderId = String(options.senderId || config.config?.senderId || '').trim();
+    const dltContentId = String(options.dltContentId || config.config?.dltContentId || '').trim();
+    const unicode = options.unicode ?? config.config?.defaultUnicode ?? /[^\x00-\x7F]/.test(String(message));
+    const [created] = await this.pool.execute(
+      `INSERT INTO crm_sms_messages
+        (organization_id,integration_id,lead_id,correlation_id,recipient,sender_id,message_text,
+         dlt_content_id,unicode_message,flash_message,status)
+       VALUES (?,?,?,?,?,?,?,?,?,?,'PENDING')`,
+      [organizationId, integrationId, options.leadId || null, correlationId, normalizedRecipient,
+       senderId, message, dltContentId, Boolean(unicode), Boolean(options.flash)]
+    );
+    try {
+      const provider = new Provider(config.config, this.logger);
+      const result = await provider.sendMessage(phoneNumber, message, { ...options, correlationId, unicode });
+      await this.pool.execute(
+        `UPDATE crm_sms_messages SET transaction_id=?,status=?,description=?,pdu=?,provider_response=?,
+         submitted_at=NOW() WHERE id=?`,
+        [result.transactionId, result.status, result.response?.description || null, result.pdu || null,
+         JSON.stringify(result.response || {}), created.insertId]
+      );
+      return { ...result, localMessageId: created.insertId, correlationId };
+    } catch (error) {
+      await this.pool.execute(
+        `UPDATE crm_sms_messages SET status='FAILED',description=?,provider_response=? WHERE id=?`,
+        [error.message, JSON.stringify(error.response?.data || {}), created.insertId]
+      ).catch(() => {});
+      throw error;
+    }
+  }
+
+  async applySmartpingSmsDeliveryReport(organizationId, integrationId, report) {
+    const transactionId = String(report.txid || report.transactionId || '').trim();
+    if (!transactionId) throw new Error('txid is required');
+    const status = String(report.deliverystatus || report.status || 'UNKNOWN').trim().toUpperCase();
+    const delivered = /DELIVERED|DELIVRD|SUCCESS/.test(status);
+    const [result] = await this.pool.execute(
+      `UPDATE crm_sms_messages SET status=?,description=COALESCE(?,description),pdu=COALESCE(?,pdu),
+       delivered_at=IF(?,COALESCE(STR_TO_DATE(?, '%Y-%m-%d %H:%i:%s'),NOW()),delivered_at)
+       WHERE organization_id=? AND integration_id=? AND transaction_id=?`,
+      [status, report.description || null, Number(report.pdu) || null, delivered,
+       report.deliverydt || null, organizationId, integrationId, transactionId]
+    );
+    return { updated: result.affectedRows, transactionId, status };
+  }
+
+  async sendSmartpingSmsBulk(integrationId, organizationId, phoneNumbers, message, options = {}) {
+    if (!Array.isArray(phoneNumbers) || phoneNumbers.length === 0) throw new Error('phoneNumbers is required');
+    if (phoneNumbers.length > 100) throw new Error('SmartPing accepts at most 100 recipients per batch');
+    const result = { sent: 0, failed: 0, messages: [], errors: [] };
+    for (const item of phoneNumbers) {
+      const phoneNumber = typeof item === 'object' ? item.phoneNumber : item;
+      try {
+        const sent = await this.sendSmartpingSms(integrationId, organizationId, phoneNumber, message, {
+          ...options,
+          ...(typeof item === 'object' ? item : {}),
+          correlationId: typeof item === 'object' && item.correlationId
+            ? item.correlationId : crypto.randomUUID()
+        });
+        result.sent += 1;
+        result.messages.push(sent);
+      } catch (error) {
+        result.failed += 1;
+        result.errors.push({ phoneNumber, message: error.message });
+      }
+    }
+    return result;
+  }
+
+  async getSmartpingSmsHistory(organizationId, integrationId, limit = 100) {
+    const [rows] = await this.pool.execute(
+      `SELECT * FROM crm_sms_messages WHERE organization_id=? AND integration_id=?
+       ORDER BY created_at DESC LIMIT ?`,
+      [organizationId, integrationId, Math.min(Math.max(Number(limit) || 100, 1), 500)]
+    );
+    return rows;
+  }
 
   async sendSmartpingMessage(integrationId, organizationId, phoneNumber, message, options = {}) {
     let localMessageId = null;

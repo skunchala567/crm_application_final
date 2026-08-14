@@ -102,6 +102,20 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
     }
   });
 
+  // SmartPing configures this GET URL on its backend for delivery reports.
+  router.get('/smartping-sms/dlr/:organizationId/:integrationId', async (req, res, next) => {
+    try {
+      const integration = await service.getIntegration(Number(req.params.integrationId), Number(req.params.organizationId));
+      if (!integration || integration.provider_name !== 'smartping_sms') return res.status(404).send('Integration not found');
+      const expected = String(integration.config?.callbackSecret || '');
+      if (expected && String(req.query.secret || '') !== expected) return res.status(401).send('Invalid callback secret');
+      const result = await service.applySmartpingSmsDeliveryReport(
+        Number(req.params.organizationId), Number(req.params.integrationId), req.query
+      );
+      res.json({ success: true, data: result });
+    } catch (error) { next(error); }
+  });
+
   // Apply authentication to all routes
   router.use(authenticate);
   router.use(requireCrmAccess);
@@ -276,7 +290,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
       }
 
       // Smartping uses API key authentication - just activate it
-      if (integration.provider_name === 'smartping') {
+      if (['smartping', 'smartping_sms'].includes(integration.provider_name)) {
         await service.configs.updateSyncStatus(integrationId, organizationId, {
           status: 'active',
           lastErrorMessage: null,
@@ -833,6 +847,39 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
   });
 
   // ============= Smartping Messaging =============
+
+  router.post('/integrations/:integrationId/smartping-sms/send', async (req, res, next) => {
+    try {
+      const { phoneNumber, message, ...options } = req.body || {};
+      if (!phoneNumber || !message) return res.status(400).json({ success: false, message: 'phoneNumber and message are required' });
+      const data = await service.sendSmartpingSms(
+        Number(req.params.integrationId), req.user?.organizationId || 1, phoneNumber, message, options
+      );
+      res.json({ success: true, data });
+    } catch (error) { next(error); }
+  });
+
+  router.post('/integrations/:integrationId/smartping-sms/send-bulk', async (req, res, next) => {
+    try {
+      const { phoneNumbers, message, ...options } = req.body || {};
+      if (!Array.isArray(phoneNumbers) || !phoneNumbers.length || !message) {
+        return res.status(400).json({ success: false, message: 'phoneNumbers and message are required' });
+      }
+      const data = await service.sendSmartpingSmsBulk(
+        Number(req.params.integrationId), req.user?.organizationId || 1, phoneNumbers, message, options
+      );
+      res.json({ success: true, data });
+    } catch (error) { next(error); }
+  });
+
+  router.get('/integrations/:integrationId/smartping-sms/messages', async (req, res, next) => {
+    try {
+      const data = await service.getSmartpingSmsHistory(
+        req.user?.organizationId || 1, Number(req.params.integrationId), req.query.limit
+      );
+      res.json({ success: true, data });
+    } catch (error) { next(error); }
+  });
 
   // Send message to individual contact
   router.post('/integrations/:integrationId/smartping/send', authenticate, async (req, res, next) => {

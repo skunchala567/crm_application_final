@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Bold, CalendarClock, CalendarDays, Check, ChevronLeft, ChevronRight, ClipboardCheck, Clock3, Columns3, Download, Eye, FileText, IndentDecrease, IndentIncrease, List, ListChecks, ListOrdered, ListTree, Pencil, Plus, RefreshCw, Search, Timer, Underline, Users, Workflow, X } from 'lucide-react';
+import { Bold, CalendarClock, CalendarDays, Check, ChevronLeft, ChevronRight, ClipboardCheck, Clock3, Columns3, Download, Eye, FileText, IndentDecrease, IndentIncrease, List, ListChecks, ListOrdered, ListTree, Pencil, Plus, RefreshCw, Search, Timer, Underline, Users, Workflow, X, MessageCircle} from 'lucide-react';
 import { api } from '../api';
+import TrackerNotificationSettings from './TrackerNotificationSettings.jsx';
 import { useBusinessUnit } from '../BusinessUnitContext';
 import Toast from '../Toast.jsx';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, Select, Input, Button, Tabs, TabsList, TabsTrigger, TabsContent } from './ui';
@@ -262,6 +263,7 @@ export default function OperationsPageModern() {
   // The day whose items are listed under the grid, or null for none.
   const [calendarDay, setCalendarDay] = useState(null);
   const [search, setSearch] = useState('');
+  const [notifyOpen, setNotifyOpen] = useState(false);
   const [workflowId, setWorkflowId] = useState('');
   const [stageFilter, setStageFilter] = useState('');
   const [ownerFilter, setOwnerFilter] = useState('');
@@ -734,6 +736,15 @@ export default function OperationsPageModern() {
                 <div>
                   {/* Search, filters and view controls stay in one compact row. */}
                   <div className="tracker-filter-toolbar">
+                    {/* Which templates go out when an action item is created. */}
+                    <button
+                      type="button"
+                      className="tracker-notify-btn"
+                      title="Action item notifications"
+                      onClick={() => setNotifyOpen(true)}
+                    >
+                      <MessageCircle size={16} /> Notifications
+                    </button>
                     {/* Search */}
                     <div className="tracker-toolbar-search relative">
                       <Search size={16} className="absolute left-3 top-3 text-secondary-400 pointer-events-none" />
@@ -2151,6 +2162,13 @@ export default function OperationsPageModern() {
           </div>
         </div>
       )}
-    </div>
+          {notifyOpen && selectedUnit?.id && (
+        <TrackerNotificationSettings
+          businessUnitId={selectedUnit.id}
+          onClose={() => setNotifyOpen(false)}
+          onMessage={next => next && setMessage({ type: next.type, text: next.text })}
+        />
+      )}
+      </div>
   );
 }

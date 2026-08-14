@@ -15,6 +15,7 @@ const SETTINGS_PERMISSIONS = [
   'settings.users.view', 'settings.access_control.view', 'settings.business_units.view',
   'settings.branches.view', 'settings.payment_forms.view', 'settings.lead_config.view',
   'settings.academic_config.view', 'integrations.hub.view', 'whatsapp.templates.view',
+  'email.configuration.view', 'email.templates.view',
 ];
 
 /** Route -> breadcrumb trail. Keeps the topbar identical on every screen. */
@@ -38,6 +39,8 @@ const SETTINGS_CRUMBS = {
   '/settings/google-sheets': 'Google Sheets',
   '/settings/meta-lead-ads': 'Meta Lead Ads',
   '/settings/whatsapp-templates': 'WhatsApp',
+  '/settings/email-configuration': 'Email Configuration',
+  '/settings/email-templates': 'Email Templates',
   '/settings/callerdesk': 'CallerDesk',
   '/settings/smartflo': 'Smartflo',
 };

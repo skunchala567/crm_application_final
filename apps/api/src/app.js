@@ -25,6 +25,8 @@ import { createReportDataSourceRoutes } from './report-data-sources.routes.js';
 import { createBusinessConfigRoutes } from './business-config.routes.js';
 import { createMetaRoutes } from './meta/meta.routes.js';
 import { createMetaWebhookRoutes } from './meta/meta-webhook.routes.js';
+import { startMetaPoller } from './meta/meta-poller.js';
+import { createEmailRoutes } from './email/email.routes.js';
 import { recordLeadAttribution } from './attribution/attribution-contract.js';
 import { createRbacMiddleware } from './rbac/rbac.middleware.js';
 import { scopeNarrowingSql, scopeCovers } from './rbac/permission-service.js';
@@ -38,6 +40,7 @@ const port = Number(process.env.PORT || 3001);
 const jwtSecret = process.env.JWT_SECRET || 'local-development-secret-change-me';
 const allowedOrigin = process.env.WEB_ORIGIN || 'http://localhost:3000';
 const whatsappMediaDirectory = path.resolve('uploads/whatsapp');
+const emailAttachmentDirectory = path.resolve('uploads/email-attachments');
 
 if (process.env.DEMO_MODE && process.env.DEMO_MODE.toLowerCase() !== 'false') {
     throw new Error('DEMO_MODE is disabled for this CRM. Set DEMO_MODE=false and configure MySQL.');
@@ -190,6 +193,10 @@ try {
     const { SmartpingProvider } = await import('./integration-hub/providers/smartping-provider.js');
     integrationHubService.registerProvider('smartping', SmartpingProvider);
     console.log('✓ Smartping provider registered');
+
+    const { SmartpingSmsProvider } = await import('./integration-hub/providers/smartping-sms-provider.js');
+    integrationHubService.registerProvider('smartping_sms', SmartpingSmsProvider);
+    console.log('✓ SmartPing SMS provider registered');
 } catch (error) {
     console.error('❌ ERROR loading providers:');
     console.error('Message:', error.message);
@@ -222,6 +229,11 @@ const runGoogleSheetSync = async () => {
         googleSheetSyncRunning = false;
     }
 };
+// Meta will not deliver webhooks while the app is unpublished, so leads are
+// polled until App Review completes. Harmless once the webhook is live: both
+// paths share one ledger keyed on leadgen_id.
+startMetaPoller(pool, console);
+
 const googleSheetSyncTimer = setInterval(runGoogleSheetSync, 60000);
 googleSheetSyncTimer.unref();
 setTimeout(runGoogleSheetSync, 10000).unref();
@@ -5565,7 +5577,7 @@ async function processBulkUploadImport(uploadId, records, branchId, userId, pool
 
 // ============= Integration Hub Routes =============
 app.use('/api/hub', createIntegrationHubRoutes(integrationHubService, authenticate, requireCrmAccess));
-app.use('/api/platform', createBusinessPlatformRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin, hashAttendancePassword));
+app.use('/api/platform', createBusinessPlatformRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin, hashAttendancePassword, integrationHubService));
 app.use('/api/usage', createUsageRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
 app.use('/api/callerdesk', createCallerDeskRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
 app.use('/api/callerdesk', createCallerDeskWebhookRoutes(pool));
@@ -5580,6 +5592,7 @@ app.use('/api/payment-forms', createPaymentFormsRoutes(pool, authenticate, requi
 app.use('/api/partner', createPartnerRoutes(pool));
 app.use('/api/report-data-sources', createReportDataSourceRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
 app.use('/api/business-config', createBusinessConfigRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
+app.use('/api/email', createEmailRoutes(pool, authenticate, requireCrmAccess, emailAttachmentDirectory));
 
 // ============= Meta Lead Ads =============
 // Webhook first: it is public, and mounting it ahead of the authenticated

@@ -282,3 +282,56 @@ table th{background:var(--surface-3)}.avatar.muted{background:var(--accent-soft)
 .whatsapp-intake-grid small{color:var(--muted);font-size:10px;font-weight:500}
 .whatsapp-intake-actions{display:flex;align-items:center;justify-content:flex-end;gap:12px}
 .whatsapp-intake-warning{margin-right:auto;display:inline-flex;align-items:center;gap:6px;color:#a8641f;font-size:11px}
+
+/* Meta leads waiting for review. */
+.meta-review{display:grid;gap:13px}
+.meta-review>header{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.meta-review>header strong{display:block;font:700 15px 'Plus Jakarta Sans'}
+.meta-review>header span{color:var(--muted);font-size:12px}
+.meta-review-card{padding:14px;display:grid;gap:11px;border:1px solid var(--border);border-radius:11px;background:#fff}
+.meta-review-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.meta-review-head strong{display:block;font:700 13px 'Plus Jakarta Sans'}
+.meta-review-head small{color:var(--muted);font-size:10px}
+.meta-review-actions{display:flex;gap:8px;flex:0 0 auto}
+.meta-review-mapped{display:flex;flex-wrap:wrap;gap:8px 16px;padding:9px 11px;border-radius:8px;background:var(--surface-3);font-size:11px}
+.meta-review-mapped .missing{color:#a8641f}
+.meta-review-mapped b{font-weight:700}
+.meta-review-answers{width:100%;border-collapse:collapse;white-space:normal}
+.meta-review-answers th{text-align:left;padding:6px 10px;font-size:9px;background:var(--surface-2)}
+.meta-review-answers td{padding:7px 10px;font-size:11px;border-bottom:1px solid var(--line-2);white-space:normal}
+.meta-review-answers td:first-child{width:38%;color:var(--ink-500)}
+
+/* Integrations: services first, then what is connected under each.
+   Scoped to the page so these win over IntegrationHub.css, which is imported
+   after theme.css and would otherwise take the generic button rules. */
+.settings-integration-page .integration-type-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(268px,1fr));gap:14px;align-items:stretch}
+.settings-integration-page .integration-type-tile{
+  width:100%;min-height:82px;padding:15px;margin:0;
+  display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:13px;
+  text-align:left;border:1px solid var(--line);border-radius:12px;background:#fff;
+  box-shadow:0 1px 2px color-mix(in srgb, var(--ink-900) 4%, transparent);
+  cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .15s}
+.settings-integration-page .integration-type-tile:hover:not(:disabled){
+  border-color:var(--brand-400);transform:translateY(-1px);
+  box-shadow:0 6px 18px color-mix(in srgb, var(--ink-900) 9%, transparent)}
+.settings-integration-page .integration-type-tile:disabled{opacity:.6;cursor:not-allowed;box-shadow:none}
+.settings-integration-page .integration-type-mark{
+  width:38px;height:38px;flex:0 0 auto;display:grid;place-items:center;border-radius:10px;
+  background:color-mix(in srgb, var(--mark) 12%, #fff);color:var(--mark)}
+/* min-width:0 lets the provider line ellipsize instead of pushing out of the card. */
+.settings-integration-page .integration-type-body{display:grid;gap:2px;min-width:0}
+.settings-integration-page .integration-type-tile strong{
+  font:700 13.5px 'Plus Jakarta Sans';color:var(--ink-800);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.settings-integration-page .integration-type-tile small{
+  color:var(--muted);font-size:11px;font-weight:500;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.settings-integration-page .integration-type-tile .count{
+  padding:4px 10px;border-radius:11px;background:var(--surface-3);color:var(--ink-500);
+  font-size:10px;font-weight:700;white-space:nowrap;justify-self:end}
+.settings-integration-page .integration-type-tile .count.on{background:var(--brand-50);color:var(--brand-700)}
+.settings-integration-page .integration-type-tile .count.soon{background:var(--surface-2);color:var(--muted)}
+.settings-integration-page .integration-crumb{display:flex;align-items:center;gap:13px;min-width:0}
+.settings-integration-page .integration-crumb>div{display:grid;min-width:0}
+.settings-integration-page .integration-crumb strong{font:700 15px 'Plus Jakarta Sans'}
+.settings-integration-page .integration-crumb span{color:var(--muted);font-size:11px}

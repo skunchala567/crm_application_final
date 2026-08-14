@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Settings, Activity, AlertCircle, CheckCircle, Link as LinkIcon } from 'lucide-react';
+import { Plus, Settings, Activity, AlertCircle, CheckCircle, Link as LinkIcon, ChevronLeft, FileSpreadsheet, MessageCircle, Phone, PhoneCall, Facebook, MessageSquare, Mail} from 'lucide-react';
 import { api } from '../api';
 import FieldMappingPanel from './FieldMappingPanel';
 import SmartpingConfig from './SmartpingConfig';
+import SmartpingSmsConfig from './SmartpingSmsConfig';
 import GoogleOAuthConfig from './GoogleOAuthConfig';
 import SyncDataPanel from './SyncDataPanel';
 import StatCard from './components/StatCard';
@@ -20,6 +21,8 @@ export default function IntegrationHubPage() {
   const [selectedIntegration, setSelectedIntegration] = useState(null);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('');
+  // null = the tiles; otherwise the type whose integrations are open.
+  const [openTypeId, setOpenTypeId] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -52,6 +55,7 @@ export default function IntegrationHubPage() {
     smartflo: '/settings/smartflo',
     meta_lead_ads: '/settings/meta-lead-ads',
     google_sheets: '/settings/google-sheets',
+    smtp: '/settings/email-configuration',
   };
 
   const openIntegrationSettings = (integration) => {
@@ -81,6 +85,16 @@ export default function IntegrationHubPage() {
       }
       if (String(integration.provider_name).toLowerCase() === 'smartflo') {
         await api.post('/smartflo/test', {}); alert('Smartflo connection is working'); fetchIntegrations(); return;
+      }
+      /*
+       * Meta Lead Ads is not a sync-engine provider: pages, forms and leads
+       * are handled by /api/meta, so the generic hub sync only ever answered
+       * "Provider meta_lead_ads not registered". Send the administrator to the
+       * screen that can actually subscribe a page instead of failing at them.
+       */
+      if (String(integration.provider_name).toLowerCase() === 'meta_lead_ads') {
+        navigate('/settings/meta-lead-ads');
+        return;
       }
       const response = await api.post(`/hub/integrations/${integration.id}/sync/manual`);
       const created = Number(response.data?.result?.imported || 0);
@@ -129,8 +143,12 @@ export default function IntegrationHubPage() {
     const matchesSearch = String(i.integration_name || '').toLowerCase().includes(search.toLowerCase()) ||
                           String(i.provider_name || '').toLowerCase().includes(search.toLowerCase());
     const matchesFilter = !filter || i.status === filter;
-    return matchesSearch && matchesFilter;
+    const matchesType = !openTypeId || typeOf(i) === openTypeId;
+    return matchesSearch && matchesFilter && matchesType;
   });
+
+  const openType = INTEGRATION_TYPES.find(type => type.id === openTypeId) || null;
+  const countFor = (typeId) => integrations.filter(i => typeOf(i) === typeId).length;
 
   if (loading) {
     return (
@@ -144,13 +162,27 @@ export default function IntegrationHubPage() {
     <main className="integration-main settings-integration-page">
       {/* Title lives in the Settings section header; only the action is here. */}
       <div className="flex items-center justify-between gap-4 mb-6">
-        <p className="text-[12.5px] text-secondary-500">
-          Manage and monitor all third-party integrations connected with the CRM
-        </p>
-        <button className="btn btn-primary" onClick={() => setShowWizard(true)}>
-          <Plus size={18} />
-          Add Integration
-        </button>
+        {openType ? (
+          <div className="integration-crumb">
+            <button className="btn btn-secondary" onClick={() => { setOpenTypeId(null); setSearch(''); setFilter(''); }}>
+              <ChevronLeft size={16} /> All integration types
+            </button>
+            <div>
+              <strong>{openType.name}</strong>
+              <span>{openType.providers.join(', ')}</span>
+            </div>
+          </div>
+        ) : (
+          <p className="text-[12.5px] text-secondary-500">
+            Choose a service to see what is connected and add another
+          </p>
+        )}
+        {openType && openType.available && (
+          <button className="btn btn-primary" onClick={() => setShowWizard(true)}>
+            <Plus size={18} />
+            Add {openType.name}
+          </button>
+        )}
       </div>
 
       {error && (
@@ -206,6 +238,7 @@ export default function IntegrationHubPage() {
       {/* Modals */}
       {showWizard && (
         <ConnectionWizard
+          presetType={openType}
           onClose={() => setShowWizard(false)}
           onSuccess={() => {
             setShowWizard(false);
@@ -223,16 +256,44 @@ export default function IntegrationHubPage() {
         />
       )}
 
-      {/* Integration Table or Empty State */}
-      {filteredIntegrations.length === 0 && search === '' && filter === '' ? (
+      {/* Types first: what the CRM can connect to, and how much of each is
+          already set up. Opening one shows only its integrations. */}
+      {!openType ? (
+        <div className="integration-type-grid">
+          {INTEGRATION_TYPES.map(type => {
+            const count = countFor(type.id);
+            return (
+              <button
+                key={type.id}
+                type="button"
+                className={`integration-type-tile ${type.available ? '' : 'disabled'}`}
+                onClick={() => type.available && setOpenTypeId(type.id)}
+                disabled={!type.available}
+              >
+                <span className="integration-type-mark" style={{ '--mark': type.accent }}>
+                  <type.Icon size={19} />
+                </span>
+                <span className="integration-type-body">
+                  <strong>{type.name}</strong>
+                  <small>{type.providers.join(', ')}</small>
+                </span>
+                {type.available
+                  ? <span className={count ? 'count on' : 'count'}>{count} connected</span>
+                  : <span className="count soon">Coming soon</span>}
+              </button>
+            );
+          })}
+        </div>
+      ) : filteredIntegrations.length === 0 ? (
         <div className="empty-state">
           <Activity size={48} />
-          <h2>No Integrations Yet</h2>
-          <p>Connect your first service to extend your CRM capabilities</p>
-          <button className="btn btn-primary" onClick={() => setShowWizard(true)}>
-            <Plus size={18} />
-            Add Your First Integration
-          </button>
+          <h2>No {openType.name} integrations yet</h2>
+          <p>{search || filter ? 'Nothing matches the current search.' : 'Add one to start using this service.'}</p>
+          {!search && !filter && (
+            <button className="btn btn-primary" onClick={() => setShowWizard(true)}>
+              <Plus size={18} /> Add {openType.name}
+            </button>
+          )}
         </div>
       ) : (
         <IntegrationGrid
@@ -247,39 +308,70 @@ export default function IntegrationHubPage() {
 }
 
 /**
+ * The services the CRM can connect to.
+ *
+ * Shared by the browse screen and the wizard: the screen lists a tile per
+ * type, and the wizard fills its type from whichever tile was opened.
+ */
+const INTEGRATION_TYPES = [
+  { id: 'google_sheets', name: 'Google Sheets', providers: ['Google Sheets API v4'], available: true, Icon: FileSpreadsheet, accent: '#0F9D58' },
+  { id: 'smartping', name: 'WhatsApp (Smartping)', providers: ['AiSensy Smartping'], available: true, Icon: MessageCircle, accent: '#25D366' },
+  { id: 'callerdesk', name: 'Cloud Calling', providers: ['CallerDesk'], available: true, Icon: Phone, accent: '#3B82F6' },
+  { id: 'smartflo', name: 'Tata Cloud Telephony', providers: ['Tata Smartflo'], available: true, Icon: PhoneCall, accent: '#6366F1' },
+  { id: 'meta_lead_ads', name: 'Meta Lead Ads', providers: ['Facebook / Instagram Lead Ads'], available: true, Icon: Facebook, accent: '#1877F2' },
+  { id: 'sms', name: 'SMS', providers: ['SmartPing SMS'], available: true, Icon: MessageSquare, accent: '#8B5CF6' },
+  { id: 'email', name: 'Email', providers: ['SMTP'], available: true, Icon: Mail, accent: '#EA580C' },
+];
+
+/** Display provider name -> the name the backend stores. */
+const providerNameMap = {
+  'Google Sheets API v4': 'google_sheets',
+  'AiSensy Smartping': 'smartping',
+  'SmartPing SMS': 'smartping_sms',
+  SMTP: 'smtp',
+  CallerDesk: 'callerdesk',
+  'Tata Smartflo': 'smartflo',
+  'Facebook / Instagram Lead Ads': 'meta_lead_ads',
+};
+
+/**
+ * Which type an existing integration belongs to.
+ *
+ * provider_name, not integration_type: the stored type is unreliable -- the
+ * Facebook integration carries "google_sheets" and CallerDesk carries "sms" --
+ * whereas provider_name is correct on every row and is what the rest of this
+ * screen already switches on. Type is kept only as a fallback for a row that
+ * somehow has no provider.
+ */
+const typeOf = (integration) => {
+  const provider = String(integration.provider_name || '').toLowerCase();
+  if (provider === 'smartping_sms') return 'sms';
+  if (provider === 'smtp') return 'email';
+  return provider || String(integration.integration_type || '').toLowerCase();
+};
+
+/**
  * Connection Wizard - Multi-step integration setup
  */
-function ConnectionWizard({ onClose, onSuccess }) {
+function ConnectionWizard({ presetType = null, onClose, onSuccess }) {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
+  /*
+   * Opened from a type tile, the service is already decided, so the wizard
+   * carries it in and skips asking again. Its provider is filled too when the
+   * type offers only one, which is every connected service today.
+   */
   const [formData, setFormData] = useState({
     integrationName: '',
-    integrationType: '',
-    providerName: '',
+    integrationType: presetType?.id || '',
+    providerName: presetType?.providers?.length === 1 ? presetType.providers[0] : '',
     config: {}
   });
+  const steps = presetType ? [1, 3, 4] : [1, 2, 3, 4];
+  const stepNumber = steps.indexOf(step) + 1;
   const [loading, setLoading] = useState(false);
 
-  // Google Sheets and Smartping (WhatsApp via AiSensy)
-  const integrationTypes = [
-    { id: 'google_sheets', name: 'Google Sheets', providers: ['Google Sheets API v4'], available: true },
-    { id: 'smartping', name: 'WhatsApp (Smartping)', providers: ['AiSensy Smartping'], available: true },
-    { id: 'callerdesk', name: 'Cloud Calling', providers: ['CallerDesk'], available: true },
-    { id: 'smartflo', name: 'Tata Cloud Telephony', providers: ['Tata Smartflo'], available: true },
-    { id: 'meta_lead_ads', name: 'Meta Lead Ads', providers: ['Facebook / Instagram Lead Ads'], available: true },
-    { id: 'sms', name: 'SMS (Coming Soon)', providers: ['MSG91', 'TextLocal'], available: false },
-    { id: 'email', name: 'Email (Coming Soon)', providers: ['SMTP', 'SendGrid', 'Mailgun'], available: false }
-  ];
-
-  // Map display provider names to backend provider names
-  const providerNameMap = {
-    'Google Sheets API v4': 'google_sheets',
-    'AiSensy Smartping': 'smartping'
-    ,'CallerDesk': 'callerdesk','Tata Smartflo':'smartflo'
-    ,'Facebook / Instagram Lead Ads': 'meta_lead_ads'
-  };
-
-  const selectedType = integrationTypes.find(t => t.id === formData.integrationType);
+  const selectedType = INTEGRATION_TYPES.find(t => t.id === formData.integrationType);
 
   const handleNext = () => {
     if (step === 1 && !formData.integrationName) {
@@ -294,7 +386,9 @@ function ConnectionWizard({ onClose, onSuccess }) {
       alert('Please select a provider');
       return;
     }
-    setStep(step + 1);
+    // With a preset type, step 2 has nothing left to ask.
+    const next = steps[steps.indexOf(step) + 1];
+    setStep(next ?? step);
   };
 
   const handleCreate = async () => {
@@ -305,9 +399,9 @@ function ConnectionWizard({ onClose, onSuccess }) {
 
     setLoading(true);
     try {
-      if (formData.integrationType === 'callerdesk' || formData.integrationType === 'smartflo') {
+      if (formData.integrationType === 'callerdesk' || formData.integrationType === 'smartflo' || formData.integrationType === 'email') {
         onClose();
-        navigate(formData.integrationType==='smartflo'?'/settings/smartflo':'/settings/callerdesk');
+        navigate(formData.integrationType==='email'?'/settings/email-configuration':formData.integrationType==='smartflo'?'/settings/smartflo':'/settings/callerdesk');
         return;
       }
       // Map the display provider name to backend provider name
@@ -332,8 +426,8 @@ function ConnectionWizard({ onClose, onSuccess }) {
     <div className="wizard-overlay">
       <div className="wizard-modal">
         <div className="wizard-header">
-          <h2>Connect New Integration</h2>
-          <p>Step {step} of 4</p>
+          <h2>{presetType ? `Add ${presetType.name}` : 'Connect New Integration'}</h2>
+          <p>Step {stepNumber} of {steps.length}</p>
         </div>
 
         <div className="wizard-body">
@@ -354,7 +448,7 @@ function ConnectionWizard({ onClose, onSuccess }) {
             <div className="wizard-step">
               <label>Select Service Type</label>
               <div className="service-grid">
-                {integrationTypes.map(type => (
+                {INTEGRATION_TYPES.map(type => (
                   <div
                     key={type.id}
                     className={`service-option ${formData.integrationType === type.id ? 'selected' : ''} ${!type.available ? 'disabled' : ''}`}
@@ -488,6 +582,14 @@ function IntegrationDetails({ integration, onClose, onRefresh, onAuthorize }) {
                 <GoogleOAuthConfig integrationId={integration.id} onConfigSaved={onRefresh} />
               )}
 
+              {integration.provider_name === 'smartping_sms' && (
+                <SmartpingSmsConfig
+                  integrationId={integration.id}
+                  organizationId={integration.organization_id}
+                  onConfigSaved={onRefresh}
+                />
+              )}
+
               {integration.provider_name === 'callerdesk' && (
                 <div className="google-sheets-handoff">
                   <div><strong>CallerDesk calling integration</strong><p>API credentials, branch DIDs, CRM user mappings, webhooks and dialling queues are managed from the dedicated Calling screen.</p></div>
@@ -495,7 +597,7 @@ function IntegrationDetails({ integration, onClose, onRefresh, onAuthorize }) {
                 </div>
               )}
 
-              {!isAuthorized && integration.provider_name !== 'callerdesk' && (
+              {!isAuthorized && integration.provider_name !== 'callerdesk' && integration.provider_name !== 'smartping_sms' && (
                 <div style={{ marginTop: '2rem', padding: '1rem', backgroundColor: '#fdf4e3', border: '1px solid #fcd34d', borderRadius: '0.5rem' }}>
                   <p style={{ color: '#c47f0a', marginBottom: '1rem' }}>
                     ⚠️ This integration is not authorized. Please authorize it first to enable functionality.

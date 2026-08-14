@@ -4,6 +4,7 @@ import {
   RefreshCw, Save, ShieldCheck, XCircle,
 } from 'lucide-react';
 import { api } from '../api';
+import MetaLeadReview from '../components/MetaLeadReview.jsx';
 import { SearchSelect } from '../FilterWorkspace.jsx';
 
 /**
@@ -666,6 +667,18 @@ export default function MetaLeadAdsSettings() {
       </section>
 
       {/* 5. Ledger */}
+      {/* Waiting leads sit above the history: what needs a decision comes
+          before what has already been decided. */}
+      <section className="panel card">
+        <MetaLeadReview onMessage={(message) => {
+          if (!message) return;
+          if (message.type === 'error') { setError(message.text); setNotice(''); }
+          else { setNotice(message.text); setError(''); }
+          // Approving a lead moves it into the ledger, so refresh the counts.
+          loadAll();
+        }} />
+      </section>
+
       <section className="panel card">
         <h3 className="card-title mb-1">Recent imports</h3>
         <p className="text-xs text-secondary-500 mb-4">

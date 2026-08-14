@@ -127,6 +127,14 @@ export const REGISTRY = [
     ],
   },
   {
+    module: 'email', label: 'Email',
+    screens: [
+      { screen: 'configuration', label: 'Email Configuration', route: '/settings/email-configuration', actions: ['view', 'edit'] },
+      { screen: 'templates', label: 'Email Templates', route: '/settings/email-templates', actions: ['view', 'create', 'edit', 'delete'] },
+      { screen: 'messages', label: 'Email Messages', actions: ['view', 'create'], scoped: true },
+    ],
+  },
+  {
     module: 'integrations', label: 'Integrations',
     screens: [
       { screen: 'hub', label: 'Integrations', route: '/settings/integrations', actions: ['view', 'edit', 'manage'] },

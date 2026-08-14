@@ -390,7 +390,7 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
 
     const leads = await listFormLeads(formId, token, { sinceEpochSeconds: since, logger });
 
-    const summary = { fetched: leads.length, imported: 0, duplicate: 0, failed: 0, skipped: 0, reenquired: 0 };
+    const summary = { fetched: leads.length, pending: 0, imported: 0, duplicate: 0, failed: 0, skipped: 0, reenquired: 0 };
     let watermark = since || 0;
 
     for (const lead of leads) {
@@ -406,6 +406,9 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
         createdTime,
         leadData: lead,
         intakeSource: 'backfill',
+        // Backfill collects; review decides. Pass reviewless=true to import
+        // straight away, which keeps the old behaviour available.
+        holdForReview: req.body?.reviewless !== true,
         config,
         logger,
       });
@@ -471,6 +474,86 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
   }));
 
   /** Re-run a failed import. Only 'failed' rows are re-claimable. */
+
+  /**
+   * Leads waiting for someone to look at them.
+   *
+   * Returns the answers Meta actually sent alongside how the form's mapping
+   * reads them, so a wrong mapping shows up here rather than as a lead with a
+   * blank name.
+   */
+  router.get('/imports/pending', wrap(async (_req, res) => {
+    const [rows] = await pool.execute(
+      `SELECT i.leadgen_id AS leadgenId, i.form_id AS formId, i.page_id AS pageId,
+              i.intake_source AS intakeSource, i.raw_payload AS rawPayload,
+              i.meta_created_time AS metaCreatedTime, i.created_at_utc AS receivedAt,
+              f.form_name AS formName, f.field_mapping AS fieldMapping,
+              p.page_name AS pageName
+         FROM crm_meta_lead_imports i
+         LEFT JOIN crm_meta_forms f ON f.form_id = i.form_id
+         LEFT JOIN crm_meta_pages p ON p.page_id = i.page_id
+        WHERE i.status='pending'
+        ORDER BY i.id DESC
+        LIMIT 200`,
+    );
+    const data = rows.map((row) => {
+      const payload = typeof row.rawPayload === 'string' ? JSON.parse(row.rawPayload || '{}') : (row.rawPayload || {});
+      const mapping = typeof row.fieldMapping === 'string' ? JSON.parse(row.fieldMapping || '{}') : (row.fieldMapping || {});
+      const { record, unmapped } = mapFieldData(payload?.field_data, mapping);
+      return {
+        leadgenId: row.leadgenId,
+        formId: row.formId, formName: row.formName,
+        pageId: row.pageId, pageName: row.pageName,
+        intakeSource: row.intakeSource,
+        receivedAt: row.receivedAt,
+        metaCreatedTime: row.metaCreatedTime,
+        // Exactly what Meta sent, question by question.
+        answers: Array.isArray(payload?.field_data)
+          ? payload.field_data.map((field) => ({ name: field.name, value: (field.values || []).join(', ') }))
+          : [],
+        // And what the mapping makes of it, so the gap is visible.
+        mapped: record,
+        unmapped,
+      };
+    });
+    res.json({ success: true, data });
+  }));
+
+  /** Turn a waiting lead into a CRM lead. */
+  router.post('/imports/:leadgenId/approve', requireUserAdmin, wrap(async (req, res) => {
+    const leadgenId = String(req.params.leadgenId);
+    const [[row]] = await pool.execute('SELECT * FROM crm_meta_lead_imports WHERE leadgen_id=? LIMIT 1', [leadgenId]);
+    if (!row) return res.status(404).json({ message: 'Import record not found' });
+    if (row.status !== 'pending') {
+      return res.status(409).json({ message: `Only waiting leads can be approved (status: ${row.status})` });
+    }
+    // Re-open the claim so importMetaLead can settle it, then let it run the
+    // usual validation and mapping -- approval changes who decides, not how.
+    await pool.execute("UPDATE crm_meta_lead_imports SET status='failed' WHERE leadgen_id=?", [leadgenId]);
+    const config = await loadMetaConfig(pool, { useCache: false });
+    const payload = typeof row.raw_payload === 'string' ? JSON.parse(row.raw_payload || 'null') : row.raw_payload;
+    const result = await importMetaLead(pool, {
+      leadgenId, formId: row.form_id, pageId: row.page_id, adId: row.ad_id,
+      campaignMetaId: row.campaign_meta_id, createdTime: row.meta_created_time,
+      leadData: payload, intakeSource: 'review', config, logger,
+    });
+    res.json({ success: true, data: result });
+  }));
+
+  /** Leave a waiting lead out of the CRM, with a note saying who and why. */
+  router.post('/imports/:leadgenId/discard', requireUserAdmin, wrap(async (req, res) => {
+    const leadgenId = String(req.params.leadgenId);
+    const reason = String(req.body?.reason || '').trim().slice(0, 500) || 'Discarded during review';
+    const [result] = await pool.execute(
+      `UPDATE crm_meta_lead_imports
+          SET status='skipped', error_message=?, updated_at_utc=CURRENT_TIMESTAMP(6)
+        WHERE leadgen_id=? AND status='pending'`,
+      [reason, leadgenId],
+    );
+    if (!result.affectedRows) return res.status(409).json({ message: 'That lead is no longer waiting for review' });
+    res.json({ success: true, data: { leadgenId, status: 'skipped' } });
+  }));
+
   router.post('/imports/:leadgenId/retry', requireUserAdmin, wrap(async (req, res) => {
     const leadgenId = String(req.params.leadgenId);
     const [[row]] = await pool.execute(`SELECT * FROM crm_meta_lead_imports WHERE leadgen_id=? LIMIT 1`, [leadgenId]);

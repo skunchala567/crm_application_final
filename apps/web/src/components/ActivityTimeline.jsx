@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   CalendarClock, ChevronDown, Clock, FileText, Filter, GitBranch, Headphones, IndianRupee,
-  MessageCircle, Phone, RefreshCw, Upload, UserPlus, UserCheck,
+  Mail, MessageCircle, Phone, RefreshCw, Upload, UserPlus, UserCheck,
 } from 'lucide-react';
 
 /**
@@ -25,6 +25,7 @@ const ACTIVITY_TYPES = {
   call: { label: 'Call logged', icon: Phone, tone: 'blue' },
   whatsapp: { label: 'WhatsApp message', icon: MessageCircle, tone: 'emerald' },
   message: { label: 'Message sent', icon: MessageCircle, tone: 'emerald' },
+  email_sent: { label: 'Email sent', icon: Mail, tone: 'blue' },
   document: { label: 'Document uploaded', icon: Upload, tone: 'violet' },
   payment: { label: 'Payment recorded', icon: IndianRupee, tone: 'emerald' },
 };
@@ -187,7 +188,7 @@ export default function ActivityTimeline({ activities = [] }) {
         // The recording is the reason to look at a call, so it plays from the
         // entry itself rather than from behind a "More" link.
         const recordingUrl = item.details?.recordingUrl || null;
-        const hasDetails = extraDetailKeys.some((key) => item.details[key]);
+        const hasDetails = extraDetailKeys.some((key) => item.details[key]) || Boolean(item.details?.bodyHtml);
 
         return (
           <div key={item.id ?? index} className="relative flex gap-3 pb-5 last:pb-0">
@@ -278,8 +279,13 @@ export default function ActivityTimeline({ activities = [] }) {
 
               {isExpanded && (
                 <div className="mt-2 p-3 rounded-lg bg-surface-3 border border-border space-y-2">
+                  {item.details?.subject && <p className="text-xs"><span className="text-secondary-500">Subject:</span> <strong>{item.details.subject}</strong></p>}
+                  {Array.isArray(item.details?.to) && <p className="text-xs"><span className="text-secondary-500">To:</span> {item.details.to.join(', ')}</p>}
+                  {item.details?.bodyHtml && (
+                    <div className="text-xs bg-white border rounded-lg p-3" dangerouslySetInnerHTML={{ __html: item.details.bodyHtml }} />
+                  )}
                   {item.details && Object.entries(item.details)
-                    .filter(([key]) => extraDetailKeys.includes(key))
+                    .filter(([key]) => extraDetailKeys.includes(key) && !['bodyHtml','subject','to'].includes(key))
                     .map(([key, value]) => (
                     value && typeof value === 'string' && !key.toLowerCase().includes('url') ? (
                       <div key={key} className="flex gap-2 text-[11.5px]">

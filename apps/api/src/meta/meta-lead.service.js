@@ -449,6 +449,15 @@ export async function importMetaLead(pool, {
   createdTime = null,
   leadData = null,
   intakeSource = 'webhook',
+  /*
+   * Hold the lead for a person to look at instead of creating it.
+   *
+   * The answers a lead carries are worth reading before it becomes a record --
+   * a form can ask anything, and a bad mapping is only obvious once you see
+   * what came back. Held leads sit in the ledger as 'pending' with the full
+   * payload, and Meta Lead Ads > Waiting for review turns them into leads.
+   */
+  holdForReview = false,
   config = {},
   logger = console,
 }) {
@@ -483,6 +492,23 @@ export async function importMetaLead(pool, {
         return { status: 'failed', reason: 'missing page token' };
       }
       payload = await getLead(leadgenId, pageToken, { logger });
+    }
+
+    /*
+     * Stop here when holding: the answers are now on the ledger row, so the
+     * review screen can show exactly what Meta sent without anyone guessing.
+     * Nothing is validated yet either -- a missing name or an odd phone is
+     * something to see on screen, not a silent failure.
+     */
+    if (holdForReview) {
+      await pool.execute(
+        `UPDATE crm_meta_lead_imports
+            SET raw_payload=?, status='pending', error_message=NULL,
+                updated_at_utc=CURRENT_TIMESTAMP(6)
+          WHERE leadgen_id=?`,
+        [payload ? JSON.stringify(payload).slice(0, 60000) : null, String(leadgenId)],
+      );
+      return { status: 'pending', reason: 'held for review' };
     }
 
     const resolvedFormId = formId || payload?.form_id || form?.form_id || null;

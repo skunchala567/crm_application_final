@@ -160,7 +160,12 @@ export class IntegrationRepository {
         id: row.id,
         uuid: row.uuid || undefined,
         organization_id: row.organization_id,
-        integration_type: row.integration_type || this.normalizeType(row.type),  // NEW or map old ENUM
+        // provider is preferred over the legacy ENUM: `type` predates
+      // google_sheets, callerdesk and meta_lead_ads, so those rows were stored
+      // as whichever ENUM value fit -- EMAIL for both Google Sheets and Meta,
+      // SMS for CallerDesk -- and normalizeType() then reported Meta Lead Ads
+      // as google_sheets. `provider` names the service accurately.
+      integration_type: row.integration_type || row.provider || this.normalizeType(row.type),
         provider_name: row.provider_name || row.provider,    // NEW or OLD
         integration_name: row.integration_name || row.name,  // NEW or OLD
         status: this.normalizeStatus(row.status),  // Map old ENUM to new string format
@@ -249,7 +254,12 @@ export class IntegrationRepository {
       id: row.id,
       uuid: row.uuid || undefined,  // Only in new schema
       organization_id: row.organization_id,
-      integration_type: row.integration_type || this.normalizeType(row.type),  // NEW or map old ENUM
+      // provider is preferred over the legacy ENUM: `type` predates
+      // google_sheets, callerdesk and meta_lead_ads, so those rows were stored
+      // as whichever ENUM value fit -- EMAIL for both Google Sheets and Meta,
+      // SMS for CallerDesk -- and normalizeType() then reported Meta Lead Ads
+      // as google_sheets. `provider` names the service accurately.
+      integration_type: row.integration_type || row.provider || this.normalizeType(row.type),
       provider_name: row.provider_name || row.provider,    // NEW or OLD
       integration_name: row.integration_name || row.name,  // NEW or OLD
       status: this.normalizeStatus(row.status),  // Map old ENUM to new string format

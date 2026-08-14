@@ -1,6 +1,6 @@
 import { useLocation } from 'react-router-dom';
 import { useState } from 'react';
-import { Building2, Settings, Users, MessageCircle, PhoneCall, MapPin, Zap, Facebook } from 'lucide-react';
+import { Building2, Settings, Users, MessageCircle, PhoneCall, MapPin, Zap, Facebook, Mail, Server } from 'lucide-react';
 import UserManagementPage from '../UserManagementPage.jsx';
 import WhatsAppTemplatesSettings from '../WhatsAppTemplatesSettings.jsx';
 import IntegrationHubPage from '../pages/IntegrationHubPage.jsx';
@@ -12,6 +12,8 @@ import CallerDeskSettings from '../pages/CallerDeskSettings.jsx';
 import SmartfloSettings from '../pages/SmartfloSettings.jsx';
 import BranchSettingsPage from '../pages/BranchSettingsPage.jsx';
 import PaymentFormsPage from '../pages/PaymentFormsPage.jsx';
+import EmailConfigurationSettings from '../pages/EmailConfigurationSettings.jsx';
+import EmailTemplatesSettings from '../pages/EmailTemplatesSettings.jsx';
 import PageContainer from './PageContainer';
 
 const settingsTabs = [
@@ -70,6 +72,20 @@ const settingsTabs = [
     label: 'WhatsApp',
     icon: MessageCircle,
     component: WhatsAppTemplatesSettings,
+  },
+  {
+    id: 'email-configuration',
+    path: '/settings/email-configuration',
+    label: 'Email Configuration',
+    icon: Server,
+    component: EmailConfigurationSettings,
+  },
+  {
+    id: 'email-templates',
+    path: '/settings/email-templates',
+    label: 'Email Templates',
+    icon: Mail,
+    component: EmailTemplatesSettings,
   },
   {
     id: 'callerdesk',

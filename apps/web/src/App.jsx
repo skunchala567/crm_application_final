@@ -242,6 +242,8 @@ function Shell({ user, onLogout }) {
     { label: 'Integrations', path: '/settings/integrations', permission: 'integrations.hub.view' },
     { label: 'Google Sheets', path: '/settings/google-sheets', permission: 'integrations.google_sheets.view' },
     { label: 'WhatsApp', path: '/settings/whatsapp-templates', permission: 'whatsapp.templates.view' },
+    { label: 'Email Configuration', path: '/settings/email-configuration', permission: 'email.configuration.view' },
+    { label: 'Email Templates', path: '/settings/email-templates', permission: 'email.templates.view' },
   ].filter((item) => can(item.permission));
 
   const visibleMenu = menu.filter(([, , , , permission]) => can(permission));
@@ -309,6 +311,8 @@ function Shell({ user, onLogout }) {
             <Route path="/settings/google-sheets" element={<RequirePermission do="integrations.google_sheets.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/meta-lead-ads" element={<RequirePermission do="integrations.meta_lead_ads.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/whatsapp-templates" element={<RequirePermission do="whatsapp.templates.view"><SettingsPageModern /></RequirePermission>} />
+            <Route path="/settings/email-configuration" element={<RequirePermission do="email.configuration.view"><SettingsPageModern /></RequirePermission>} />
+            <Route path="/settings/email-templates" element={<RequirePermission do="email.templates.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/callerdesk" element={<RequirePermission do="integrations.callerdesk.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/smartflo" element={<RequirePermission do="integrations.smartflo.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/integrations" element={<Navigate to="/settings/integrations" replace />} />

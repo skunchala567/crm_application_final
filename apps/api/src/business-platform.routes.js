@@ -52,8 +52,9 @@ const brandLogo = value => {
 const isAdmin = user => (user.roles || []).some(role => ['CRM_ADMIN','SUPER_ADMIN'].includes(String(role).toUpperCase()));
 
 import { LEAD_FIELD_CATALOGUE, CATALOGUE_BY_KEY, SOURCE_LABELS } from './lead-field-catalogue.js';
+import { notifyTrackerTask } from './tracker-notifications.js';
 
-export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin, hashPassword) {
+export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin, hashPassword, integrationHubService = null) {
   const router = express.Router();
   router.use(authenticate, requireCrmAccess);
 
@@ -1222,6 +1223,63 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     throw Object.assign(new Error('Task owner is required'),{statusCode:400});
   }
 
+  /*
+   * Action items created in the current request, waiting for their WhatsApp
+   * message. Filled inside the transaction, flushed once it has committed.
+   */
+  const pendingTrackerNotifications=[];
+  const flushTrackerNotifications=async()=>{
+    const queued=pendingTrackerNotifications.splice(0);
+    for(const task of queued){
+      if(integrationHubService)await notifyTrackerTask(pool,integrationHubService,task,console);
+    }
+  };
+
+
+  /**
+   * Which WhatsApp templates the Tracker sends when an action item is created.
+   * Returns the connected accounts and their approved templates too, so the
+   * screen can offer a choice rather than asking for a name to be typed.
+   */
+  router.get('/business-units/:unitId/tracker-notifications', requireUserAdmin, async (req,res)=>{
+    const unitId=Number(req.params.unitId);
+    const [[settings]]=await pool.execute(
+      `SELECT is_enabled AS isEnabled, integration_id AS integrationId,
+              action_item_template AS actionItemTemplate, approval_template AS approvalTemplate
+         FROM crm_tracker_notification_settings WHERE business_unit_id=?`,[unitId]);
+    const [accounts]=await pool.execute(
+      `SELECT id, name FROM crm_integrations
+        WHERE deleted_at IS NULL AND LOWER(COALESCE(provider,''))='smartping' ORDER BY name`);
+    const [templates]=await pool.execute(
+      `SELECT id, integration_id AS integrationId, template_name AS templateName
+         FROM crm_whatsapp_templates WHERE status='APPROVED' ORDER BY template_name`);
+    res.json({
+      data: settings||{isEnabled:0,integrationId:null,actionItemTemplate:null,approvalTemplate:null},
+      accounts, templates,
+    });
+  });
+
+  router.put('/business-units/:unitId/tracker-notifications', requireUserAdmin, async (req,res)=>{
+    const unitId=Number(req.params.unitId);
+    const enabled=req.body.isEnabled===false?0:(req.body.isEnabled?1:0);
+    const integrationId=Number(req.body.integrationId)||null;
+    // Turning it on without an account or templates would look configured and
+    // send nothing, so say what is missing instead of saving a dead setting.
+    if(enabled&&!integrationId)return res.status(400).json({message:'Choose the WhatsApp account these messages send from'});
+    if(enabled&&!text(req.body.actionItemTemplate,200)&&!text(req.body.approvalTemplate,200)){
+      return res.status(400).json({message:'Choose at least one template'});
+    }
+    await pool.execute(
+      `INSERT INTO crm_tracker_notification_settings
+         (business_unit_id,is_enabled,integration_id,action_item_template,approval_template,updated_by_user_id)
+       VALUES (?,?,?,?,?,?)
+       ON DUPLICATE KEY UPDATE is_enabled=VALUES(is_enabled),integration_id=VALUES(integration_id),
+         action_item_template=VALUES(action_item_template),approval_template=VALUES(approval_template),
+         updated_by_user_id=VALUES(updated_by_user_id)`,
+      [unitId,enabled,integrationId,text(req.body.actionItemTemplate,200),text(req.body.approvalTemplate,200),Number(req.user?.id)||null]);
+    res.json({message:'Tracker notification settings saved'});
+  });
+
   async function insertTrackerTask(connection,{unitId,unit,userId,body,index=null}){
     const workflowId=Number(body.workflowId),stageId=Number(body.stageId),title=text(body.title,200);
     const prefix=index==null?'':`Action item ${index + 1}: `;
@@ -1251,6 +1309,15 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
       `INSERT INTO crm_operation_approvals(operation_record_id,approver_user_id,requested_by_user_id) VALUES(?,?,?)`,
       [Number(result.insertId),approverUserId,userId],
     );
+    /*
+     * Collected for the WhatsApp notification, which is sent after the
+     * transaction commits -- an external API call must not be made with a
+     * write lock held, and a provider outage must not roll back an action item.
+     */
+    pendingTrackerNotifications.push({
+      businessUnitId:unitId, recordId:Number(result.insertId), title, dueAt:body.dueAt,
+      ownerEmployeeId:owner.ownerEmployeeId, approverUserIds,
+    });
     await notifyEmployee(connection,{businessUnitId:unitId,employeeId:owner.ownerEmployeeId,actorUserId:userId,
       type:'action_assigned',title:'Action item assigned to you',message:`${title} · ${recordNumber}`,
       link:'/tracker',entityType:'operation',entityId:Number(result.insertId)});
@@ -1465,6 +1532,9 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
       const created=await insertTrackerTask(connection,{unitId,unit,userId:Number(req.user.id),body:req.body});
       await connection.commit();
       res.status(201).json({...created,message:'Tracker task created'});
+      // After the response: the sender never fails a request, and the caller
+      // should not wait on a provider round-trip.
+      flushTrackerNotifications();
     }catch(error){await connection.rollback();if(error.statusCode)return res.status(error.statusCode).json({message:error.message});throw error;}finally{connection.release();}
   });
 
@@ -1531,6 +1601,7 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
         [momNotes,existingActionCount+created.length,sessionId],
       );
       await connection.commit();
+      flushTrackerNotifications();
       res.status(201).json({
         sessionId,sessionNumber,data:created,count:created.length,
         message:`MOM ${requestedSessionId?'updated':'saved'}${created.length?` and ${created.length} new action item${created.length===1?' was':'s were'} assigned`:''}`,

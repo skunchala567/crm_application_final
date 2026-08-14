@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
-import { CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Download, Filter, History, Megaphone, NotebookPen, MessageCircle, MoreVertical, PanelRightClose, PanelRightOpen, PhoneCall, Pencil, Plus, RotateCcw, Search, Trash2, Upload, UserRoundPlus, X, GitBranch } from "lucide-react";
+import { CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Download, Filter, History, Megaphone, NotebookPen, MessageCircle, Mail, MoreVertical, PanelRightClose, PanelRightOpen, PhoneCall, Pencil, Plus, RotateCcw, Search, Trash2, Upload, UserRoundPlus, X, GitBranch } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { api } from "./api";
@@ -12,6 +12,7 @@ import { StageChangeDialog } from "./StageChangeDialog.jsx";
 import { BulkStageChangeConfirm } from "./BulkStageChangeConfirm.jsx";
 import Toast from "./Toast.jsx";
 import { WhatsAppSendPanel } from "./components/WhatsAppSendPanel.jsx";
+import EmailComposer from "./components/EmailComposer.jsx";
 import { MarketingCampaignBuilder } from "./MarketingCampaigns.jsx";
 import ActivityTimeline from "./components/ActivityTimeline.jsx";
 import LeadTimeline from "./components/LeadTimeline.jsx";
@@ -767,6 +768,7 @@ export default function LeadsPage() {
   const [pageSize, setPageSize] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
   const [whatsAppRecipients, setWhatsAppRecipients] = useState(null);
+  const [emailLead, setEmailLead] = useState(null);
   const [marketingLeadIds, setMarketingLeadIds] = useState(null);
   const [whatsAppConversations, setWhatsAppConversations] = useState([]);
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
@@ -1623,6 +1625,7 @@ export default function LeadsPage() {
                     <div className="row-action-group">
                     <button className="row-followup-trigger" title="Call with connected telephony provider" aria-label={`Call ${lead.studentName}`} onClick={()=>callLead(lead)}><PhoneCall size={17}/></button>
                     <button className={`row-followup-trigger ${whatsAppConversations.some(item=>cleanPhone(item.mobile)===cleanPhone(lead.phone)&&Number(item.unread_count)>0)?"has-unread":""}`} title="Send WhatsApp message" aria-label={`Send WhatsApp message to ${lead.studentName}`} onClick={()=>openLeadMessage(lead)}><MessageCircle size={17}/>{(()=>{const count=whatsAppConversations.filter(item=>cleanPhone(item.mobile)===cleanPhone(lead.phone)).reduce((sum,item)=>sum+Number(item.unread_count||0),0);return count>0?<span className="lead-message-unread">{count>99?"99+":count}</span>:null})()}</button>
+                    {can('email.messages.create')&&<button className="row-followup-trigger" title="Send email" aria-label={`Send email to ${lead.studentName}`} onClick={()=>setEmailLead(lead)}><Mail size={17}/></button>}
                     <button className="row-followup-trigger remarks-count-trigger" title={`${Number(lead.remarksCount||0)} remarks · Lead history`} aria-label={`${Number(lead.remarksCount||0)} remarks for ${lead.studentName}. Open lead history`} onClick={()=>openHistory(lead)}><History size={17}/><span className="remarks-count-badge">{Number(lead.remarksCount||0)>99?"99+":Number(lead.remarksCount||0)}</span></button>
                     <button className="row-followup-trigger" title="Follow-up and notes" aria-label={`Follow-up and notes for ${lead.studentName}`} onClick={()=>openFollowup(lead)}><NotebookPen size={17}/></button>
                     <div className="row-more-actions">
@@ -2136,6 +2139,7 @@ export default function LeadsPage() {
         onClose={() => setWhatsAppRecipients(null)}
         onSent={() => setMessage({ type: "success", text: "WhatsApp message request completed" })}
       />
+      <EmailComposer open={Boolean(emailLead)} lead={emailLead} onClose={()=>setEmailLead(null)} onSent={()=>{setMessage({type:'success',text:'Email sent successfully'});loadLeads();}}/>
     </main>
   );
 }
