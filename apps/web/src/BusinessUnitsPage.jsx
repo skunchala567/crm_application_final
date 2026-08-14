@@ -5,6 +5,7 @@ import { api } from './api';
 import { useBusinessUnit } from './BusinessUnitContext.jsx';
 import { applyBrandTheme, DEFAULT_BRAND_COLOR } from './brand-theme.js';
 import AcademicConfigurationPage from './AcademicConfigurationPage.jsx';
+import BusinessConfigurationPage from './BusinessConfigurationPage.jsx';
 import LeadConfiguration from './LeadConfiguration.jsx';
 import ScrollableTabStrip from './components/ScrollableTabStrip.jsx';
 import './MetadataPlatform.css';
@@ -47,9 +48,18 @@ function ColourField({label,value,onChange}){
     </span>
   </label>;
 }
-const emptyField={displayName:'',fieldType:'text',placeholder:'',options:'',isRequired:false,isFilterable:true,filterControl:'contains',isSearchable:false,isImportable:true,isImportRequired:false,importHeader:'',importSampleValue:'',showInList:true,columnWidth:180,useInLeadForm:true,useInQuickCreate:false,useInLeadDetails:true,useInReports:true,useInAutomations:false};
+const emptyField={displayName:'',fieldType:'text',placeholder:'',options:'',optionsSectionId:'',optionsSectionLevel:'parent',isRequired:false,isFilterable:true,filterControl:'contains',isSearchable:false,isImportable:true,isImportRequired:false,importHeader:'',importSampleValue:'',showInList:true,columnWidth:180,useInLeadForm:true,useInQuickCreate:false,useInLeadDetails:true,useInReports:true,useInAutomations:false};
 const emptyEnquiryForm={displayName:'',description:'',paymentRequired:false,paymentAmount:'',defaultBranchId:'',defaultStageId:'',defaultSubstageId:'',defaultSourceId:'',defaultChannelId:'',defaultCampaignId:'',defaultOwnerEmployeeId:'',settings:{defaultAcademicYear:''},successMessage:'Thank you. Your enquiry has been submitted.',redirectUrl:'',isActive:true,fields:[]};
-const emptyBranchForm={name:'',shortName:'',isActive:true,jodoPaymentEnabled:false,jodoApiKey:'',jodoSecretKey:'',jodoCollectorCode:'',callerdeskDidId:'',callerdeskDidNumber:'',callerdeskCallGroup:'',callerdeskInboundEnabled:true,callerdeskOutboundEnabled:true,smartfloDidId:'',smartfloDidNumber:'',smartfloIvrId:'',smartfloIvrName:'',smartfloDepartmentId:'',smartfloInboundEnabled:true,smartfloOutboundEnabled:true};
+/**
+ * What a masked field shows.
+ *
+ * The stored value never reaches the browser, so "Leave blank to keep existing
+ * key" was the only clue that anything was saved -- and it read the same
+ * whether or not it was. Dots say a value is there; typing replaces it.
+ */
+const secretPlaceholder=(isSet,emptyLabel)=>isSet?'••••••••••••  (saved — type to replace)':emptyLabel;
+
+const emptyBranchForm={name:'',shortName:'',isActive:true,jodoPaymentEnabled:false,jodoApiKey:'',jodoSecretKey:'',jodoCollectorCode:'',jodoBaseUrl:'https://ext.jodo.in',jodoAuthHeader:'',callerdeskDidId:'',callerdeskDidNumber:'',callerdeskCallGroup:'',callerdeskInboundEnabled:true,callerdeskOutboundEnabled:true,smartfloDidId:'',smartfloDidNumber:'',smartfloIvrId:'',smartfloIvrName:'',smartfloDepartmentId:'',smartfloInboundEnabled:true,smartfloOutboundEnabled:true};
 const optionArray=value=>{if(Array.isArray(value))return value;if(!value||typeof value!=='object')return[];for(const key of ['data','list','result','records','deskphone_list','deskphones','ivr_list','ivrs','group_list','groups','departments','numbers']){const nested=value[key];if(Array.isArray(nested))return nested;if(nested&&typeof nested==='object'){const found=optionArray(nested);if(found.length)return found;}}return[];};
 const fieldUsageKeys=['useInLeadForm','useInQuickCreate','useInLeadDetails','useInReports','useInAutomations'];
 const fieldUsageFromValidation=field=>{
@@ -75,7 +85,13 @@ const fieldPayload=fieldForm=>{
     importTemplates:Boolean(fieldForm.isImportable),
   };
   const validation={...(fieldForm.validation||{}),usage,requiredOnLeadForm:Boolean(fieldForm.isRequired)};
-  const cleaned={...fieldForm,validation,options:fieldForm.options.split(',').map(item=>item.trim()).filter(Boolean)};
+  const cleaned={
+    ...fieldForm,
+    validation,
+    options:fieldForm.options.split(',').map(item=>item.trim()).filter(Boolean),
+    optionsSectionId:fieldForm.optionsSectionId?Number(fieldForm.optionsSectionId):null,
+    optionsSectionLevel:fieldForm.optionsSectionLevel==='child'?'child':'parent',
+  };
   fieldUsageKeys.forEach(key=>delete cleaned[key]);
   return cleaned;
 };
@@ -92,6 +108,12 @@ export default function BusinessUnitsPage({onMessage}){
   const [searchParams,setSearchParams]=useSearchParams();
   const [selectedId,setSelectedId]=useState(context.selectedId);
   const [config,setConfig]=useState(null);
+  // The configuration sections this unit defines, so a select field can take
+  // its options from one instead of a list retyped into the dialog.
+  const [configSections,setConfigSections]=useState([]);
+  // Standard fields this unit has not taken yet -- branch, stage, sub-stage,
+  // next follow-up and the rest that the default unit was seeded with.
+  const [fieldCatalogue,setFieldCatalogue]=useState([]);
   const requestedTab=searchParams.get('tab');
   const [tab,setTab]=useState(['academic','sources'].includes(requestedTab)?requestedTab:'overview');
   const [pipelineTab,setPipelineTab]=useState('stages');
@@ -127,10 +149,24 @@ export default function BusinessUnitsPage({onMessage}){
   const filteredUnits=context.units.filter(unit=>`${unit.name} ${unit.industryType} ${unit.description||''}`.toLowerCase().includes(unitSearch.toLowerCase().trim()));
 
   const notify=(type,text)=>onMessage?.({type,text});
+  const addStandardField=async (key,form)=>{
+    try{
+      const result=await api(`/platform/business-units/${selectedId}/field-catalogue`,{method:'POST',body:JSON.stringify({key,...fieldPayload(form||emptyField)})});
+      notify('success',result.message);
+      setDialog(null);
+      await loadConfig(selectedId);
+    }catch(error){notify('error',error.message);}
+  };
   const loadConfig=async id=>{
     if(!id)return;
     try{setConfig(await api(`/platform/business-units/${id}/config`));}
     catch(error){notify('error',error.message);}
+    try{
+      const sections=await api('/business-config/sections',{headers:{'X-Business-Unit-Id':String(id)}});
+      setConfigSections(sections.data||[]);
+    }catch{setConfigSections([]);}
+    try{setFieldCatalogue((await api(`/platform/business-units/${id}/field-catalogue`)).data||[]);}
+    catch{setFieldCatalogue([]);}
   };
   useEffect(()=>{if(!selectedId&&context.selectedId)setSelectedId(context.selectedId);},[context.selectedId]);
   useEffect(()=>{
@@ -156,7 +192,10 @@ export default function BusinessUnitsPage({onMessage}){
     }).catch(()=>{if(!ignore)setCallingOptions(current=>({...current,smartfloDids:[],smartfloDepartments:[],smartfloIvrs:[]}));});
     return()=>{ignore=true;};
   },[]);
+  // Each profile owns one of these two tabs, so switching to a unit that does
+  // not have the open one would otherwise leave an empty panel on screen.
   useEffect(()=>{if(selected&&selected.compatibilityMode!=='legacy_school'&&tab==='academic')setTab('overview');},[selected?.id,selected?.compatibilityMode,tab]);
+  useEffect(()=>{if(selected&&selected.compatibilityMode==='legacy_school'&&tab==='configuration')setTab('overview');},[selected?.id,selected?.compatibilityMode,tab]);
   useEffect(()=>{
     if(!unitPickerOpen)return undefined;
     const close=event=>{if(!unitPickerRef.current?.contains(event.target))setUnitPickerOpen(false);};
@@ -338,12 +377,12 @@ export default function BusinessUnitsPage({onMessage}){
                 page header's height has to be accounted for rather than the
                 title's as well -- its height changes with the description. */}
             <ScrollableTabStrip as="nav" className="metadata-tabs" label="configuration tabs">
-              {[['overview',Layers3,'Overview'],['branches',CreditCard,'Branches & payments'],['fields',Settings2,'Lead fields'],['enquiry',ExternalLink,'Enquiry forms'],['pipeline',GitBranch,'Lead pipeline'],['sources',Waypoints,'Source configuration'],...(selected.compatibilityMode==='legacy_school'?[['academic',CalendarRange,'Academic configuration']]:[]),['operations',Workflow,'Tracker'],['database',Database,'Database tables']].map(([id,Icon,label])=><button key={id} className={tab===id?'active':''} onClick={()=>changeTab(id)}><Icon size={16}/>{label}</button>)}
+              {[['overview',Layers3,'Overview'],['branches',CreditCard,'Branches & payments'],['fields',Settings2,'Lead fields'],['enquiry',ExternalLink,'Enquiry forms'],['pipeline',GitBranch,'Lead pipeline'],['sources',Waypoints,'Source configuration'],...(selected.compatibilityMode==='legacy_school'?[['academic',CalendarRange,'Academic configuration']]:[['configuration',CalendarRange,'Configuration']]),['operations',Workflow,'Tracker'],['database',Database,'Database tables']].map(([id,Icon,label])=><button key={id} className={tab===id?'active':''} onClick={()=>changeTab(id)}><Icon size={16}/>{label}</button>)}
             </ScrollableTabStrip>
             </div>
             {tab==='overview'&&<Overview config={config} selected={selected}/>}
-            {tab==='branches'&&<BranchesPaymentPanel config={config} onAdd={()=>{setEditingId(null);setBranchForm(emptyBranchForm);setDialog('branch')}} onEdit={branch=>{const{applicationAmount,applicationStageId,applicationPaymentComponent,...rest}=branch;setEditingId(branch.id);setBranchForm({...emptyBranchForm,...rest,jodoApiKey:'',jodoSecretKey:''});setDialog('branch')}}/>}
-            {tab==='fields'&&<MetadataList title="Lead fields" description="Configure forms, list columns, filters, search, and import templates for this business unit." action="Add field" onAdd={()=>{setEditingId(null);setFieldForm(emptyField);setDialog('field')}} onEdit={row=>{const field=config.fields.find(item=>item.id===row.id);setEditingId(field.id);setFieldForm({...emptyField,...field,...fieldUsageFromValidation(field),options:(field.options||[]).join(', ')});setDialog('field')}} onDelete={row=>removeConfiguredItem('fields',row,'lead field')} rows={config.fields.map(field=>({id:field.id,title:field.displayName,subtitle:`${field.fieldType.replace('_',' ')} · ${field.fieldKey}`,badges:[field.isSystem?'System field':null,field.isRequired?'Lead form mandatory':null,field.showInList?'List column':null,field.isFilterable?'Filter':null,field.isSearchable?'Search':null,field.validation?.usage?.reports!==false?'Reports':null,field.isImportable?(field.isImportRequired?'Import required':'Import column'):null].filter(Boolean)}))}/>}
+            {tab==='branches'&&<BranchesPaymentPanel config={config} onAdd={()=>{setEditingId(null);setBranchForm(emptyBranchForm);setDialog('branch')}} onEdit={branch=>{const{applicationAmount,applicationStageId,applicationPaymentComponent,...rest}=branch;setEditingId(branch.id);setBranchForm({...emptyBranchForm,...rest,jodoApiKey:'',jodoSecretKey:'',jodoAuthHeader:'',jodoBaseUrl:branch.jodoBaseUrl||'https://ext.jodo.in'});setDialog('branch')}}/>}
+            {tab==='fields'&&<MetadataList title="Lead fields" description="Configure forms, list columns, filters, search, and import templates for this business unit." action="Add field" onAdd={()=>{setEditingId(null);setFieldForm(emptyField);setDialog('field')}} onEdit={row=>{const field=config.fields.find(item=>item.id===row.id);setEditingId(field.id);setFieldForm({...emptyField,...field,...fieldUsageFromValidation(field),options:(field.options||[]).join(', '),optionsSectionId:field.optionsSectionId?String(field.optionsSectionId):'',optionsSectionLevel:field.optionsSectionLevel||'parent'});setDialog('field')}} onDelete={row=>removeConfiguredItem('fields',row,'lead field')} rows={config.fields.map(field=>({id:field.id,title:field.displayName,subtitle:`${field.fieldType.replace('_',' ')} · ${field.fieldKey}`,badges:[field.isSystem?'System field':null,field.isRequired?'Lead form mandatory':null,field.showInList?'List column':null,field.isFilterable?'Filter':null,field.isSearchable?'Search':null,field.validation?.usage?.reports!==false?'Reports':null,field.isImportable?(field.isImportRequired?'Import required':'Import column'):null].filter(Boolean)}))}/>}
             {tab==='enquiry'&&<EnquiryFormsPanel config={config} selected={selected} onAdd={()=>{setEditingId(null);setEnquiryForm({...emptyEnquiryForm,fields:defaultEnquiryFields(config.fields)});setDialog('enquiry-form')}} onEdit={form=>{setEditingId(form.id);setEnquiryForm({...emptyEnquiryForm,...form,fields:form.fieldSchema||[]});setDialog('enquiry-form')}} onDelete={removeEnquiryForm} onMessage={notify}/>}
             {tab==='pipeline'&&<section className="pipeline-configuration">
               <PipelineDefaults config={config} saving={saving} onSave={savePipelineDefaults}/>
@@ -356,6 +395,7 @@ export default function BusinessUnitsPage({onMessage}){
             </section>}
             {tab==='sources'&&<section className="business-unit-source"><LeadConfiguration key={selectedId} embedded businessUnitId={selectedId} useBusinessUnitSources={selected.compatibilityMode==='metadata'} onMessage={message=>message&&notify(message.type,message.text)}/></section>}
             {tab==='academic'&&selected.compatibilityMode==='legacy_school'&&<section className="business-unit-academic"><AcademicConfigurationPage embedded onMessage={message=>message&&notify(message.type,message.text)}/></section>}
+            {tab==='configuration'&&selected.compatibilityMode!=='legacy_school'&&<section className="business-unit-academic"><BusinessConfigurationPage key={selectedId} embedded businessUnitId={selectedId} onMessage={message=>message&&notify(message.type,message.text)}/></section>}
             {tab==='operations'&&<MetadataList title="Tracker statuses" description="Configure and order the progress statuses for MOM action items. New action items always start in the first status." action="Add status" onAdd={()=>{setEditingId(null);setStageForm({displayName:'',stageType:'open',color:'#0b7a4f'});setDialog('operation-stage')}} onEdit={row=>{const stage=config.operationStages.find(item=>item.id===row.id);setEditingId(stage.id);setStageForm({displayName:stage.displayName,stageType:stage.stageType,color:stage.color,isActive:stage.isActive});setDialog('operation-stage')}} onMove={moveOperationStage} onDelete={row=>removeConfiguredItem('operation-stages',row,'Tracker status')} rows={config.operationStages.map((stage,index)=>({id:stage.id,title:stage.displayName,subtitle:stage.stageType.replaceAll('_',' '),badges:[index===0?'Default starting status':`Order ${index+1}`],color:stage.color,canMoveUp:index>0,canMoveDown:index<config.operationStages.length-1}))}/>}
             {tab==='database'&&<BusinessUnitDatabaseTables selected={selected}/>}
           </>}
@@ -364,7 +404,7 @@ export default function BusinessUnitsPage({onMessage}){
       {dialog&&<><div className="drawer-backdrop" onClick={()=>setDialog(null)}/><section className="metadata-dialog" role="dialog" aria-modal="true">
         <header><div><span className="eyebrow">Configuration</span><h2>{editingId?'Edit ':dialog==='unit'?'Add business unit':dialog==='field'?'Add lead field':dialog==='enquiry-form'?'Add enquiry form':dialog==='branch'?'Add branch':dialog==='pipeline-stage'?'Add pipeline stage':dialog==='pipeline-substage'?'Add pipeline sub-stage':'Add tracker status'}{editingId&&(dialog==='field'?'lead field':dialog==='enquiry-form'?'enquiry form':dialog==='branch'?'branch':dialog==='pipeline-stage'?'pipeline stage':dialog==='pipeline-substage'?'pipeline sub-stage':'tracker status')}</h2></div><button className="icon-btn" onClick={()=>{setDialog(null);setEditingId(null)}}><X/></button></header>
         {dialog==='unit'&&<form onSubmit={createUnit}><label>Name *<input required value={unitForm.name} onChange={e=>setUnitForm({...unitForm,name:e.target.value})} placeholder="e.g. Real Estate"/></label><label>Industry type *<input required value={unitForm.industryType} onChange={e=>setUnitForm({...unitForm,industryType:e.target.value})} placeholder="e.g. Property Sales"/></label><label>Description<textarea rows="3" value={unitForm.description} onChange={e=>setUnitForm({...unitForm,description:e.target.value})}/></label><fieldset className="unit-branding"><legend>Sidebar branding</legend><label>Title<input value={unitForm.brandTitle} onChange={e=>setUnitForm({...unitForm,brandTitle:e.target.value})} placeholder="Orbit" maxLength={80}/></label><label>Sub title<input value={unitForm.brandSubtitle} onChange={e=>setUnitForm({...unitForm,brandSubtitle:e.target.value})} placeholder="Admissions CRM" maxLength={120}/></label><label>Logo<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={pickLogo}/><small>PNG, JPG, GIF or WebP up to 1 MB. Leave blank to keep the default mark.</small></label>{unitForm.brandLogo&&<div className="unit-branding-preview"><img src={unitForm.brandLogo} alt="Sidebar logo preview"/><button type="button" className="secondary" onClick={()=>setUnitForm({...unitForm,brandLogo:''})}>Remove logo</button></div>}</fieldset><fieldset className="unit-branding"><legend>Support card</legend><label>Link<input type="url" value={unitForm.helpUrl} onChange={e=>setUnitForm({...unitForm,helpUrl:e.target.value})} placeholder="https://wa.me/919000000000" maxLength={1000}/><small>Where the sidebar help card sends people: a WhatsApp chat, a Zoom room, a help desk, or a mailto: / tel: link. Must start with https://, mailto: or tel:. Leave blank to show the card without a link.</small></label><label>Title<input value={unitForm.helpTitle} onChange={e=>setUnitForm({...unitForm,helpTitle:e.target.value})} placeholder="Need a hand?" maxLength={80}/></label><label>Sub title<input value={unitForm.helpSubtitle} onChange={e=>setUnitForm({...unitForm,helpSubtitle:e.target.value})} placeholder="Visit the help centre" maxLength={160}/></label></fieldset><ColourField label="Theme colour" value={unitForm.color} onChange={color=>setUnitForm({...unitForm,color})}/><label>Deletion password<input type="password" value={unitForm.deletionPassword||''} onChange={e=>setUnitForm({...unitForm,deletionPassword:e.target.value})} maxLength={200} autoComplete="new-password" placeholder="No password required"/><small>Applied to every deletion in this Business Unit. Leave blank to allow deletion without a password.</small></label><DialogFooter saving={saving} onCancel={()=>setDialog(null)}/></form>}
-        {dialog==='field'&&<FieldConfigurationForm fieldForm={fieldForm} setFieldForm={setFieldForm} saving={saving} onCancel={()=>setDialog(null)} onSubmit={addField}/>}
+        {dialog==='field'&&<FieldConfigurationForm fieldForm={fieldForm} setFieldForm={setFieldForm} sections={configSections} catalogue={editingId?[]:fieldCatalogue} onAddStandard={addStandardField} saving={saving} onCancel={()=>setDialog(null)} onSubmit={addField}/>}
         {dialog==='enquiry-form'&&<EnquiryFormEditor form={enquiryForm} setForm={setEnquiryForm} config={config} saving={saving} onCancel={()=>setDialog(null)} onSubmit={saveEnquiryForm}/>}
         {dialog==='branch'&&<BranchPaymentForm form={branchForm} setForm={setBranchForm} callingOptions={callingOptions} saving={saving} onCancel={()=>setDialog(null)} onSubmit={saveBranch}/>}
         {['pipeline-stage','operation-stage'].includes(dialog)&&<form onSubmit={dialog==='pipeline-stage'?addPipelineStage:addOperationStage}><label>{dialog==='operation-stage'?'Status':'Stage'} name *<input required value={stageForm.displayName} onChange={e=>setStageForm({...stageForm,displayName:e.target.value})}/></label>{dialog==='operation-stage'&&<label>Status behaviour<select value={stageForm.stageType} onChange={e=>setStageForm({...stageForm,stageType:e.target.value})}><option value="open">Open / active</option><option value="on_hold">On hold</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></label>}<label>Colour<input type="color" value={stageForm.color} onChange={e=>setStageForm({...stageForm,color:e.target.value})}/></label>{dialog==='pipeline-stage'&&<label className="check-option"><input type="checkbox" checked={stageForm.requiresFollowup} onChange={e=>setStageForm({...stageForm,requiresFollowup:e.target.checked})}/>Next follow-up required</label>}{editingId&&<label className="check-option"><input type="checkbox" checked={stageForm.isActive!==false} onChange={e=>setStageForm({...stageForm,isActive:e.target.checked})}/>Active</label>}<DialogFooter saving={saving} onCancel={()=>setDialog(null)}/></form>}
@@ -438,11 +478,20 @@ function BranchPaymentForm({form,setForm,callingOptions,saving,onCancel,onSubmit
     <fieldset>
       <legend>Jodo payment credentials</legend>
       <div className="branch-field-grid">
+        <label>API base URL<input value={form.jodoBaseUrl||''} onChange={e=>patch({jodoBaseUrl:e.target.value})} placeholder="https://ext.jodo.in"/></label>
+        {/* Jodo issues its own Authorization value. Given one it is sent
+            exactly as provided; left blank the CRM derives Basic from the key
+            and secret, which is what every branch did before.
+
+            A stored secret shows as dots rather than an empty box: the value
+            itself is never sent to the browser, so an empty field could not be
+            told apart from one that was never set. */}
+        <label>Authorization header<input type="password" value={form.jodoAuthHeader||''} onChange={e=>patch({jodoAuthHeader:e.target.value})} placeholder={secretPlaceholder(form.jodoAuthHeaderSet,'Basic ....==')}/></label>
         <label>Collector code<input value={form.jodoCollectorCode||''} onChange={e=>patch({jodoCollectorCode:e.target.value})} placeholder="NACHARAM"/></label>
-        <label>API key<input value={form.jodoApiKey||''} onChange={e=>patch({jodoApiKey:e.target.value})} placeholder={form.id?'Leave blank to keep existing key':'API key'}/></label>
-        <label>Secret key<input type="password" value={form.jodoSecretKey||''} onChange={e=>patch({jodoSecretKey:e.target.value})} placeholder={form.id?'Leave blank to keep existing secret':'Secret key'}/></label>
+        <label>API key<input type="password" value={form.jodoApiKey||''} onChange={e=>patch({jodoApiKey:e.target.value})} placeholder={secretPlaceholder(form.jodoApiKeySet,'API key')}/></label>
+        <label>Secret key<input type="password" value={form.jodoSecretKey||''} onChange={e=>patch({jodoSecretKey:e.target.value})} placeholder={secretPlaceholder(form.jodoSecretKeySet,'Secret key')}/></label>
       </div>
-      <small>Keys are stored on the branch record and are never shown on the public application form. Application amount, payment component and paid-application stage are configured on the payment form or public enquiry form.</small>
+      <small>Base URL is https://ext.jodo.in for live. Paste the Authorization header Jodo issued; leave it blank to derive one from the API key and secret. Keys are stored on the branch record and are never shown on the public application form. Application amount, payment component and paid-application stage are configured on the payment form or public enquiry form.</small>
     </fieldset>
     <DialogFooter saving={saving} onCancel={onCancel}/>
   </form>;
@@ -596,8 +645,34 @@ function MetadataList({title,description,action,onAdd,onEdit,onDelete,onMove,row
   return <section className="metadata-list"><header><div><h3>{title}</h3><p>{description}</p></div>{onAdd&&<button className="primary" onClick={onAdd}><Plus size={16}/>{action}</button>}</header><div>{rows.map(row=><article key={row.id}><i style={{background:row.color||'var(--brand-50)',color:row.color?'#fff':'var(--brand-600)'}}>{row.color?<GitBranch size={15}/>:<Settings2 size={15}/>}</i><span><strong>{row.title}</strong><small>{row.subtitle}</small></span><div className="metadata-row-badges">{row.badges.map(item=><em key={item}>{item}</em>)}</div>{(onEdit||onDelete||onMove)&&<div className="metadata-row-actions">{onMove&&<><button className="icon-btn reorder" disabled={!row.canMoveUp} title={`Move ${row.title} up`} onClick={()=>onMove(row,'up')}><ArrowUp size={15}/></button><button className="icon-btn reorder" disabled={!row.canMoveDown} title={`Move ${row.title} down`} onClick={()=>onMove(row,'down')}><ArrowDown size={15}/></button></>}{onEdit&&<button className="icon-btn" title="Edit configuration" onClick={()=>onEdit(row)}><Pencil size={15}/></button>}{onDelete&&row.canDelete!==false&&<button className="icon-btn danger" title={`Delete ${row.title}`} onClick={()=>onDelete(row)}><Trash2 size={15}/></button>}</div>}</article>)}{!rows.length&&<div className="empty"><Settings2/><strong>No configuration available</strong><span>{onAdd?`Use ${action.toLowerCase()} to get started.`:'Add configuration for this Business Unit to continue.'}</span></div>}</div></section>;
 }
 
-function FieldConfigurationForm({fieldForm,setFieldForm,saving,onCancel,onSubmit}){
+function FieldConfigurationForm({fieldForm,setFieldForm,sections=[],catalogue=[],onAddStandard,saving,onCancel,onSubmit}){
+  // Two ways in: take a standard field the CRM already understands, or define
+  // one of your own. Both then configure the same things -- where the field
+  // appears, whether it is mandatory, how it filters and imports -- because
+  // that is just as relevant to a standard field as to a custom one.
+  const [mode,setMode]=useState(catalogue.length?'standard':'new');
+  const [standardKey,setStandardKey]=useState('');
   const patch=changes=>setFieldForm({...fieldForm,...changes});
+  const grouped=catalogue.reduce((groups,entry)=>{(groups[entry.group]=groups[entry.group]||[]).push(entry);return groups;},{});
+  const chosen=catalogue.find(entry=>entry.key===standardKey);
+  const standard=mode==='standard'&&catalogue.length>0;
+
+  /** Picking a standard field seeds the form with that field's own defaults. */
+  const chooseStandard=key=>{
+    setStandardKey(key);
+    const entry=catalogue.find(item=>item.key===key);
+    if(!entry)return;
+    setFieldForm({
+      ...emptyField,
+      displayName:entry.label,
+      fieldType:entry.type,
+      importHeader:entry.label,
+      columnWidth:entry.width||180,
+      isSearchable:Boolean(entry.searchable),
+      filterControl:entry.filterControl||filterControlOptions(entry.type)[0][0],
+    });
+  };
+
   const usageOptions=[
     ['useInLeadForm','Lead form','Field is available while creating or editing a lead'],
     ['useInQuickCreate','Quick lead form','Field can appear in compact lead capture flows'],
@@ -609,11 +684,9 @@ function FieldConfigurationForm({fieldForm,setFieldForm,saving,onCancel,onSubmit
     ['useInAutomations','Automations','Field can be used by workflow conditions later'],
     ['isImportable','Import templates','Field is included in CSV/Google Sheet import templates'],
   ];
-  return <form onSubmit={onSubmit}>
-    <label>Field name *<input required value={fieldForm.displayName} onChange={e=>patch({displayName:e.target.value,importHeader:!fieldForm.importHeader||fieldForm.importHeader===fieldForm.displayName?e.target.value:fieldForm.importHeader})}/></label>
-    <label>Field type *<select disabled={fieldForm.isSystem} value={fieldForm.fieldType} onChange={e=>{const fieldType=e.target.value;patch({fieldType,filterControl:filterControlOptions(fieldType)[0][0]})}}>{['text','textarea','number','decimal','date','datetime','email','phone','boolean','single_select','multi_select','user','file'].map(type=><option key={type} value={type}>{type.replace('_',' ')}</option>)}</select></label>
-    {['single_select','multi_select'].includes(fieldForm.fieldType)&&!fieldForm.isSystem&&<label>Options<input value={fieldForm.options} onChange={e=>patch({options:e.target.value})} placeholder="Option 1, Option 2"/></label>}
-    <label>Placeholder<input value={fieldForm.placeholder} onChange={e=>patch({placeholder:e.target.value})}/></label>
+
+  // Shared by both modes, so a standard field is as configurable as a custom one.
+  const configuration=<>
     <label>Lead form requirement *<select value={fieldForm.isRequired?'mandatory':'optional'} onChange={e=>patch({isRequired:e.target.value==='mandatory',useInLeadForm:true})}><option value="optional">Optional on lead form</option><option value="mandatory">Mandatory on lead form</option></select><small>Mandatory fields must be filled before a lead can be saved.</small></label>
     <section className="field-usage-panel">
       <div><strong>Where this field can be used</strong><span>Select all areas where this field should be available.</span></div>
@@ -622,7 +695,69 @@ function FieldConfigurationForm({fieldForm,setFieldForm,saving,onCancel,onSubmit
     {fieldForm.isImportable&&<label className="check-option"><input type="checkbox" checked={fieldForm.isImportRequired} onChange={e=>patch({isImportRequired:e.target.checked})}/>Required during import</label>}
     {fieldForm.isFilterable&&<label>Filter control *<select required value={fieldForm.filterControl||filterControlOptions(fieldForm.fieldType)[0][0]} onChange={e=>patch({filterControl:e.target.value})}>{filterControlOptions(fieldForm.fieldType).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select><small>Controls how this field appears in the Leads filter panel.</small></label>}
     {fieldForm.isImportable&&<div className="dynamic-form-grid"><label>Import column heading *<input required value={fieldForm.importHeader} onChange={e=>patch({importHeader:e.target.value})} placeholder={fieldForm.displayName||'CSV / Google Sheet heading'}/></label><label>Example value<input value={fieldForm.importSampleValue||''} onChange={e=>patch({importSampleValue:e.target.value})} placeholder="Shown in the downloaded template"/></label></div>}
+  </>;
+
+  const modeSwitch=Boolean(catalogue.length)&&<div className="field-mode-switch">
+    <button type="button" className={standard?'active':''} onClick={()=>{setMode('standard');setStandardKey('');}}>Standard field</button>
+    <button type="button" className={standard?'':'active'} onClick={()=>{setMode('new');setFieldForm(emptyField);}}>New custom field</button>
+  </div>;
+
+  if(standard)return <form onSubmit={event=>{event.preventDefault();if(standardKey)onAddStandard(standardKey,fieldForm);}}>
+    {modeSwitch}
+    <div className="dynamic-form-grid">
+      <label>Standard field *<select required value={standardKey} onChange={e=>chooseStandard(e.target.value)}>
+        <option value="">Select a field</option>
+        {Object.entries(grouped).map(([group,entries])=><optgroup key={group} label={group}>
+          {entries.map(entry=><option key={entry.key} value={entry.key}>{entry.label}</option>)}
+        </optgroup>)}
+      </select><small>{chosen
+        ? `${chosen.type.replace('_',' ')} · values from ${chosen.sourceLabel.toLowerCase()}`
+        : 'Fields the CRM already understands, with their values wired up.'}</small></label>
+      <label>Field name *<input required value={fieldForm.displayName} disabled={!standardKey} onChange={e=>patch({displayName:e.target.value,importHeader:e.target.value})} placeholder="Shown on the lead form"/></label>
+    </div>
+    {Boolean(standardKey)&&<>
+      <label>Placeholder<input value={fieldForm.placeholder} onChange={e=>patch({placeholder:e.target.value})}/></label>
+      {configuration}
+    </>}
+    {!standardKey&&<p className="config-hint">Choose a field above to set where it appears and how it behaves.</p>}
+    <DialogFooter saving={saving} onCancel={onCancel} label="Add field" disabled={!standardKey}/>
+  </form>;
+
+  return <form onSubmit={onSubmit}>
+    {modeSwitch}
+    <div className="dynamic-form-grid">
+      <label>Field name *<input required value={fieldForm.displayName} onChange={e=>patch({displayName:e.target.value,importHeader:!fieldForm.importHeader||fieldForm.importHeader===fieldForm.displayName?e.target.value:fieldForm.importHeader})}/></label>
+      <label>Field type *<select disabled={fieldForm.isSystem} value={fieldForm.fieldType} onChange={e=>{const fieldType=e.target.value;patch({fieldType,filterControl:filterControlOptions(fieldType)[0][0]})}}>{['text','textarea','number','decimal','date','datetime','email','phone','boolean','single_select','multi_select','user','file'].map(type=><option key={type} value={type}>{type.replace('_',' ')}</option>)}</select>
+        {Boolean(sections.length)&&!['single_select','multi_select'].includes(fieldForm.fieldType)&&
+          <small>Choose <b>single select</b> or <b>multi select</b> to take the options from {sections.filter(section=>section.isActive).map(section=>section.displayName).join(', ')}.</small>}
+      </label>
+    </div>
+    {['single_select','multi_select'].includes(fieldForm.fieldType)&&!fieldForm.isSystem&&<>
+      <label>Options from *<select value={fieldForm.optionsSectionId?`${fieldForm.optionsSectionId}:${fieldForm.optionsSectionLevel||'parent'}`:''} onChange={e=>{
+        const [sectionId,level]=e.target.value.split(':');
+        patch({optionsSectionId:sectionId||'',optionsSectionLevel:level||'parent'});
+      }}>
+        <option value="">A list typed here</option>
+        {sections.filter(section=>section.isActive).flatMap(section=>section.sectionType==='hierarchy'
+          ?[<option key={`${section.id}:parent`} value={`${section.id}:parent`}>{section.displayName}</option>,
+            <option key={`${section.id}:child`} value={`${section.id}:child`}>{section.displayName} &rarr; {section.childLabel||'sub-values'}</option>]
+          :[<option key={`${section.id}:parent`} value={`${section.id}:parent`}>{section.displayName}</option>])}
+      </select><small>{fieldForm.optionsSectionId
+        ?'Options are read from that section, so adding a value there updates this field everywhere.'
+        :sections.length?'Or point this field at a section configured for this business unit.':'No configuration sections defined for this business unit yet.'}</small></label>
+      {!fieldForm.optionsSectionId&&<label>Options<input value={fieldForm.options} onChange={e=>patch({options:e.target.value})} placeholder="Option 1, Option 2"/></label>}
+      {Boolean(fieldForm.optionsSectionId)&&<label>Current values<input readOnly value={(()=>{
+        const [id,level]=[String(fieldForm.optionsSectionId),fieldForm.optionsSectionLevel||'parent'];
+        const section=sections.find(item=>String(item.id)===id);
+        if(!section)return '';
+        const values=level==='child'?section.values.flatMap(parent=>parent.children):section.values;
+        return values.filter(value=>value.isActive).map(value=>value.displayName).join(', ');
+      })()} placeholder="This section has no values yet"/></label>}
+    </>}
+    <label>Placeholder<input value={fieldForm.placeholder} onChange={e=>patch({placeholder:e.target.value})}/></label>
+    {configuration}
     <DialogFooter saving={saving} onCancel={onCancel}/>
   </form>;
 }
-function DialogFooter({saving,onCancel}){return <footer><button type="button" className="secondary" onClick={onCancel}>Cancel</button><button className="primary" disabled={saving}>{saving?'Saving…':'Save configuration'}</button></footer>;}
+
+function DialogFooter({saving,onCancel,label,disabled}){return <footer><button type="button" className="secondary" onClick={onCancel}>Cancel</button><button className="primary" disabled={saving||disabled}>{saving?'Saving…':label||'Save configuration'}</button></footer>;}

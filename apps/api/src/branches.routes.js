@@ -23,7 +23,8 @@ export function createBranchesRoutes(pool, authenticate, requireCrmAccess) {
 
   router.get('/:id/jodo-config', wrap(async (req, res) => {
     const [[branch]] = await pool.execute(
-      `SELECT jodo_payment_enabled, jodo_api_key, jodo_secret_key, jodo_collector_code
+      `SELECT jodo_payment_enabled, jodo_api_key, jodo_secret_key, jodo_collector_code,
+              jodo_base_url, jodo_auth_header
        FROM branches
        WHERE id = ? AND is_active = 1`,
       [Number(req.params.id)]
@@ -36,13 +37,16 @@ export function createBranchesRoutes(pool, authenticate, requireCrmAccess) {
         jodo_api_key: branch.jodo_api_key || '',
         jodo_secret_key: branch.jodo_secret_key || '',
         jodo_collector_code: branch.jodo_collector_code || '',
+        jodo_base_url: branch.jodo_base_url || '',
+        jodo_auth_header: branch.jodo_auth_header || '',
       }
     });
   }));
 
   router.post('/:id/jodo-config', wrap(async (req, res) => {
     const branchId = Number(req.params.id);
-    const { jodo_payment_enabled, jodo_api_key, jodo_secret_key, jodo_collector_code } = req.body;
+    const { jodo_payment_enabled, jodo_api_key, jodo_secret_key, jodo_collector_code,
+            jodo_base_url, jodo_auth_header } = req.body;
 
     const [[branch]] = await pool.execute(
       'SELECT id FROM branches WHERE id = ? AND is_active = 1',
@@ -64,13 +68,19 @@ export function createBranchesRoutes(pool, authenticate, requireCrmAccess) {
           SET jodo_payment_enabled = ?,
               jodo_api_key = COALESCE(?, jodo_api_key),
               jodo_secret_key = COALESCE(?, jodo_secret_key),
-              jodo_collector_code = ?
+              jodo_collector_code = ?,
+              jodo_base_url = ?,
+              -- COALESCE like the key and secret: the header is masked in the
+              -- form, so a save that leaves it untouched must not erase it.
+              jodo_auth_header = COALESCE(?, jodo_auth_header)
         WHERE id = ?`,
       [
         jodo_payment_enabled === undefined ? 1 : (jodo_payment_enabled ? 1 : 0),
         trimmed(jodo_api_key),
         trimmed(jodo_secret_key),
         trimmed(jodo_collector_code),
+        trimmed(jodo_base_url),
+        trimmed(jodo_auth_header),
         branchId
       ]
     );

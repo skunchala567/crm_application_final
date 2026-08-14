@@ -146,6 +146,7 @@ export const REGISTRY = [
       { screen: 'payment_forms', label: 'Payment Forms', route: '/settings/payment-forms', actions: ['view', 'create', 'edit', 'delete'] },
       { screen: 'lead_config', label: 'Lead Configuration', route: '/settings/lead-config', actions: ['view', 'create', 'edit', 'delete'] },
       { screen: 'academic_config', label: 'Academic Configuration', route: '/settings/academic-config', actions: ['view', 'create', 'edit', 'delete'] },
+      { screen: 'business_config', label: 'Business Configuration', route: '/settings/business-units', actions: ['view', 'create', 'edit', 'delete'] },
       { screen: 'academic_years', label: 'Academic Years', route: '/settings/academic-years', actions: ['view', 'create', 'edit', 'delete'] },
       { screen: 'admission_classes', label: 'Admission Classes', route: '/settings/admission-classes', actions: ['view', 'create', 'edit', 'delete'] },
       { screen: 'enquiry_forms', label: 'Public Enquiry Forms', actions: ['view', 'create', 'edit', 'delete'] },

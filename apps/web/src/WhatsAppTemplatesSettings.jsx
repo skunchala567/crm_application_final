@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { AlertCircle, BarChart3, Building2, CalendarRange, ChevronLeft, ChevronRight, Download, IndianRupee, Loader, MessageCircle, Send, TrendingUp, X } from 'lucide-react';
+import { AlertCircle, BarChart3, Building2, CalendarRange, ChevronLeft, ChevronRight, Download, IndianRupee, Loader, MessageCircle, Send, TrendingUp, X, UserPlus} from 'lucide-react';
 import { api } from './api';
 import SettingsWhatsAppTemplates from './pages/SettingsWhatsAppTemplates';
 import SettingsWhatsAppTemplatesCreate from './pages/SettingsWhatsAppTemplatesCreate';
@@ -7,6 +7,7 @@ import SettingsWhatsAppTemplatesView from './pages/SettingsWhatsAppTemplatesView
 import { WhatsAppMessageHistory, WhatsAppSendPanel } from './components/WhatsAppSendPanel';
 import { MultiSearchSelect } from './FilterWorkspace';
 import WhatsAppBranchMapping from './components/WhatsAppBranchMapping.jsx';
+import WhatsAppLeadIntake from './components/WhatsAppLeadIntake.jsx';
 
 export default function WhatsAppTemplatesSettings({ onMessage }) {
   const [integrationId, setIntegrationId] = useState('');
@@ -143,8 +144,10 @@ export default function WhatsAppTemplatesSettings({ onMessage }) {
               <button className={activeTab === 'dashboard' ? 'active' : ''} onClick={() => setActiveTab('dashboard')}><BarChart3 size={16}/> Dashboard</button>
               <button className={activeTab === 'templates' ? 'active' : ''} onClick={() => setActiveTab('templates')}><MessageCircle size={16}/> Templates</button>
               <button className={activeTab === 'branches' ? 'active' : ''} onClick={() => setActiveTab('branches')}><Building2 size={16}/> Branch mapping</button>
+              <button className={activeTab === 'intake' ? 'active' : ''} onClick={() => setActiveTab('intake')}><UserPlus size={16}/> Lead intake</button>
             </nav>
-            {activeTab === 'branches' ? <WhatsAppBranchMapping onMessage={onMessage} />
+            {activeTab === 'intake' ? <WhatsAppLeadIntake onMessage={onMessage} />
+              : activeTab === 'branches' ? <WhatsAppBranchMapping onMessage={onMessage} />
               : activeTab === 'dashboard' ? <WhatsAppDashboard integrations={integrations} /> : <SettingsWhatsAppTemplates
               key={refreshKey}
               integrationId={integrationId}

@@ -1,32 +1,34 @@
 import { Router } from 'express';
 import axios from 'axios';
+import { jodoBaseUrl, jodoHeaders, jodoConfigured } from './jodo-client.js';
 
 const clean=(value,max=500)=>String(value??'').trim().slice(0,max);
 const wrap=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
-const baseUrl=environment=>environment==='uat'?'https://ext.devtest1.jodopay.com':'https://ext.jodo.in';
 const endpoint='/api/v1/integrations/pay/payment_links';
 
 function providerError(error){
   const body=error.response?.data;
   const message=body?.message||body?.error?.message||body?.error||error.message||'Jodo request failed';
   const statusCode=error.response?.status;
-  const finalMessage=statusCode===401?`Jodo API authentication failed. Check branch Jodo credentials (API key and secret): ${typeof message==='string'?message:JSON.stringify(message)}`:typeof message==='string'?message:JSON.stringify(message);
+  const finalMessage=statusCode===401?`Jodo API authentication failed. Check this branch's Jodo base URL, Authorization header, API key and secret in Business Units > Branches & payments: ${typeof message==='string'?message:JSON.stringify(message)}`:typeof message==='string'?message:JSON.stringify(message);
   const status=statusCode===401?502:statusCode>=400&&statusCode<500?statusCode:502;
   return Object.assign(new Error(finalMessage),{status});
 }
 
 async function branchConfig(pool,id){
-  const [[branch]]=await pool.execute(`SELECT id,branch_name AS name,jodo_payment_enabled AS enabled,jodo_api_key AS apiKey,jodo_secret_key AS secretKey,jodo_collector_code AS collectorCode FROM branches WHERE id=? AND is_active=1 LIMIT 1`,[id]);
+  const [[branch]]=await pool.execute(`SELECT id,branch_name AS name,jodo_payment_enabled AS enabled,jodo_api_key AS apiKey,jodo_secret_key AS secretKey,jodo_collector_code AS collectorCode,jodo_base_url AS baseUrl,jodo_auth_header AS authHeader FROM branches WHERE id=? AND is_active=1 LIMIT 1`,[id]);
   if(!branch)throw Object.assign(new Error('Active branch not found'),{status:404});
   // Capability is now credentials alone: the per-branch enable flag is no
   // longer editable, so requiring it here would strand every branch that
   // happened to have it off.
-  if(!branch.apiKey||!branch.secretKey)throw Object.assign(new Error('Configure the Jodo API key and secret for this branch in Business Units > Branches & payments'),{status:400});
+  // An issued Authorization value is enough on its own; a key and secret
+  // remain valid for branches configured before Jodo started issuing one.
+  if(!jodoConfigured(branch))throw Object.assign(new Error('Configure this branch\'s Jodo credentials in Business Units > Branches & payments'),{status:400});
   return branch;
 }
 
 async function jodo(config,environment,method,path,data){
-  try{return (await axios({method,url:`${baseUrl(environment)}${endpoint}${path}`,data,auth:{username:config.apiKey,password:config.secretKey},headers:{Accept:'application/json','Content-Type':'application/json'},timeout:20000})).data;}
+  try{return (await axios({method,url:`${jodoBaseUrl(config,environment)}${endpoint}${path}`,data,headers:jodoHeaders(config),timeout:20000})).data;}
   catch(error){throw providerError(error);}
 }
 
@@ -41,7 +43,7 @@ export function createJodoPaymentLinkRoutes(pool,authenticate,requireCrmAccess,r
   const router=Router();
   router.use(authenticate,requireCrmAccess,requireUserAdmin);
 
-  router.get('/branches',wrap(async(req,res)=>{const [rows]=await pool.execute(`SELECT id,branch_name AS name,jodo_payment_enabled AS enabled,jodo_collector_code AS collectorCode,(jodo_api_key IS NOT NULL AND jodo_secret_key IS NOT NULL) AS configured FROM branches WHERE is_active=1 ORDER BY branch_name`);res.json({data:rows.map(row=>({...row,configured:Boolean(row.configured),enabled:Boolean(row.configured)}))});}));
+  router.get('/branches',wrap(async(req,res)=>{const [rows]=await pool.execute(`SELECT id,branch_name AS name,jodo_payment_enabled AS enabled,jodo_collector_code AS collectorCode,(jodo_auth_header IS NOT NULL OR (jodo_api_key IS NOT NULL AND jodo_secret_key IS NOT NULL)) AS configured FROM branches WHERE is_active=1 ORDER BY branch_name`);res.json({data:rows.map(row=>({...row,configured:Boolean(row.configured),enabled:Boolean(row.configured)}))});}));
 
   router.get('/',wrap(async(req,res)=>{const [rows]=await pool.execute(`SELECT p.id,p.order_id AS orderId,p.redirect_url AS redirectUrl,p.environment,p.payer_name AS payerName,p.payer_phone AS payerPhone,p.payer_email AS payerEmail,p.student_name AS studentName,p.identifier,p.amount,p.status,p.transaction_id AS transactionId,p.expires_at_utc AS expiresAt,p.paid_at_utc AS paidAt,p.settlement_utr AS settlementUtr,p.created_at_utc AS createdAt,p.branch_id AS branchId,b.branch_name AS branchName,p.lead_id AS leadId,l.lead_number AS leadNumber FROM crm_jodo_payment_links p JOIN branches b ON b.id=p.branch_id LEFT JOIN crm_leads l ON l.id=p.lead_id WHERE p.business_unit_id=? ORDER BY p.created_at_utc DESC LIMIT 250`,[req.businessUnit.id]);res.json({data:rows});}));
 

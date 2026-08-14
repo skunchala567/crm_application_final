@@ -51,6 +51,8 @@ const brandLogo = value => {
 
 const isAdmin = user => (user.roles || []).some(role => ['CRM_ADMIN','SUPER_ADMIN'].includes(String(role).toUpperCase()));
 
+import { LEAD_FIELD_CATALOGUE, CATALOGUE_BY_KEY, SOURCE_LABELS } from './lead-field-catalogue.js';
+
 export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin, hashPassword) {
   const router = express.Router();
   router.use(authenticate, requireCrmAccess);
@@ -267,7 +269,7 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     const [branchPaymentColumns]=await pool.execute(
       `SELECT column_name AS columnName FROM information_schema.columns
        WHERE table_schema=DATABASE() AND table_name='branches'
-         AND column_name IN ('jodo_payment_enabled','jodo_collector_code','jodo_api_key','application_amount','application_stage_id','application_payment_component')`,
+         AND column_name IN ('jodo_payment_enabled','jodo_collector_code','jodo_api_key','jodo_base_url','jodo_auth_header','application_amount','application_stage_id','application_payment_component')`,
     );
     const hasBranchPaymentColumns=branchPaymentColumns.length>=6;
     const [callerDeskColumns]=await pool.execute(
@@ -289,15 +291,22 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     const branchSelect=hasBranchPaymentColumns
       ? `SELECT id,branch_name AS name,short_name AS shortName,is_active AS isActive,
                 jodo_payment_enabled AS jodoPaymentEnabled,jodo_collector_code AS jodoCollectorCode,
-                jodo_api_key AS jodoApiKey,application_amount AS applicationAmount,
+                jodo_base_url AS jodoBaseUrl,
+                -- Flags, not values: the dialog only needs to know a secret is
+                -- there so it can show it as set rather than as empty.
+                (jodo_api_key IS NOT NULL AND jodo_api_key<>'') AS jodoApiKeySet,
+                (jodo_secret_key IS NOT NULL AND jodo_secret_key<>'') AS jodoSecretKeySet,
+                (jodo_auth_header IS NOT NULL AND jodo_auth_header<>'') AS jodoAuthHeaderSet,
+                application_amount AS applicationAmount,
                 application_stage_id AS applicationStageId,application_payment_component AS applicationPaymentComponent ${callerDeskSelect} ${smartfloSelect}
          FROM branches WHERE is_active=TRUE ORDER BY branch_name`
       : `SELECT id,branch_name AS name,short_name AS shortName,is_active AS isActive,
-                0 AS jodoPaymentEnabled,NULL AS jodoCollectorCode,NULL AS jodoApiKey,NULL AS applicationAmount,
+                0 AS jodoPaymentEnabled,NULL AS jodoCollectorCode,NULL AS jodoBaseUrl,
+                0 AS jodoApiKeySet,0 AS jodoSecretKeySet,0 AS jodoAuthHeaderSet,NULL AS applicationAmount,
                 NULL AS applicationStageId,'Payable Amount' AS applicationPaymentComponent ${callerDeskSelect} ${smartfloSelect}
          FROM branches WHERE is_active=TRUE ORDER BY branch_name`;
     const [[fields],[forms],[enquiryForms],[pipelines],[pipelineStages],[workflows],[operationStages],[modules],[branches],[sources],[channels],[campaigns],[employees],[academicYears]]=await Promise.all([
-      pool.execute(`SELECT id,field_key AS fieldKey,display_name AS displayName,field_type AS fieldType,placeholder,help_text AS helpText,options_json AS options,validation_json AS validation,is_system AS isSystem,is_required AS isRequired,is_filterable AS isFilterable,filter_control AS filterControl,is_searchable AS isSearchable,is_importable AS isImportable,is_import_required AS isImportRequired,import_header AS importHeader,import_sample_value AS importSampleValue,show_in_list AS showInList,position,column_width AS columnWidth,is_active AS isActive FROM crm_metadata_fields WHERE business_unit_id=? ORDER BY module_key,position`,[unitId]),
+      pool.execute(`SELECT id,field_key AS fieldKey,display_name AS displayName,field_type AS fieldType,placeholder,help_text AS helpText,options_json AS options,options_section_id AS optionsSectionId,options_section_level AS optionsSectionLevel,validation_json AS validation,is_system AS isSystem,is_required AS isRequired,is_filterable AS isFilterable,filter_control AS filterControl,is_searchable AS isSearchable,is_importable AS isImportable,is_import_required AS isImportRequired,import_header AS importHeader,import_sample_value AS importSampleValue,show_in_list AS showInList,position,column_width AS columnWidth,is_active AS isActive FROM crm_metadata_fields WHERE business_unit_id=? ORDER BY module_key,position`,[unitId]),
       pool.execute(`SELECT id,form_key AS formKey,display_name AS displayName,form_type AS formType,sections_json AS sections,is_default AS isDefault,is_active AS isActive FROM crm_metadata_forms WHERE business_unit_id=? ORDER BY display_name`,[unitId]),
       pool.execute(`SELECT id,form_key AS formKey,display_name AS displayName,description,default_branch_id AS defaultBranchId,default_stage_id AS defaultStageId,default_substage_id AS defaultSubstageId,default_source_id AS defaultSourceId,default_channel_id AS defaultChannelId,default_campaign_id AS defaultCampaignId,default_owner_employee_id AS defaultOwnerEmployeeId,field_schema_json AS fieldSchema,settings_json AS settings,success_message AS successMessage,redirect_url AS redirectUrl,payment_required AS paymentRequired,payment_amount AS paymentAmount,is_active AS isActive FROM crm_public_enquiry_forms WHERE business_unit_id=? ORDER BY display_name`,[unitId]),
       pool.execute(`SELECT id,pipeline_key AS pipelineKey,display_name AS displayName,description,entity_label_singular AS entityLabelSingular,entity_label_plural AS entityLabelPlural,is_default AS isDefault,is_active AS isActive FROM crm_metadata_pipelines WHERE business_unit_id=? ORDER BY is_default DESC,display_name`,[unitId]),
@@ -410,11 +419,11 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     try{
       const [result]=await pool.execute(
         `INSERT INTO branches
-         (branch_name,short_name,is_active,jodo_payment_enabled,jodo_api_key,jodo_secret_key,jodo_collector_code,application_amount,application_stage_id,application_payment_component,
+         (branch_name,short_name,is_active,jodo_payment_enabled,jodo_api_key,jodo_secret_key,jodo_collector_code,jodo_base_url,jodo_auth_header,application_amount,application_stage_id,application_payment_component,
           callerdesk_did_id,callerdesk_did_number,callerdesk_call_group,callerdesk_inbound_enabled,callerdesk_outbound_enabled,
           smartflo_did_id,smartflo_did_number,smartflo_ivr_id,smartflo_ivr_name,smartflo_department_id,smartflo_inbound_enabled,smartflo_outbound_enabled)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [name,shortName,req.body.isActive===false?0:1,req.body.jodoPaymentEnabled?1:0,text(req.body.jodoApiKey,255),text(req.body.jodoSecretKey,255),text(req.body.jodoCollectorCode,100),req.body.applicationAmount?Number(req.body.applicationAmount):null,req.body.applicationStageId?Number(req.body.applicationStageId):null,text(req.body.applicationPaymentComponent,120)||'Payable Amount',text(req.body.callerdeskDidId,100),text(req.body.callerdeskDidNumber,30),text(req.body.callerdeskCallGroup,120),req.body.callerdeskInboundEnabled===false?0:1,req.body.callerdeskOutboundEnabled===false?0:1,text(req.body.smartfloDidId,100),text(req.body.smartfloDidNumber,30),text(req.body.smartfloIvrId,100),text(req.body.smartfloIvrName,150),text(req.body.smartfloDepartmentId,100),req.body.smartfloInboundEnabled===false?0:1,req.body.smartfloOutboundEnabled===false?0:1],
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [name,shortName,req.body.isActive===false?0:1,req.body.jodoPaymentEnabled?1:0,text(req.body.jodoApiKey,255),text(req.body.jodoSecretKey,255),text(req.body.jodoCollectorCode,100),text(req.body.jodoBaseUrl,255),text(req.body.jodoAuthHeader,512),req.body.applicationAmount?Number(req.body.applicationAmount):null,req.body.applicationStageId?Number(req.body.applicationStageId):null,text(req.body.applicationPaymentComponent,120)||'Payable Amount',text(req.body.callerdeskDidId,100),text(req.body.callerdeskDidNumber,30),text(req.body.callerdeskCallGroup,120),req.body.callerdeskInboundEnabled===false?0:1,req.body.callerdeskOutboundEnabled===false?0:1,text(req.body.smartfloDidId,100),text(req.body.smartfloDidNumber,30),text(req.body.smartfloIvrId,100),text(req.body.smartfloIvrName,150),text(req.body.smartfloDepartmentId,100),req.body.smartfloInboundEnabled===false?0:1,req.body.smartfloOutboundEnabled===false?0:1],
       );
       res.status(201).json({id:Number(result.insertId),message:'Branch created'});
     }catch(error){
@@ -438,13 +447,14 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
       `UPDATE branches
        SET branch_name=?,short_name=?,is_active=?,jodo_payment_enabled=?,jodo_api_key=COALESCE(?,jodo_api_key),
            jodo_secret_key=COALESCE(?,jodo_secret_key),jodo_collector_code=?,
+           jodo_base_url=?,jodo_auth_header=COALESCE(?,jodo_auth_header),
            application_amount=COALESCE(?,application_amount),
            application_stage_id=COALESCE(?,application_stage_id),
            application_payment_component=COALESCE(?,application_payment_component),callerdesk_did_id=?,callerdesk_did_number=?,callerdesk_call_group=?,
            callerdesk_inbound_enabled=?,callerdesk_outbound_enabled=?,smartflo_did_id=?,smartflo_did_number=?,smartflo_ivr_id=?,smartflo_ivr_name=?,smartflo_department_id=?,
            smartflo_inbound_enabled=?,smartflo_outbound_enabled=?
        WHERE id=?`,
-      [name,text(req.body.shortName,50)||name,req.body.isActive===false?0:1,req.body.jodoPaymentEnabled?1:0,text(req.body.jodoApiKey,255),text(req.body.jodoSecretKey,255),text(req.body.jodoCollectorCode,100),req.body.applicationAmount?Number(req.body.applicationAmount):null,req.body.applicationStageId?Number(req.body.applicationStageId):null,text(req.body.applicationPaymentComponent,120)||null,text(req.body.callerdeskDidId,100),text(req.body.callerdeskDidNumber,30),text(req.body.callerdeskCallGroup,120),req.body.callerdeskInboundEnabled===false?0:1,req.body.callerdeskOutboundEnabled===false?0:1,text(req.body.smartfloDidId,100),text(req.body.smartfloDidNumber,30),text(req.body.smartfloIvrId,100),text(req.body.smartfloIvrName,150),text(req.body.smartfloDepartmentId,100),req.body.smartfloInboundEnabled===false?0:1,req.body.smartfloOutboundEnabled===false?0:1,Number(req.params.id)],
+      [name,text(req.body.shortName,50)||name,req.body.isActive===false?0:1,req.body.jodoPaymentEnabled?1:0,text(req.body.jodoApiKey,255),text(req.body.jodoSecretKey,255),text(req.body.jodoCollectorCode,100),text(req.body.jodoBaseUrl,255),text(req.body.jodoAuthHeader,512),req.body.applicationAmount?Number(req.body.applicationAmount):null,req.body.applicationStageId?Number(req.body.applicationStageId):null,text(req.body.applicationPaymentComponent,120)||null,text(req.body.callerdeskDidId,100),text(req.body.callerdeskDidNumber,30),text(req.body.callerdeskCallGroup,120),req.body.callerdeskInboundEnabled===false?0:1,req.body.callerdeskOutboundEnabled===false?0:1,text(req.body.smartfloDidId,100),text(req.body.smartfloDidNumber,30),text(req.body.smartfloIvrId,100),text(req.body.smartfloIvrName,150),text(req.body.smartfloDepartmentId,100),req.body.smartfloInboundEnabled===false?0:1,req.body.smartfloOutboundEnabled===false?0:1,Number(req.params.id)],
     );
     if(!result.affectedRows)return res.status(404).json({message:'Branch not found'});
     res.json({message:'Branch/payment configuration updated'});
@@ -456,13 +466,15 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     const allowedTypes=['text','textarea','number','decimal','date','datetime','email','phone','boolean','single_select','multi_select','user','file'];
     const fieldType=allowedTypes.includes(req.body.fieldType)?req.body.fieldType:'text';
     const [[next]]=await pool.execute(`SELECT COALESCE(MAX(position),0)+1 AS position FROM crm_metadata_fields WHERE business_unit_id=? AND module_key='leads'`,[unitId]);
+    let optionSource;
+    try{optionSource=await optionSourceFor(unitId,req.body);}catch(error){return res.status(error.status||400).json({message:error.message});}
     try{
       const [result]=await pool.execute(
         `INSERT INTO crm_metadata_fields
-         (business_unit_id,module_key,field_key,display_name,field_type,placeholder,help_text,options_json,validation_json,is_required,is_filterable,filter_control,is_searchable,is_importable,is_import_required,import_header,import_sample_value,show_in_list,position,column_width)
-         VALUES (?,'leads',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         (business_unit_id,module_key,field_key,display_name,field_type,placeholder,help_text,options_json,options_section_id,options_section_level,validation_json,is_required,is_filterable,filter_control,is_searchable,is_importable,is_import_required,import_header,import_sample_value,show_in_list,position,column_width)
+         VALUES (?,'leads',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [unitId,fieldKey,displayName,fieldType,text(req.body.placeholder,200),text(req.body.helpText,500),
-         JSON.stringify(Array.isArray(req.body.options)?req.body.options:[]),JSON.stringify(req.body.validation&&typeof req.body.validation==='object'?req.body.validation:{}),req.body.isRequired?1:0,req.body.isFilterable===false?0:1,
+         JSON.stringify(Array.isArray(req.body.options)?req.body.options:[]),optionSource.sectionId,optionSource.level,JSON.stringify(req.body.validation&&typeof req.body.validation==='object'?req.body.validation:{}),req.body.isRequired?1:0,req.body.isFilterable===false?0:1,
          text(req.body.filterControl,40)||'contains',req.body.isSearchable?1:0,req.body.isImportable===false?0:1,req.body.isImportRequired?1:0,text(req.body.importHeader,160)||displayName,
          text(req.body.importSampleValue,255),req.body.showInList===false?0:1,Number(next.position),Math.max(100,Math.min(400,Number(req.body.columnWidth)||180))],
       );
@@ -470,11 +482,101 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     }catch(error){if(error.code==='ER_DUP_ENTRY')return res.status(409).json({message:'This field key already exists'});throw error;}
   });
 
-  router.put('/business-units/:unitId/fields/:id', requireUserAdmin, async (req,res)=>{
+
+  /**
+   * A select field may draw its options from a configuration section instead
+   * of a typed list. Only sections belonging to the same business unit are
+   * accepted, or a field could quietly surface another unit's master data.
+   */
+  async function optionSourceFor(unitId, body) {
+    const sectionId = Number(body.optionsSectionId) || null;
+    if (!sectionId) return { sectionId: null, level: 'parent' };
+    const [[section]] = await pool.execute(
+      'SELECT id, section_type AS sectionType FROM crm_config_sections WHERE id=? AND business_unit_id=?',
+      [sectionId, Number(unitId)],
+    );
+    if (!section) throw Object.assign(new Error('That configuration section is not part of this business unit'), { status: 400 });
+    const level = section.sectionType === 'hierarchy' && body.optionsSectionLevel === 'child' ? 'child' : 'parent';
+    return { sectionId: section.id, level };
+  }
+
+
+  /**
+   * The standard fields this unit could still add.
+   *
+   * Anything already present is filtered out, so the picker only ever offers
+   * something that will actually change the unit.
+   */
+  router.get('/business-units/:unitId/field-catalogue', requireUserAdmin, async (req,res)=>{
+    const unitId=Number(req.params.unitId);
+    const [existing]=await pool.execute(
+      `SELECT field_key AS fieldKey FROM crm_metadata_fields WHERE business_unit_id=? AND module_key='leads'`,[unitId]);
+    const taken=new Set(existing.map(row=>row.fieldKey));
+    res.json({
+      data: LEAD_FIELD_CATALOGUE
+        .filter(entry=>!taken.has(entry.key))
+        .map(entry=>({...entry,sourceLabel:SOURCE_LABELS[entry.source]||entry.source})),
+      sourceLabels: SOURCE_LABELS,
+    });
+  });
+
+  /**
+   * Add one standard field to this unit.
+   *
+   * The key is taken from the catalogue rather than the request body: these
+   * names are what the lead form, filters and reports switch on, so a typo
+   * would produce a field that renders as plain text and silently loses its
+   * link to branches, stages or users.
+   */
+  router.post('/business-units/:unitId/field-catalogue', requireUserAdmin, async (req,res)=>{
+    const unitId=Number(req.params.unitId);
+    const entry=CATALOGUE_BY_KEY.get(String(req.body.key||''));
+    if(!entry)return res.status(400).json({message:'Unknown standard field'});
+    const [[duplicate]]=await pool.execute(
+      `SELECT id FROM crm_metadata_fields WHERE business_unit_id=? AND module_key='leads' AND field_key=?`,[unitId,entry.key]);
+    if(duplicate)return res.status(409).json({message:`${entry.label} is already on this business unit`});
+    const [[next]]=await pool.execute(
+      `SELECT COALESCE(MAX(position),0)+1 AS position FROM crm_metadata_fields WHERE business_unit_id=? AND module_key='leads'`,[unitId]);
+    /*
+     * The dialog configures a standard field exactly as it configures a custom
+     * one, so those choices are honoured here rather than being fixed. Only the
+     * key, type and option list come from the catalogue -- those are what tie
+     * the field to the data behind it.
+     */
+    const requested=req.body.validation&&typeof req.body.validation==='object'?req.body.validation:{};
+    const usage=requested.usage&&typeof requested.usage==='object'
+      ? requested.usage
+      : {leadForm:true,quickCreate:false,leadDetails:true,reports:true,automations:false,list:true,filters:true,search:Boolean(entry.searchable),importTemplates:true};
+    const displayName=text(req.body.displayName,150)||entry.label;
     const [result]=await pool.execute(
-      `UPDATE crm_metadata_fields SET display_name=?,placeholder=?,help_text=?,options_json=?,validation_json=?,is_required=?,is_filterable=?,filter_control=?,is_searchable=?,is_importable=?,is_import_required=?,import_header=?,import_sample_value=?,show_in_list=?,column_width=?,is_active=?
+      `INSERT INTO crm_metadata_fields
+       (business_unit_id,module_key,field_key,display_name,field_type,placeholder,options_json,validation_json,is_system,is_required,is_filterable,filter_control,is_searchable,is_importable,is_import_required,import_header,import_sample_value,show_in_list,position,column_width)
+       VALUES (?,'leads',?,?,?,?,?,?,TRUE,?,?,?,?,?,?,?,?,?,?,?)`,
+      [unitId,entry.key,displayName,entry.type,text(req.body.placeholder,200),
+       JSON.stringify(entry.options||[]),JSON.stringify({...requested,usage,requiredOnLeadForm:Boolean(req.body.isRequired)}),
+       req.body.isRequired?1:0,
+       req.body.isFilterable===false?0:1,
+       text(req.body.filterControl,40)||entry.filterControl||(['single_select','user'].includes(entry.type)?'single_select':['datetime','date'].includes(entry.type)?'date_range':'contains'),
+       req.body.isSearchable?1:0,
+       req.body.isImportable===false?0:1,
+       req.body.isImportRequired?1:0,
+       text(req.body.importHeader,160)||displayName,
+       text(req.body.importSampleValue,255),
+       req.body.showInList===false?0:1,
+       Number(next.position),
+       Math.max(100,Math.min(400,Number(req.body.columnWidth)||entry.width||180))],
+    );
+    res.status(201).json({id:Number(result.insertId),message:`${entry.label} added`});
+  });
+
+  router.put('/business-units/:unitId/fields/:id', requireUserAdmin, async (req,res)=>{
+    let optionSource;
+    try{optionSource=await optionSourceFor(Number(req.params.unitId),req.body);}catch(error){return res.status(error.status||400).json({message:error.message});}
+    const [result]=await pool.execute(
+      `UPDATE crm_metadata_fields SET display_name=?,placeholder=?,help_text=?,options_json=?,options_section_id=?,options_section_level=?,validation_json=?,is_required=?,is_filterable=?,filter_control=?,is_searchable=?,is_importable=?,is_import_required=?,import_header=?,import_sample_value=?,show_in_list=?,column_width=?,is_active=?
        WHERE id=? AND business_unit_id=?`,
       [text(req.body.displayName,150),text(req.body.placeholder,200),text(req.body.helpText,500),JSON.stringify(Array.isArray(req.body.options)?req.body.options:[]),
+       optionSource.sectionId,optionSource.level,
        JSON.stringify(req.body.validation&&typeof req.body.validation==='object'?req.body.validation:{}),req.body.isRequired?1:0,req.body.isFilterable===false?0:1,text(req.body.filterControl,40)||'contains',req.body.isSearchable?1:0,req.body.isImportable===false?0:1,req.body.isImportRequired?1:0,
        text(req.body.importHeader,160)||text(req.body.displayName,150),text(req.body.importSampleValue,255),req.body.showInList===false?0:1,
        Math.max(100,Math.min(400,Number(req.body.columnWidth)||180)),req.body.isActive===false?0:1,Number(req.params.id),Number(req.params.unitId)],

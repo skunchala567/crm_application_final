@@ -10,6 +10,22 @@ function idOptions(items, labelKey = "name") {
   return items.map((item) => ({ value: String(item.id), label: item[labelKey] || item.name }));
 }
 
+/*
+ * `meta.employees` carries one row per user *and branch* -- the lead forms
+ * need that to offer an owner within a chosen branch. A rule already picks its
+ * branches in a field of its own, so here the same person listed once per
+ * branch is just the same name repeated. Keep the first row for each id.
+ */
+function uniqueById(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = String(item.id);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function namesFor(ids, items, labelKey = "name") {
   const byId = new Map(items.map((item) => [String(item.id), item[labelKey] || item.name]));
   return ids.map((id) => byId.get(String(id)) || `#${id}`);
@@ -93,7 +109,7 @@ function AssignmentRuleModal({ meta, editingRule, onCancel, onSubmit }) {
               label="Assign to users"
               value={form.employeeIds}
               onChange={(employeeIds) => setForm({ ...form, employeeIds })}
-              options={idOptions(meta.employees)}
+              options={idOptions(uniqueById(meta.employees))}
             />
           </label>
           {notice && <div className="notice error">{notice}</div>}

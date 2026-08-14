@@ -5,18 +5,37 @@
 
 import crypto from 'node:crypto';
 import express from 'express';
+import { resolveAssignmentRuleOwner } from '../assignment-rules/engine.js';
+
+/**
+ * Where a WhatsApp enquiry should land, per connected account.
+ *
+ * Without a row the old behaviour stands: create the lead under the default
+ * business unit with no branch and no owner. A lead with no branch is hidden
+ * from every counsellor by leadScopedWhere(), so that default is a poor one --
+ * hence the Lead intake settings this reads.
+ */
+async function leadIntakeSettings(pool, integrationId) {
+  const [[row]] = await pool.query(
+    `SELECT auto_create_lead AS autoCreate, business_unit_id AS businessUnitId, branch_id AS branchId,
+            assignment_mode AS assignmentMode, owner_employee_id AS ownerEmployeeId,
+            stage_id AS stageId, source_id AS sourceId
+     FROM crm_whatsapp_lead_intake WHERE integration_id=?`,
+    [integrationId],
+  );
+  return row || { autoCreate: 1, businessUnitId: null, branchId: null, assignmentMode: 'unassigned', ownerEmployeeId: null, stageId: null, sourceId: null };
+}
 
 /**
  * A first-time inbound message from a number with no matching lead becomes
- * one -- unbranched and unassigned until someone in the CRM claims it (see
- * leadScopedWhere in app.js, which is what keeps it hidden from everyone but
- * admins until then). Channel and source are both fixed to WhatsApp.
+ * one, filed under the branch and owner configured for the account it arrived
+ * on. Channel and source are both fixed to WhatsApp.
  *
  * Guarded with GET_LOCK, mirroring the public-enquiry-form lead-creation
  * path in app.js: two webhook deliveries for the same brand-new number
  * arriving close together must not create two leads.
  */
-async function createLeadFromWhatsApp(pool, { businessUnitId, integrationId, mobile, normalizedMobile, contactName }, logger) {
+async function createLeadFromWhatsApp(pool, { businessUnitId, integrationId, mobile, normalizedMobile, contactName, intake }, logger) {
   const lockName = `crm-whatsapp-lead:${businessUnitId}:${normalizedMobile}`;
   const connection = await pool.getConnection();
   try {
@@ -34,11 +53,33 @@ async function createLeadFromWhatsApp(pool, { businessUnitId, integrationId, mob
     }
     // crm_lead_stages is scoped per business unit (041_business_unit_shared_lead_pipeline),
     // so 'new' must be looked up within this lead's own unit.
-    const [[stage]] = await connection.query(
-      `SELECT id FROM crm_lead_stages WHERE business_unit_id=? AND name='new' LIMIT 1`,
+    /*
+     * The opening stage, by position rather than by name.
+     *
+     * This looked for a stage literally named 'new', which no unit has: the
+     * school unit calls its first stage "Untouched" and a newer unit prefixes
+     * its keys ("bu41__new"). The lookup therefore always came back empty and
+     * the guard below abandoned the lead without a word, so an inbound message
+     * from an unknown number never became one. Ordering by position asks the
+     * question that actually matters -- which stage does a lead start in.
+     */
+    const [[defaultStage]] = await connection.query(
+      `SELECT id FROM crm_lead_stages
+       WHERE business_unit_id=? AND is_active=TRUE
+       ORDER BY (LOWER(name)='new' OR LOWER(display_name)='new') DESC, position ASC, id ASC
+       LIMIT 1`,
       [businessUnitId]
     );
-    const [[source]] = await connection.query(`SELECT id FROM crm_lead_sources WHERE name='whatsapp' LIMIT 1`);
+    const stage = intake?.stageId ? { id: intake.stageId } : defaultStage;
+    // Matched on either column: no row is named exactly 'whatsapp', so the
+    // original lookup left source_id null -- which also stopped assignment
+    // rules matching, since they key on the source.
+    const [[whatsappSource]] = await connection.query(
+      `SELECT id FROM crm_lead_sources
+       WHERE is_active=TRUE AND (LOWER(name) LIKE '%whatsapp%' OR LOWER(display_name) LIKE '%whatsapp%')
+       ORDER BY id LIMIT 1`
+    );
+    const source = intake?.sourceId ? { id: intake.sourceId } : whatsappSource;
     const [[channel]] = await connection.query(`SELECT id FROM crm_lead_channels WHERE channel_code='whatsapp' LIMIT 1`);
     const [[creator]] = await connection.query(
       `SELECT COALESCE(
@@ -56,17 +97,35 @@ async function createLeadFromWhatsApp(pool, { businessUnitId, integrationId, mob
       await connection.commit();
       return null;
     }
+    /*
+     * Who owns it. 'rule' runs the same engine Meta Lead Ads and the public
+     * enquiry form use, which needs a branch and a source to match on -- with
+     * neither configured it returns null and the lead stays unassigned rather
+     * than going to someone arbitrary.
+     */
+    const branchId = intake?.branchId || null;
+    let ownerEmployeeId = null;
+    if (intake?.assignmentMode === 'fixed') ownerEmployeeId = intake.ownerEmployeeId || null;
+    else if (intake?.assignmentMode === 'rule') {
+      ownerEmployeeId = await resolveAssignmentRuleOwner(pool, {
+        businessUnitId, branchId, sourceId: source?.id || null,
+      });
+    }
     const temporaryNumber = `PENDING-${crypto.randomUUID()}`;
     const [result] = await connection.query(
       `INSERT INTO crm_leads
         (business_unit_id, lead_number, branch_id, student_name, phone, normalized_phone,
          stage_id, source_id, channel_id, owner_employee_id, remarks, created_by_user_id)
-       VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        businessUnitId, temporaryNumber,
-        contactName || `WhatsApp ${mobile}`,
+        businessUnitId, temporaryNumber, branchId,
+        // WhatsApp supplies a profile name only sometimes. The number is
+        // already held in phone and normalized_phone, so repeating it in the
+        // name told nobody anything -- a plain label reads better in the list
+        // and makes an unnamed enquiry obvious at a glance.
+        contactName || 'Whatsapp Lead',
         mobile, normalizedMobile,
-        stage.id, source?.id || null, channel?.id || null,
+        stage.id, source?.id || null, channel?.id || null, ownerEmployeeId,
         'Auto-created from an inbound WhatsApp message.',
         creator.id
       ]
@@ -74,7 +133,9 @@ async function createLeadFromWhatsApp(pool, { businessUnitId, integrationId, mob
     const leadNumber = `ADM-${new Date().getFullYear()}-${String(result.insertId).padStart(6, '0')}`;
     await connection.query('UPDATE crm_leads SET lead_number=? WHERE id=?', [leadNumber, result.insertId]);
     await connection.commit();
-    logger.info('[Webhook] Auto-created lead from inbound WhatsApp message', { leadId: result.insertId, mobile });
+    logger.info('[Webhook] Auto-created lead from inbound WhatsApp message', {
+      leadId: result.insertId, mobile, branchId, ownerEmployeeId, mode: intake?.assignmentMode || 'unassigned',
+    });
     return result.insertId;
   } catch (error) {
     await connection.rollback().catch(() => {});
@@ -235,15 +296,19 @@ export function createWebhookRoutes(pool, logger = console) {
       const [[fallbackUnit]] = linkedLead?.businessUnitId ? [[null]] : await pool.query(
         'SELECT id FROM crm_business_units WHERE is_default=TRUE ORDER BY id LIMIT 1'
       );
-      const conversationUnitId = linkedLead?.businessUnitId || fallbackUnit?.id || null;
+      const intake = await leadIntakeSettings(pool, integration.id);
+      // An existing lead still decides the unit; otherwise the account's own
+      // setting does, falling back to the default unit as before.
+      const conversationUnitId = linkedLead?.businessUnitId || intake.businessUnitId || fallbackUnit?.id || null;
       let leadId = linkedLead?.id || null;
-      if (!leadId && direction === 'incoming' && normalizedMobile && conversationUnitId) {
+      if (!leadId && direction === 'incoming' && normalizedMobile && conversationUnitId && Number(intake.autoCreate)) {
         leadId = await createLeadFromWhatsApp(pool, {
           businessUnitId: conversationUnitId,
           integrationId: integration.id,
           mobile,
           normalizedMobile,
           contactName: payload.contact_name || payload.userName || null,
+          intake,
         }, logger);
       }
       const [conversationResult] = await pool.query(

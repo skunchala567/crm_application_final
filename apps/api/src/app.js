@@ -17,10 +17,12 @@ import { createUsageRoutes } from './usage.routes.js';
 import { createCallerDeskRoutes, createCallerDeskWebhookRoutes } from './callerdesk/callerdesk.routes.js';
 import { createSmartfloRoutes, createSmartfloWebhookRoutes } from './smartflo/smartflo.routes.js';
 import { createJodoPaymentLinkRoutes } from './jodo-payment-links.routes.js';
+import { jodoBaseUrl, jodoHeaders } from './jodo-client.js';
 import { createBranchesRoutes } from './branches.routes.js';
 import { createPaymentFormsRoutes } from './payment-forms.routes.js';
 import { createPartnerRoutes } from './partner/partner.routes.js';
 import { createReportDataSourceRoutes } from './report-data-sources.routes.js';
+import { createBusinessConfigRoutes } from './business-config.routes.js';
 import { createMetaRoutes } from './meta/meta.routes.js';
 import { createMetaWebhookRoutes } from './meta/meta-webhook.routes.js';
 import { recordLeadAttribution } from './attribution/attribution-contract.js';
@@ -357,7 +359,21 @@ async function requireCrmAccess(req, res, next) {
     const [rows] = await pool.execute(`SELECT COALESCE((SELECT is_active FROM crm_user_access_status WHERE user_id=?),1) AS crmActive`, [Number(req.user.id)]);
     if (!Boolean(rows[0]?.crmActive)) return res.status(403).json({ success: false, error: 'Your CRM access is inactive', details: 'Contact a CRM administrator to reactivate your access' });
     const requestedUnitId = Number(req.headers['x-business-unit-id']);
-    const isAdmin = req.user.roles?.some(role => ['CRM_ADMIN', 'SUPER_ADMIN'].includes(String(role).toUpperCase()));
+    /*
+     * Only an unrestricted administrator may work in any unit.
+     *
+     * This used to treat every CRM_ADMIN as unrestricted, so a CRM
+     * administrator assigned to one business unit could reach any other simply
+     * by sending a different X-Business-Unit-Id -- and with it that unit's
+     * leads, configuration and staff. A CRM_ADMIN who has been given units is
+     * now held to them, exactly like anyone else; one with no units assigned
+     * is still unrestricted, matching how branches already behave.
+     */
+    const superAdmin = req.user.roles?.some(role => String(role).toUpperCase() === 'SUPER_ADMIN');
+    const [ownUnits] = superAdmin
+        ? [[]]
+        : await pool.execute('SELECT business_unit_id AS id FROM crm_user_business_units WHERE user_id=?', [Number(req.user.id)]);
+    const isAdmin = superAdmin || ownUnits.length === 0;
     const params = isAdmin
         ? (Number.isInteger(requestedUnitId) && requestedUnitId > 0 ? [requestedUnitId] : [])
         : [Number(req.user.id), ...(Number.isInteger(requestedUnitId) && requestedUnitId > 0 ? [requestedUnitId] : [])];
@@ -693,9 +709,51 @@ async function publicFormDefinition(formKey, activeOnly = true) {
     return form;
 }
 
+/**
+ * Options for fields that take them from a configuration section.
+ *
+ * The values are read on every request rather than copied into the field when
+ * it was created: adding a course under Course Type has to show up on the
+ * lead form, in the filters and in the import template without anyone
+ * reopening the field. A field whose section has since been deleted falls
+ * back to whatever list it had stored.
+ */
+async function resolveSectionOptions(fields) {
+    const sectionIds = [...new Set(
+        fields.map(field => Number(field.optionsSectionId)).filter(id => Number.isInteger(id) && id > 0),
+    )];
+    if (!sectionIds.length) return new Map();
+    const [values] = await pool.query(
+        `SELECT section_id AS sectionId, parent_value_id AS parentValueId, display_name AS displayName
+     FROM crm_config_section_values
+     WHERE is_active = TRUE AND section_id IN (${sectionIds.map(() => '?').join(',')})
+     ORDER BY position, display_name`,
+        sectionIds,
+    );
+    const byKey = new Map();
+    for (const value of values) {
+        // 'parent' holds the top-level values, 'child' every sub-value.
+        const level = value.parentValueId === null ? 'parent' : 'child';
+        const key = `${value.sectionId}:${level}`;
+        if (!byKey.has(key)) byKey.set(key, []);
+        byKey.get(key).push(value.displayName);
+    }
+    return byKey;
+}
+
+/** The option list one field should serve, section-backed or its own. */
+function optionsForField(field, sectionOptions, fallback) {
+    if (field.optionsSectionId) {
+        const key = `${Number(field.optionsSectionId)}:${field.optionsSectionLevel || 'parent'}`;
+        return sectionOptions.get(key) || [];
+    }
+    return fallback;
+}
+
 async function publicFieldOptions(businessUnitId, fieldKeys, { branchId, academicYear } = {}) {
     const [fields] = await pool.execute(
-        `SELECT field_key AS fieldKey,display_name AS displayName,field_type AS fieldType,placeholder,options_json AS options,is_required AS isRequired,validation_json AS validation
+        `SELECT field_key AS fieldKey,display_name AS displayName,field_type AS fieldType,placeholder,options_json AS options,
+            options_section_id AS optionsSectionId,options_section_level AS optionsSectionLevel,is_required AS isRequired,validation_json AS validation
      FROM crm_metadata_fields WHERE business_unit_id=? AND module_key='leads' AND is_active=TRUE ORDER BY position,display_name`,
         [Number(businessUnitId)],
     );
@@ -718,9 +776,14 @@ async function publicFieldOptions(businessUnitId, fieldKeys, { branchId, academi
         pool.query(`SELECT id AS value,display_name AS label FROM crm_admission_types WHERE is_active=TRUE ORDER BY display_name`),
     ]);
     const optionMap = { class_id: classes, curriculum_id: curricula, admission_type_id: admissionTypes };
+    // Public forms serve {value,label} pairs, so section-backed options are
+    // shaped the same way rather than being left as bare strings.
+    const sectionOptions = await resolveSectionOptions(visible);
     return visible.map(field => ({
         ...field,
-        options: optionMap[field.fieldKey] || parseJsonValue(field.options, []).map(value => ({ value, label: String(value) })),
+        options: optionMap[field.fieldKey]
+            || optionsForField(field, sectionOptions, parseJsonValue(field.options, []))
+                .map(value => ({ value, label: String(value) })),
         validation: parseJsonValue(field.validation, {}),
     }));
 }
@@ -850,7 +913,7 @@ async function branchPaymentConfig(branchId) {
         const [columns] = await pool.execute(
             `SELECT column_name AS columnName FROM information_schema.columns
        WHERE table_schema=DATABASE() AND table_name='branches'
-         AND column_name IN ('jodo_payment_enabled','jodo_api_key','jodo_secret_key','jodo_collector_code','application_amount','application_stage_id','application_payment_component')`,
+         AND column_name IN ('jodo_payment_enabled','jodo_api_key','jodo_secret_key','jodo_collector_code','jodo_base_url','jodo_auth_header','application_amount','application_stage_id','application_payment_component')`,
         );
         hasPaymentColumns = columns.length >= 7;
     } catch {
@@ -859,6 +922,7 @@ async function branchPaymentConfig(branchId) {
     const sql = hasPaymentColumns
         ? `SELECT id,branch_name AS branchName,jodo_payment_enabled AS paymentEnabled,
             jodo_api_key AS apiKey,jodo_secret_key AS secretKey,jodo_collector_code AS collectorCode,
+            jodo_base_url AS baseUrl,jodo_auth_header AS authHeader,
             application_amount AS amount,application_stage_id AS applicationStageId,
             application_payment_component AS componentType
      FROM branches
@@ -955,18 +1019,16 @@ async function createJodoOrder(config, customer, callbackUrl) {
         }],
         callback_url: callbackUrl,
     };
-    const response = await axios.post('https://ext.jodo.in/api/v1/integrations/pay/orders', payload, {
-        auth: { username: config.apiKey, password: config.secretKey },
-        headers: { 'Content-Type': 'application/json' },
+    const response = await axios.post(`${jodoBaseUrl(config)}/api/v1/integrations/pay/orders`, payload, {
+        headers: jodoHeaders(config),
         timeout: 20000,
     });
     return response.data;
 }
 
 async function getJodoOrder(config, orderId) {
-    const response = await axios.get(`https://ext.jodo.in/api/v1/integrations/pay/orders/${encodeURIComponent(orderId)}`, {
-        auth: { username: config.apiKey, password: config.secretKey },
-        headers: { 'Content-Type': 'application/json' },
+    const response = await axios.get(`${jodoBaseUrl(config)}/api/v1/integrations/pay/orders/${encodeURIComponent(orderId)}`, {
+        headers: jodoHeaders(config),
         timeout: 20000,
     });
     return response.data;
@@ -1557,7 +1619,7 @@ async function queryLeads(user, search, limit = null, options = {}) {
              FROM crm_marketing_campaign_recipients mr
              JOIN crm_marketing_campaign_deliveries md ON md.recipient_id=mr.id
              WHERE mr.lead_id=l.id) AS marketingDeliveryPairs
-     FROM crm_leads l JOIN crm_lead_stages s ON s.id = l.stage_id JOIN branches b ON b.id = l.branch_id
+     FROM crm_leads l JOIN crm_lead_stages s ON s.id = l.stage_id LEFT JOIN branches b ON b.id = l.branch_id
      LEFT JOIN crm_lead_substages ss ON ss.id = l.substage_id
      LEFT JOIN crm_classes cls ON cls.id = l.class_id LEFT JOIN crm_curricula cur ON cur.id = l.curriculum_id
      LEFT JOIN crm_lead_sources src ON src.id = l.source_id
@@ -1598,6 +1660,84 @@ async function accessibleBranch(user, branchId) {
     const crmAdmin = user.roles?.some((role) => ['CRM_ADMIN', 'SUPER_ADMIN'].includes(role));
     if (crmAdmin && (!user.branchIds || user.branchIds.length === 0)) return true;
     return user.branchIds?.map(Number).includes(id) || false;
+}
+
+/*
+ * What one administrator is allowed to hand out.
+ *
+ * User Management grants CRM access to other people, so without a bound it is
+ * an escalation route: an administrator confined to one business unit could
+ * grant themselves -- or a colleague -- every other unit and branch, and from
+ * there read the whole system. Scope is therefore the granter's own.
+ *
+ * Two deliberate exceptions:
+ *   SUPER_ADMIN is the unrestricted owner role, and the way back in if
+ *   scoping ever leaves nobody able to administer anything.
+ *   An administrator holding no explicit branches or units is unrestricted
+ *   rather than holding none, which is the convention accessibleBranch() and
+ *   scopedWhere() already follow.
+ */
+function isUnrestrictedAdmin(user) {
+    return user?.roles?.some((role) => String(role).toUpperCase() === 'SUPER_ADMIN') || false;
+}
+
+/** Business units this administrator belongs to; empty means unrestricted. */
+async function callerBusinessUnitIds(user) {
+    const [rows] = await pool.execute(
+        `SELECT business_unit_id AS id FROM crm_user_business_units WHERE user_id = ?`,
+        [Number(user.id)],
+    );
+    return rows.map((row) => Number(row.id));
+}
+
+/**
+ * The business units this administrator may grant, or null for "no limit".
+ * Null rather than a list of every id so callers can skip filtering entirely.
+ */
+async function assignableBusinessUnitIds(user) {
+    if (isUnrestrictedAdmin(user)) return null;
+    const own = await callerBusinessUnitIds(user);
+    return own.length ? own : null;
+}
+
+/** The branches this administrator may grant, or null for "no limit". */
+function assignableBranchIds(user) {
+    if (isUnrestrictedAdmin(user)) return null;
+    const own = Array.isArray(user.branchIds) ? user.branchIds.map(Number).filter(Number.isFinite) : [];
+    return own.length ? own : null;
+}
+
+/**
+ * Whether this administrator may act on that user's CRM access.
+ *
+ * Someone outside the granter's reach must not be editable through it either:
+ * being unable to grant a branch means little if the same person can strip a
+ * colleague in another unit of their access, or deactivate them.
+ */
+async function administersUser(actor, targetUserId) {
+    if (isUnrestrictedAdmin(actor)) return true;
+    const units = await assignableBusinessUnitIds(actor);
+    const branches = assignableBranchIds(actor);
+    if (!units && !branches) return true;
+    const [[target]] = await pool.execute(
+        `SELECT
+           (SELECT COUNT(*) FROM crm_user_business_units WHERE user_id = ?) AS unitCount,
+           (SELECT COUNT(*) FROM crm_user_branches WHERE user_id = ?) AS branchCount,
+           (SELECT COUNT(*) FROM crm_user_business_units WHERE user_id = ?
+              ${units ? `AND business_unit_id IN (${units.map(() => '?').join(',')})` : ''}) AS unitOverlap,
+           (SELECT COUNT(*) FROM crm_user_branches WHERE user_id = ?
+              ${branches ? `AND branch_id IN (${branches.map(() => '?').join(',')})` : ''}) AS branchOverlap`,
+        [
+            Number(targetUserId), Number(targetUserId),
+            Number(targetUserId), ...(units || []),
+            Number(targetUserId), ...(branches || []),
+        ],
+    );
+    // A user with nothing assigned yet is fair game; one with assignments must
+    // overlap the administrator on both axes that the administrator is bound by.
+    const unitOk = !units || Number(target.unitCount) === 0 || Number(target.unitOverlap) > 0;
+    const branchOk = !branches || Number(target.branchCount) === 0 || Number(target.branchOverlap) > 0;
+    return unitOk && branchOk;
 }
 
 function cleanOptional(value, maxLength = 500) {
@@ -1777,12 +1917,14 @@ app.get('/api/leads/meta', authenticate, requireCrmAccess, async (req, res) => {
     const [academicYears] = await pool.query(`SELECT id, academic_year AS academicYear, display_name AS displayName FROM crm_academic_years WHERE is_active = TRUE ORDER BY academic_year DESC`);
     const [leadFields] = await pool.execute(
         `SELECT id,field_key AS fieldKey,display_name AS displayName,field_type AS fieldType,placeholder,
-            options_json AS options,validation_json AS validation,is_system AS isSystem,is_required AS isRequired,position
+            options_json AS options,options_section_id AS optionsSectionId,options_section_level AS optionsSectionLevel,
+            validation_json AS validation,is_system AS isSystem,is_required AS isRequired,position
      FROM crm_metadata_fields
      WHERE business_unit_id=? AND module_key='leads' AND is_active=TRUE
      ORDER BY position,display_name`,
         [Number(req.businessUnit.id)],
     );
+    const leadFieldSectionOptions = await resolveSectionOptions(leadFields);
     const [businessSources] = await pool.execute(
         `SELECT display_name AS displayName
      FROM crm_business_sources
@@ -1814,7 +1956,7 @@ app.get('/api/leads/meta', authenticate, requireCrmAccess, async (req, res) => {
             ...field,
             options: field.fieldKey === 'source'
                 ? businessSources.map(source => source.displayName)
-                : parseJsonValue(field.options, []),
+                : optionsForField(field, leadFieldSectionOptions, parseJsonValue(field.options, [])),
             validation: parseJsonValue(field.validation, {}),
         }))
     });
@@ -1843,7 +1985,7 @@ app.get('/api/leads/:id', authenticate, requireCrmAccess, async (req, res) => {
       l.created_at_utc AS addedAt, l.updated_at_utc AS updatedAt, l.referred_at_utc AS referredAt, l.re_enquired_at_utc AS reEnquiredAt
      FROM crm_leads l JOIN crm_lead_stages s ON s.id = l.stage_id
      LEFT JOIN crm_lead_substages ss ON ss.id=l.substage_id
-     JOIN branches b ON b.id = l.branch_id LEFT JOIN crm_lead_sources src ON src.id = l.source_id
+     LEFT JOIN branches b ON b.id = l.branch_id LEFT JOIN crm_lead_sources src ON src.id = l.source_id
      LEFT JOIN crm_classes cls ON cls.id = l.class_id LEFT JOIN crm_curricula cur ON cur.id = l.curriculum_id
      LEFT JOIN employees e ON e.id = l.owner_employee_id
      LEFT JOIN app_users editor_user ON editor_user.id=l.updated_by_user_id
@@ -2497,20 +2639,32 @@ app.delete('/api/leads/:id', authenticate, requireCrmAccess, requireLeadDelete, 
 
 const assignableCrmRoles = ['CRM_ADMIN', 'ADMISSION_MANAGER', 'COUNSELLOR', 'CRM_VIEWER'];
 
-app.get('/api/admin/users/meta', authenticate, requireUserAdmin, async (_req, res) => {
-    // Every active branch, not just the ones this administrator happens to work
-    // in. This list populates the branch picker when granting access to someone
-    // else, so scoping it to the administrator's own branches meant an admin
-    // assigned to 4 of 20 branches could only ever grant those 4 -- and had no
-    // way to see that the other 16 existed. The endpoint is already behind
-    // requireUserAdmin, which is the check that matters here.
-    const [branches] = await pool.execute(
+app.get('/api/admin/users/meta', authenticate, requireUserAdmin, async (req, res) => {
+    /*
+     * Only what this administrator may actually grant.
+     *
+     * These lists fill the branch and business-unit pickers. They used to
+     * offer every branch on the grounds that requireUserAdmin was check
+     * enough, but the save path has always rejected branches outside the
+     * administrator's own -- so the extra entries could be picked and never
+     * saved. Offering exactly what will be accepted removes that dead end and
+     * stops the picker from disclosing the shape of the rest of the business.
+     */
+    const grantableBranches = assignableBranchIds(req.user);
+    const grantableUnits = await assignableBusinessUnitIds(req.user);
+    const [branches] = await pool.query(
         `SELECT b.id, b.branch_name AS name, b.short_name AS shortName
-     FROM branches b WHERE b.is_active = TRUE ORDER BY b.branch_name`,
+     FROM branches b WHERE b.is_active = TRUE
+     ${grantableBranches ? `AND b.id IN (${grantableBranches.map(() => '?').join(',')})` : ''}
+     ORDER BY b.branch_name`,
+        grantableBranches || [],
     );
-    const [businessUnits] = await pool.execute(
+    const [businessUnits] = await pool.query(
         `SELECT id, display_name AS name FROM crm_business_units
-      WHERE is_active = TRUE ORDER BY is_default DESC, display_name`,
+      WHERE is_active = TRUE
+      ${grantableUnits ? `AND id IN (${grantableUnits.map(() => '?').join(',')})` : ''}
+      ORDER BY is_default DESC, display_name`,
+        grantableUnits || [],
     );
     const [employees] = await pool.query(
         `SELECT e.id, e.employee_number AS employeeNumber, e.employee_name AS name, e.email,
@@ -2529,6 +2683,34 @@ app.get('/api/admin/users/meta', authenticate, requireUserAdmin, async (_req, re
 });
 
 app.get('/api/admin/users', authenticate, requireUserAdmin, async (req, res) => {
+    /*
+     * Only the users this administrator may administer. Listing everyone
+     * exposed the names, emails and branch assignments of staff in business
+     * units the viewer has no part in, and every row carried edit controls
+     * the save path would then refuse.
+     */
+    const visibleBranches = assignableBranchIds(req.user);
+    const visibleUnits = await assignableBusinessUnitIds(req.user);
+    const scopeParams = [];
+    let scopeSql = '';
+    if (visibleBranches || visibleUnits) {
+        const clauses = [];
+        // Somebody with nothing assigned yet is visible to any administrator;
+        // otherwise they must overlap on whichever axis binds the viewer.
+        if (visibleBranches) {
+            clauses.push(`(NOT EXISTS (SELECT 1 FROM crm_user_branches sb WHERE sb.user_id = u.id)
+                OR EXISTS (SELECT 1 FROM crm_user_branches sb WHERE sb.user_id = u.id
+                           AND sb.branch_id IN (${visibleBranches.map(() => '?').join(',')})))`);
+            scopeParams.push(...visibleBranches);
+        }
+        if (visibleUnits) {
+            clauses.push(`(NOT EXISTS (SELECT 1 FROM crm_user_business_units su WHERE su.user_id = u.id)
+                OR EXISTS (SELECT 1 FROM crm_user_business_units su WHERE su.user_id = u.id
+                           AND su.business_unit_id IN (${visibleUnits.map(() => '?').join(',')})))`);
+            scopeParams.push(...visibleUnits);
+        }
+        scopeSql = ` AND ${clauses.join(' AND ')}`;
+    }
     const [rows] = await pool.query(
         `SELECT u.id, u.employee_id AS employeeId, u.email, u.is_active AS attendanceActive, COALESCE(cuas.is_active,1) AS isActive,
             COALESCE(e.employee_name,CONCAT_WS(' ',p.first_name,p.last_name),u.email) AS name,
@@ -2557,10 +2739,12 @@ app.get('/api/admin/users', authenticate, requireUserAdmin, async (req, res) => 
      JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id
      LEFT JOIN crm_user_branches cub ON cub.user_id = u.id LEFT JOIN branches b ON b.id = cub.branch_id
      WHERE r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER','SUPER_ADMIN')
+           ${scopeSql}
      GROUP BY u.id, u.employee_id, u.email, u.is_active, cuas.is_active, e.employee_name,p.first_name,p.last_name,p.phone,e.employee_number,
               u.callerdesk_member_id,u.callerdesk_member_name,u.callerdesk_member_number,u.callerdesk_call_group,u.callerdesk_enabled,
               u.smartflo_user_id,u.smartflo_agent_id,u.smartflo_agent_name,u.smartflo_agent_number,u.smartflo_department_id,u.smartflo_enabled,u.last_login_at_utc
      ORDER BY name`,
+        scopeParams,
     );
     res.json({
         data: rows.map((row) => ({
@@ -2606,6 +2790,23 @@ async function saveCrmUser(req, res, existingUserId = null) {
     if (smartfloEnabled && !smartfloAgentId) return res.status(400).json({ message: 'Select a Smartflo agent for one-click calling' });
     for (const branchId of branchIds) {
         if (!(await accessibleBranch(req.user, branchId))) return res.status(403).json({ message: 'You cannot assign one or more selected branches' });
+    }
+    /*
+     * Business units were applied unchecked while branches were validated, so
+     * an administrator confined to one unit could still hand out every other
+     * one -- the wider half of the same escalation the branch check closes.
+     */
+    const grantableUnits = await assignableBusinessUnitIds(req.user);
+    if (grantableUnits) {
+        const outOfScope = businessUnitIds.filter((id) => !grantableUnits.includes(id));
+        if (outOfScope.length) {
+            return res.status(403).json({ message: 'You cannot assign one or more selected business units' });
+        }
+    }
+    // Editing an existing user must respect the same boundary, or access could
+    // be taken from someone the administrator has no authority over.
+    if (existingUserId && !(await administersUser(req.user, existingUserId))) {
+        return res.status(403).json({ message: 'This user belongs to a business unit or branch you do not administer' });
     }
     const connection = await pool.getConnection();
     try {
@@ -2688,6 +2889,7 @@ app.put('/api/admin/users/:id', authenticate, requireUserAdmin, (req, res) => sa
 
 app.put('/api/admin/users/:id/status', authenticate, requireUserAdmin, async (req, res) => {
     const userId = Number(req.params.id); if (userId === Number(req.user.id) && req.body.isActive === false) return res.status(400).json({ message: 'You cannot deactivate your own CRM access' });
+    if (!(await administersUser(req.user, userId))) return res.status(403).json({ message: 'This user belongs to a business unit or branch you do not administer' });
     await pool.execute(`INSERT INTO crm_user_access_status(user_id,is_active,updated_by_user_id) VALUES(?,?,?) ON DUPLICATE KEY UPDATE is_active=VALUES(is_active),updated_by_user_id=VALUES(updated_by_user_id)`, [userId, req.body.isActive ? 1 : 0, Number(req.user.id)]);
     res.json({ message: `CRM user marked ${req.body.isActive ? 'active' : 'inactive'}` });
 });
@@ -2695,6 +2897,7 @@ app.put('/api/admin/users/:id/status', authenticate, requireUserAdmin, async (re
 app.delete('/api/admin/users/:id/access', authenticate, requireUserAdmin, async (req, res) => {
     const userId = Number(req.params.id);
     if (userId === Number(req.user.id)) return res.status(400).json({ message: 'You cannot remove your own CRM access' });
+    if (!(await administersUser(req.user, userId))) return res.status(403).json({ message: 'This user belongs to a business unit or branch you do not administer' });
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
@@ -5376,6 +5579,7 @@ app.use('/api/payment-forms', createPaymentFormsRoutes(pool, authenticate, requi
 // not by a user session, so it sits outside `authenticate` deliberately.
 app.use('/api/partner', createPartnerRoutes(pool));
 app.use('/api/report-data-sources', createReportDataSourceRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
+app.use('/api/business-config', createBusinessConfigRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
 
 // ============= Meta Lead Ads =============
 // Webhook first: it is public, and mounting it ahead of the authenticated

@@ -101,6 +101,70 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
   });
 
   /** The whole branch -> accounts mapping, for the settings screen. */
+
+  /**
+   * Where enquiries from this WhatsApp account become leads.
+   *
+   * Read alongside the branches the account already sends from, so the screen
+   * can suggest a branch instead of asking blind.
+   */
+  router.get('/accounts/:id/lead-intake', authenticate, async (req, res, next) => {
+    try {
+      const integrationId = Number(req.params.id);
+      const [[settings]] = await pool.execute(
+        `SELECT integration_id AS integrationId, auto_create_lead AS autoCreateLead,
+                business_unit_id AS businessUnitId, branch_id AS branchId,
+                assignment_mode AS assignmentMode, owner_employee_id AS ownerEmployeeId
+         FROM crm_whatsapp_lead_intake WHERE integration_id=?`,
+        [integrationId],
+      );
+      const [branches] = await pool.execute(
+        `SELECT b.id, b.branch_name AS name FROM crm_branch_whatsapp_accounts bwa
+         JOIN branches b ON b.id = bwa.branch_id AND b.is_active = TRUE
+         WHERE bwa.integration_id = ? ORDER BY b.branch_name`,
+        [integrationId],
+      );
+      res.json({
+        data: settings || {
+          integrationId, autoCreateLead: 1, businessUnitId: null,
+          branchId: null, assignmentMode: 'unassigned', ownerEmployeeId: null,
+        },
+        mappedBranches: branches,
+      });
+    } catch (error) { next(error); }
+  });
+
+  router.put('/accounts/:id/lead-intake', authenticate, async (req, res, next) => {
+    try {
+      const integrationId = Number(req.params.id);
+      const mode = ['unassigned', 'rule', 'fixed'].includes(req.body.assignmentMode) ? req.body.assignmentMode : 'unassigned';
+      // A fixed assignment with nobody named would silently behave as
+      // unassigned, so say so rather than saving something that does nothing.
+      if (mode === 'fixed' && !Number(req.body.ownerEmployeeId)) {
+        return res.status(400).json({ message: 'Choose the counsellor these leads should go to' });
+      }
+      await pool.execute(
+        `INSERT INTO crm_whatsapp_lead_intake
+           (integration_id, auto_create_lead, business_unit_id, branch_id, assignment_mode, owner_employee_id, updated_by_user_id)
+         VALUES (?,?,?,?,?,?,?)
+         ON DUPLICATE KEY UPDATE
+           auto_create_lead=VALUES(auto_create_lead), business_unit_id=VALUES(business_unit_id),
+           branch_id=VALUES(branch_id), assignment_mode=VALUES(assignment_mode),
+           owner_employee_id=VALUES(owner_employee_id), updated_by_user_id=VALUES(updated_by_user_id)`,
+        [
+          integrationId,
+          req.body.autoCreateLead === false ? 0 : 1,
+          Number(req.body.businessUnitId) || null,
+          Number(req.body.branchId) || null,
+          mode,
+          mode === 'fixed' ? Number(req.body.ownerEmployeeId) : null,
+          Number(req.user?.id) || null,
+        ],
+      );
+      res.json({ message: 'WhatsApp lead intake saved' });
+    } catch (error) { next(error); }
+  });
+
   router.get('/branch-accounts', authenticate, async (_req, res, next) => {
     try {
       const [rows] = await pool.query(

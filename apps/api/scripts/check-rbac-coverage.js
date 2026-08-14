@@ -25,10 +25,15 @@ const walk = (dir, out = []) => {
 };
 
 // Where each router factory is mounted, so router-relative paths resolve.
-const server = fs.readFileSync(path.join(API, 'server.js'), 'utf8');
+// Read every file rather than server.js alone: server.js became a thin loader
+// for app.js, and looking in only one of them found no mounts at all, so the
+// router-based endpoints -- most of the API -- silently left this check while
+// it still reported success.
 const mountByFactory = new Map();
-for (const m of server.matchAll(/app\.use\(\s*['"`]([^'"`]+)['"`]\s*,\s*([A-Za-z0-9_]+)\(/g)) {
-  if (!mountByFactory.has(m[2])) mountByFactory.set(m[2], m[1]);
+for (const file of walk(API)) {
+  for (const m of fs.readFileSync(file, 'utf8').matchAll(/app\.use\(\s*['"`]([^'"`]+)['"`]\s*,\s*([A-Za-z0-9_]+)\(/g)) {
+    if (!mountByFactory.has(m[2])) mountByFactory.set(m[2], m[1]);
+  }
 }
 
 const endpoints = [];

@@ -209,3 +209,76 @@ table th{background:var(--surface-3)}.avatar.muted{background:var(--accent-soft)
   .automation-page .date-condition-row>.date-condition-value{grid-column:1;grid-row:3}
   .automation-page .date-condition-row>button{grid-column:2;grid-row:1}
 }
+
+/* Business configuration: a section's heading and its actions.
+   `.panel-title` is hidden inside `.academic-tab-content`, so these screens
+   carry their own header row rather than losing the controls in it. */
+.config-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:15px 18px;border-bottom:1px solid var(--line)}
+.config-toolbar>div{display:grid;gap:3px;min-width:0}
+.config-toolbar strong{font:700 15px 'Plus Jakarta Sans'}
+.config-toolbar span{color:var(--muted);font-size:12px}
+.config-toolbar .secondary{flex:0 0 auto}
+.config-value-group{border-bottom:1px solid var(--line-2)}
+.config-value-group:last-child{border-bottom:0}
+.config-value-group>article{border-bottom:0}
+/* Sub-values read as belonging to the value above them. */
+.config-records .config-value-child{padding-left:26px;background:var(--surface-2)}
+.config-records .config-value-child strong{display:flex;align-items:center;gap:5px;font-weight:600}
+.config-records .config-value-child svg{color:var(--muted)}
+.config-hint{margin:0;color:var(--muted);font-size:12px;line-height:1.5}
+
+/* Parent / sub-value tabs inside one configuration section. */
+.config-level-tabs{padding:11px 18px 0;display:flex;gap:8px;border-bottom:1px solid var(--line)}
+.config-level-tabs button{padding:8px 13px;display:inline-flex;align-items:center;gap:7px;border:1px solid transparent;border-bottom:0;border-radius:8px 8px 0 0;background:none;color:var(--ink-500);font-size:12px;font-weight:700}
+.config-level-tabs button.active{border-color:var(--line);background:#fff;color:var(--brand-700)}
+.config-level-tabs button span{min-width:19px;padding:1px 6px;border-radius:9px;background:var(--surface-3);color:var(--ink-500);font-size:10px}
+.config-level-tabs button.active span{background:var(--brand-50);color:var(--brand-700)}
+/* The parent a sub-value belongs to, shown the way a sub-stage names its stage. */
+.config-parent-of{color:var(--brand-600);font-size:10px;font-style:normal;font-weight:600}
+
+/* Row-per-value entry. The form takes the full width instead of the narrow
+   left column, so name, code, order and active sit on one line. */
+.config-content.stacked{grid-template-columns:1fr}
+.config-content.stacked>.config-add{border-right:0;border-bottom:1px solid var(--border)}
+.config-parent-picker{max-width:420px}
+.config-parent-picker small{color:var(--muted);font-size:10px;font-weight:500}
+.config-draft-head,.config-draft-row{display:grid;grid-template-columns:minmax(0,2.4fr) minmax(0,1fr) 92px 62px 78px;gap:10px;align-items:center}
+.config-draft-head{padding-bottom:2px;font-size:10px;font-weight:700;color:var(--ink-500);text-transform:uppercase;letter-spacing:.04em}
+.config-draft-row input[type=text],.config-draft-row input:not([type]),.config-draft-row input[type=number]{width:100%;height:40px;padding:0 11px;border:1px solid var(--border);border-radius:8px;background:#fff;outline:0}
+.config-draft-row input:focus{border-color:var(--brand-400)}
+.config-draft-row input[type=checkbox]{width:17px;height:17px;justify-self:center}
+.config-draft-actions{display:flex;gap:4px}
+.config-draft-actions button{width:34px;height:34px;display:grid;place-items:center;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--ink-500)}
+.config-draft-actions button:hover{border-color:var(--brand-400);color:var(--brand-600)}
+.config-draft-actions button:disabled{opacity:.45}
+@media(max-width:900px){
+  .config-draft-head{display:none}
+  .config-draft-row{grid-template-columns:1fr 1fr;gap:8px;padding-bottom:10px;border-bottom:1px solid var(--line-2)}
+}
+
+/* Standard field / custom field switch in the lead field dialog. */
+.field-mode-switch{display:flex;gap:6px;padding:4px;border:1px solid var(--line);border-radius:10px;background:var(--surface-3)}
+.field-mode-switch button{flex:1;padding:9px 12px;border:0;border-radius:7px;background:none;color:var(--ink-500);font-size:12px;font-weight:700}
+.field-mode-switch button.active{background:#fff;color:var(--brand-700);box-shadow:0 1px 3px color-mix(in srgb, var(--ink-900) 8%, transparent)}
+
+/* Lead field dialog: give the form room to breathe and keep the mode switch
+   clear of the two-column grid it sits above. */
+.field-mode-switch{grid-column:1/-1;margin-bottom:2px}
+.field-usage-panel{grid-column:1/-1}
+.dynamic-form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;align-items:start}
+.config-hint{grid-column:1/-1}
+
+/* WhatsApp lead intake: one card per connected account. */
+.whatsapp-intake{display:grid;gap:14px;padding:18px}
+.whatsapp-intake>header{display:grid;gap:3px}
+.whatsapp-intake>header strong{font:700 15px 'Plus Jakarta Sans'}
+.whatsapp-intake>header span{color:var(--muted);font-size:12px}
+.whatsapp-intake-card{padding:15px;display:grid;gap:13px;border:1px solid var(--border);border-radius:11px;background:#fff}
+.whatsapp-intake-head{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.whatsapp-intake-head strong{font:700 13px 'Plus Jakarta Sans'}
+.whatsapp-intake-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
+.whatsapp-intake-grid label{display:grid;gap:5px;font-size:11px;font-weight:700;color:var(--ink-600)}
+.whatsapp-intake-grid select{height:40px;padding:0 10px;border:1px solid var(--border);border-radius:8px;background:#fff}
+.whatsapp-intake-grid small{color:var(--muted);font-size:10px;font-weight:500}
+.whatsapp-intake-actions{display:flex;align-items:center;justify-content:flex-end;gap:12px}
+.whatsapp-intake-warning{margin-right:auto;display:inline-flex;align-items:center;gap:6px;color:#a8641f;font-size:11px}

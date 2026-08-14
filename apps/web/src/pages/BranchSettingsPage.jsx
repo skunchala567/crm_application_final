@@ -13,6 +13,8 @@ export default function BranchSettingsPage({ onMessage }) {
     jodo_api_key: '',
     jodo_secret_key: '',
     jodo_collector_code: '',
+    jodo_base_url: 'https://ext.jodo.in',
+    jodo_auth_header: '',
   });
 
   const notify = (type, text) => onMessage?.({ type, text });
@@ -45,6 +47,8 @@ export default function BranchSettingsPage({ onMessage }) {
         jodo_api_key: result.data?.jodo_api_key || '',
         jodo_secret_key: result.data?.jodo_secret_key || '',
         jodo_collector_code: result.data?.jodo_collector_code || '',
+        jodo_base_url: result.data?.jodo_base_url || 'https://ext.jodo.in',
+        jodo_auth_header: result.data?.jodo_auth_header || '',
       });
     } catch (error) {
       setFormData({
@@ -52,6 +56,8 @@ export default function BranchSettingsPage({ onMessage }) {
         jodo_api_key: '',
         jodo_secret_key: '',
         jodo_collector_code: '',
+        jodo_base_url: 'https://ext.jodo.in',
+        jodo_auth_header: '',
       });
     }
   }
@@ -122,6 +128,31 @@ export default function BranchSettingsPage({ onMessage }) {
                 />
               </div>
 
+              {/* Jodo issues its own Authorization value. Given one, it is
+                  sent exactly as provided; left blank, the CRM falls back to
+                  building Basic from the key and secret as it always did. */}
+              <div className="form-group">
+                <label>API Base URL *</label>
+                <input
+                  type="text"
+                  placeholder="https://ext.jodo.in"
+                  value={formData.jodo_base_url}
+                  onChange={(e) => setFormData({ ...formData, jodo_base_url: e.target.value })}
+                />
+                <small>Live is https://ext.jodo.in. Point a branch at the UAT host to test against it.</small>
+              </div>
+
+              <div className="form-group">
+                <label>Authorization Header</label>
+                <input
+                  type="password"
+                  placeholder="Basic ....=="
+                  value={formData.jodo_auth_header}
+                  onChange={(e) => setFormData({ ...formData, jodo_auth_header: e.target.value })}
+                />
+                <small>Paste the value Jodo issued. Leave blank to derive it from the API key and secret.</small>
+              </div>
+
               <div className="form-group">
                 <label>Collector Code</label>
                 <input
@@ -134,7 +165,7 @@ export default function BranchSettingsPage({ onMessage }) {
 
               <button
                 className="primary"
-                disabled={saving || !formData.jodo_api_key || !formData.jodo_secret_key}
+                disabled={saving || !formData.jodo_base_url || (!formData.jodo_auth_header && (!formData.jodo_api_key || !formData.jodo_secret_key))}
                 onClick={handleSave}
               >
                 <Save size={16} />

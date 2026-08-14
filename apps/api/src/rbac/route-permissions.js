@@ -194,6 +194,12 @@ export const ROUTE_RULES = [
     key: 'settings.academic_config.edit',
   },
 
+  // ---- Configurable master data for non-school units ---------------------
+  // Same split as the academic tables above: anyone filling in a record needs
+  // to read the lists, only an administrator may reshape them.
+  { method: 'GET', test: /^\/api\/business-config/, key: 'leads.list.view' },
+  { method: '*', test: /^\/api\/business-config/, key: 'settings.business_config.edit' },
+
   // ---- Saved filters are per-user working state, not shared configuration.
   { method: '*', test: /^\/api\/saved-filters/, key: 'leads.list.view' },
 
