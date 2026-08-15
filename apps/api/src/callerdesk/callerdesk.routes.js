@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { Router } from 'express';
 import axios from 'axios';
 import { decryptToken, encryptToken, getMasterKey } from '../integration-hub/crypto-utils.js';
+import { branchScopeSql, canAccessBranch } from '../rbac/branch-scope.js';
 
 const BASE_URL = 'https://app.callerdesk.io/api';
 const clean = value => String(value ?? '').trim();
@@ -123,14 +124,17 @@ export function createCallerDeskRoutes(pool, authenticate, requireCrmAccess, req
 
   router.get('/branch-dids', authenticate, requireCrmAccess, asyncRoute(async (req,res) => {
     await loadConfig(pool,Number(req.user.organizationId || 1));
+    // A telephony number is branch configuration like any other.
+    const scope=branchScopeSql(req.user,'b.id');
     const [rows] = await pool.execute(`SELECT b.id branchId,b.branch_name branchName,b.callerdesk_did_id didId,b.callerdesk_did_number didNumber,
       b.callerdesk_call_group callGroup,b.callerdesk_inbound_enabled inboundEnabled,b.callerdesk_outbound_enabled outboundEnabled
-      FROM branches b WHERE b.is_active=1 ORDER BY b.branch_name`);
+      FROM branches b WHERE b.is_active=1 AND ${scope.sql} ORDER BY b.branch_name`,scope.params);
     res.json({data:rows});
   }));
 
   router.put('/branch-dids/:branchId', authenticate, requireCrmAccess, requireUserAdmin, asyncRoute(async (req,res) => {
     await loadConfig(pool,Number(req.user.organizationId || 1));
+    if(!canAccessBranch(req.user,req.params.branchId))return res.status(404).json({message:'Branch not found in this business unit'});
     const [[branch]] = await pool.execute('SELECT id FROM branches WHERE id=? AND is_active=1 LIMIT 1',[req.params.branchId]);
     if(!branch)return res.status(404).json({message:'Branch not found in this business unit'});
     const didNumber=clean(req.body.didNumber);

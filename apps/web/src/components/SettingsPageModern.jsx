@@ -1,6 +1,6 @@
 import { useLocation } from 'react-router-dom';
 import { useState } from 'react';
-import { Building2, Settings, Users, MessageCircle, PhoneCall, MapPin, Zap, Facebook, Mail, Server } from 'lucide-react';
+import { Building2, CreditCard, Settings, Users, MessageCircle, PhoneCall, MapPin, Zap, Facebook, Mail, Server } from 'lucide-react';
 import UserManagementPage from '../UserManagementPage.jsx';
 import WhatsAppTemplatesSettings from '../WhatsAppTemplatesSettings.jsx';
 import IntegrationHubPage from '../pages/IntegrationHubPage.jsx';
@@ -11,9 +11,10 @@ import Toast from '../Toast.jsx';
 import CallerDeskSettings from '../pages/CallerDeskSettings.jsx';
 import SmartfloSettings from '../pages/SmartfloSettings.jsx';
 import BranchSettingsPage from '../pages/BranchSettingsPage.jsx';
-import PaymentFormsPage from '../pages/PaymentFormsPage.jsx';
+import PaymentsSettings from '../pages/PaymentsSettings.jsx';
 import EmailConfigurationSettings from '../pages/EmailConfigurationSettings.jsx';
 import EmailTemplatesSettings from '../pages/EmailTemplatesSettings.jsx';
+import MessageTemplatesSettings from '../pages/MessageTemplatesSettings.jsx';
 import PageContainer from './PageContainer';
 
 const settingsTabs = [
@@ -39,11 +40,27 @@ const settingsTabs = [
     component: BranchSettingsPage,
   },
   {
+    id: 'payments',
+    path: '/settings/payments',
+    label: 'Payments',
+    icon: CreditCard,
+    component: PaymentsSettings,
+  },
+  /* The old paths still resolve so existing links keep working; the sidebar
+     lists only the combined Payments entry. */
+  {
     id: 'payment-forms',
     path: '/settings/payment-forms',
     label: 'Payment Forms',
     icon: Zap,
-    component: PaymentFormsPage,
+    component: PaymentsSettings,
+  },
+  {
+    id: 'payment-collections',
+    path: '/settings/payment-collections',
+    label: 'Payment Collections',
+    icon: CreditCard,
+    component: PaymentsSettings,
   },
   {
     id: 'integrations',
@@ -67,6 +84,18 @@ const settingsTabs = [
     component: MetaLeadAdsSettings,
   },
   {
+    id: 'message-templates',
+    path: '/settings/templates',
+    label: 'Templates',
+    icon: MessageCircle,
+    component: MessageTemplatesSettings,
+  },
+  /*
+   * The old per-channel routes still resolve, so existing links and the
+   * WhatsApp screen's own deep links keep working. The sidebar lists only the
+   * combined Templates entry, so these no longer appear twice in the menu.
+   */
+  {
     id: 'whatsapp-templates',
     path: '/settings/whatsapp-templates',
     label: 'WhatsApp',
@@ -74,18 +103,18 @@ const settingsTabs = [
     component: WhatsAppTemplatesSettings,
   },
   {
-    id: 'email-configuration',
-    path: '/settings/email-configuration',
-    label: 'Email Configuration',
-    icon: Server,
-    component: EmailConfigurationSettings,
-  },
-  {
     id: 'email-templates',
     path: '/settings/email-templates',
     label: 'Email Templates',
     icon: Mail,
     component: EmailTemplatesSettings,
+  },
+  {
+    id: 'email-configuration',
+    path: '/settings/email-configuration',
+    label: 'Email Configuration',
+    icon: Server,
+    component: EmailConfigurationSettings,
   },
   {
     id: 'callerdesk',

@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { decryptToken, encryptToken, getMasterKey } from '../integration-hub/crypto-utils.js';
+import { assertTemplateVisible } from '../template-visibility.js';
 
 export const EMAIL_CATEGORIES = ['Lead','Follow-up','Application','Admission','Payment','General','Other'];
 export const MERGE_FIELDS = [
@@ -31,15 +32,96 @@ export class EmailService {
   constructor(pool, uploadRoot) { this.pool = pool; this.uploadRoot = uploadRoot; }
   org(req) { return Number(req.user?.organizationId || 1); }
 
-  async integration(organizationId, includeSecret = false) {
-    const [[row]] = await this.pool.execute(
-      `SELECT * FROM crm_integrations WHERE organization_id=? AND provider='smtp' AND deleted_at IS NULL ORDER BY id DESC LIMIT 1`,
-      [organizationId]
-    );
+  /**
+   * One email account. Without an id this is the organisation's newest, which
+   * is what a single-account setup has always meant.
+   */
+  async integration(organizationId, includeSecret = false, integrationId = null) {
+    const [[row]] = integrationId
+      ? await this.pool.execute(
+          `SELECT * FROM crm_integrations WHERE id=? AND organization_id=? AND provider='smtp' AND deleted_at IS NULL LIMIT 1`,
+          [Number(integrationId), organizationId])
+      : await this.pool.execute(
+          `SELECT * FROM crm_integrations WHERE organization_id=? AND provider='smtp' AND deleted_at IS NULL ORDER BY id DESC LIMIT 1`,
+          [organizationId]);
     if (!row) return null;
     const config = json(row.config, {});
     if (includeSecret && config.passwordEncrypted) config.password = decryptToken(config.passwordEncrypted, getMasterKey());
     return { ...row, config };
+  }
+
+  /**
+   * The accounts this user may send from.
+   *
+   * Email used to be one organisation-wide mailbox. Now each branch says which
+   * accounts it sends from, so a counsellor is offered only the accounts of
+   * the branches they work in -- an account belonging to another school should
+   * not appear in their composer at all. An administrator with no branch
+   * restriction sees every account, matching how branch scoping works
+   * elsewhere in the CRM.
+   */
+  async accountsForUser(req) {
+    const organizationId = this.org(req);
+    const branchIds = Array.isArray(req.user?.branchIds)
+      ? req.user.branchIds.map(Number).filter(Number.isFinite) : [];
+    const unrestricted = !branchIds.length;
+    const [rows] = unrestricted
+      ? await this.pool.execute(
+          `SELECT i.id, i.name, i.status, i.config FROM crm_integrations i
+            WHERE i.organization_id=? AND i.provider='smtp' AND i.deleted_at IS NULL ORDER BY i.name, i.id`,
+          [organizationId])
+      : await this.pool.query(
+          `SELECT DISTINCT i.id, i.name, i.status, i.config, MAX(bea.is_default) AS isDefault
+             FROM crm_integrations i
+             JOIN crm_branch_email_accounts bea ON bea.integration_id = i.id
+            WHERE i.organization_id=? AND i.provider='smtp' AND i.deleted_at IS NULL
+              AND bea.branch_id IN (${branchIds.map(() => '?').join(',')})
+            GROUP BY i.id, i.name, i.status, i.config
+            ORDER BY isDefault DESC, i.name, i.id`,
+          [organizationId, ...branchIds]);
+    return rows.map(row => {
+      const config = json(row.config, {});
+      return {
+        id: Number(row.id), name: row.name, status: row.status,
+        fromName: config.fromName || null, fromEmail: config.fromEmail || null,
+        enabled: Boolean(config.enabled),
+        isDefault: Boolean(row.isDefault),
+      };
+    });
+  }
+
+  /** Which branches send from an account, for the mapping screen. */
+  async accountBranches(integrationId) {
+    const [rows] = await this.pool.execute(
+      `SELECT b.id, b.branch_name AS name, bea.is_default AS isDefault
+         FROM crm_branch_email_accounts bea
+         JOIN branches b ON b.id = bea.branch_id AND b.is_active = TRUE
+        WHERE bea.integration_id = ? ORDER BY b.branch_name`,
+      [Number(integrationId)]);
+    return rows.map(row => ({ ...row, id: Number(row.id), isDefault: Boolean(row.isDefault) }));
+  }
+
+  /** Replace an account's branches wholesale, so unticking one removes it. */
+  async setAccountBranches(req, integrationId, branchIds) {
+    const ids = [...new Set((branchIds || []).map(Number).filter(Number.isFinite))];
+    const connection = await this.pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.execute('DELETE FROM crm_branch_email_accounts WHERE integration_id=?', [Number(integrationId)]);
+      for (const [index, branchId] of ids.entries()) {
+        await connection.execute(
+          `INSERT INTO crm_branch_email_accounts (branch_id, integration_id, is_default, created_by_user_id)
+           VALUES (?,?,?,?)`,
+          [branchId, Number(integrationId), index === 0 ? 1 : 0, Number(req.user?.id) || null]);
+      }
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+    return { integrationId: Number(integrationId), branches: ids.length };
   }
 
   publicConfig(row) {
@@ -172,7 +254,28 @@ export class EmailService {
 
   async send(req, input, testOnly = false) {
     const organizationId = this.org(req);
-    const integration = await this.integration(organizationId, true);
+    if (!testOnly && input.templateId) {
+      const [[template]] = await this.pool.execute(
+        `SELECT id FROM crm_email_templates WHERE id=? AND organization_id=? AND deleted_at_utc IS NULL LIMIT 1`,
+        [Number(input.templateId), organizationId],
+      );
+      if (!template) throw Object.assign(new Error('Email template not found'), { status: 404 });
+      await assertTemplateVisible(this.pool, 'email', template.id, req.user);
+    }
+    /*
+     * The account to send from: the one the caller chose, else the
+     * organisation's. A chosen account is checked against what this user may
+     * use, so a request naming another branch's mailbox is refused rather
+     * than honoured.
+     */
+    let integrationId = Number(input.integrationId) || null;
+    if (integrationId) {
+      const allowed = await this.accountsForUser(req);
+      if (!allowed.some(account => account.id === integrationId)) {
+        throw Object.assign(new Error('You cannot send from that email account'), { status: 403 });
+      }
+    }
+    const integration = await this.integration(organizationId, true, integrationId);
     if (!integration || !integration.config.enabled) throw Object.assign(new Error('Email is not configured or enabled'), { status: 400 });
     const to = this.parseAddresses(input.to, 'recipient', true), cc = this.parseAddresses(input.cc, 'CC'), bcc = this.parseAddresses(input.bcc, 'BCC');
     if (!clean(input.subject, 500)) throw Object.assign(new Error('Email subject is required'), { status: 400 });
@@ -210,6 +313,45 @@ export class EmailService {
         ['Email could not be sent. Check the recipient or contact an administrator.', clean(error.message, 10000), messageId]);
       throw Object.assign(new Error('Email could not be sent. Please try again or contact an administrator.'), { status: 502, cause: error });
     }
+  }
+
+  /**
+   * One template to many leads.
+   *
+   * Each lead is sent separately so merge fields resolve per recipient and one
+   * bad address cannot lose the batch -- the same reasoning as the bulk SMS
+   * path. Leads with no email address are reported rather than skipped
+   * silently, since that is the most common reason a bulk send under-delivers.
+   */
+  async sendBulk(req, input) {
+    const leadIds = [...new Set((input.leadIds || []).map(Number).filter(Number.isInteger))];
+    if (!leadIds.length) throw Object.assign(new Error('Select at least one lead'), { status: 400 });
+    if (leadIds.length > 500) throw Object.assign(new Error('Send to at most 500 leads at a time'), { status: 400 });
+    const [leads] = await this.pool.query(
+      `SELECT id, email, student_name AS studentName FROM crm_leads
+        WHERE id IN (${leadIds.map(() => '?').join(',')}) AND deleted_at_utc IS NULL`, leadIds);
+
+    const summary = { requested: leadIds.length, sent: 0, failed: 0, noEmail: 0, failures: [] };
+    for (const lead of leads) {
+      if (!lead.email) {
+        summary.noEmail += 1;
+        if (summary.failures.length < 20) summary.failures.push({ leadId: lead.id, name: lead.studentName, error: 'no email address' });
+        continue;
+      }
+      try {
+        await this.send(req, {
+          ...input, leadId: lead.id, to: lead.email,
+          // Attachments are consumed (unlinked) by the first send, so a bulk
+          // run cannot reuse them.
+          attachments: [],
+        });
+        summary.sent += 1;
+      } catch (error) {
+        summary.failed += 1;
+        if (summary.failures.length < 20) summary.failures.push({ leadId: lead.id, name: lead.studentName, error: error.message });
+      }
+    }
+    return summary;
   }
 
   async retry(req, id) {

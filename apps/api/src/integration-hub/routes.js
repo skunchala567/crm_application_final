@@ -4,6 +4,7 @@
 // =====================================================
 
 import express from 'express';
+import { canAccessBranch } from '../rbac/branch-scope.js';
 import { stateManager } from './oauth-state-manager.js';
 
 export function createIntegrationHubRoutes(service, authenticate, requireCrmAccess) {
@@ -638,6 +639,10 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
 
   router.post('/integrations/:integrationId/sheet-sources', authenticate, async (req, res, next) => {
     try {
+      // A sheet source pours leads into a branch, so the caller must hold it.
+      if (!canAccessBranch(req.user, req.body?.branchId)) {
+        return res.status(403).json({ success: false, message: 'You do not have access to that branch' });
+      }
       const source = await service.addSheetSource(Number(req.params.integrationId), req.user?.organizationId || 1, req.body || {});
       res.status(201).json({ success: true, data: source });
     } catch (error) { next(error); }

@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import axios from 'axios';
+import { branchScopeSql, denyBranch } from './rbac/branch-scope.js';
+import { requireAdminOrPermission } from './rbac/rbac.middleware.js';
 
 const clean = (value, max = 500) => String(value ?? '').trim().slice(0, max);
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -38,7 +40,14 @@ function remoteData(payload) { return payload?.data && typeof payload.data === '
 export function createPaymentFormsRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin) {
   const router = Router();
   const adminRouter = Router();
-  adminRouter.use(authenticate, requireCrmAccess, requireUserAdmin);
+  /*
+   * Reading a form and its submissions can be granted to an end user; building
+   * or deleting one stays with administrators. Whichever it is, every query
+   * below is narrowed to the caller's own branches, so a granted user sees the
+   * forms their branches run and nobody else's.
+   */
+  const canView = requireAdminOrPermission(pool, 'payments.forms.view');
+  adminRouter.use(authenticate, requireCrmAccess);
 
   /**
    * A form stops accepting money at the end of its expiry day.
@@ -80,7 +89,8 @@ export function createPaymentFormsRoutes(pool, authenticate, requireCrmAccess, r
   const PAYER_KEYS = { name: 'name', email: 'email', phone: 'phone' };
 
   // Get all forms for business unit
-  adminRouter.get('/', wrap(async (req, res) => {
+  adminRouter.get('/', canView, wrap(async (req, res) => {
+    const scope = branchScopeSql(req.user, 'pf.branch_id');
     const [rows] = await pool.execute(
       `SELECT pf.id, pf.form_key, pf.title, pf.description, pf.branch_id, pf.selection_type,
               pf.is_active, pf.expires_at_utc, pf.created_at_utc, b.branch_name,
@@ -90,10 +100,14 @@ export function createPaymentFormsRoutes(pool, authenticate, requireCrmAccess, r
        JOIN branches b ON b.id=pf.branch_id
        LEFT JOIN crm_payment_form_categories pfc ON pfc.payment_form_id=pf.id
        LEFT JOIN crm_payment_form_submissions pfms ON pfms.payment_form_id=pf.id
-       WHERE pf.business_unit_id=?
-       GROUP BY pf.id
+       WHERE pf.business_unit_id=? AND ${scope.sql}
+       -- b.branch_name is named explicitly rather than left to MySQL to infer
+       -- from pf.id. When the scope is 1=0 -- a user with no branches -- the
+       -- optimizer prunes the join, can no longer prove the dependency, and
+       -- ONLY_FULL_GROUP_BY rejects the query: the empty list became a 500.
+       GROUP BY pf.id, b.branch_name
        ORDER BY pf.created_at_utc DESC LIMIT 250`,
-      [req.businessUnit.id]
+      [req.businessUnit.id, ...scope.params]
     );
     res.json({ data: rows.map(r => ({
       ...r,
@@ -104,7 +118,7 @@ export function createPaymentFormsRoutes(pool, authenticate, requireCrmAccess, r
   }));
 
   // Create form
-  adminRouter.post('/', wrap(async (req, res) => {
+  adminRouter.post('/', requireUserAdmin, wrap(async (req, res) => {
     const { title, description, selectionType, successMessage, redirectUrl, branchId, categories, fields, expiresOn } = req.body;
     if (!title || !branchId || !Array.isArray(categories) || !categories.length) {
       return res.status(400).json({ message: 'Title, branch, and at least one category required' });
@@ -112,6 +126,10 @@ export function createPaymentFormsRoutes(pool, authenticate, requireCrmAccess, r
     if (!['single', 'multiple'].includes(selectionType)) {
       return res.status(400).json({ message: 'Selection type must be single or multiple' });
     }
+    // The form collects money into this branch's Jodo account, so the caller
+    // must actually have the branch -- not merely know its id.
+    const denied = denyBranch(req.user, branchId);
+    if (denied) return res.status(403).json({ message: denied });
     await branchConfig(pool, branchId);
     const formKey = `pf_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const conn = await pool.getConnection();
@@ -138,7 +156,7 @@ export function createPaymentFormsRoutes(pool, authenticate, requireCrmAccess, r
   }));
 
   // Update form
-  adminRouter.put('/:id', wrap(async (req, res) => {
+  adminRouter.put('/:id', requireUserAdmin, wrap(async (req, res) => {
     const { title, description, selectionType, successMessage, redirectUrl, branchId, categories, fields, expiresOn, isActive } = req.body;
     if (!title || !branchId || !Array.isArray(categories) || !categories.length) {
       return res.status(400).json({ message: 'Title, branch, and at least one category required' });
@@ -146,13 +164,19 @@ export function createPaymentFormsRoutes(pool, authenticate, requireCrmAccess, r
     if (!['single', 'multiple'].includes(selectionType)) {
       return res.status(400).json({ message: 'Selection type must be single or multiple' });
     }
-    // Scoped to the caller's business unit so an id from another unit cannot
-    // be edited by guessing it.
+    // Scoped to the caller's business unit and branches, so an id from another
+    // unit or another branch cannot be edited by guessing it.
+    const scope = branchScopeSql(req.user, 'branch_id');
     const [[existing]] = await pool.execute(
-      'SELECT id FROM crm_payment_forms WHERE id=? AND business_unit_id=?',
-      [req.params.id, req.businessUnit.id],
+      `SELECT id FROM crm_payment_forms WHERE id=? AND business_unit_id=? AND ${scope.sql}`,
+      [req.params.id, req.businessUnit.id, ...scope.params],
     );
     if (!existing) return res.status(404).json({ message: 'Form not found' });
+    // Both ends are checked: the form you may edit, and the branch you may
+    // move it to. Without the second, an edit could hand a form to a branch
+    // the caller has no access to.
+    const denied = denyBranch(req.user, branchId);
+    if (denied) return res.status(403).json({ message: denied });
     await branchConfig(pool, branchId);
 
     const conn = await pool.getConnection();
@@ -188,10 +212,11 @@ export function createPaymentFormsRoutes(pool, authenticate, requireCrmAccess, r
   }));
 
   // Delete form
-  adminRouter.delete('/:id', wrap(async (req, res) => {
+  adminRouter.delete('/:id', requireUserAdmin, wrap(async (req, res) => {
+    const scope = branchScopeSql(req.user, 'branch_id');
     const [[form]] = await pool.execute(
-      'SELECT id, title FROM crm_payment_forms WHERE id=? AND business_unit_id=?',
-      [req.params.id, req.businessUnit.id],
+      `SELECT id, title FROM crm_payment_forms WHERE id=? AND business_unit_id=? AND ${scope.sql}`,
+      [req.params.id, req.businessUnit.id, ...scope.params],
     );
     if (!form) return res.status(404).json({ message: 'Form not found' });
 
@@ -218,21 +243,26 @@ export function createPaymentFormsRoutes(pool, authenticate, requireCrmAccess, r
   }));
 
   // Get form details
-  adminRouter.get('/:id', wrap(async (req, res) => {
-    const [[form]] = await pool.execute(`SELECT * FROM crm_payment_forms WHERE id=? AND business_unit_id=?`, [req.params.id, req.businessUnit.id]);
+  adminRouter.get('/:id', canView, wrap(async (req, res) => {
+    const scope = branchScopeSql(req.user, 'branch_id');
+    const [[form]] = await pool.execute(`SELECT * FROM crm_payment_forms WHERE id=? AND business_unit_id=? AND ${scope.sql}`, [req.params.id, req.businessUnit.id, ...scope.params]);
     if (!form) return res.status(404).json({ message: 'Form not found' });
     const [categories] = await pool.execute(`SELECT id, category_name, amount, selection_type, is_required FROM crm_payment_form_categories WHERE payment_form_id=? ORDER BY display_order`, [form.id]);
     res.json({ data: { ...form, categories } });
   }));
 
   // Get submissions for form
-  adminRouter.get('/:id/submissions', wrap(async (req, res) => {
+  adminRouter.get('/:id/submissions', canView, wrap(async (req, res) => {
+    // Submissions carry no branch of their own; the form they belong to does,
+    // so the join is what makes payer names, phones and amounts branch-scoped.
+    const scope = branchScopeSql(req.user, 'pf.branch_id');
     const [rows] = await pool.execute(
-      `SELECT id, payer_name, payer_email, payer_phone, student_name, amount, status, transaction_id, created_at_utc
-       FROM crm_payment_form_submissions
-       WHERE payment_form_id=? AND business_unit_id=?
-       ORDER BY created_at_utc DESC LIMIT 500`,
-      [req.params.id, req.businessUnit.id]
+      `SELECT s.id, s.payer_name, s.payer_email, s.payer_phone, s.student_name, s.amount, s.status, s.transaction_id, s.created_at_utc
+       FROM crm_payment_form_submissions s
+       JOIN crm_payment_forms pf ON pf.id=s.payment_form_id
+       WHERE s.payment_form_id=? AND s.business_unit_id=? AND ${scope.sql}
+       ORDER BY s.created_at_utc DESC LIMIT 500`,
+      [req.params.id, req.businessUnit.id, ...scope.params]
     );
     res.json({ data: rows });
   }));
@@ -321,7 +351,14 @@ export function createPaymentFormsRoutes(pool, authenticate, requireCrmAccess, r
       const payload = {
         name: clean(name, 200), phone: payerPhone, email: clean(email, 254),
         student_name: payerStudentName, new_admission: true,
-        details: [{ component_type: 'Payment', amount }],
+        /*
+         * The branch's configured component, not a literal "Payment": Jodo
+         * validates this against the components set up for the collector and
+         * answers "Invalid component type Payment". The public enquiry form
+         * has always used application_payment_component; payment forms were
+         * the odd one out.
+         */
+        details: [{ component_type: config.paymentComponent || 'Payable Amount', amount }],
         notes: [{ key: 'form_key', value: form.form_key }, { key: 'categories', value: selectedCats.map(c => c.category_name).join(', ') }]
       };
 

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { encryptToken, getMasterKey } from '../integration-hub/crypto-utils.js';
+import { referenceBranchScopeSql } from '../rbac/branch-scope.js';
 import {
   listPages, subscribePageToLeadgen, unsubscribePage,
   listLeadForms, listFormLeads, debugToken, getTokenOwner, GRAPH_VERSION,
@@ -82,7 +83,7 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
    * and at least one CRM role. Anyone missing those cannot be the importing
    * user, so offering them would just produce failed imports.
    */
-  router.get('/lookups', wrap(async (_req, res) => {
+  router.get('/lookups', wrap(async (req, res) => {
     const [users] = await pool.execute(
       `SELECT u.id,
               COALESCE(e.employee_name, CONCAT_WS(' ', p.first_name, p.last_name), u.email) AS name,
@@ -100,8 +101,11 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
                AND r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER','SUPER_ADMIN'))
         ORDER BY name`,
     );
+    // Routing sends leads into a branch, so only offer the caller's own.
+    const branchScope = referenceBranchScopeSql(req.user, 'id');
     const [branches] = await pool.execute(
-      'SELECT id, branch_name AS name FROM branches WHERE is_active = 1 ORDER BY branch_name',
+      `SELECT id, branch_name AS name FROM branches WHERE is_active = 1 AND ${branchScope.sql} ORDER BY branch_name`,
+      branchScope.params,
     );
     const [businessUnits] = await pool.execute(
       `SELECT id, display_name AS name FROM crm_business_units

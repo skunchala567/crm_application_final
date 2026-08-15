@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { EMAIL_CATEGORIES, EmailService, MERGE_FIELDS, renderMergeFields, sanitizeEmailHtml } from './email.service.js';
+import { assertTemplateVisible, attachAndFilterVisibility, ensureMessageTemplateVisibilitySchema, saveTemplateVisibility } from '../template-visibility.js';
 
 const wrap = handler => async (req, res, next) => { try { await handler(req, res); } catch (error) { error.status ||= 500; next(error); } };
 const text = (value, max = 10000) => String(value ?? '').trim().slice(0, max);
@@ -46,6 +47,12 @@ export function createEmailRoutes(pool, authenticate, requireCrmAccess, uploadRo
     res.status(201).json({ data: { token, filename, mimeType, size: req.body.length } });
   }));
 
+  /* Accounts this user may send from, and which branches use each. */
+  router.get('/accounts', wrap(async (req, res) => res.json({ data: await service.accountsForUser(req) })));
+  router.get('/accounts/:id/branches', wrap(async (req, res) => res.json({ data: await service.accountBranches(req.params.id) })));
+  router.put('/accounts/:id/branches', wrap(async (req, res) =>
+    res.json({ data: await service.setAccountBranches(req, req.params.id, req.body?.branchIds || []) })));
+
   router.get('/merge-fields', (_req, res) => res.json({ data: MERGE_FIELDS }));
   router.get('/templates', wrap(async (req, res) => {
     await service.seedTemplates(service.org(req), req.user.id);
@@ -61,12 +68,14 @@ export function createEmailRoutes(pool, authenticate, requireCrmAccess, uploadRo
        LEFT JOIN app_users uu ON uu.id=t.updated_by_user_id LEFT JOIN employees ue ON ue.id=uu.employee_id
        WHERE ${where.join(' AND ')} ORDER BY COALESCE(t.updated_at_utc,t.created_at_utc) DESC`, values
     );
-    res.json({ data: rows });
+    res.json({ data: await attachAndFilterVisibility(pool, 'email', rows, req.user) });
   }));
   router.get('/templates/:id', wrap(async (req, res) => {
     const [[row]] = await pool.execute(`SELECT id,template_name AS templateName,category,subject,body_html AS bodyHtml,body_text AS bodyText,status,created_at_utc AS createdAt,updated_at_utc AS updatedAt FROM crm_email_templates WHERE id=? AND organization_id=? AND deleted_at_utc IS NULL`, [req.params.id, service.org(req)]);
     if (!row) return res.status(404).json({ message: 'Email template not found' });
-    res.json({ data: row });
+    const [visible] = await attachAndFilterVisibility(pool, 'email', [row], req.user);
+    if (!visible) return res.status(404).json({ message: 'Email template not found' });
+    res.json({ data: visible });
   }));
   const validateTemplate = body => {
     if (!text(body.templateName,200) || !text(body.subject,500) || !text(body.bodyHtml,500000)) throw Object.assign(new Error('Template name, subject and body are required'), { status: 400 });
@@ -79,6 +88,7 @@ export function createEmailRoutes(pool, authenticate, requireCrmAccess, uploadRo
        VALUES(?,?,?,?,?,?,?, ?,?)`, [service.org(req),text(req.body.templateName,200),req.body.category,text(req.body.subject,500),sanitizeEmailHtml(req.body.bodyHtml),text(req.body.bodyText,500000)||null,
        req.body.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE',req.user.id,req.user.id]
     );
+    await saveTemplateVisibility(pool, 'email', created.insertId, req.body.visibleUserIds);
     res.status(201).json({ data: { id: created.insertId } });
   }));
   router.put('/templates/:id', wrap(async (req, res) => {
@@ -89,15 +99,22 @@ export function createEmailRoutes(pool, authenticate, requireCrmAccess, uploadRo
        req.body.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE',req.user.id,req.params.id,service.org(req)]
     );
     if (!result.affectedRows) return res.status(404).json({ message: 'Email template not found' });
+    await saveTemplateVisibility(pool, 'email', req.params.id, req.body.visibleUserIds);
     res.json({ success: true });
   }));
   router.post('/templates/:id/duplicate', wrap(async (req, res) => {
+    await ensureMessageTemplateVisibilitySchema(pool);
     const [result] = await pool.execute(
       `INSERT INTO crm_email_templates(organization_id,template_name,category,subject,body_html,body_text,status,created_by_user_id,updated_by_user_id)
        SELECT organization_id,CONCAT(LEFT(template_name,180),' Copy'),category,subject,body_html,body_text,'INACTIVE',?,?
        FROM crm_email_templates WHERE id=? AND organization_id=? AND deleted_at_utc IS NULL`, [req.user.id,req.user.id,req.params.id,service.org(req)]
     );
     if (!result.affectedRows) return res.status(404).json({ message: 'Email template not found' });
+    const [visibility] = await pool.execute(
+      `SELECT user_id AS userId FROM crm_email_template_user_visibility WHERE template_id=?`,
+      [req.params.id],
+    );
+    await saveTemplateVisibility(pool, 'email', result.insertId, visibility.map(item => item.userId));
     res.status(201).json({ data: { id: result.insertId } });
   }));
   router.patch('/templates/:id/status', wrap(async (req, res) => {
@@ -113,12 +130,14 @@ export function createEmailRoutes(pool, authenticate, requireCrmAccess, uploadRo
   }));
 
   router.post('/templates/:id/preview', wrap(async (req, res) => {
+    await assertTemplateVisible(pool, 'email', req.params.id, req.user);
     const [[template]] = await pool.execute(`SELECT subject,body_html AS bodyHtml FROM crm_email_templates WHERE id=? AND organization_id=? AND deleted_at_utc IS NULL`, [req.params.id,service.org(req)]);
     if (!template) return res.status(404).json({ message: 'Email template not found' });
     const fields = await service.mergeContext(req.body?.leadId, req.user.id, service.org(req));
     res.json({ data: { subject: renderMergeFields(template.subject,fields), bodyHtml: renderMergeFields(template.bodyHtml,fields), fields } });
   }));
   router.post('/send', wrap(async (req, res) => res.json({ data: await service.send(req, req.body || {}) })));
+  router.post('/send-bulk', wrap(async (req, res) => res.json({ data: await service.sendBulk(req, req.body || {}) })));
   router.post('/messages/:id/retry', wrap(async (req, res) => res.json({ data: await service.retry(req, req.params.id) })));
   router.get('/leads/:leadId/messages', wrap(async (req, res) => {
     const [rows] = await pool.execute(

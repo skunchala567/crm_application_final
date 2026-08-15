@@ -7,7 +7,7 @@ export class SmartpingSmsProvider extends BaseIntegrationProvider {
   constructor(config, logger = console) {
     super(config || {}, logger);
     this.name = 'SmartpingSmsProvider';
-    this.baseUrl = clean(config?.baseUrl).replace(/\/+$/, '');
+    this.baseUrl = clean(config?.baseUrl);
     this.username = clean(config?.username);
     this.password = clean(config?.password);
     this.senderId = clean(config?.senderId);
@@ -17,8 +17,32 @@ export class SmartpingSmsProvider extends BaseIntegrationProvider {
     this.timeoutMs = Number(config?.timeoutMs || 15000);
   }
 
+  resolveEndpoint() {
+    let url;
+    try {
+      url = new URL(this.baseUrl);
+    } catch {
+      throw new ValidationError('A valid SmartPing API URL is required');
+    }
+    if (!['http:', 'https:'].includes(url.protocol) || !url.hostname) {
+      throw new ValidationError('A valid SmartPing API URL is required');
+    }
+
+    url.hash = '';
+    url.search = '';
+    const path = url.pathname.replace(/\/+$/, '');
+    if (/\/fe\/api\/v1\/message$/i.test(path)) {
+      url.pathname = path;
+      return { url: url.toString(), mode: 'json' };
+    }
+    url.pathname = /\/fe\/api\/v1\/send$/i.test(path)
+      ? path
+      : `${path}/fe/api/v1/send`.replace(/\/{2,}/g, '/');
+    return { url: url.toString(), mode: 'query' };
+  }
+
   validateConfig() {
-    if (!/^https?:\/\/[^\s/]+/i.test(this.baseUrl)) throw new ValidationError('A valid SmartPing API base URL is required');
+    this.resolveEndpoint();
     if (!this.username || !this.password) throw new AuthenticationError('SmartPing SMS username and API password are required');
     if (!/^[A-Za-z0-9]{6}$/.test(this.senderId)) throw new ValidationError('Sender ID must contain exactly 6 letters or numbers');
     if (!/^\d{4,19}$/.test(this.dltContentId)) throw new ValidationError('DLT Content ID must contain 4 to 19 digits');
@@ -50,27 +74,49 @@ export class SmartpingSmsProvider extends BaseIntegrationProvider {
     if (!/^\d{4,19}$/.test(dltContentId)) throw new ValidationError('A valid DLT Content ID is required');
     const recipient = this.formatRecipient(phoneNumber);
     const unicode = options.unicode ?? this.config.defaultUnicode ?? /[^\x00-\x7F]/.test(message);
+    const endpoint = this.resolveEndpoint();
+    const sender = clean(options.senderId || this.senderId);
+    const dltPrincipalEntityId = clean(options.dltPrincipalEntityId || this.dltPrincipalEntityId);
+    const dltTelemarketerId = clean(options.dltTelemarketerId || this.dltTelemarketerId);
     const payload = {
       extra: {
         dltContentId,
-        ...(clean(options.dltPrincipalEntityId || this.dltPrincipalEntityId)
-          ? { dltPrincipalEntityId: clean(options.dltPrincipalEntityId || this.dltPrincipalEntityId) } : {}),
-        ...(clean(options.dltTelemarketerId || this.dltTelemarketerId)
-          ? { dltTelemarketerId: clean(options.dltTelemarketerId || this.dltTelemarketerId) } : {}),
+        ...(dltPrincipalEntityId ? { dltPrincipalEntityId } : {}),
+        ...(dltTelemarketerId ? { dltTelemarketerId } : {}),
         ...(options.flash ? { 'message.is.flash': true } : {}),
         ...(options.correlationId ? { corelationId: String(options.correlationId) } : {})
       },
       message: { recipient, text: String(message) },
-      sender: clean(options.senderId || this.senderId),
+      sender,
       unicode: Boolean(unicode)
     };
 
     try {
-      const response = await axios.post(`${this.baseUrl}/fe/api/v1/message`, payload, {
-        auth: { username: this.username, password: this.password },
-        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-        timeout: this.timeoutMs
-      });
+      const requestConfig = endpoint.mode === 'query'
+        ? {
+            params: {
+              username: this.username,
+              password: this.password,
+              unicode: String(Boolean(unicode)),
+              from: sender,
+              to: recipient,
+              text: String(message),
+              dltContentId,
+              ...(dltPrincipalEntityId ? { dltPrincipalEntityId } : {}),
+              ...(dltTelemarketerId ? { dltTelemarketerId } : {}),
+              ...(options.correlationId ? { corelationId: String(options.correlationId) } : {})
+            },
+            headers: { Accept: 'application/json' },
+            timeout: this.timeoutMs
+          }
+        : {
+            auth: { username: this.username, password: this.password },
+            headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+            timeout: this.timeoutMs
+          };
+      const response = endpoint.mode === 'query'
+        ? await axios.get(endpoint.url, requestConfig)
+        : await axios.post(endpoint.url, payload, requestConfig);
       const data = response.data || {};
       const accepted = String(data.state || '').toUpperCase() === 'SUBMIT_ACCEPTED'
         || Number(data.statusCode) === 200;

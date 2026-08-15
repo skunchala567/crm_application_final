@@ -764,13 +764,46 @@ export function MarketingCampaignList({ campaigns, onStatus }) {
           };
           return (
             <section className={`campaign-record ${expanded ? "expanded" : ""}`} key={campaign.id}>
-              <button type="button" className="campaign-record-summary" onClick={() => setExpandedId(expanded ? null : campaign.id)}>
-                <span><small>Campaign name</small><strong>{campaign.name}</strong></span>
-                <span><small>Status</small><b className={`campaign-status ${campaign.status.toLowerCase()}`}>{campaign.status === "COMPLETED" && <CheckCircle2 />}{campaign.status}</b></span>
-                <span><small>Created on</small><b>{formatDate(campaign.createdAt)}</b></span>
-                <span><small>Created by</small><b>{campaign.createdBy || "—"}</b></span>
-                <ChevronDown className="campaign-expand-icon" />
-              </button>
+              {/* Header row: the summary opens the detail, the controls sit
+                  beside it. Stopping a campaign used to require expanding it
+                  first, which is the one action someone needs in a hurry.
+                  Kept out of the summary button -- a button cannot nest one. */}
+              <div className="campaign-record-head">
+                <button type="button" className="campaign-record-summary" onClick={() => setExpandedId(expanded ? null : campaign.id)}>
+                  <span><small>Campaign name</small><strong>{campaign.name}</strong></span>
+                  <span><small>Status</small><b className={`campaign-status ${campaign.status.toLowerCase()}`}>{campaign.status === "COMPLETED" && <CheckCircle2 />}{campaign.status}</b></span>
+                  <span><small>Created on</small><b>{formatDate(campaign.createdAt)}</b></span>
+                  <span><small>Created by</small><b>{campaign.createdBy || "—"}</b></span>
+                  <ChevronDown className="campaign-expand-icon" />
+                </button>
+                {!["COMPLETED", "CANCELLED"].includes(campaign.status) && (
+                  <div className="campaign-record-controls">
+                    {campaign.status === "ACTIVE" && (
+                      <button type="button" className="secondary" title="Pause this campaign" onClick={(event) => statusAction(event, "PAUSED")}>
+                        <Pause size={14} /> Pause
+                      </button>
+                    )}
+                    {campaign.status === "PAUSED" && (
+                      <button type="button" className="secondary" title="Resume this campaign" onClick={(event) => statusAction(event, "ACTIVE")}>
+                        <Play size={14} /> Resume
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="campaign-stop"
+                      title="Stop this campaign and cancel every message not yet sent"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (window.confirm(`Stop "${campaign.name}"? Messages already sent cannot be recalled; everything still queued is cancelled.`)) {
+                          statusAction(event, "CANCELLED");
+                        }
+                      }}
+                    >
+                      <Ban size={14} /> Stop
+                    </button>
+                  </div>
+                )}
+              </div>
               {expanded && (
                 <div className="campaign-record-details">
                   <div className="campaign-detail-grid">

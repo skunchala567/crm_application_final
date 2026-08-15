@@ -89,6 +89,8 @@ export const REGISTRY = [
       { screen: 'refer', label: 'Refer', actions: ['assign'] },
       { screen: 'campaign', label: 'Campaign', actions: ['create'] },
       { screen: 'whatsapp', label: 'WhatsApp', actions: ['create'] },
+      { screen: 'sms', label: 'SMS', actions: ['create'] },
+      { screen: 'email', label: 'Email', actions: ['create'] },
       { screen: 'export', label: 'Export', actions: ['export'] },
     ],
   },
@@ -127,6 +129,19 @@ export const REGISTRY = [
     ],
   },
   {
+    /*
+     * SMS is its own module rather than a screen under Integrations: sending
+     * is day-to-day work for a counsellor, while a template's DLT Content ID
+     * is configuration only an administrator should touch. One module lets
+     * those be granted separately.
+     */
+    module: 'sms', label: 'SMS',
+    screens: [
+      { screen: 'templates', label: 'SMS Templates', route: '/settings/sms-templates', actions: ['view', 'create', 'edit', 'delete'] },
+      { screen: 'messages', label: 'SMS Messages', actions: ['view', 'create'], scoped: true },
+    ],
+  },
+  {
     module: 'email', label: 'Email',
     screens: [
       { screen: 'configuration', label: 'Email Configuration', route: '/settings/email-configuration', actions: ['view', 'edit'] },
@@ -145,19 +160,39 @@ export const REGISTRY = [
     ],
   },
   {
+    /*
+     * Payments: the money screens, as one module rather than a single
+     * `settings.payment_forms` key covering all three.
+     *
+     * They were all gated by that one key, which made the three tabs
+     * inseparable -- you could not let a branch manager read what their branch
+     * collected without also letting them build public payment forms and edit
+     * enquiry forms. Splitting them is what makes "give this user the Payments
+     * screen" a decision rather than an all-or-nothing switch.
+     *
+     * Scoped, because the answer to "which collections?" is "the ones for your
+     * branches", and every query behind these keys is branch-scoped to match.
+     */
+    module: 'payments', label: 'Payments',
+    screens: [
+      { screen: 'collections', label: 'Payment Collections', route: '/settings/payments', actions: ['view', 'export'], scoped: true },
+      { screen: 'forms', label: 'Payment Forms', route: '/settings/payments', actions: ['view', 'create', 'edit', 'delete'], scoped: true },
+      { screen: 'enquiry_forms', label: 'Enquiry Forms', route: '/settings/payments', actions: ['view', 'create', 'edit', 'delete'], scoped: true },
+      { screen: 'links', label: 'Payment Links', actions: ['view', 'create', 'delete'], scoped: true },
+    ],
+  },
+  {
     module: 'settings', label: 'Settings',
     screens: [
       { screen: 'users', label: 'User Management', route: '/settings/users', actions: ['view', 'create', 'edit', 'delete', 'export'] },
       { screen: 'access_control', label: 'Access Control', route: '/settings/users', actions: ['view', 'create', 'edit', 'delete', 'assign'] },
       { screen: 'business_units', label: 'Business Units', route: '/settings/business-units', actions: ['view', 'create', 'edit', 'delete'] },
       { screen: 'branches', label: 'Branch Settings', route: '/settings/branches', actions: ['view', 'create', 'edit', 'delete'] },
-      { screen: 'payment_forms', label: 'Payment Forms', route: '/settings/payment-forms', actions: ['view', 'create', 'edit', 'delete'] },
       { screen: 'lead_config', label: 'Lead Configuration', route: '/settings/lead-config', actions: ['view', 'create', 'edit', 'delete'] },
       { screen: 'academic_config', label: 'Academic Configuration', route: '/settings/academic-config', actions: ['view', 'create', 'edit', 'delete'] },
       { screen: 'business_config', label: 'Business Configuration', route: '/settings/business-units', actions: ['view', 'create', 'edit', 'delete'] },
       { screen: 'academic_years', label: 'Academic Years', route: '/settings/academic-years', actions: ['view', 'create', 'edit', 'delete'] },
       { screen: 'admission_classes', label: 'Admission Classes', route: '/settings/admission-classes', actions: ['view', 'create', 'edit', 'delete'] },
-      { screen: 'enquiry_forms', label: 'Public Enquiry Forms', actions: ['view', 'create', 'edit', 'delete'] },
       { screen: 'audit', label: 'Access Audit Log', actions: ['view', 'export'] },
     ],
   },

@@ -1,5 +1,6 @@
 import express from 'express';
 import { notifyEmployee, notifyUser } from './notification-service.js';
+import { branchScopeSql, denyBranch, referenceBranchScopeSql } from './rbac/branch-scope.js';
 
 const parseJson = (value, fallback = {}) => {
   if (value == null) return fallback;
@@ -289,6 +290,16 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
       ? `,smartflo_did_id AS smartfloDidId,smartflo_did_number AS smartfloDidNumber,smartflo_ivr_id AS smartfloIvrId,smartflo_ivr_name AS smartfloIvrName,smartflo_department_id AS smartfloDepartmentId,
            smartflo_inbound_enabled AS smartfloInboundEnabled,smartflo_outbound_enabled AS smartfloOutboundEnabled`
       : `,NULL AS smartfloDidId,NULL AS smartfloDidNumber,NULL AS smartfloIvrId,NULL AS smartfloIvrName,NULL AS smartfloDepartmentId,1 AS smartfloInboundEnabled,1 AS smartfloOutboundEnabled`;
+    /*
+     * This list feeds every branch picker on the configuration screens --
+     * enquiry forms, payment forms, branch settings -- and it carries each
+     * branch's Jodo collector code and payment settings with it. Scoping it is
+     * what stops a user seeing branch names, and payment configuration, for
+     * branches they were never given.
+     */
+    const branchScope=referenceBranchScopeSql(req.user,'id');
+    // An enquiry form belongs to the branch its leads land in.
+    const enquiryScope=branchScopeSql(req.user,'default_branch_id');
     const branchSelect=hasBranchPaymentColumns
       ? `SELECT id,branch_name AS name,short_name AS shortName,is_active AS isActive,
                 jodo_payment_enabled AS jodoPaymentEnabled,jodo_collector_code AS jodoCollectorCode,
@@ -300,22 +311,22 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
                 (jodo_auth_header IS NOT NULL AND jodo_auth_header<>'') AS jodoAuthHeaderSet,
                 application_amount AS applicationAmount,
                 application_stage_id AS applicationStageId,application_payment_component AS applicationPaymentComponent ${callerDeskSelect} ${smartfloSelect}
-         FROM branches WHERE is_active=TRUE ORDER BY branch_name`
+         FROM branches WHERE is_active=TRUE AND ${branchScope.sql} ORDER BY branch_name`
       : `SELECT id,branch_name AS name,short_name AS shortName,is_active AS isActive,
                 0 AS jodoPaymentEnabled,NULL AS jodoCollectorCode,NULL AS jodoBaseUrl,
                 0 AS jodoApiKeySet,0 AS jodoSecretKeySet,0 AS jodoAuthHeaderSet,NULL AS applicationAmount,
                 NULL AS applicationStageId,'Payable Amount' AS applicationPaymentComponent ${callerDeskSelect} ${smartfloSelect}
-         FROM branches WHERE is_active=TRUE ORDER BY branch_name`;
+         FROM branches WHERE is_active=TRUE AND ${branchScope.sql} ORDER BY branch_name`;
     const [[fields],[forms],[enquiryForms],[pipelines],[pipelineStages],[workflows],[operationStages],[modules],[branches],[sources],[channels],[campaigns],[employees],[academicYears]]=await Promise.all([
       pool.execute(`SELECT id,field_key AS fieldKey,display_name AS displayName,field_type AS fieldType,placeholder,help_text AS helpText,options_json AS options,options_section_id AS optionsSectionId,options_section_level AS optionsSectionLevel,validation_json AS validation,is_system AS isSystem,is_required AS isRequired,is_filterable AS isFilterable,filter_control AS filterControl,is_searchable AS isSearchable,is_importable AS isImportable,is_import_required AS isImportRequired,import_header AS importHeader,import_sample_value AS importSampleValue,show_in_list AS showInList,position,column_width AS columnWidth,is_active AS isActive FROM crm_metadata_fields WHERE business_unit_id=? ORDER BY module_key,position`,[unitId]),
       pool.execute(`SELECT id,form_key AS formKey,display_name AS displayName,form_type AS formType,sections_json AS sections,is_default AS isDefault,is_active AS isActive FROM crm_metadata_forms WHERE business_unit_id=? ORDER BY display_name`,[unitId]),
-      pool.execute(`SELECT id,form_key AS formKey,display_name AS displayName,description,default_branch_id AS defaultBranchId,default_stage_id AS defaultStageId,default_substage_id AS defaultSubstageId,default_source_id AS defaultSourceId,default_channel_id AS defaultChannelId,default_campaign_id AS defaultCampaignId,default_owner_employee_id AS defaultOwnerEmployeeId,field_schema_json AS fieldSchema,settings_json AS settings,success_message AS successMessage,redirect_url AS redirectUrl,payment_required AS paymentRequired,payment_amount AS paymentAmount,is_active AS isActive FROM crm_public_enquiry_forms WHERE business_unit_id=? ORDER BY display_name`,[unitId]),
+      pool.execute(`SELECT id,form_key AS formKey,display_name AS displayName,description,default_branch_id AS defaultBranchId,default_stage_id AS defaultStageId,default_substage_id AS defaultSubstageId,default_source_id AS defaultSourceId,default_channel_id AS defaultChannelId,default_campaign_id AS defaultCampaignId,default_owner_employee_id AS defaultOwnerEmployeeId,field_schema_json AS fieldSchema,settings_json AS settings,success_message AS successMessage,redirect_url AS redirectUrl,payment_required AS paymentRequired,payment_amount AS paymentAmount,is_active AS isActive FROM crm_public_enquiry_forms WHERE business_unit_id=? AND ${enquiryScope.sql} ORDER BY display_name`,[unitId,...enquiryScope.params]),
       pool.execute(`SELECT id,pipeline_key AS pipelineKey,display_name AS displayName,description,entity_label_singular AS entityLabelSingular,entity_label_plural AS entityLabelPlural,is_default AS isDefault,is_active AS isActive FROM crm_metadata_pipelines WHERE business_unit_id=? ORDER BY is_default DESC,display_name`,[unitId]),
       pool.execute(`SELECT ps.id,ps.pipeline_id AS pipelineId,ps.stage_key AS stageKey,ps.display_name AS displayName,ps.stage_type AS stageType,ps.color_code AS color,ps.position,ps.is_active AS isActive FROM crm_metadata_pipeline_stages ps JOIN crm_metadata_pipelines p ON p.id=ps.pipeline_id WHERE p.business_unit_id=? ORDER BY ps.pipeline_id,ps.position`,[unitId]),
       pool.execute(`SELECT id,workflow_key AS workflowKey,display_name AS displayName,entity_label AS entityLabel,description,form_schema_json AS formSchema,is_default AS isDefault,is_active AS isActive FROM crm_operation_workflows WHERE business_unit_id=? ORDER BY is_default DESC,display_name`,[unitId]),
       pool.execute(`SELECT os.id,os.workflow_id AS workflowId,os.stage_key AS stageKey,os.display_name AS displayName,os.stage_type AS stageType,os.color_code AS color,os.position,os.checklist_json AS checklist,os.is_active AS isActive FROM crm_operation_stages os JOIN crm_operation_workflows ow ON ow.id=os.workflow_id WHERE ow.business_unit_id=? ORDER BY os.workflow_id,os.position`,[unitId]),
       pool.execute(`SELECT id,module_key AS moduleKey,display_name AS displayName,module_type AS moduleType,description,layout_json AS layout,settings_json AS settings,position,is_active AS isActive FROM crm_business_modules WHERE business_unit_id=? ORDER BY position`,[unitId]),
-      pool.query(branchSelect),
+      pool.query(branchSelect,branchScope.params),
       // channelId travels with the source so the enquiry form can narrow the
       // source list to the chosen channel, the same binding the Add/Edit lead
       // screens use. Without it the config screen offered every source under
@@ -681,6 +692,11 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     const payload=enquiryPayload(req);
     if(!payload.displayName)return res.status(400).json({message:'Form name is required'});
     if(!payload.defaultBranchId||!payload.defaultStageId)return res.status(400).json({message:'Default branch and stage are required'});
+    // Every lead this public form creates lands in the default branch, so the
+    // caller has to hold that branch -- otherwise a form could be pointed at
+    // one they cannot see.
+    const branchDenied=denyBranch(req.user,payload.defaultBranchId);
+    if(branchDenied)return res.status(403).json({message:branchDenied});
     if(!payload.settings.defaultAcademicYear)return res.status(400).json({message:'Academic year is required for enquiry forms'});
     if(!payload.fields.length)return res.status(400).json({message:'Select at least one field for the enquiry form'});
     const formKey=slug(req.body.formKey||`${unit.unit_code}_${payload.displayName}`)||`enquiry_${Date.now()}`;
@@ -701,12 +717,17 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     const payload=enquiryPayload(req);
     if(!payload.displayName)return res.status(400).json({message:'Form name is required'});
     if(!payload.defaultBranchId||!payload.defaultStageId)return res.status(400).json({message:'Default branch and stage are required'});
+    // Both the branch it is being moved to, and -- via the scope on the UPDATE
+    // below -- the branch it currently points at.
+    const branchDenied=denyBranch(req.user,payload.defaultBranchId);
+    if(branchDenied)return res.status(403).json({message:branchDenied});
     if(!payload.settings.defaultAcademicYear)return res.status(400).json({message:'Academic year is required for enquiry forms'});
     if(!payload.fields.length)return res.status(400).json({message:'Select at least one field for the enquiry form'});
+    const scope=branchScopeSql(req.user,'default_branch_id');
     const [result]=await pool.execute(
       `UPDATE crm_public_enquiry_forms SET display_name=?,description=?,default_branch_id=?,default_stage_id=?,default_substage_id=?,default_source_id=?,default_channel_id=?,default_campaign_id=?,default_owner_employee_id=?,field_schema_json=?,settings_json=?,success_message=?,redirect_url=?,payment_required=?,payment_amount=?,is_active=?,updated_by_user_id=?
-       WHERE id=? AND business_unit_id=?`,
-      [payload.displayName,payload.description,payload.defaultBranchId,payload.defaultStageId,payload.defaultSubstageId,payload.defaultSourceId,payload.defaultChannelId,payload.defaultCampaignId,payload.defaultOwnerEmployeeId,JSON.stringify(payload.fields),JSON.stringify(payload.settings),payload.successMessage,payload.redirectUrl,payload.paymentRequired?1:0,payload.paymentAmount,payload.isActive?1:0,Number(req.user.id),formId,unitId],
+       WHERE id=? AND business_unit_id=? AND ${scope.sql}`,
+      [payload.displayName,payload.description,payload.defaultBranchId,payload.defaultStageId,payload.defaultSubstageId,payload.defaultSourceId,payload.defaultChannelId,payload.defaultCampaignId,payload.defaultOwnerEmployeeId,JSON.stringify(payload.fields),JSON.stringify(payload.settings),payload.successMessage,payload.redirectUrl,payload.paymentRequired?1:0,payload.paymentAmount,payload.isActive?1:0,Number(req.user.id),formId,unitId,...scope.params],
     );
     if(!result.affectedRows)return res.status(404).json({message:'Enquiry form not found'});
     res.json({message:'Enquiry form updated'});
@@ -715,7 +736,8 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
   router.delete('/business-units/:unitId/enquiry-forms/:id', requireUserAdmin, async (req,res)=>{
     const unitId=Number(req.params.unitId),formId=Number(req.params.id),unit=await accessibleUnit(req,unitId,true);
     if(!unit)return res.status(403).json({message:'Business unit management access required'});
-    const [result]=await pool.execute(`DELETE FROM crm_public_enquiry_forms WHERE id=? AND business_unit_id=?`,[formId,unitId]);
+    const scope=branchScopeSql(req.user,'default_branch_id');
+    const [result]=await pool.execute(`DELETE FROM crm_public_enquiry_forms WHERE id=? AND business_unit_id=? AND ${scope.sql}`,[formId,unitId,...scope.params]);
     if(!result.affectedRows)return res.status(404).json({message:'Enquiry form not found'});
     res.json({message:'Enquiry form deleted'});
   });

@@ -439,6 +439,48 @@ function parseJson(value, fallback = {}) {
  * @param {Object} [params.leadData] pre-fetched Graph payload (backfill path)
  * @returns {Promise<{status:string, leadId?:number, reason?:string}>}
  */
+/**
+ * Turn a class answer that is really an id into the class it names.
+ *
+ * A Meta form often asks its class question as `class_id` and answers it with
+ * the CRM's own id -- "4". The field mapper matches any question containing
+ * "class" into applyingClass, which is free text, so the lead ended up
+ * displaying "4" with class_id left null. Resolving it here sets the real
+ * foreign key and puts the readable name in applying_class, which is what the
+ * Leads screen shows.
+ *
+ * A non-numeric answer ("Grade 4", "III") is left exactly as typed: only an id
+ * that matches a real class is translated.
+ */
+async function resolveClassAnswer(pool, record, routing) {
+  const answer = String(record.applyingClass ?? '').trim();
+  if (!answer) return;
+  if (!/^\d+$/.test(answer)) return;
+  const [[cls]] = await pool.execute(
+    'SELECT id, display_name AS displayName FROM crm_classes WHERE id=? AND is_active=TRUE LIMIT 1',
+    [Number(answer)],
+  );
+  if (!cls) return;
+  record.applyingClass = cls.displayName;
+  if (!routing.classId) routing.classId = Number(cls.id);
+  /*
+   * The curriculum follows the class only when there is one answer. A class
+   * offered under several curricula is genuinely ambiguous from a Meta form
+   * that never asked, so it stays with whatever the form's routing set.
+   */
+  if (!routing.curriculumId && routing.branchId) {
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT acc.curriculum_id AS curriculumId
+         FROM crm_admission_class_configurations acc
+         JOIN crm_admission_class_configuration_details d
+           ON d.configuration_id = acc.id AND d.is_active = TRUE AND d.class_id = ?
+        WHERE acc.branch_id = ? AND acc.is_active = TRUE`,
+      [Number(cls.id), Number(routing.branchId)],
+    );
+    if (rows.length === 1) routing.curriculumId = Number(rows[0].curriculumId);
+  }
+}
+
 export async function importMetaLead(pool, {
   leadgenId,
   formId = null,
@@ -535,6 +577,8 @@ export async function importMetaLead(pool, {
       await settleLedger(pool, leadgenId, 'failed', { error: 'No branch configured for this Page/form' });
       return { status: 'failed', reason: 'missing branch' };
     }
+    // Needs the branch, so it runs once routing is known.
+    await resolveClassAnswer(pool, record, routing);
     if (!routing.stageId) {
       await settleLedger(pool, leadgenId, 'failed', { error: 'No lead stage available' });
       return { status: 'failed', reason: 'missing stage' };

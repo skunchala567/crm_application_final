@@ -1,11 +1,12 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
-import { CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Download, Filter, History, Megaphone, NotebookPen, MessageCircle, Mail, MoreVertical, PanelRightClose, PanelRightOpen, PhoneCall, Pencil, Plus, RotateCcw, Search, Trash2, Upload, UserRoundPlus, X, GitBranch } from "lucide-react";
+import { CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Download, Filter, History, Megaphone, NotebookPen, MessageCircle, Mail, MoreVertical, PanelRightClose, PanelRightOpen, PhoneCall, Pencil, Plus, RotateCcw, Search, Trash2, Upload, UserRoundPlus, X, GitBranch, MessageSquare} from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { api } from "./api";
 import FilterWorkspace, { emptyAdvancedFilters, MultiSearchSelect, normalizeFilters } from "./FilterWorkspace.jsx";
 import DownloadFieldsDialog from "./DownloadFieldsDialog.jsx";
 import { BulkUploadModal } from "./BulkUpload.jsx";
+import BulkMessageSend from "./components/BulkMessageSend.jsx";
 import { useRegisterLeadQuickActions } from "./LeadQuickActionsContext.jsx";
 import { usePermissions } from "./PermissionContext.jsx";
 import { StageChangeDialog } from "./StageChangeDialog.jsx";
@@ -674,6 +675,7 @@ export default function LeadsPage() {
   });
   const [search, setSearch] = useState("");
   const [stageFilter, setStageFilter] = useState("");
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState("");
   const [branchFilter, setBranchFilter] = useState([]);
   const [loading, setLoading] = useState(true);
   const [drawer, setDrawer] = useState(null);
@@ -760,6 +762,8 @@ export default function LeadsPage() {
   }
   const [funnels, setFunnels] = useState([]);
   const [bulkUploadOpen,setBulkUploadOpen]=useState(false);
+  // 'sms' | 'email' | null -- which bulk message dialog is open.
+  const [bulkChannel,setBulkChannel]=useState(null);
   const [stageChangeTarget, setStageChangeTarget] = useState(null);
   const [showStageChangeConfirm, setShowStageChangeConfirm] = useState(false);
   const [availableAdmissionTypes, setAvailableAdmissionTypes] = useState([]);
@@ -1017,6 +1021,9 @@ export default function LeadsPage() {
       leads.filter(
         (lead) =>
           (!branchFilter.length || branchFilter.includes(String(lead.branchId))) &&
+          (!paymentStatusFilter || (paymentStatusFilter==='collected'
+            ? ['paid','settled','success','completed','captured'].includes(String(lead.paymentStatus||'').toLowerCase())
+            : String(lead.paymentStatus||'').toLowerCase()===paymentStatusFilter)) &&
           (!advancedFilters.sourceId.length || advancedFilters.sourceId.includes(String(lead.sourceId))) &&
           (!advancedFilters.ownerEmployeeId.length || advancedFilters.ownerEmployeeId.includes(String(lead.ownerEmployeeId))) &&
           (!advancedFilters.classId.length || advancedFilters.classId.includes(String(lead.classId))) &&
@@ -1054,7 +1061,7 @@ export default function LeadsPage() {
           matchesDateRange(lead, "nextFollowup", advancedFilters.nextFollowupFrom || advancedFilters.followupFrom, advancedFilters.nextFollowupTo || advancedFilters.followupTo) &&
           matchesDateRange(lead, "reEnquiredAt", advancedFilters.reEnquiredFrom, advancedFilters.reEnquiredTo),
       ),
-    [leads, branchFilter, advancedFilters],
+    [leads, branchFilter, paymentStatusFilter, advancedFilters],
   );
   const filtered = useMemo(
     () => leadsMatchingActiveFilters.filter(
@@ -1507,6 +1514,14 @@ export default function LeadsPage() {
       permissions: ["bulk_actions.toolbar.view", "bulk_actions.whatsapp.create"],
       title: `Send WhatsApp to ${selectedIds.length || "selected"} leads in this view`,
       disabled: !selectedIds.length, onSelect: openSelectedMessages },
+    { key: "sms", label: "SMS", icon: MessageSquare,
+      permissions: ["bulk_actions.toolbar.view", "bulk_actions.sms.create"],
+      title: `Send SMS to ${selectedIds.length || "selected"} leads`,
+      disabled: !selectedIds.length, onSelect: () => setBulkChannel("sms") },
+    { key: "email", label: "Email", icon: Mail,
+      permissions: ["bulk_actions.toolbar.view", "bulk_actions.email.create"],
+      title: `Send email to ${selectedIds.length || "selected"} leads`,
+      disabled: !selectedIds.length, onSelect: () => setBulkChannel("email") },
     { key: "export", label: "Export", icon: Download,
       permissions: ["bulk_actions.toolbar.view", "bulk_actions.export.export"],
       title: "Export visible leads",
@@ -1547,6 +1562,7 @@ export default function LeadsPage() {
           <div className="inline-lead-filter touch-status-filter"><span>Touch status</span><div className="touch-status-control"><MultiSearchSelect label="Touch status" value={advancedFilters.touchStatus} onChange={value=>setAdvancedFilters(current=>({...current,touchStatus:value}))} options={[{value:"",label:"Any touch status"},{value:"touched",label:"Is touched"},{value:"untouched",label:"Untouched"}]}/><span className={`touch-status-count-badge ${untouchedAssignedCount>0?"has-untouched":""}`} title={`${untouchedAssignedCount} untouched leads assigned to you`}>{untouchedAssignedCount>99?"99+":untouchedAssignedCount}</span></div></div>
           <div className="inline-lead-filter"><span>Sub-stage</span><MultiSearchSelect label="Sub-stage" value={advancedFilters.substageId} onChange={value=>setAdvancedFilters(current=>({...current,substageId:value}))} options={[{value:"",label:"All sub-stages"},...meta.substages.filter(item=>!stageFilter||String(item.stageId)===String(meta.stages.find(stage=>stage.displayName===stageFilter)?.id)).map(item=>({value:String(item.id),label:item.displayName}))]}/></div>
           <div className="inline-lead-filter"><span>Source</span><MultiSearchSelect label="Source" value={advancedFilters.sourceId} onChange={value=>setAdvancedFilters(current=>({...current,sourceId:value}))} options={[{value:"",label:"All sources"},...meta.sources.map(item=>({value:String(item.id),label:item.displayName}))]}/></div>
+          <label className="inline-lead-filter"><span>Payment status</span><select value={paymentStatusFilter} onChange={event=>setPaymentStatusFilter(event.target.value)}><option value="">All payment statuses</option><option value="collected">Payment collected</option><option value="order_created">Order created</option><option value="unpaid">Unpaid</option><option value="expired">Expired</option><option value="failed">Failed</option></select></label>
           <label className={`pending-followups-check ${advancedFilters.pendingFollowupsOnly?"active":""}`} data-tooltip="Show pending follow-ups due from the beginning through today">
             <input type="checkbox" checked={Boolean(advancedFilters.pendingFollowupsOnly)} onChange={event=>setAdvancedFilters(current=>({...current,pendingFollowupsOnly:event.target.checked}))}/>
             <span className="sr-only">Pending follow-ups due through today</span>
@@ -1563,6 +1579,14 @@ export default function LeadsPage() {
       </section>
       {downloadDialogOpen && <DownloadFieldsDialog title="Download Data" groups={leadExportGroups} onClose={() => setDownloadDialogOpen(false)} onDownload={exportLeads}/>}
       {bulkUploadOpen && <BulkUploadModal onClose={() => setBulkUploadOpen(false)}/>}
+      {bulkChannel && (
+        <BulkMessageSend
+          channel={bulkChannel}
+          leads={leads.filter(lead => selectedIds.includes(lead.id))}
+          onClose={() => setBulkChannel(null)}
+          onMessage={next => next && setMessage({ type: next.type, text: next.text })}
+        />
+      )}
       <Toast message={message} onClose={() => setMessage(null)} />
       <article className="panel leads-panel">
         <div className="table-wrap">
@@ -1598,6 +1622,7 @@ export default function LeadsPage() {
                           <strong className="lead-view-name">{lead.studentName}</strong>
                         </span>
                         <small>{lead.phone}</small>
+                        {['paid','settled','success','completed','captured'].includes(String(lead.paymentStatus||'').toLowerCase())&&<small className="text-emerald-700 font-semibold">Paid ₹{Number(lead.paymentAmount||0).toLocaleString('en-IN')}</small>}
                       </span>
                     </div>
                   </td>
@@ -1826,6 +1851,7 @@ export default function LeadsPage() {
               <button type="button" className={drawerTab==="source"?"active":""} onClick={()=>setDrawerTab("source")}>Source details</button>
               {/* Activity moved to the history dialog on the lead row. */}
             </nav>}
+            {drawer.mode!=="create"&&['paid','settled','success','completed','captured'].includes(String(form.paymentStatus||'').toLowerCase())&&<div className="mx-5 mt-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800"><strong>Payment collected · ₹{Number(form.paymentAmount||0).toLocaleString('en-IN')}</strong>{form.paymentAt&&<small className="block mt-1">{new Date(form.paymentAt).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})}</small>}</div>}
             <form onSubmit={save}>
               <fieldset disabled={drawer.mode === "view"}>
                 {drawer.mode==="create"&&((meta.leadFields||[]).length

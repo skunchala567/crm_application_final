@@ -7,6 +7,7 @@ import path from 'node:path';
 import jwt from 'jsonwebtoken';
 import mysql from 'mysql2/promise';
 import axios from 'axios';
+import { branchScopeSql, canAccessBranch, referenceBranchScopeSql } from './rbac/branch-scope.js';
 import { IntegrationHubService, createIntegrationHubRoutes } from './integration-hub/index.js';
 import { createWhatsAppTemplateRoutes } from './whatsapp/whatsapp-template.routes.js';
 import { createWebhookRoutes } from './whatsapp/webhook.routes.js';
@@ -17,12 +18,14 @@ import { createUsageRoutes } from './usage.routes.js';
 import { createCallerDeskRoutes, createCallerDeskWebhookRoutes } from './callerdesk/callerdesk.routes.js';
 import { createSmartfloRoutes, createSmartfloWebhookRoutes } from './smartflo/smartflo.routes.js';
 import { createJodoPaymentLinkRoutes } from './jodo-payment-links.routes.js';
+import { createJodoWebhookRoutes } from './jodo-webhook.routes.js';
 import { jodoBaseUrl, jodoHeaders } from './jodo-client.js';
 import { createBranchesRoutes } from './branches.routes.js';
 import { createPaymentFormsRoutes } from './payment-forms.routes.js';
 import { createPartnerRoutes } from './partner/partner.routes.js';
 import { createReportDataSourceRoutes } from './report-data-sources.routes.js';
 import { createBusinessConfigRoutes } from './business-config.routes.js';
+import { createSmsTemplateRoutes } from './sms-templates.routes.js';
 import { createMetaRoutes } from './meta/meta.routes.js';
 import { createMetaWebhookRoutes } from './meta/meta-webhook.routes.js';
 import { startMetaPoller } from './meta/meta-poller.js';
@@ -438,15 +441,14 @@ function requireUserAdmin(req, res, next) {
     return res.status(403).json({ message: 'CRM user administration requires CRM Admin access' });
 }
 
+/*
+ * Now a thin name over rbac/branch-scope.js. The rule used to live here in
+ * full, which meant the route files split out of app.js could not reach it and
+ * went unscoped; it moved to a module so payments, payment forms and enquiry
+ * forms enforce the same "your branches" that leads always did.
+ */
 function scopedWhere(user, column = 'l.branch_id') {
-    const branchIds = Array.isArray(user.branchIds) ? user.branchIds.map(Number).filter(Number.isFinite) : [];
-    // A CRM administrator who has not been given specific branches is not
-    // restricted to none of them. Previously this hinged on the Attendance
-    // system's ADMIN role; it now hinges on the CRM's own.
-    const crmAdmin = user.roles?.some((role) => ['CRM_ADMIN', 'SUPER_ADMIN'].includes(role));
-    if (crmAdmin && branchIds.length === 0) return { sql: '1=1', params: [] };
-    if (branchIds.length === 0) return { sql: '1=0', params: [] };
-    return { sql: `${column} IN (${branchIds.map(() => '?').join(',')})`, params: branchIds };
+    return branchScopeSql(user, column);
 }
 
 /**
@@ -974,7 +976,9 @@ function resolvePaymentContext(form, branchConfig) {
 }
 
 function publicPaymentEnabled(config) {
-    return Boolean(config?.required && config.apiKey && config.secretKey && config.collectorCode && Number(config.amount) > 0);
+    const authenticated = Boolean(String(config?.authHeader || '').trim())
+        || Boolean(config?.apiKey && config?.secretKey);
+    return Boolean(config?.required && authenticated && config.collectorCode && Number(config.amount) > 0);
 }
 
 function publicPaymentVisible(config) {
@@ -984,8 +988,7 @@ function publicPaymentVisible(config) {
 function publicPaymentMissingParts(config) {
     if (!config?.required) return ['payment enabled on the enquiry form'];
     const missing = [];
-    if (!config.apiKey) missing.push('Jodo API key');
-    if (!config.secretKey) missing.push('Jodo secret key');
+    if (!String(config.authHeader || '').trim() && !(config.apiKey && config.secretKey)) missing.push('Jodo Authorization header or API key and secret');
     if (!config.collectorCode) missing.push('Jodo collector code');
     if (!(Number(config.amount) > 0)) missing.push('application amount');
     return missing;
@@ -998,7 +1001,7 @@ function normalizeJodoOrderId(payload) {
 
 function jodoPaymentUrl(payload) {
     if (!payload || typeof payload !== 'object') return '';
-    return String(payload.payment_url || payload.paymentUrl || payload.payment_link || payload.paymentLink || payload.url || payload.order?.payment_url || payload.data?.payment_url || payload.data?.payment_link || '').slice(0, 1000);
+    return String(payload.redirect_url || payload.redirectUrl || payload.payment_url || payload.paymentUrl || payload.payment_link || payload.paymentLink || payload.url || payload.order?.redirect_url || payload.order?.payment_url || payload.data?.redirect_url || payload.data?.payment_url || payload.data?.payment_link || '').slice(0, 1000);
 }
 
 function isPublicHttpsUrl(value) {
@@ -1097,7 +1100,10 @@ app.post('/api/public/enquiry-forms/:formKey/payment-order', async (req, res) =>
     const callbackUrl = `${baseUrl}/api/public/enquiry-forms/${encodeURIComponent(form.formKey)}/payment-callback`;
     try {
         const order = await createJodoOrder(config, { name, phone, email }, callbackUrl);
-        res.json({ orderId: normalizeJodoOrderId(order), paymentUrl: jodoPaymentUrl(order), amount: config.amount, raw: order });
+        const orderId = normalizeJodoOrderId(order);
+        const paymentUrl = jodoPaymentUrl(order);
+        if (!orderId || !paymentUrl) return res.status(502).json({ message: 'Jodo did not return the order ID and redirect URL required to continue payment' });
+        res.json({ orderId, paymentUrl, amount: config.amount });
     } catch (error) {
         const message = error.response?.data?.message || error.response?.data?.error || error.message || 'Unable to create payment order';
         res.status(502).json({ message: `Payment order creation failed: ${String(message).slice(0, 300)}` });
@@ -1314,12 +1320,24 @@ app.post('/api/public/enquiry-forms/:formKey/payment-status', async (req, res) =
  * accessibleBranch(), and lead rows are still bounded by leadScopedWhere(),
  * so widening this list grants nothing -- it only stops the interface hiding
  * options an administrator is entitled to choose.
+ *
+ * That reasoning holds for administrators, and only for them. For an end user
+ * a branch they do not have has no business appearing in a picker at all, so
+ * the list is now widened by role rather than for everybody -- which is what
+ * referenceBranchScopeSql draws the line on.
+ *
+ * This handler also shadows the scoped GET / in branches.routes.js, which is
+ * mounted later on the same path and therefore never runs. Left as it is
+ * rather than deleted, because this is the definition that has always served
+ * the pickers; the router keeps the per-branch Jodo endpoints.
  */
-app.get('/api/branches', authenticate, requireCrmAccess, async (_req, res) => {
+app.get('/api/branches', authenticate, requireCrmAccess, async (req, res) => {
+    const scope = referenceBranchScopeSql(req.user, 'b.id');
     const [rows] = await pool.execute(
         `SELECT b.id, b.branch_name AS name, b.branch_name AS branch_name,
             b.short_name AS shortName, b.time_zone_id AS timeZoneId
-     FROM branches b WHERE b.is_active = TRUE ORDER BY b.branch_name`,
+     FROM branches b WHERE b.is_active = TRUE AND ${scope.sql} ORDER BY b.branch_name`,
+        scope.params,
     );
     res.json({ data: rows });
 });
@@ -1574,6 +1592,8 @@ async function queryLeads(user, search, limit = null, options = {}) {
     const [rows] = await pool.execute(
         `SELECT l.id, l.lead_number AS leadId, l.branch_id AS branchId, b.branch_name AS branch,
             l.student_name AS studentName, l.phone, l.alternate_phone AS alternatePhone, l.email, l.parent_name AS parentName, l.city,
+            l.application_payment_status AS paymentStatus,l.application_payment_amount AS paymentAmount,
+            l.application_payment_at_utc AS paymentAt,l.jodo_order_id AS paymentOrderId,
             l.class_id AS classId, COALESCE(cls.display_name, l.applying_class) AS applyingClass,
             l.curriculum_id AS curriculumId, cur.display_name AS curriculum, l.academic_year AS academicYear,
             l.stage_id AS stageId, s.display_name AS stage, l.source_id AS sourceId, src.display_name AS source,
@@ -1665,13 +1685,7 @@ async function queryLeads(user, search, limit = null, options = {}) {
 }
 
 async function accessibleBranch(user, branchId) {
-    const id = Number(branchId);
-    if (!Number.isInteger(id) || id <= 0) return false;
-    // A CRM administrator with no specific branches is not limited to none.
-    // Keyed on the CRM's roles rather than the Attendance system's ADMIN.
-    const crmAdmin = user.roles?.some((role) => ['CRM_ADMIN', 'SUPER_ADMIN'].includes(role));
-    if (crmAdmin && (!user.branchIds || user.branchIds.length === 0)) return true;
-    return user.branchIds?.map(Number).includes(id) || false;
+    return canAccessBranch(user, branchId);
 }
 
 /*
@@ -1982,6 +1996,8 @@ app.get('/api/leads/:id', authenticate, requireCrmAccess, async (req, res) => {
     const [rows] = await pool.execute(
         `SELECT l.id, l.lead_number AS leadId, l.branch_id AS branchId, l.student_name AS studentName,
       l.phone, l.alternate_phone AS alternatePhone, l.email, l.class_id AS classId,
+      l.application_payment_status AS paymentStatus,l.application_payment_amount AS paymentAmount,
+      l.application_payment_at_utc AS paymentAt,l.jodo_order_id AS paymentOrderId,
       COALESCE(cls.display_name, l.applying_class) AS applyingClass, l.curriculum_id AS curriculumId,
       cur.display_name AS curriculum,
       l.academic_year AS academicYear, l.parent_name AS parentName, l.city, l.stage_id AS stageId,
@@ -5584,6 +5600,7 @@ app.use('/api/callerdesk', createCallerDeskWebhookRoutes(pool));
 app.use('/api/smartflo', createSmartfloRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
 app.use('/api/smartflo', createSmartfloWebhookRoutes(pool));
 app.use('/api/jodo/payment-links', createJodoPaymentLinkRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
+app.use('/api/webhooks/jodo', createJodoWebhookRoutes(pool));
 app.use('/api/rbac', createRbacRoutes(pool, authenticate, requireCrmAccess, console));
 app.use('/api/branches', createBranchesRoutes(pool, authenticate, requireCrmAccess));
 app.use('/api/payment-forms', createPaymentFormsRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
@@ -5592,6 +5609,7 @@ app.use('/api/payment-forms', createPaymentFormsRoutes(pool, authenticate, requi
 app.use('/api/partner', createPartnerRoutes(pool));
 app.use('/api/report-data-sources', createReportDataSourceRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
 app.use('/api/business-config', createBusinessConfigRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
+app.use('/api/sms', createSmsTemplateRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin, integrationHubService));
 app.use('/api/email', createEmailRoutes(pool, authenticate, requireCrmAccess, emailAttachmentDirectory));
 
 // ============= Meta Lead Ads =============

@@ -12,7 +12,13 @@ export default function EmailConfigurationSettings({ onMessage }) {
   const [error, setError] = useState('');
   const set = (key, value) => setForm(current => ({ ...current, [key]: value }));
   const load = () => api.get('/email/configuration').then(result => setForm({ ...initial, ...(result.data || {}), smtpPassword: '' })).catch(err => setError(err.message)).finally(() => setLoading(false));
-  useEffect(load, []);
+  /*
+   * load() is async, and an effect's return value is taken as its cleanup
+   * function -- returning the promise made React warn, then throw when it
+   * tried to call it on unmount. Navigating away from this screen was enough
+   * to trigger it.
+   */
+  useEffect(() => { load(); }, []);
 
   const run = async action => {
     setBusy(action); setError('');
@@ -47,9 +53,9 @@ export default function EmailConfigurationSettings({ onMessage }) {
         <Field label="From Email *"><input type="email" value={form.fromEmail} onChange={e=>set('fromEmail',e.target.value)}/></Field>
         <Field label="Reply-To Email"><input type="email" value={form.replyToEmail} onChange={e=>set('replyToEmail',e.target.value)}/></Field>
       </div>
-      <footer className="flex flex-wrap gap-3 justify-end border-t pt-5"><button className="btn btn-outline" disabled={Boolean(busy)||!form.configured} onClick={()=>run('test')}>{busy==='test'?'Testing…':'Test Connection'}</button><button className="btn btn-primary" disabled={Boolean(busy)} onClick={()=>run('save')}>{busy==='save'?'Saving…':'Save Configuration'}</button></footer>
+      <footer className="flex flex-wrap gap-3 justify-end items-center border-t pt-5">{!form.configured && <span className="mr-auto text-sm text-secondary-500">Save the configuration before testing it.</span>}<button className="btn btn-outline" title={form.configured?'':'Save the configuration first'} disabled={Boolean(busy)||!form.configured} onClick={()=>run('test')}>{busy==='test'?'Testing…':'Test Connection'}</button><button className="btn btn-primary" disabled={Boolean(busy)} onClick={()=>run('save')}>{busy==='save'?'Saving…':'Save Configuration'}</button></footer>
     </section>
-    <section className="bg-white border border-secondary-200 rounded-xl p-6 shadow-sm"><div className="flex items-center gap-2 mb-4"><Mail size={19}/><h2 className="font-bold">Send Test Email</h2></div><div className="flex gap-3"><input className="flex-1" type="email" value={testTo} onChange={e=>setTestTo(e.target.value)} placeholder="recipient@example.com"/><button className="btn btn-outline" disabled={Boolean(busy)||!form.configured} onClick={()=>run('send')}>{busy==='send'?'Sending…':<><CheckCircle2 size={16}/> Send Test Email</>}</button></div></section>
+    <section className="bg-white border border-secondary-200 rounded-xl p-6 shadow-sm"><div className="flex items-center gap-2 mb-4"><Mail size={19}/><h2 className="font-bold">Send Test Email</h2></div>{!form.configured && <p className="text-sm text-secondary-500 mb-3">Available once the SMTP settings above are saved.</p>}<div className="flex gap-3"><input className="flex-1" type="email" value={testTo} onChange={e=>setTestTo(e.target.value)} placeholder="recipient@example.com"/><button className="btn btn-outline" title={form.configured?'':'Save the configuration first'} disabled={Boolean(busy)||!form.configured} onClick={()=>run('send')}>{busy==='send'?'Sending…':<><CheckCircle2 size={16}/> Send Test Email</>}</button></div></section>
   </main>;
 }
 

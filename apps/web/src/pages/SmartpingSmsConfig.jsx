@@ -28,7 +28,12 @@ export default function SmartpingSmsConfig({ integrationId, organizationId, onCo
   }, [form.publicApiBaseUrl, form.callbackSecret, integrationId, organizationId]);
 
   const validate = () => {
-    if (!/^https?:\/\/[^\s/]+/i.test(form.baseUrl)) return 'Enter the SmartPing API base URL, including https://';
+    try {
+      const url = new URL(form.baseUrl.trim());
+      if (!['http:', 'https:'].includes(url.protocol) || !url.hostname) throw new Error('invalid URL');
+    } catch {
+      return 'Enter a valid SmartPing API URL, including https://';
+    }
     if (!form.username.trim() || !form.password.trim()) return 'Username and API password are required';
     if (!/^[A-Za-z0-9]{6}$/.test(form.senderId)) return 'Sender ID must contain exactly 6 letters or numbers';
     if (!/^\d{4,19}$/.test(form.dltContentId)) return 'DLT Content ID must contain 4 to 19 digits';
@@ -52,7 +57,7 @@ export default function SmartpingSmsConfig({ integrationId, organizationId, onCo
 
   if (busy && !form.username) return <p>Loading SMS configuration...</p>;
   const fields = [
-    ['baseUrl', 'SmartPing API base URL *', 'https://your-smartping-domain'],
+    ['baseUrl', 'SmartPing API URL *', 'https://pgapi.sparc.smartping.io/fe/api/v1/send?'],
     ['username', 'API username *', 'account.trans'],
     ['password', 'API password *', 'API password', 'password'],
     ['senderId', 'Sender ID / DLT Header *', 'ABCDEF'],
@@ -66,6 +71,7 @@ export default function SmartpingSmsConfig({ integrationId, organizationId, onCo
     <div className="smartping-sms-config">
       <h3>SmartPing SMS configuration</h3>
       <p className="help-text">Credentials, sender header, and DLT defaults are stored on this integration. A send request may override the DLT IDs when using another approved template.</p>
+      <p className="help-text">You can enter the complete <code>/fe/api/v1/send?</code> URL supplied by SmartPing or only its base domain. Username and password must be entered in their separate fields.</p>
       {error && <div className="alert alert-error">{error}</div>}
       {notice && <div className="alert alert-success">{notice}</div>}
       {fields.map(([key, label, placeholder, type]) => (

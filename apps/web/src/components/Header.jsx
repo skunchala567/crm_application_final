@@ -13,7 +13,8 @@ import { usePermissions } from '../PermissionContext';
 /** Any one of these makes the Settings entry worth showing. */
 const SETTINGS_PERMISSIONS = [
   'settings.users.view', 'settings.access_control.view', 'settings.business_units.view',
-  'settings.branches.view', 'settings.payment_forms.view', 'settings.lead_config.view',
+  'settings.branches.view', 'payments.collections.view', 'payments.forms.view',
+  'payments.enquiry_forms.view', 'settings.lead_config.view',
   'settings.academic_config.view', 'integrations.hub.view', 'whatsapp.templates.view',
   'email.configuration.view', 'email.templates.view',
 ];
@@ -35,6 +36,7 @@ const SETTINGS_CRUMBS = {
   '/settings/business-units': 'Business Units',
   '/settings/branches': 'Branch Settings',
   '/settings/payment-forms': 'Payment Forms',
+  '/settings/payment-collections': 'Payment Collections',
   '/settings/integrations': 'Integrations',
   '/settings/google-sheets': 'Google Sheets',
   '/settings/meta-lead-ads': 'Meta Lead Ads',

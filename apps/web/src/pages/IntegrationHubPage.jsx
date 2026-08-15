@@ -96,6 +96,12 @@ export default function IntegrationHubPage() {
         navigate('/settings/meta-lead-ads');
         return;
       }
+      // Email accounts are configured on their own screen, which also maps
+      // each account to the branches allowed to send from it.
+      if (String(integration.provider_name).toLowerCase() === 'smtp') {
+        navigate('/settings/email-configuration');
+        return;
+      }
       const response = await api.post(`/hub/integrations/${integration.id}/sync/manual`);
       const created = Number(response.data?.result?.imported || 0);
       alert(created > 0

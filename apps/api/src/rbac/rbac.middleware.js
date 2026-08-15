@@ -107,6 +107,52 @@ export function createRbacMiddleware(pool, logger = console) {
  *
  *   router.post('/x', requirePermission(pool, 'leads.list.create'), handler)
  */
+/**
+ * Admins, or anyone explicitly granted this permission.
+ *
+ * For screens that used to be administrator-only and are now something an
+ * administrator can hand to an end user -- Payments is the first. A plain role
+ * check cannot express that, and `requirePermission` alone cannot replace the
+ * role check yet, because the global mode defaults to `audit` and audit lets
+ * everything through: swapping one for the other would quietly open the screen
+ * to every CRM role until someone switches to enforce.
+ *
+ * So this enforces in every mode. That is safe to do here precisely because
+ * these routes are admin-only today -- an admin keeps their access, and a
+ * non-admin goes from "always denied" to "denied unless granted". Nothing gets
+ * looser than an administrator has explicitly made it.
+ */
+export function requireAdminOrPermission(pool, permissionKey, logger = console) {
+  const adminRoles = ['CRM_ADMIN', 'SUPER_ADMIN'];
+  return async function adminOrPermissionGuard(req, res, next) {
+    if (!req.user?.id) return res.status(401).json({ success: false, error: 'Not signed in' });
+    if (req.user.roles?.some((role) => adminRoles.includes(role))) return next();
+
+    try {
+      const state = await loadUserPermissions(pool, req.user.id);
+      if (state.superAdmin || state.permissions.get(permissionKey)?.allowed === true) {
+        req.rbac = {
+          superAdmin: state.superAdmin,
+          key: permissionKey,
+          scope: state.superAdmin ? 'all' : (state.permissions.get(permissionKey)?.scope || 'none'),
+        };
+        return next();
+      }
+    } catch (error) {
+      // A lookup that fails falls back to the role check this replaced, which
+      // has already said no. Denying is the safe direction here: the caller is
+      // not an administrator and nothing has said they may proceed.
+      logger?.warn?.(`[rbac] ${permissionKey} lookup failed: ${error.message}`);
+    }
+
+    return res.status(403).json({
+      success: false,
+      error: 'You do not have permission to perform this action',
+      details: `Missing permission: ${permissionKey}`,
+    });
+  };
+}
+
 export function requirePermission(pool, permissionKey) {
   return async function permissionGuard(req, res, next) {
     if (!req.user?.id) return res.status(401).json({ success: false, error: 'Not signed in' });

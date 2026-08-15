@@ -41,7 +41,24 @@ export function jodoBaseUrl(config, environment) {
 export function jodoAuthHeaders(config) {
   const issued = String(config?.authHeader || '').trim();
   if (issued) {
-    return { Authorization: /^(basic|bearer)\s/i.test(issued) ? issued : `Basic ${issued}` };
+    /*
+     * Repair a scheme that arrived mangled rather than compounding it.
+     *
+     * A stored value of "asic <token>" -- a paste that lost its first
+     * character -- used to be treated as scheme-less and prefixed, producing
+     * "Basic asic <token>" and Jodo's "Invalid authorization header format".
+     * Anything that is a truncation of Basic/Bearer before the token is
+     * corrected; a bare token is still prefixed as before.
+     */
+    const [maybeScheme, ...rest] = issued.split(/\s+/);
+    const token = rest.join(' ');
+    if (token) {
+      if (/^basic$/i.test(maybeScheme)) return { Authorization: `Basic ${token}` };
+      if (/^bearer$/i.test(maybeScheme)) return { Authorization: `Bearer ${token}` };
+      if ('basic'.endsWith(maybeScheme.toLowerCase())) return { Authorization: `Basic ${token}` };
+      if ('bearer'.endsWith(maybeScheme.toLowerCase())) return { Authorization: `Bearer ${token}` };
+    }
+    return { Authorization: `Basic ${issued}` };
   }
   const apiKey = String(config?.apiKey || '');
   const secretKey = String(config?.secretKey || '');

@@ -161,8 +161,11 @@ export default function PublicEnquiryForm({ formKey }) {
         setPayment(paymentInfo);
       }
       const result = await api(`/public/enquiry-forms/${formKey}/submit`, { method: "POST", body: JSON.stringify({ values, tracking, payment: paymentInfo ? { orderId: paymentInfo.orderId, status: paymentInfo.status || "order_created" } : null, website: "" }) });
+      if (paymentInfo?.paymentUrl) {
+        window.location.assign(paymentInfo.paymentUrl);
+        return;
+      }
       setStatus({ loading: false, saving: false, error: "", success: result.message || form.successMessage });
-      if (paymentInfo?.paymentUrl) window.setTimeout(() => { window.location.href = paymentInfo.paymentUrl; }, 700);
       if (form.redirectUrl) window.setTimeout(() => { window.location.href = form.redirectUrl; }, 900);
     } catch (error) {
       setStatus(current => ({ ...current, saving: false, error: error.message }));

@@ -38,19 +38,34 @@ export default function BranchSettingsPage({ onMessage }) {
     }
   }
 
+  /*
+   * The three secrets come back empty with a `_set` flag beside them -- the
+   * server no longer hands out live payment credentials, it only says whether
+   * one is stored. An empty box with a "saved" placeholder is what shows that,
+   * and leaving it empty on save keeps whatever is already there.
+   */
+  const [stored, setStored] = useState({});
+  const secretPlaceholder = (isSet, ifEmpty) => (isSet ? '•••••••••••••• (saved)' : ifEmpty);
+
   async function selectBranch(branch) {
     setSelectedBranch(branch);
     try {
       const result = await api(`/branches/${branch.id}/jodo-config`);
+      setStored({
+        apiKey: Boolean(result.data?.jodo_api_key_set),
+        secretKey: Boolean(result.data?.jodo_secret_key_set),
+        authHeader: Boolean(result.data?.jodo_auth_header_set),
+      });
       setFormData({
         jodo_payment_enabled: true,
-        jodo_api_key: result.data?.jodo_api_key || '',
-        jodo_secret_key: result.data?.jodo_secret_key || '',
+        jodo_api_key: '',
+        jodo_secret_key: '',
         jodo_collector_code: result.data?.jodo_collector_code || '',
         jodo_base_url: result.data?.jodo_base_url || 'https://ext.jodo.in',
-        jodo_auth_header: result.data?.jodo_auth_header || '',
+        jodo_auth_header: '',
       });
     } catch (error) {
+      setStored({});
       setFormData({
         jodo_payment_enabled: false,
         jodo_api_key: '',
@@ -112,7 +127,7 @@ export default function BranchSettingsPage({ onMessage }) {
                 <label>API Key *</label>
                 <input
                   type="password"
-                  placeholder="Enter your Jodo API key"
+                  placeholder={secretPlaceholder(stored.apiKey, "Enter your Jodo API key")}
                   value={formData.jodo_api_key}
                   onChange={(e) => setFormData({ ...formData, jodo_api_key: e.target.value })}
                 />
@@ -122,7 +137,7 @@ export default function BranchSettingsPage({ onMessage }) {
                 <label>Secret Key *</label>
                 <input
                   type="password"
-                  placeholder="Enter your Jodo secret key"
+                  placeholder={secretPlaceholder(stored.secretKey, "Enter your Jodo secret key")}
                   value={formData.jodo_secret_key}
                   onChange={(e) => setFormData({ ...formData, jodo_secret_key: e.target.value })}
                 />
@@ -146,7 +161,7 @@ export default function BranchSettingsPage({ onMessage }) {
                 <label>Authorization Header</label>
                 <input
                   type="password"
-                  placeholder="Basic ....=="
+                  placeholder={secretPlaceholder(stored.authHeader, "Basic ....==")}
                   value={formData.jodo_auth_header}
                   onChange={(e) => setFormData({ ...formData, jodo_auth_header: e.target.value })}
                 />
@@ -165,7 +180,7 @@ export default function BranchSettingsPage({ onMessage }) {
 
               <button
                 className="primary"
-                disabled={saving || !formData.jodo_base_url || (!formData.jodo_auth_header && (!formData.jodo_api_key || !formData.jodo_secret_key))}
+                disabled={saving || !formData.jodo_base_url || (!(formData.jodo_auth_header || stored.authHeader) && !((formData.jodo_api_key || stored.apiKey) && (formData.jodo_secret_key || stored.secretKey)))}
                 onClick={handleSave}
               >
                 <Save size={16} />

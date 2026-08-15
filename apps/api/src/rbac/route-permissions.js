@@ -137,6 +137,11 @@ export const ROUTE_RULES = [
   { method: '*', test: /^\/api\/whatsapp/, key: 'whatsapp.inbox.create' },
 
   // ---- Email ------------------------------------------------------------
+  /* Which accounts a user may send from is reference data for the composer;
+     changing which branches an account serves is configuration. */
+  { method: 'GET', test: /^\/api\/email\/accounts$/, key: 'email.messages.view' },
+  { method: 'GET', test: /^\/api\/email\/accounts\/[^/]+\/branches$/, key: 'email.configuration.view' },
+  { method: '*', test: /^\/api\/email\/accounts/, key: 'email.configuration.edit' },
   { method: 'GET', test: /^\/api\/email\/configuration$/, key: 'email.configuration.view' },
   { method: '*', test: /^\/api\/email\/configuration/, key: 'email.configuration.edit' },
   { method: 'GET', test: /^\/api\/email\/templates/, key: 'email.templates.view' },
@@ -173,16 +178,41 @@ export const ROUTE_RULES = [
   { method: '*', test: /^\/api\/admin\/users/, key: 'settings.users.edit' },
   { method: 'GET', test: /^\/api\/branches/, key: 'settings.branches.view' },
   { method: '*', test: /^\/api\/branches/, key: 'settings.branches.edit' },
-  { method: 'GET', test: /^\/api\/payment-forms/, key: 'settings.payment_forms.view' },
-  { method: '*', test: /^\/api\/payment-forms/, key: 'settings.payment_forms.edit' },
-  { method: 'GET', test: /^\/api\/jodo/, key: 'settings.payment_forms.view' },
-  { method: '*', test: /^\/api\/jodo/, key: 'settings.payment_forms.edit' },
+  /*
+   * Payments. Three tabs, three keys, so an administrator can grant reading
+   * what a branch collected without also granting the public form builder.
+   * Whatever is granted, the queries behind these routes are scoped to the
+   * caller's own branches -- see rbac/branch-scope.js.
+   */
+  { method: 'GET', test: /^\/api\/payment-forms\/admin\/[^/]+\/submissions/, key: 'payments.forms.view' },
+  { method: 'POST', test: /^\/api\/payment-forms/, key: 'payments.forms.create' },
+  { method: 'DELETE', test: /^\/api\/payment-forms/, key: 'payments.forms.delete' },
+  { method: 'GET', test: /^\/api\/payment-forms/, key: 'payments.forms.view' },
+  { method: '*', test: /^\/api\/payment-forms/, key: 'payments.forms.edit' },
+  // The collections report covers all three sources, so it answers to
+  // Collections rather than to Payment Links.
+  { method: 'GET', test: /^\/api\/jodo\/payment-links\/collections/, key: 'payments.collections.view' },
+  // The branch picker feeds every Payments tab; reading the screen is enough.
+  { method: 'GET', test: /^\/api\/jodo\/payment-links\/branches/, key: 'payments.collections.view' },
+  { method: 'POST', test: /^\/api\/jodo/, key: 'payments.links.create' },
+  { method: 'DELETE', test: /^\/api\/jodo/, key: 'payments.links.delete' },
+  { method: '*', test: /^\/api\/jodo/, key: 'payments.links.view' },
+  /*
+   * Enquiry forms sit under a business unit in the URL but are their own
+   * screen. This rule has to come first: the general /business-units rule
+   * below matches the same path, so without it enquiry form editing was
+   * governed by settings.business_units.edit and the enquiry_forms key was
+   * unreachable -- it matched /api/platform/enquiry-forms, a path that does
+   * not exist.
+   */
+  { method: 'GET', test: /^\/api\/platform\/business-units\/[^/]+\/enquiry-forms/, key: 'payments.enquiry_forms.view' },
+  { method: 'POST', test: /^\/api\/platform\/business-units\/[^/]+\/enquiry-forms/, key: 'payments.enquiry_forms.create' },
+  { method: 'DELETE', test: /^\/api\/platform\/business-units\/[^/]+\/enquiry-forms/, key: 'payments.enquiry_forms.delete' },
+  { method: '*', test: /^\/api\/platform\/business-units\/[^/]+\/enquiry-forms/, key: 'payments.enquiry_forms.edit' },
   { method: 'GET', test: /^\/api\/platform\/business-units/, key: 'settings.business_units.view' },
   { method: '*', test: /^\/api\/platform\/business-units/, key: 'settings.business_units.edit' },
   { method: 'GET', test: /^\/api\/platform\/(academic|classes|admission)/, key: 'settings.academic_config.view' },
   { method: '*', test: /^\/api\/platform\/(academic|classes|admission)/, key: 'settings.academic_config.edit' },
-  { method: 'GET', test: /^\/api\/platform\/enquiry-forms/, key: 'settings.enquiry_forms.view' },
-  { method: '*', test: /^\/api\/platform\/enquiry-forms/, key: 'settings.enquiry_forms.edit' },
   { method: 'GET', test: /^\/api\/platform/, key: 'settings.lead_config.view' },
   { method: '*', test: /^\/api\/platform/, key: 'settings.lead_config.edit' },
 
@@ -210,6 +240,14 @@ export const ROUTE_RULES = [
   // to read the lists, only an administrator may reshape them.
   { method: 'GET', test: /^\/api\/business-config/, key: 'leads.list.view' },
   { method: '*', test: /^\/api\/business-config/, key: 'settings.business_config.edit' },
+
+  // ---- SMS templates ----------------------------------------------------
+  // Reading is reference data for anyone who may send; creating a template and
+  // changing its DLT Content ID is configuration.
+  { method: 'GET', test: /^\/api\/sms\//, key: 'sms.templates.view' },
+  { method: 'POST', test: /^\/api\/sms\/.*\/send/, key: 'sms.messages.create' },
+  { method: 'POST', test: /^\/api\/sms\/sms-templates\/[^/]+\/preview$/, key: 'sms.templates.view' },
+  { method: '*', test: /^\/api\/sms\//, key: 'sms.templates.edit' },
 
   // ---- Saved filters are per-user working state, not shared configuration.
   { method: '*', test: /^\/api\/saved-filters/, key: 'leads.list.view' },

@@ -240,6 +240,16 @@ table th{background:var(--surface-3)}.avatar.muted{background:var(--accent-soft)
    left column, so name, code, order and active sit on one line. */
 .config-content.stacked{grid-template-columns:1fr}
 .config-content.stacked>.config-add{border-right:0;border-bottom:1px solid var(--border)}
+.sms-template-toolbar-actions{display:flex!important;align-items:center;gap:10px;grid-auto-flow:column}
+.sms-template-toolbar-actions select{height:38px;max-width:260px;border:1px solid var(--border);border-radius:8px;background:#fff;padding:0 10px;color:var(--ink)}
+.sms-template-toolbar-actions .primary,.config-records .empty .primary{display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}
+.sms-template-modal{width:min(760px,100%)}
+.sms-template-modal .modal-header>div{display:grid;gap:4px}
+.sms-template-modal .modal-header p{margin:0;color:var(--muted);font-size:11px}
+.sms-template-modal .config-add{border:0;background:#fff;max-height:calc(90vh - 72px);overflow-y:auto}
+.sms-template-modal .config-add textarea{width:100%;min-height:112px;resize:vertical;border:1px solid var(--border);border-radius:8px;background:#fff;padding:10px 11px;color:var(--ink);outline:0;font:inherit}
+.sms-template-modal .config-add textarea:focus{border-color:var(--purple);box-shadow:0 0 0 3px color-mix(in srgb,var(--brand-600) 9.8%,transparent)}
+@media(max-width:600px){.config-toolbar{align-items:flex-start;flex-direction:column}.sms-template-toolbar-actions{width:100%;grid-auto-flow:row;grid-template-columns:1fr}.sms-template-toolbar-actions select,.sms-template-toolbar-actions .primary{max-width:none;width:100%}}
 .config-parent-picker{max-width:420px}
 .config-parent-picker small{color:var(--muted);font-size:10px;font-weight:500}
 .config-draft-head,.config-draft-row{display:grid;grid-template-columns:minmax(0,2.4fr) minmax(0,1fr) 92px 62px 78px;gap:10px;align-items:center}
@@ -335,3 +345,11 @@ table th{background:var(--surface-3)}.avatar.muted{background:var(--accent-soft)
 .settings-integration-page .integration-crumb>div{display:grid;min-width:0}
 .settings-integration-page .integration-crumb strong{font:700 15px 'Plus Jakarta Sans'}
 .settings-integration-page .integration-crumb span{color:var(--muted);font-size:11px}
+
+/* Campaign row: summary on the left, its controls always reachable. */
+.campaign-record-head{display:flex;align-items:stretch;gap:10px}
+.campaign-record-head>.campaign-record-summary{flex:1;min-width:0}
+.campaign-record-controls{display:flex;align-items:center;gap:8px;padding-right:14px;flex:0 0 auto}
+.campaign-record-controls .secondary,.campaign-stop{height:34px;padding:0 12px;display:inline-flex;align-items:center;gap:6px;border-radius:8px;font-size:11px;font-weight:700;white-space:nowrap}
+.campaign-stop{border:1px solid #e7c4c4;background:#fdf1f1;color:#a83b3b}
+.campaign-stop:hover{background:#f9e2e2;border-color:#d9a6a6}

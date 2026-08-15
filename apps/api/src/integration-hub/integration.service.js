@@ -1848,7 +1848,10 @@ export class IntegrationHubService {
     if (!filters.isAdmin) {
       const employeeId = Number(filters.employeeId);
       if (Number.isInteger(employeeId) && employeeId > 0) {
-        ownerSql = ' AND lead.owner_employee_id = ?';
+        // `lead` is a reserved word in MySQL 8 (the LEAD window function), so
+        // an unquoted alias of that name is a parse error. Aliased `l`, as the
+        // rest of the codebase does.
+        ownerSql = ' AND l.owner_employee_id = ?';
         params.push(employeeId);
       } else {
         ownerSql = ' AND 1=0';
@@ -1858,7 +1861,7 @@ export class IntegrationHubService {
       `SELECT m.*
        FROM crm_whatsapp_messages m
        JOIN crm_whatsapp_conversations c ON c.id = m.conversation_id
-       LEFT JOIN crm_leads lead ON lead.id = c.lead_id AND lead.deleted_at_utc IS NULL
+       LEFT JOIN crm_leads l ON l.id = c.lead_id AND l.deleted_at_utc IS NULL
        WHERE m.conversation_id = ? AND c.organization_id = ?
              AND c.business_unit_id = ? ${ownerSql} ${beforeSql}
        ORDER BY m.id DESC
@@ -1945,8 +1948,8 @@ export class IntegrationHubService {
       const employeeId = Number(scope.employeeId);
       if (Number.isInteger(employeeId) && employeeId > 0) {
         ownerSql = ` AND EXISTS (
-          SELECT 1 FROM crm_leads lead
-          WHERE lead.id = crm_whatsapp_conversations.lead_id AND lead.owner_employee_id = ?
+          SELECT 1 FROM crm_leads l
+          WHERE l.id = crm_whatsapp_conversations.lead_id AND l.owner_employee_id = ?
         )`;
         params.push(employeeId);
       } else {

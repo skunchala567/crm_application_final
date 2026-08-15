@@ -355,6 +355,168 @@
   font-size: 0.9rem;
 }
 
+/* ---------- Collections ---------- */
+/* The sibling tab. It reuses .payment-forms, .page-action-row, the table and
+   .empty so both halves of Payments read as one screen; what follows is only
+   the parts Payment Forms has no equivalent of -- the totals and the filters. */
+
+/* Payment Forms is three blocks with room to breathe; this page stacks five,
+   so they sit closer together and the parent's 2rem gap is what does it -- not
+   margins on each child, which would compound with it. */
+.payment-collections { gap: 0.9rem; }
+
+/* Nothing to export until the report returns rows. */
+.payment-collections header button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.collection-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+}
+
+.collection-stats .stat {
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.collection-stats small {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-500);
+}
+
+.collection-stats strong {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--ink-800);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Money actually banked is the number people come here for. */
+.collection-stats .is-paid {
+  border-color: color-mix(in srgb, var(--brand-500) 35%, var(--line));
+  background: color-mix(in srgb, var(--brand-500) 5%, #fff);
+}
+
+.collection-stats .is-paid strong { color: var(--brand-700); }
+
+.collection-filters {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.6fr) repeat(3, minmax(120px, 1fr)) auto;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.collection-search {
+  position: relative;
+  display: block;
+}
+
+.collection-search svg {
+  position: absolute;
+  left: 0.65rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ink-400);
+  pointer-events: none;
+}
+
+.collection-search input { padding-left: 2rem; }
+
+.collection-filters input,
+.collection-filters select {
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  font-size: 0.82rem;
+  color: var(--ink-800);
+}
+
+.collection-filters input:focus,
+.collection-filters select:focus {
+  outline: none;
+  border-color: var(--brand-600);
+}
+
+.collection-dates {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.collection-dates input { min-width: 130px; }
+
+@media (max-width: 900px) {
+  .collection-filters { grid-template-columns: 1fr 1fr; }
+  .collection-search,
+  .collection-dates { grid-column: 1 / -1; }
+}
+
+.collections-error {
+  padding: 0.7rem 0.9rem;
+  border: 1px solid #efc4c1;
+  border-radius: 8px;
+  background: #fdeeed;
+  color: #a33028;
+  font-size: 0.82rem;
+}
+
+/* Which journey the money arrived by. Tinted rather than coloured -- the
+   status badge beside it is what should catch the eye first. */
+.source-pill {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--ink-600);
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.source-pill.is-enquiry { background: #eef4ff; color: #33529c; }
+.source-pill.is-payment_form { background: #fdf2e6; color: #97591a; }
+.source-pill.is-payment_link { background: #f0edfb; color: #5c46a5; }
+
+/* Paid and settled are the same good outcome; pending is still open; expired,
+   failed and cancelled all mean the money is not coming. */
+.status.paid {
+  background: color-mix(in srgb, var(--brand-500) 12%, transparent);
+  color: var(--brand-700);
+}
+
+.status.pending {
+  background: #fdf2e6;
+  color: #97591a;
+}
+
+.status.failed {
+  background: rgba(195, 61, 53, 0.12);
+  color: #a33028;
+}
+
+.payment-collections .reference-col span {
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Modal */
 .modal-overlay {
   position: fixed;

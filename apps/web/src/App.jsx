@@ -238,12 +238,21 @@ function Shell({ user, onLogout }) {
   const settingsMenu = [
     { label: 'User Management', path: '/settings/users', permission: 'settings.users.view' },
     { label: 'Business Units', path: '/settings/business-units', permission: 'settings.business_units.view' },
-    { label: 'Payment Forms', path: '/settings/payment-forms', permission: 'settings.payment_forms.view' },
+    /* Forms and what they collected are two halves of one job, so they share
+       a screen with a tab each rather than two sidebar entries. */
+    { label: 'Payments', path: '/settings/payments', permission: 'payments.collections.view' },
+    /*
+     * Integrations is the way in to every connected service. Email
+     * Configuration and Google Sheets are reached by opening their tile
+     * there, not by their own sidebar entries -- one door per service rather
+     * than a growing list that duplicates the grid. Their routes still
+     * resolve, so links and the tiles' navigation keep working.
+     */
     { label: 'Integrations', path: '/settings/integrations', permission: 'integrations.hub.view' },
-    { label: 'Google Sheets', path: '/settings/google-sheets', permission: 'integrations.google_sheets.view' },
-    { label: 'WhatsApp', path: '/settings/whatsapp-templates', permission: 'whatsapp.templates.view' },
-    { label: 'Email Configuration', path: '/settings/email-configuration', permission: 'email.configuration.view' },
-    { label: 'Email Templates', path: '/settings/email-templates', permission: 'email.templates.view' },
+    /* One entry for all three channels; the per-channel routes still resolve
+       for existing links, they are just not listed separately. Shown to anyone
+       who may manage any channel, and the screen's own tabs do the rest. */
+    { label: 'Templates', path: '/settings/templates', permission: 'whatsapp.templates.view' },
   ].filter((item) => can(item.permission));
 
   const visibleMenu = menu.filter(([, , , , permission]) => can(permission));
@@ -302,7 +311,9 @@ function Shell({ user, onLogout }) {
             <Route path="/settings/users" element={<RequirePermission do="settings.users.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/business-units" element={<RequirePermission do="settings.business_units.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/branches" element={<RequirePermission do="settings.branches.view"><SettingsPageModern /></RequirePermission>} />
-            <Route path="/settings/payment-forms" element={<RequirePermission do="settings.payment_forms.view"><SettingsPageModern /></RequirePermission>} />
+            <Route path="/settings/payments" element={<RequirePermission do="payments.collections.view"><SettingsPageModern /></RequirePermission>} />
+            <Route path="/settings/payment-forms" element={<RequirePermission do="payments.collections.view"><SettingsPageModern /></RequirePermission>} />
+            <Route path="/settings/payment-collections" element={<RequirePermission do="payments.collections.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/lead-config" element={<Navigate to="/settings/business-units?tab=sources" replace />} />
             <Route path="/settings/academic-config" element={<Navigate to="/settings/business-units?tab=academic" replace />} />
             <Route path="/settings/academic-years" element={<Navigate to="/settings/business-units?tab=academic" replace />} />
@@ -310,6 +321,7 @@ function Shell({ user, onLogout }) {
             <Route path="/settings/integrations" element={<RequirePermission do="integrations.hub.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/google-sheets" element={<RequirePermission do="integrations.google_sheets.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/meta-lead-ads" element={<RequirePermission do="integrations.meta_lead_ads.view"><SettingsPageModern /></RequirePermission>} />
+            <Route path="/settings/templates" element={<RequirePermission do="whatsapp.templates.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/whatsapp-templates" element={<RequirePermission do="whatsapp.templates.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/email-configuration" element={<RequirePermission do="email.configuration.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/email-templates" element={<RequirePermission do="email.templates.view"><SettingsPageModern /></RequirePermission>} />
