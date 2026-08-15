@@ -353,3 +353,82 @@ table th{background:var(--surface-3)}.avatar.muted{background:var(--accent-soft)
 .campaign-record-controls .secondary,.campaign-stop{height:34px;padding:0 12px;display:inline-flex;align-items:center;gap:6px;border-radius:8px;font-size:11px;font-weight:700;white-space:nowrap}
 .campaign-stop{border:1px solid #e7c4c4;background:#fdf1f1;color:#a83b3b}
 .campaign-stop:hover{background:#f9e2e2;border-color:#d9a6a6}
+
+/* ---------- Screen error boundary ---------- */
+/* Shown in place of a screen that threw. Deliberately plain: it has to render
+   correctly when something else has just failed to. */
+.screen-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  max-width: 560px;
+  margin: 3rem auto;
+  padding: 2rem;
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 12px;
+  background: #fff;
+  text-align: center;
+}
+
+.screen-error-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #fdeeed;
+  color: #c33d35;
+}
+
+.screen-error h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--ink-800, #1f2937);
+}
+
+.screen-error p {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--ink-600, #4b5563);
+}
+
+.screen-error pre {
+  width: 100%;
+  margin: 0.4rem 0 0;
+  padding: 0.7rem 0.85rem;
+  border-radius: 8px;
+  background: var(--surface-3, #f7f7f7);
+  color: #a33028;
+  font-size: 0.76rem;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
+
+.screen-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.screen-error-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 7px;
+  background: #fff;
+  font-size: 0.83rem;
+  cursor: pointer;
+}
+
+.screen-error-actions .primary {
+  border-color: var(--brand-600, #2563eb);
+  background: var(--brand-600, #2563eb);
+  color: #fff;
+}

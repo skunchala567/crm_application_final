@@ -6,6 +6,7 @@ import AutomationPage from "./AutomationPage.jsx";
 import WhatsAppInbox from "./WhatsAppInbox.jsx";
 import OAuthCallbackPage from "./pages/OAuthCallbackPage.jsx";
 import GlobalSearch from "./GlobalSearch.jsx";
+import ScreenErrorBoundary from "./components/ScreenErrorBoundary.jsx";
 import ReportBuilder, { SavedReportsDashboard, ReportVisual, buildLiveReportData, canViewSavedReport, readSavedReports, writeSavedReports } from "./ReportBuilder.jsx";
 import PublicEnquiryForm from "./PublicEnquiryForm.jsx";
 import PublicPaymentPage from "./pages/PublicPaymentPage.jsx";
@@ -298,6 +299,10 @@ function Shell({ user, onLogout }) {
         </Header>
 
         <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
+          {/* Inside <main>, so a screen that throws leaves the sidebar and
+              header intact and the user can navigate away. routeKey clears the
+              error when the route changes. */}
+          <ScreenErrorBoundary routeKey={location.pathname}>
           <Routes location={location}>
             <Route path="/" element={<RequirePermission do="dashboard.overview.view"><DashboardPage key={activeBusinessUnitId} user={user} /></RequirePermission>} />
             <Route path="/leads" element={<RequirePermission do="leads.list.view"><BusinessUnitLeadRouter key={activeBusinessUnitId} /></RequirePermission>} />
@@ -333,6 +338,7 @@ function Shell({ user, onLogout }) {
             <Route path="/automations" element={<RequirePermission do="automations.workflows.view"><AutomationPage key={activeBusinessUnitId} /></RequirePermission>} />
             <Route path="*" element={<ComingSoon />} />
           </Routes>
+          </ScreenErrorBoundary>
         </main>
       </div>
     </div>

@@ -111,6 +111,17 @@ function translateTableDdl(ddl, { ifNotExists }) {
   // Version-gated optimiser hints MariaDB would parse as literal SQL.
   out = out.replace(/\/\*!80\d{3} ([^*]*)\*\//g, '$1');
 
+  /*
+   * Character-set introducers inside CHECK constraints.
+   *
+   * MySQL writes `IN (_utf8mb4'off', _utf8mb4'audit')`. The introducer says
+   * nothing a utf8mb4 column does not already say, and it is the one piece of
+   * syntax in this file that could not be tried against a real MariaDB before
+   * shipping, so it is removed rather than relied upon. Scoped to quoted
+   * literals so it cannot touch column or table names.
+   */
+  out = out.replace(/_utf8mb4(?=')/g, '');
+
   if (ifNotExists) {
     out = out.replace(/^CREATE TABLE /, 'CREATE TABLE IF NOT EXISTS ');
   }
@@ -376,6 +387,9 @@ async function main() {
   write('--   * AUTO_INCREMENT=<n> stripped from CREATE TABLE, so an empty table\n');
   write('--     starts at 1; populated tables get an explicit reset after their data.\n');
   write('--   * View DEFINER removed and SQL SECURITY switched to INVOKER.\n');
+  write('--   * _utf8mb4\'...\' introducers dropped from CHECK constraints; the\n');
+  write('--     column is already utf8mb4, so they said nothing extra.\n');
+  write('--   * /*!80xxx ... */ version-gated hints unwrapped.\n');
   write('--\n');
   write('-- Row IDs are written explicitly and are NOT renumbered, so foreign keys\n');
   write('-- and id references held inside JSON columns stay valid.\n');
