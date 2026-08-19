@@ -1,18 +1,84 @@
+-- =====================================================================
 -- CallerDesk telephony, call outcomes and opt-in dialling queues.
--- Credentials and account configuration live in crm_integrations.config.
-ALTER TABLE branches
-  ADD COLUMN callerdesk_did_id VARCHAR(100) NULL,
-  ADD COLUMN callerdesk_did_number VARCHAR(30) NULL,
-  ADD COLUMN callerdesk_call_group VARCHAR(120) NULL,
-  ADD COLUMN callerdesk_inbound_enabled TINYINT(1) NOT NULL DEFAULT 1,
-  ADD COLUMN callerdesk_outbound_enabled TINYINT(1) NOT NULL DEFAULT 1;
+--
+-- Idempotent: the migration runner replays every file on every run, so each
+-- column is added only when it is absent. This file used to be a bare
+-- ALTER TABLE, which failed with "Duplicate column name" on the second run
+-- and stopped the runner before every later migration -- which is how the
+-- database drifted behind the migrations that follow it.
+-- =====================================================================
 
-ALTER TABLE app_users
-  ADD COLUMN callerdesk_member_id VARCHAR(100) NULL,
-  ADD COLUMN callerdesk_member_name VARCHAR(150) NULL,
-  ADD COLUMN callerdesk_member_number VARCHAR(30) NULL,
-  ADD COLUMN callerdesk_call_group VARCHAR(120) NULL,
-  ADD COLUMN callerdesk_enabled TINYINT(1) NOT NULL DEFAULT 0;
+-- Credentials and account configuration live in crm_integrations.config.
+
+SET @has_column = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'branches' AND column_name = 'callerdesk_did_id');
+SET @ddl = IF(@has_column = 0,
+  'ALTER TABLE branches ADD COLUMN callerdesk_did_id VARCHAR(100) NULL',
+  'SELECT 1');
+PREPARE statement FROM @ddl; EXECUTE statement; DEALLOCATE PREPARE statement;
+
+SET @has_column = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'branches' AND column_name = 'callerdesk_did_number');
+SET @ddl = IF(@has_column = 0,
+  'ALTER TABLE branches ADD COLUMN callerdesk_did_number VARCHAR(30) NULL',
+  'SELECT 1');
+PREPARE statement FROM @ddl; EXECUTE statement; DEALLOCATE PREPARE statement;
+
+SET @has_column = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'branches' AND column_name = 'callerdesk_call_group');
+SET @ddl = IF(@has_column = 0,
+  'ALTER TABLE branches ADD COLUMN callerdesk_call_group VARCHAR(120) NULL',
+  'SELECT 1');
+PREPARE statement FROM @ddl; EXECUTE statement; DEALLOCATE PREPARE statement;
+
+SET @has_column = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'branches' AND column_name = 'callerdesk_inbound_enabled');
+SET @ddl = IF(@has_column = 0,
+  'ALTER TABLE branches ADD COLUMN callerdesk_inbound_enabled TINYINT(1) NOT NULL DEFAULT 1',
+  'SELECT 1');
+PREPARE statement FROM @ddl; EXECUTE statement; DEALLOCATE PREPARE statement;
+
+SET @has_column = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'branches' AND column_name = 'callerdesk_outbound_enabled');
+SET @ddl = IF(@has_column = 0,
+  'ALTER TABLE branches ADD COLUMN callerdesk_outbound_enabled TINYINT(1) NOT NULL DEFAULT 1',
+  'SELECT 1');
+PREPARE statement FROM @ddl; EXECUTE statement; DEALLOCATE PREPARE statement;
+
+SET @has_column = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'app_users' AND column_name = 'callerdesk_member_id');
+SET @ddl = IF(@has_column = 0,
+  'ALTER TABLE app_users ADD COLUMN callerdesk_member_id VARCHAR(100) NULL',
+  'SELECT 1');
+PREPARE statement FROM @ddl; EXECUTE statement; DEALLOCATE PREPARE statement;
+
+SET @has_column = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'app_users' AND column_name = 'callerdesk_member_name');
+SET @ddl = IF(@has_column = 0,
+  'ALTER TABLE app_users ADD COLUMN callerdesk_member_name VARCHAR(150) NULL',
+  'SELECT 1');
+PREPARE statement FROM @ddl; EXECUTE statement; DEALLOCATE PREPARE statement;
+
+SET @has_column = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'app_users' AND column_name = 'callerdesk_member_number');
+SET @ddl = IF(@has_column = 0,
+  'ALTER TABLE app_users ADD COLUMN callerdesk_member_number VARCHAR(30) NULL',
+  'SELECT 1');
+PREPARE statement FROM @ddl; EXECUTE statement; DEALLOCATE PREPARE statement;
+
+SET @has_column = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'app_users' AND column_name = 'callerdesk_call_group');
+SET @ddl = IF(@has_column = 0,
+  'ALTER TABLE app_users ADD COLUMN callerdesk_call_group VARCHAR(120) NULL',
+  'SELECT 1');
+PREPARE statement FROM @ddl; EXECUTE statement; DEALLOCATE PREPARE statement;
+
+SET @has_column = (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'app_users' AND column_name = 'callerdesk_enabled');
+SET @ddl = IF(@has_column = 0,
+  'ALTER TABLE app_users ADD COLUMN callerdesk_enabled TINYINT(1) NOT NULL DEFAULT 0',
+  'SELECT 1');
+PREPARE statement FROM @ddl; EXECUTE statement; DEALLOCATE PREPARE statement;
 
 CREATE TABLE IF NOT EXISTS crm_call_activities (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

@@ -1,0 +1,313 @@
+/* =====================================================================
+   Bulk payment links.
+
+   Every class is prefixed and scoped under .bulk-links: the CRM's global
+   sheets style bare .form-group and .form-section app-wide, and a screen
+   that borrowed those names would inherit the lead drawer's panel styling.
+   ===================================================================== */
+
+.bulk-links {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  font-family: var(--ff);
+  color: var(--ink-800);
+}
+
+.bulk-links-head h2 {
+  margin: 0;
+  font: 800 19px var(--ff-d);
+  color: var(--ink-900);
+}
+
+.bulk-links-head p {
+  margin: 4px 0 0;
+  max-width: 76ch;
+  color: var(--ink-500);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.bulk-links-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  box-shadow: var(--sh-xs);
+}
+
+.bulk-links-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--ink-700);
+  font: 800 12px var(--ff);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.bulk-links-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+.bulk-links label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--ink-600);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.bulk-links input[type="text"],
+.bulk-links input:not([type]),
+.bulk-links input[type="date"],
+.bulk-links select {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--ink-200);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink-800);
+  font: 500 13px var(--ff);
+  outline: 0;
+}
+
+.bulk-links input:focus,
+.bulk-links select:focus {
+  border-color: var(--brand-600);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-600) 15%, transparent);
+}
+
+.bulk-links input:disabled {
+  background: var(--surface-3);
+  color: var(--ink-500);
+}
+
+.bulk-links small,
+.bulk-links-hint {
+  color: var(--ink-500);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.bulk-links-hint { margin: 0; }
+.bulk-links-hint code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  font-size: 11px;
+}
+
+/* ---- template placeholders ---------------------------------------- */
+
+.bulk-links-template {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface-3);
+  border-radius: 8px;
+}
+
+.bulk-links-param {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.bulk-links-param > label:first-child { flex: 1; min-width: 220px; }
+.bulk-links-param > label:first-child span {
+  font-family: var(--ff-d);
+  color: var(--brand-700);
+}
+
+.bulk-links-radio {
+  display: flex !important;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 9px;
+  white-space: nowrap;
+}
+
+.bulk-links-radio input { width: 15px; height: 15px; accent-color: var(--brand-600); }
+
+.bulk-links-preview {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px dashed var(--ink-200);
+  border-radius: 8px;
+}
+
+.bulk-links-preview strong { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-400); }
+.bulk-links-preview p { margin: 0; font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; }
+
+/* ---- the file ------------------------------------------------------ */
+
+.bulk-links-file-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.bulk-links-file-row .bulk-links-file { flex: 1; min-width: 240px; }
+
+.bulk-links-sample {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 13px;
+  border: 1px solid var(--ink-200);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink-600);
+  font: 700 12px var(--ff);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.bulk-links-sample:hover { border-color: var(--brand-600); color: var(--brand-700); }
+
+.bulk-links-file {
+  display: flex !important;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 13px;
+  border: 1px dashed var(--ink-300);
+  border-radius: 8px;
+  color: var(--ink-600);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.bulk-links-file:hover { border-color: var(--brand-600); color: var(--brand-700); }
+.bulk-links-file input { display: none; }
+
+.bulk-links-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.bulk-links-counts span { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 999px; }
+.bulk-links-counts .is-ok { background: var(--brand-50); color: var(--brand-700); }
+.bulk-links-counts .is-bad { background: var(--red-bg); color: var(--red); }
+
+.bulk-links-table-wrap { overflow-x: auto; max-height: 340px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
+.bulk-links table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.bulk-links thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 10px;
+  background: var(--surface-3);
+  color: var(--ink-500);
+  font-size: 10.5px;
+  font-weight: 800;
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.bulk-links tbody td { padding: 7px 10px; border-top: 1px solid var(--line-2); }
+.bulk-links tbody tr.is-bad { background: color-mix(in srgb, var(--red) 4%, transparent); }
+.bulk-links .num { text-align: right; font-variant-numeric: tabular-nums; }
+.bulk-links .muted { color: var(--ink-400); }
+.bulk-links-ok { color: var(--brand-700); font-weight: 700; }
+.bulk-links-error { color: var(--red); }
+
+.bulk-links-send {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--brand-600);
+  color: #fff;
+  font: 800 13px var(--ff-d);
+  cursor: pointer;
+}
+
+.bulk-links-send:hover:not(:disabled) { background: var(--brand-700); }
+.bulk-links-send:disabled { background: var(--ink-300); cursor: not-allowed; }
+
+.bulk-links-spin { animation: bulk-links-spin 1s linear infinite; }
+@keyframes bulk-links-spin { to { transform: rotate(360deg); } }
+
+.bulk-links-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  background: var(--red-bg);
+  border: 1px solid color-mix(in srgb, var(--red) 26%, transparent);
+  border-radius: 8px;
+  color: var(--red);
+  font-size: 12px;
+}
+
+.bulk-links-result { border-color: var(--brand-200); background: var(--brand-50); }
+.bulk-links-result h3 { color: var(--brand-700); text-transform: none; letter-spacing: 0; font-size: 14px; }
+.bulk-links-result p { margin: 0; font-size: 12.5px; color: var(--ink-600); }
+.bulk-links-result ul { margin: 6px 0 0; padding-left: 18px; font-size: 12px; color: var(--ink-600); }
+.bulk-links-result summary { font-size: 12px; font-weight: 700; cursor: pointer; }
+
+/* ---- history ------------------------------------------------------- */
+
+.bulk-links-refresh,
+.bulk-links-cancel,
+.bulk-links-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: none;
+  color: var(--brand-700);
+  font: 700 12px var(--ff);
+  cursor: pointer;
+}
+
+.bulk-links-cancel { color: var(--red); }
+.bulk-links-refresh { margin-left: auto; color: var(--ink-500); }
+
+.bulk-links-status {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 800;
+  text-transform: capitalize;
+  background: var(--surface-3);
+  color: var(--ink-600);
+}
+.bulk-links-status.is-completed { background: var(--brand-50); color: var(--brand-700); }
+.bulk-links-status.is-cancelled { background: var(--red-bg); color: var(--red); }
+
+.bulk-links-detail { display: grid; gap: 3px; padding: 8px 0; }
+.bulk-links-detail-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 90px 130px 140px 1fr;
+  gap: 10px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+}
+.bulk-links-detail-row.is-sent { background: var(--brand-50); }
+.bulk-links-detail-row.is-failed { background: var(--red-bg); }
+
+@media (max-width: 720px) {
+  .bulk-links { padding: 12px; }
+  .bulk-links-detail-row { grid-template-columns: 1fr 1fr; }
+}

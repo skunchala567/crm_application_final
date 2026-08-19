@@ -847,9 +847,9 @@ fieldset.categories-section {
  * Two columns rather than four: the selection type is a pair of side-by-side
  * cards, and a quarter of this row leaves them too narrow to read.
  */
-/* Six settings, three to a row: title, description, branch / selection type,
-   expiry, status. Kept to two rows as before -- the two added fields widened
-   the grid rather than lengthening it. */
+/* Seven settings, three to a row: title, description, logo / branch,
+   selection type, expiry / status. Widening the grid rather than
+   lengthening it is what has kept this row short as fields were added. */
 .payment-form-create .payment-form-basics-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1302,3 +1302,230 @@ fieldset.categories-section {
   background: var(--brand-50);
   border-color: var(--brand-700);
 }
+
+
+/* =====================================================================
+   Create / Edit Payment Form dialog — compact pass.
+
+   The dialog asked for eleven things and spent a scrolling page doing it:
+   every field carried its explanation as a paragraph, the logo picker was
+   three lines tall, and the selection type was two cards of title and
+   subtitle. The questions are unchanged; only the room they take is.
+   ===================================================================== */
+
+.payment-form-create { gap: 0.85rem; padding: 1.15rem 1.4rem; }
+
+.payment-form-create .form-group { gap: 0.3rem; }
+
+.payment-form-create .form-group > label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink-600);
+}
+
+.payment-form-create .form-group input,
+.payment-form-create .form-group select,
+.payment-form-create .form-group textarea {
+  padding: 0.5rem 0.65rem;
+  font-size: 0.82rem;
+  border-radius: 7px;
+}
+
+.payment-form-create .form-group textarea { min-height: 38px; }
+
+/* The explanation, one click away rather than three lines down. */
+.payment-form-create .field-info-tip {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface-3);
+  color: var(--ink-400);
+  cursor: help;
+  flex: 0 0 auto;
+}
+
+.payment-form-create .field-info-tip:hover { background: var(--brand-50); color: var(--brand-600); }
+
+/* ---- logo: preview, one button, one clear ---- */
+
+.payment-logo-picker {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.payment-logo-picker img,
+.payment-logo-empty {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--ink-200);
+  border-radius: 7px;
+  background: var(--surface);
+  object-fit: contain;
+}
+
+.payment-logo-empty { display: grid; place-items: center; color: var(--ink-300); background: var(--surface-3); }
+
+/* The native input announces its own filename at a width nothing can
+   control, so it is hidden and this label is the control. */
+.payment-logo-choose {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--ink-200);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink-600);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.payment-logo-choose:hover { border-color: var(--brand-600); color: var(--brand-700); }
+.payment-form-create .payment-logo-choose input[type="file"] { display: none; }
+
+.payment-logo-clear {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--ink-400);
+  cursor: pointer;
+}
+
+.payment-logo-clear:hover { background: var(--red-bg); color: var(--red); }
+
+/* ---- selection type: a segmented control, not two cards ---- */
+
+.payment-form-create .selection-type-toggle { gap: 0.3rem; }
+
+.payment-form-create .selection-type-toggle button {
+  height: 34px;
+  padding: 0 10px;
+  gap: 6px;
+  justify-content: center;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 7px;
+}
+
+/* ---- the two short tail fields share a line ---- */
+
+/* .payment-form-create is itself a two-column grid, so this wrapper has to
+   claim the full width before it can split it -- otherwise both fields share
+   one of the parent's columns and come out half the width they should be. */
+.payment-form-create > .payment-form-tail-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem 1rem;
+  align-items: start;
+}
+
+/* BulkUpload.css styles the bare `.form-group` class app-wide with
+   `grid-column: 1/-1`, so both fields spanned the whole grid and stacked.
+   The basics row above needed exactly this line for the same reason. */
+.payment-form-create .payment-form-tail-row > .form-group {
+  grid-column: auto;
+  min-width: 0;
+}
+
+@media (max-width: 760px) {
+  .payment-form-tail-row { grid-template-columns: 1fr; }
+  .payment-form-create .payment-form-tail-row > .form-group { grid-column: 1 / -1; }
+}
+
+/* ---- categories ---- */
+
+.payment-form-create .category-row { gap: 0.45rem; }
+
+.payment-form-create .category-remove {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  padding: 0;
+  border: 1px solid var(--ink-200);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink-400);
+  cursor: pointer;
+}
+
+.payment-form-create .category-remove:hover { border-color: var(--red); background: var(--red-bg); color: var(--red); }
+
+.payment-form-create .category-add {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px dashed var(--ink-300);
+  border-radius: 7px;
+  background: none;
+  color: var(--ink-600);
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.payment-form-create .category-add:hover { border-color: var(--brand-600); color: var(--brand-700); }
+
+/* ---- header and footer give back what they were padding ---- */
+
+.payment-form-modal .modal-header { padding: 0.9rem 1.4rem; }
+.payment-form-modal .modal-footer { padding: 0.85rem 1.4rem; }
+
+/* ---- the two panels, sized for a dialog rather than a page ----------
+   The Customer Details Form and Payment Categories each opened with a
+   heading, a sentence explaining themselves, and -- when empty -- a
+   dashed box the height of a paragraph. Between them that was more of
+   the dialog than the eleven fields above. */
+
+.payment-form-create .form-builder { padding: 0.85rem; gap: 0.6rem; }
+
+.payment-form-create .builder-header h3 { font-size: 0.85rem; margin: 0; }
+
+/* The sentence under each heading repeats what the empty state and the
+   button already say. */
+.payment-form-create .builder-header p,
+.payment-form-create .categories-section .legend-text {
+  display: none;
+}
+
+.payment-form-create .empty-fields { padding: 0.7rem; }
+.payment-form-create .empty-fields p { margin: 0; font-size: 0.76rem; }
+
+/* A full-width button for one optional action was reading as the main
+   thing to do here. */
+.payment-form-create .add-field-btn {
+  width: auto;
+  align-self: flex-start;
+  height: 32px;
+  padding: 0 12px;
+  font-size: 0.76rem;
+}
+
+.payment-form-create fieldset.categories-section { padding: 0.85rem; }
+.payment-form-create .categories-section legend { font-size: 0.85rem; }
+.payment-form-create .category-row { margin-bottom: 0.45rem; }

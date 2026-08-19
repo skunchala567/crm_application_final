@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Inbox, Loader2, RefreshCw, X } from 'lucide-react';
 import { api } from '../api';
 
@@ -18,6 +18,22 @@ export default function MetaLeadReview({ onMessage }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+
+  /*
+   * The callback is held in a ref rather than depended on.
+   *
+   * App re-renders every second -- the idle timer in useDailyUsage ticks that
+   * often -- and this screen passes a fresh inline onMessage each time. With
+   * onMessage in the dependency list, load() was rebuilt and the effect below
+   * re-fired once a second: the list refetched continuously, and because the
+   * whole section fell back to a skeleton while loading, the cards flickered
+   * out from under the pointer. A click on "Add to CRM" frequently landed on
+   * a button that had just been unmounted, which is why leads appeared to be
+   * ignored rather than imported.
+   */
+  const messageRef = useRef(onMessage);
+  useEffect(() => { messageRef.current = onMessage; }, [onMessage]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -25,11 +41,12 @@ export default function MetaLeadReview({ onMessage }) {
       const result = await api('/meta/imports/pending');
       setRows(result.data || []);
     } catch (error) {
-      onMessage?.({ type: 'error', text: error.message });
+      messageRef.current?.({ type: 'error', text: error.message });
     } finally {
       setLoading(false);
+      setLoaded(true);
     }
-  }, [onMessage]);
+  }, []);
 
   useEffect(() => { load(); }, [load]);
 
@@ -39,22 +56,36 @@ export default function MetaLeadReview({ onMessage }) {
     try {
       const result = await api(`/meta/imports/${row.leadgenId}/${action}`, { method: 'POST', body: JSON.stringify({}) });
       const status = result.data?.status;
-      onMessage?.({
+      const leadNumber = result.data?.leadNumber;
+      /*
+       * Every outcome the import can reach, said plainly.
+       *
+       * "duplicate" used to be reported as "Could not add the lead", which is
+       * the one thing it does not mean: the lead was recognised as somebody
+       * already in the CRM and attached to that record. Reading it as a
+       * failure sent people looking for a new row on the Leads screen that
+       * was never going to be there.
+       */
+      const outcome = {
+        imported: 'Lead added to the CRM',
+        reenquired: `Existing lead ${leadNumber || ''} updated and marked as re-enquired`.trim(),
+        duplicate: `Already in the CRM as ${leadNumber || 'an existing lead'} — no new lead was created`,
+      }[status];
+      messageRef.current?.({
         type: status === 'failed' ? 'error' : 'success',
         text: action === 'discard'
           ? 'Lead discarded'
-          : status === 'imported' ? 'Lead added to the CRM'
-            : `Could not add the lead: ${result.data?.reason || status}`,
+          : outcome || `Could not add the lead: ${result.data?.reason || status}`,
       });
       await load();
     } catch (error) {
-      onMessage?.({ type: 'error', text: error.message });
+      messageRef.current?.({ type: 'error', text: error.message });
     } finally {
       setBusyId(null);
     }
   }
 
-  if (loading) return <div className="loading"><span /></div>;
+  if (loading && !loaded) return <div className="loading"><span /></div>;
 
   return (
     <section className="meta-review">

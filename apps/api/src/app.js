@@ -18,6 +18,8 @@ import { createUsageRoutes } from './usage.routes.js';
 import { createCallerDeskRoutes, createCallerDeskWebhookRoutes } from './callerdesk/callerdesk.routes.js';
 import { createSmartfloRoutes, createSmartfloWebhookRoutes } from './smartflo/smartflo.routes.js';
 import { createJodoPaymentLinkRoutes } from './jodo-payment-links.routes.js';
+import { createPaymentLinkBatchRoutes } from './payment-link-batches.routes.js';
+import { createPaymentLinkBatchEngine } from './payment-link-batch-engine.js';
 import { createJodoWebhookRoutes } from './jodo-webhook.routes.js';
 import { jodoBaseUrl, jodoHeaders } from './jodo-client.js';
 import { createBranchesRoutes } from './branches.routes.js';
@@ -174,6 +176,17 @@ const automationEngine = createAutomationEngine(pool, {
         request.options,
     ),
 });
+const paymentLinkBatchEngine = createPaymentLinkBatchEngine(pool, {
+    logger: console,
+    sendWhatsApp: (request) => integrationHubService.sendSmartpingMessage(
+        request.integrationId,
+        request.organizationId,
+        request.phoneNumber,
+        request.message,
+        request.options,
+    ),
+});
+
 const marketingCampaignEngine = createMarketingCampaignEngine(pool, {
     logger: console,
     sendWhatsApp: (request) => integrationHubService.sendSmartpingMessage(
@@ -972,7 +985,21 @@ function resolvePaymentContext(form, branchConfig) {
     const amount = Number.isFinite(formAmount) && formAmount > 0
         ? formAmount
         : (Number.isFinite(branchAmount) && branchAmount > 0 ? branchAmount : 0);
-    return { ...(branchConfig || {}), required: Boolean(form?.paymentRequired), amount };
+    /*
+     * The component this form's payments book against at Jodo.
+     *
+     * The branch default is one value for everything it collects, so every
+     * form on a branch settles under the same label and a Jodo report cannot
+     * say which form the money came from. A form that names its own component
+     * -- one configured on the collector -- settles under that instead.
+     */
+    const formComponent = cleanOptional(form?.settings?.paymentComponentType, 120);
+    return {
+        ...(branchConfig || {}),
+        required: Boolean(form?.paymentRequired),
+        amount,
+        componentType: formComponent || branchConfig?.componentType || null,
+    };
 }
 
 function publicPaymentEnabled(config) {
@@ -1019,19 +1046,78 @@ function isPublicHttpsUrl(value) {
 }
 
 function jodoCallbackBaseUrl(req) {
-    return cleanOptional(process.env.API_PUBLIC_URL, 500) || `${req.protocol}://${req.get('host')}`;
+    // Trailing slash trimmed: API_PUBLIC_URL is routinely pasted from a browser
+    // with one, and the callback path is appended straight onto it -- which
+    // would hand Jodo a "//api/..." URL that matches no route.
+    const configured = cleanOptional(process.env.API_PUBLIC_URL, 500);
+    return String(configured || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
 }
 
-async function createJodoOrder(config, customer, callbackUrl) {
+/*
+ * Where the visitor's browser lands once Jodo is done with them.
+ *
+ * The callback URL we hand Jodo is an API URL, and Jodo sends the payer's
+ * browser there -- it is a redirect target, not just a server-to-server ping.
+ * The API has no pages, so the browser has to be handed back to the web app
+ * (or to whatever the form's own redirect URL is) instead of being left on a
+ * JSON endpoint.
+ */
+function publicWebBaseUrl(req) {
+    const trim = value => String(value || '').trim().replace(/\/+$/, '');
+    const configured = trim(cleanOptional(process.env.WEB_PUBLIC_URL, 500));
+    if (configured) return configured;
+    // WEB_ORIGIN is the CORS origin, and on a deployment where the site and
+    // the API share one address it is often left at localhost -- CORS never
+    // notices, because the browser is same-origin. Sending a paying applicant
+    // to localhost would be very noticeable, so a public WEB_ORIGIN is trusted
+    // and a local one gives way to the address the browser actually reached.
+    const origin = trim(String(allowedOrigin || '').split(',')[0]);
+    if (isPublicHttpsUrl(origin) || /^https?:\/\/(?!localhost|127\.0\.0\.1)/.test(origin)) return origin;
+    const requested = req ? trim(`${req.protocol}://${req.get('host')}`) : '';
+    if (requested && !/^https?:\/\/(localhost|127\.0\.0\.1)/.test(requested)) return requested;
+    return origin || 'http://localhost:3000';
+}
+
+function enquiryPaymentReturnUrl(req, form, orderId, status) {
+    const fallback = `${publicWebBaseUrl(req)}/public/enquiry/${encodeURIComponent(form.formKey)}`;
+    const configured = cleanOptional(form.redirectUrl, 500);
+    try {
+        const url = new URL(configured || fallback, fallback);
+        url.searchParams.set('payment', status || 'unknown');
+        if (orderId) url.searchParams.set('orderId', orderId);
+        return url.toString();
+    } catch {
+        return fallback;
+    }
+}
+
+async function createJodoOrder(config, customer, callbackUrl, origin = {}) {
+    /*
+     * What this payment was for, sent in the fields Jodo accepts free text in.
+     *
+     * component_type is the label Jodo displays, and it has to be a component
+     * configured on the collector -- Jodo rejects anything else outright. The
+     * form's name therefore travels as custom_identifier and as notes, which
+     * take any string and come back on the order, so a payment can be traced
+     * to the form that raised it even where the label is shared.
+     */
+    const formTitle = cleanOptional(origin.formTitle, 120);
+    const notes = [
+        { key: 'crm_source', value: 'enquiry_form' },
+        origin.formKey ? { key: 'crm_form_key', value: cleanOptional(origin.formKey, 120) } : null,
+        formTitle ? { key: 'crm_form_title', value: formTitle } : null,
+    ].filter(Boolean);
     const payload = {
         name: cleanOptional(customer.name, 200),
         phone: normalizeIndianMobile(customer.phone),
         email: cleanOptional(customer.email, 254),
         collector_code: cleanOptional(config.collectorCode, 100),
+        custom_identifier: formTitle || undefined,
         details: [{
             component_type: cleanOptional(config.componentType, 120) || 'Payable Amount',
             amount: Number(Number(config.amount).toFixed(2)),
         }],
+        notes,
         callback_url: callbackUrl,
     };
     const response = await axios.post(`${jodoBaseUrl(config)}/api/v1/integrations/pay/orders`, payload, {
@@ -1099,7 +1185,7 @@ app.post('/api/public/enquiry-forms/:formKey/payment-order', async (req, res) =>
     if (!isPublicHttpsUrl(baseUrl)) return res.status(400).json({ message: 'Payment callback URL must be a public HTTPS URL. Set API_PUBLIC_URL to your public API URL, for example an ngrok HTTPS URL while testing.' });
     const callbackUrl = `${baseUrl}/api/public/enquiry-forms/${encodeURIComponent(form.formKey)}/payment-callback`;
     try {
-        const order = await createJodoOrder(config, { name, phone, email }, callbackUrl);
+        const order = await createJodoOrder(config, { name, phone, email }, callbackUrl, { formKey: form.formKey, formTitle: form.displayName });
         const orderId = normalizeJodoOrderId(order);
         const paymentUrl = jodoPaymentUrl(order);
         if (!orderId || !paymentUrl) return res.status(502).json({ message: 'Jodo did not return the order ID and redirect URL required to continue payment' });
@@ -1194,6 +1280,19 @@ app.post('/api/public/enquiry-forms/:formKey/submit', async (req, res) => {
         if (!Number(lock.acquired)) return res.status(409).json({ message: 'This enquiry is being processed. Please retry.' });
         await connection.beginTransaction();
         const [[existing]] = await connection.execute(`SELECT id,lead_number AS leadNumber FROM crm_leads WHERE business_unit_id=? AND branch_id=? AND normalized_phone=? AND deleted_at_utc IS NULL ORDER BY id LIMIT 1 FOR UPDATE`, [Number(form.businessUnitId), body.branchId, normalizedPhone]);
+        /*
+         * A repeat enquiry from a number we already hold still went through the
+         * payment page, so the order has to be written onto the lead we are
+         * keeping. Without this the order id exists only at Jodo, and the
+         * payment callback -- which finds the lead by jodo_order_id -- answers
+         * "Lead not found for this payment order" for a fee that was collected.
+         */
+        if (existing && paymentOrderId) {
+            await connection.execute(
+                `UPDATE crm_leads SET jodo_order_id=?,application_payment_status=?,application_payment_amount=?,enquiry_form_id=?,updated_at_utc=CURRENT_TIMESTAMP(6) WHERE id=?`,
+                [paymentOrderId, paymentStatus, publicPaymentEnabled(paymentConfig) ? Number(paymentConfig.amount) : null, Number(form.id), Number(existing.id)],
+            );
+        }
         if (existing && body.sourceId && body.channelId && body.campaignId) {
             const enquiry = await appendLeadSourceOrDetectDuplicate(connection, existing, body, 'website', actorUserId);
             await connection.commit();
@@ -1212,9 +1311,9 @@ app.post('/api/public/enquiry-forms/:formKey/submit', async (req, res) => {
         }
         const temporaryNumber = `PENDING-${crypto.randomUUID()}`;
         const [result] = await connection.execute(
-            `INSERT INTO crm_leads (business_unit_id,lead_number,branch_id,student_name,phone,normalized_phone,alternate_phone,email,applying_class,class_id,curriculum_id,academic_year,parent_name,city,stage_id,source_id,owner_employee_id,channel_id,campaign_id,admission_type_id,substage_id,lead_score,remarks,custom_values_json,jodo_order_id,application_payment_status,application_payment_amount,application_payment_at_utc,created_by_user_id)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-            [Number(form.businessUnitId), temporaryNumber, body.branchId, cleanOptional(body.studentName, 200), submittedPhone || '', normalizedPhone, cleanOptional(body.alternatePhone, 30), cleanOptional(body.email, 254), null, body.classId ? Number(body.classId) : null, body.curriculumId ? Number(body.curriculumId) : null, cleanOptional(body.academicYear, 20), cleanOptional(body.parentName, 200), cleanOptional(body.city, 100), body.stageId, body.sourceId, body.ownerEmployeeId, body.channelId, body.campaignId, body.admissionTypeId ? Number(body.admissionTypeId) : null, body.substageId, 0, cleanOptional(body.remarks, 10000), JSON.stringify(body.customValues || {}), paymentOrderId, paymentStatus, publicPaymentEnabled(paymentConfig) ? Number(paymentConfig.amount) : null, ['paid', 'success', 'completed', 'captured'].includes(String(paymentStatus || '').toLowerCase()) ? new Date() : null, actorUserId],
+            `INSERT INTO crm_leads (business_unit_id,lead_number,branch_id,student_name,phone,normalized_phone,alternate_phone,email,applying_class,class_id,curriculum_id,academic_year,parent_name,city,stage_id,source_id,owner_employee_id,channel_id,campaign_id,admission_type_id,substage_id,lead_score,remarks,custom_values_json,jodo_order_id,application_payment_status,application_payment_amount,application_payment_at_utc,enquiry_form_id,created_by_user_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            [Number(form.businessUnitId), temporaryNumber, body.branchId, cleanOptional(body.studentName, 200), submittedPhone || '', normalizedPhone, cleanOptional(body.alternatePhone, 30), cleanOptional(body.email, 254), null, body.classId ? Number(body.classId) : null, body.curriculumId ? Number(body.curriculumId) : null, cleanOptional(body.academicYear, 20), cleanOptional(body.parentName, 200), cleanOptional(body.city, 100), body.stageId, body.sourceId, body.ownerEmployeeId, body.channelId, body.campaignId, body.admissionTypeId ? Number(body.admissionTypeId) : null, body.substageId, 0, cleanOptional(body.remarks, 10000), JSON.stringify(body.customValues || {}), paymentOrderId, paymentStatus, publicPaymentEnabled(paymentConfig) ? Number(paymentConfig.amount) : null, ['paid', 'success', 'completed', 'captured'].includes(String(paymentStatus || '').toLowerCase()) ? new Date() : null, Number(form.id), actorUserId],
         );
         const leadNumber = `ADM-${new Date().getFullYear()}-${String(result.insertId).padStart(6, '0')}`;
         await connection.execute(`UPDATE crm_leads SET lead_number=? WHERE id=?`, [leadNumber, result.insertId]);
@@ -1234,12 +1333,16 @@ app.post('/api/public/enquiry-forms/:formKey/submit', async (req, res) => {
     finally { await connection.execute(`SELECT RELEASE_LOCK(?)`, [lockName]).catch(() => { }); connection.release(); }
 });
 
-app.post('/api/public/enquiry-forms/:formKey/payment-callback', async (req, res) => {
-    const form = await publicFormDefinition(req.params.formKey, true);
-    if (!form) return res.status(404).json({ message: 'This enquiry form is not available' });
-    const payload = req.body && typeof req.body === 'object' ? req.body : {};
-    const orderId = normalizeJodoOrderId(payload) || cleanOptional(payload.order_id || payload.orderId, 120);
-    if (!orderId) return res.status(400).json({ message: 'Order id is required' });
+/*
+ * Verify one Jodo order and write what it says onto the lead.
+ *
+ * Shared by the two ways a payment comes back to us: Jodo redirecting the
+ * payer's browser here (GET) and a server-side POST. Neither is trusted for
+ * the outcome -- the status always comes from reading the order back from
+ * Jodo, so a hand-typed callback URL cannot mark an application as paid.
+ */
+async function applyEnquiryPaymentCallback(form, orderId) {
+    if (!orderId) return { ok: false, code: 400, status: 'unknown', paid: false, message: 'Order id is required' };
     const [[lead]] = await pool.execute(
         `SELECT l.id,l.branch_id AS branchId,l.stage_id AS stageId,b.application_stage_id AS applicationStageId
      FROM crm_leads l
@@ -1248,15 +1351,15 @@ app.post('/api/public/enquiry-forms/:formKey/payment-callback', async (req, res)
      ORDER BY l.id DESC LIMIT 1`,
         [Number(form.businessUnitId), orderId],
     );
-    if (!lead) return res.status(404).json({ message: 'Lead not found for this payment order' });
+    if (!lead) return { ok: false, code: 404, status: 'unknown', paid: false, message: 'Lead not found for this payment order' };
     const config = resolvePaymentContext(form, await branchPaymentConfig(lead.branchId));
-    if (!publicPaymentEnabled(config)) return res.status(400).json({ message: 'Payment is not configured for this form' });
+    if (!publicPaymentEnabled(config)) return { ok: false, code: 400, status: 'unknown', paid: false, message: 'Payment is not configured for this form' };
     let orderPayload;
     try {
         orderPayload = await getJodoOrder(config, orderId);
     } catch (error) {
         const message = error.response?.data?.message || error.response?.data?.error || error.message || 'Unable to verify payment order';
-        return res.status(502).json({ message: `Payment verification failed: ${String(message).slice(0, 300)}` });
+        return { ok: false, code: 502, status: 'unknown', paid: false, message: `Payment verification failed: ${String(message).slice(0, 300)}` };
     }
     const order = jodoOrderData(orderPayload);
     const status = cleanOptional(order?.status, 40) || 'unpaid';
@@ -1277,7 +1380,47 @@ app.post('/api/public/enquiry-forms/:formKey/payment-callback', async (req, res)
      VALUES(?,?,?,?)`,
         [Number(lead.id), paid ? 'payment_completed' : 'payment_update', `Jodo payment ${status || 'callback received'} for order ${orderId}`, Number(form.actorUserId)],
     );
-    res.json({ message: 'Payment status updated', paid });
+    return { ok: true, status, paid, message: 'Payment status updated' };
+}
+
+function callbackOrderId(source) {
+    const payload = source && typeof source === 'object' ? source : {};
+    return normalizeJodoOrderId(payload) || cleanOptional(payload.order_id || payload.orderId || payload.id, 120) || '';
+}
+
+/*
+ * Jodo returns the payer by redirecting their browser, which is a GET. This
+ * used to be a POST-only route, so a successful payment ended on
+ * "Cannot GET /api/public/enquiry-forms/.../payment-callback" -- the payment
+ * had gone through and the applicant was staring at an Express 404.
+ *
+ * So: verify the order if we can identify it, then send the browser on to the
+ * form's redirect URL, or back to the public form with the outcome in the
+ * query string. A missing or unverifiable order id is not an error page
+ * either; the visitor still lands somewhere sensible and the Jodo webhook
+ * remains the authority on the final status.
+ */
+app.get('/api/public/enquiry-forms/:formKey/payment-callback', async (req, res) => {
+    const form = await publicFormDefinition(req.params.formKey, true);
+    if (!form) return res.status(404).json({ message: 'This enquiry form is not available' });
+    const orderId = callbackOrderId(req.query);
+    let outcome = { ok: false, status: 'unknown', paid: false };
+    try {
+        outcome = await applyEnquiryPaymentCallback(form, orderId);
+    } catch (error) {
+        console.error('Enquiry payment callback failed', { formKey: form.formKey, orderId, error: error.message });
+    }
+    const status = outcome.ok ? (outcome.paid ? 'paid' : String(outcome.status || 'unpaid').toLowerCase()) : 'unknown';
+    res.redirect(302, enquiryPaymentReturnUrl(req, form, orderId, status));
+});
+
+app.post('/api/public/enquiry-forms/:formKey/payment-callback', async (req, res) => {
+    const form = await publicFormDefinition(req.params.formKey, true);
+    if (!form) return res.status(404).json({ message: 'This enquiry form is not available' });
+    const orderId = callbackOrderId(req.body) || callbackOrderId(req.query);
+    const outcome = await applyEnquiryPaymentCallback(form, orderId);
+    if (!outcome.ok) return res.status(outcome.code).json({ message: outcome.message });
+    res.json({ message: outcome.message, paid: outcome.paid });
 });
 
 app.post('/api/public/enquiry-forms/:formKey/payment-status', async (req, res) => {
@@ -1591,12 +1734,28 @@ async function queryLeads(user, search, limit = null, options = {}) {
         : '';
     const [rows] = await pool.execute(
         `SELECT l.id, l.lead_number AS leadId, l.branch_id AS branchId, b.branch_name AS branch,
-            l.student_name AS studentName, l.phone, l.alternate_phone AS alternatePhone, l.email, l.parent_name AS parentName, l.city,
+            l.student_name AS studentName, l.student_id AS studentId, l.parked_at_utc AS parkedAt, l.phone, l.alternate_phone AS alternatePhone, l.email, l.parent_name AS parentName, l.city,
             l.application_payment_status AS paymentStatus,l.application_payment_amount AS paymentAmount,
             l.application_payment_at_utc AS paymentAt,l.jodo_order_id AS paymentOrderId,
             l.class_id AS classId, COALESCE(cls.display_name, l.applying_class) AS applyingClass,
             l.curriculum_id AS curriculumId, cur.display_name AS curriculum, l.academic_year AS academicYear,
             l.stage_id AS stageId, s.display_name AS stage, l.source_id AS sourceId, src.display_name AS source,
+            /*
+             * Every source the lead has, oldest first, not only the one on the
+             * lead row.
+             *
+             * A lead that re-enquires through a second advertisement gets a
+             * row in crm_lead_source_history; crm_leads.source_id keeps the
+             * first. Filtering and exporting read the list below, so a lead
+             * found through its second source is not invisible to a filter on
+             * that source. Ordered by id, so the first entry is the original
+             * and everything after it is a secondary source.
+             */
+            (SELECT GROUP_CONCAT(h.source_id ORDER BY h.id)
+               FROM crm_lead_source_history h WHERE h.lead_id=l.id) AS sourceIdList,
+            (SELECT GROUP_CONCAT(hsrc.display_name ORDER BY h.id SEPARATOR '||')
+               FROM crm_lead_source_history h JOIN crm_lead_sources hsrc ON hsrc.id=h.source_id
+              WHERE h.lead_id=l.id) AS sourceNameList,
             l.substage_id AS substageId, ss.display_name AS substage, l.channel_id AS channelId, ch.display_name AS channel,
             l.campaign_id AS campaignId, camp.display_name AS campaign, l.admission_type_id AS admissionTypeId,
             ch.category AS channelCategory, camp.category AS campaignCategory,
@@ -2217,8 +2376,8 @@ app.post('/api/leads', authenticate, requireCrmAccess, requireLeadWrite, async (
             `INSERT INTO crm_leads (business_unit_id,lead_number, branch_id, student_name, phone, normalized_phone, alternate_phone, email,
        applying_class, class_id, curriculum_id, academic_year, parent_name, city, stage_id, source_id,
        owner_employee_id, channel_id, campaign_id, admission_type_id, substage_id,
-       lead_score, remarks, custom_values_json, next_followup_at_utc, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       lead_score, remarks, custom_values_json, next_followup_at_utc, student_id, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [Number(req.businessUnit.id), temporaryNumber, Number(req.body.branchId), cleanOptional(req.body.studentName, 200), submittedPhone || '',
                 normalizedPhone, cleanOptional(req.body.alternatePhone, 30), cleanOptional(req.body.email, 254), cleanOptional(req.body.applyingClass, 50),
             req.body.classId ? Number(req.body.classId) : null, req.body.curriculumId ? Number(req.body.curriculumId) : null, cleanOptional(req.body.academicYear, 20),
@@ -2227,7 +2386,7 @@ app.post('/api/leads', authenticate, requireCrmAccess, requireLeadWrite, async (
             req.body.ownerEmployeeId ? Number(req.body.ownerEmployeeId) : null,
             req.body.channelId ? Number(req.body.channelId) : null, req.body.campaignId ? Number(req.body.campaignId) : null, req.body.admissionTypeId ? Number(req.body.admissionTypeId) : null,
             req.body.substageId ? Number(req.body.substageId) : null, Number(req.body.leadScore || 0),
-            cleanOptional(req.body.remarks, 10000), JSON.stringify(req.body.customValues || {}), followup.nextFollowupAt, Number(req.user.id)],
+            cleanOptional(req.body.remarks, 10000), JSON.stringify(req.body.customValues || {}), followup.nextFollowupAt, cleanOptional(req.body.studentId, 60), Number(req.user.id)],
         );
         const leadNumber = `ADM-${new Date().getFullYear()}-${String(result.insertId).padStart(6, '0')}`;
         await connection.execute(`UPDATE crm_leads SET lead_number = ? WHERE id = ?`, [leadNumber, result.insertId]);
@@ -2279,7 +2438,7 @@ app.put('/api/leads/:id', authenticate, requireCrmAccess, requireLeadWrite, asyn
       applying_class = ?, class_id = ?, curriculum_id = ?, parent_name = ?, city = ?, stage_id = ?,
       owner_assigned_at_utc = IF(NOT (owner_employee_id <=> ?), CURRENT_TIMESTAMP(6), owner_assigned_at_utc),
       owner_employee_id = ?, admission_type_id = ?, substage_id = ?,
-      lead_score = ?, remarks = ?, custom_values_json = ?, next_followup_at_utc = ?, updated_by_user_id = ?
+      lead_score = ?, remarks = ?, custom_values_json = ?, next_followup_at_utc = ?, student_id = ?, updated_by_user_id = ?
      WHERE l.id = ? AND l.deleted_at_utc IS NULL AND ${scope.sql}`,
         [cleanOptional(req.body.studentName, 200), cleanOptional(req.body.applyingClass, 50),
         req.body.classId ? Number(req.body.classId) : null, req.body.curriculumId ? Number(req.body.curriculumId) : null, cleanOptional(req.body.parentName, 200), cleanOptional(req.body.city, 100),
@@ -2288,7 +2447,7 @@ app.put('/api/leads/:id', authenticate, requireCrmAccess, requireLeadWrite, asyn
         req.body.ownerEmployeeId ? Number(req.body.ownerEmployeeId) : null,
         req.body.admissionTypeId ? Number(req.body.admissionTypeId) : null,
         req.body.substageId ? Number(req.body.substageId) : null, Number(req.body.leadScore || 0),
-        cleanOptional(req.body.remarks, 10000), JSON.stringify(req.body.customValues || {}), followup.nextFollowupAt, Number(req.user.id), Number(req.params.id), ...scope.params],
+        cleanOptional(req.body.remarks, 10000), JSON.stringify(req.body.customValues || {}), followup.nextFollowupAt, cleanOptional(req.body.studentId, 60), Number(req.user.id), Number(req.params.id), ...scope.params],
     );
     if (!result.affectedRows) return res.status(404).json({ message: 'Lead not found' });
     const [[pendingFollowup]] = await pool.execute(`SELECT id FROM crm_followups WHERE lead_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1`, [Number(req.params.id)]);
@@ -2307,6 +2466,33 @@ app.put('/api/leads/:id', authenticate, requireCrmAccess, requireLeadWrite, asyn
         link: `/leads?lead=${Number(req.params.id)}`, entityType: 'lead', entityId: Number(req.params.id),
     });
     res.json({ message: 'Lead updated successfully' });
+});
+
+/*
+ * Park a lead, or take it off the shelf.
+ *
+ * Deliberately not part of the lead update endpoint: that one rewrites every
+ * column from its request body, so parking through it would need the whole
+ * lead and could quietly blank a field the caller did not send. This touches
+ * two columns and nothing else.
+ */
+app.post('/api/leads/:id/park', authenticate, requireCrmAccess, requireLeadWrite, async (req, res) => {
+    const parked = req.body?.parked !== false;
+    const scope = leadScopedWhere(req.user);
+    const [result] = await pool.execute(
+        `UPDATE crm_leads l
+            SET l.parked_at_utc = ?, l.parked_by_user_id = ?, l.updated_at_utc = CURRENT_TIMESTAMP(6)
+          WHERE l.id = ? AND l.deleted_at_utc IS NULL AND ${scope.sql}`,
+        [parked ? new Date() : null, parked ? Number(req.user.id) : null, Number(req.params.id), ...scope.params],
+    );
+    // Not found rather than forbidden: a lead outside the caller's scope should
+    // not be distinguishable from one that does not exist.
+    if (!result.affectedRows) return res.status(404).json({ message: 'Lead not found' });
+    await pool.execute(
+        `INSERT INTO crm_lead_activities (lead_id, activity_type, summary, actor_user_id) VALUES (?, 'updated', ?, ?)`,
+        [Number(req.params.id), parked ? 'Lead parked for follow-up' : 'Lead taken off the parked list', Number(req.user.id)],
+    );
+    res.json({ success: true, parked });
 });
 
 app.put('/api/leads/:id/followup-notes', authenticate, requireCrmAccess, requireLeadWrite, async (req, res) => {
@@ -5600,6 +5786,7 @@ app.use('/api/callerdesk', createCallerDeskWebhookRoutes(pool));
 app.use('/api/smartflo', createSmartfloRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
 app.use('/api/smartflo', createSmartfloWebhookRoutes(pool));
 app.use('/api/jodo/payment-links', createJodoPaymentLinkRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
+app.use('/api/jodo/payment-link-batches', createPaymentLinkBatchRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
 app.use('/api/webhooks/jodo', createJodoWebhookRoutes(pool));
 app.use('/api/rbac', createRbacRoutes(pool, authenticate, requireCrmAccess, console));
 app.use('/api/branches', createBranchesRoutes(pool, authenticate, requireCrmAccess));
@@ -5701,6 +5888,26 @@ const runMarketingCampaignCycle = async () => {
 };
 setInterval(runMarketingCampaignCycle, 30_000).unref();
 runMarketingCampaignCycle();
+
+/*
+ * Uploaded mobile numbers become payment links here, a chunk at a time. Kept
+ * on its own cycle rather than inside the upload request: each row is a Jodo
+ * call and a WhatsApp send, and the work has to survive a restart.
+ */
+let paymentLinkBatchCycleRunning = false;
+const runPaymentLinkBatchCycle = async () => {
+    if (paymentLinkBatchCycleRunning) return;
+    paymentLinkBatchCycleRunning = true;
+    try {
+        await paymentLinkBatchEngine.run();
+    } catch (error) {
+        console.error('Bulk payment link cycle failed:', error.message);
+    } finally {
+        paymentLinkBatchCycleRunning = false;
+    }
+};
+setInterval(runPaymentLinkBatchCycle, 30_000).unref();
+runPaymentLinkBatchCycle();
 
 app.listen(port, () => {
     console.log(`Admissions CRM API running at http://localhost:${port}`);

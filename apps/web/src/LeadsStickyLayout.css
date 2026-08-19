@@ -575,11 +575,36 @@
    flex-basis values intended for wrapping; a grid makes every control yield
    evenly before the date control is pushed onto a second line. */
 @media (min-width: 1101px) {
+  /*
+   * One track per control, and the count is not written down.
+   *
+   * This was `repeat(4, ...) 36px minmax(190px)` -- six tracks for the six
+   * controls the row happened to hold. Adding a filter did not widen the
+   * grid; the extra item flowed into an implicit track and the 36px column
+   * meant for the checkbox landed under a filter, which is how two controls
+   * came to sit on top of each other. auto-fit sizes itself to whatever the
+   * row contains, so the next filter added here cannot repeat that.
+   */
   .leads-page .lead-control-row {
     display: grid;
-    grid-template-columns: repeat(4, minmax(120px, 1fr)) 36px minmax(190px, .95fr);
-    gap: 6px;
-    padding: 7px 10px;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 8px;
+    padding: 8px 10px;
+    align-items: center;
+  }
+
+  /* A 36px square should not be stretched across a whole track, and the
+     track it sits in can be the narrowest the row has. */
+  .leads-page .lead-control-row > .pending-followups-check {
+    justify-self: start;
+  }
+
+  /* A placeholder that cannot fit ends in an ellipsis rather than being
+     sliced mid-word: "All branche" reads like a bug, "All branch…" reads
+     like a narrow column. */
+  .leads-page .lead-control-row .search-select input {
+    min-width: 0;
+    text-overflow: ellipsis;
   }
 
   .leads-page .lead-control-row > .inline-lead-filter,
@@ -659,4 +684,115 @@
   .applied-filters-panel.collapsed .applied-filter-toggle:hover {
     transform: scale(1.06);
   }
+}
+
+/*
+ * Yes/No cells for the Payment and Student ID columns.
+ *
+ * A pill for the answer and, under it, the fact behind the answer -- the
+ * amount collected, the ID issued -- so the column reports and evidences in
+ * one place rather than making somebody open the lead to check.
+ */
+.leads-panel .lead-flag{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:800;line-height:1.5}
+.leads-panel .lead-flag.is-yes{background:var(--brand-50);color:var(--brand-700);box-shadow:inset 0 0 0 1px var(--brand-200)}
+.leads-panel .lead-flag.is-no{background:var(--surface-3);color:var(--ink-500);box-shadow:inset 0 0 0 1px var(--line)}
+.leads-panel .lead-flag-note{display:block;margin-top:3px;color:var(--ink-500);font-size:11px;font-variant-numeric:tabular-nums}
+
+/* =====================================================================
+   Parked leads: the pin in each row, and the switch that shows them.
+   ===================================================================== */
+
+.leads-page .park-col {
+  width: 34px;
+  padding-left: 2px;
+  padding-right: 2px;
+  text-align: center;
+}
+
+/* Outline until parked, filled after. Deliberately quieter than the row's
+   action buttons: it marks a lead rather than doing something to it. */
+.leads-page .park-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink-300);
+  cursor: pointer;
+  transition: color .15s var(--ease), background .15s var(--ease);
+}
+
+.leads-page .park-toggle:hover { background: var(--brand-50); color: var(--brand-600); }
+.leads-page .park-toggle.is-parked { color: var(--brand-600); }
+.leads-page .park-toggle:disabled { opacity: .5; cursor: progress; }
+
+/* ---- the toolbar switch ---- */
+
+.parked-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 13px;
+  border: 1px solid var(--ink-200);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink-600);
+  font: 700 12px var(--ff);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all .15s var(--ease);
+}
+
+.parked-switch:hover { border-color: var(--brand-400); color: var(--brand-700); }
+
+/* On, it is the state of the whole list, so it reads as switched on rather
+   than merely hovered. */
+.parked-switch.is-on {
+  background: var(--brand-600);
+  border-color: var(--brand-600);
+  color: #fff;
+}
+
+.parked-switch.is-on:hover { background: var(--brand-700); color: #fff; }
+
+.parked-switch-badge {
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--brand-50);
+  color: var(--brand-700);
+  font-size: 10px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.parked-switch.is-on .parked-switch-badge { background: rgba(255, 255, 255, .22); color: #fff; }
+
+@media (max-width: 760px) {
+  .parked-switch span:not(.parked-switch-badge) { display: none; }
+  .parked-switch { padding: 0 10px; }
+}
+
+/* A lead with more than one source: the count of the extras, named on hover.
+   Filtering by a secondary source otherwise returns rows whose Source cell
+   shows something else entirely. */
+.leads-panel .lead-source-more {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--brand-50);
+  color: var(--brand-700);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 800;
+  cursor: help;
 }

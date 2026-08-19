@@ -679,7 +679,7 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
       defaultCampaignId:req.body.defaultCampaignId?Number(req.body.defaultCampaignId):null,
       defaultOwnerEmployeeId:req.body.defaultOwnerEmployeeId?Number(req.body.defaultOwnerEmployeeId):null,
       fields,
-      settings:{...(req.body.settings&&typeof req.body.settings==='object'?req.body.settings:{}),defaultAcademicYear:text(req.body.settings?.defaultAcademicYear||req.body.defaultAcademicYear,20)},
+      settings:{...(req.body.settings&&typeof req.body.settings==='object'?req.body.settings:{}),defaultAcademicYear:text(req.body.settings?.defaultAcademicYear||req.body.defaultAcademicYear,20),paymentComponentType:text(req.body.settings?.paymentComponentType,120)},
       successMessage:text(req.body.successMessage,500)||'Thank you. Your enquiry has been submitted.',
       redirectUrl:text(req.body.redirectUrl,500),
       isActive:req.body.isActive!==false,

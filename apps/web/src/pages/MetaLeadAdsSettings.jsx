@@ -175,6 +175,20 @@ export default function MetaLeadAdsSettings() {
     setTimeout(() => setNotice(''), 4000);
   };
 
+  /*
+   * Stable across renders on purpose. App re-renders every second while the
+   * idle timer ticks, and an inline callback here would hand MetaLeadReview a
+   * new prop each time -- which is what had it refetching, and flickering,
+   * once a second.
+   */
+  const handleReviewMessage = useCallback((message) => {
+    if (!message) return;
+    if (message.type === 'error') { setError(message.text); setNotice(''); }
+    else { setNotice(message.text); setError(''); }
+    // Approving a lead moves it into the ledger, so refresh the counts.
+    loadAll();
+  }, [loadAll]);
+
   async function saveConfig() {
     setSaving(true);
     setError('');
@@ -670,13 +684,7 @@ export default function MetaLeadAdsSettings() {
       {/* Waiting leads sit above the history: what needs a decision comes
           before what has already been decided. */}
       <section className="panel card">
-        <MetaLeadReview onMessage={(message) => {
-          if (!message) return;
-          if (message.type === 'error') { setError(message.text); setNotice(''); }
-          else { setNotice(message.text); setError(''); }
-          // Approving a lead moves it into the ledger, so refresh the counts.
-          loadAll();
-        }} />
+        <MetaLeadReview onMessage={handleReviewMessage} />
       </section>
 
       <section className="panel card">

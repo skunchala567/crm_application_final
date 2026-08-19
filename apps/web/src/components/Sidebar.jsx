@@ -86,7 +86,7 @@ export function Sidebar({
   // The collapsed rail is a desktop affordance. The same stored preference
   // must not turn the mobile drawer into an icon strip.
   const rail = collapsed && isDesktop;
-  const { selectedUnit } = useBusinessUnit();
+  const { selectedUnit, units, selectedId, selectUnit } = useBusinessUnit();
 
   // Branding falls back to the product lockup when a unit has none set.
   const brandTitle = selectedUnit?.brandTitle?.trim() || 'Orbit';
@@ -133,14 +133,39 @@ export function Sidebar({
     };
   }, [flyout]);
 
-  // Preserve the incoming order while collecting items under their section.
-  const sections = [];
-  for (const entry of menu) {
-    const [label, path, Icon, section = 'Main'] = entry;
-    let group = sections.find((s) => s.title === section);
-    if (!group) { group = { title: section, items: [] }; sections.push(group); }
-    group.items.push({ label, path, Icon });
-  }
+  /*
+   * The nav is grouped by business unit, not by Main/Operations.
+   *
+   * Which unit you are working in used to be a dropdown above the menu, so
+   * the same six rows meant different data depending on a control you had to
+   * remember to read. Listing each unit's screens under its own name makes
+   * the scope part of the thing you click, the way Settings already lists its
+   * sub-screens.
+   *
+   * Every unit offers the same rows: permissions are granted per user, not
+   * per unit (loadUserPermissions takes a user id and nothing else), so the
+   * caller has already filtered `menu` to the screens this person may open.
+   */
+  const items = menu.map(([label, path, Icon]) => ({ label, path, Icon }));
+
+  const unitGroups = units.length
+    ? units
+    : (selectedUnit ? [selectedUnit] : [{ id: 'pending', name: 'Loading…' }]);
+
+  /*
+   * The unit you are in is open; the others are a click away. Kept in state
+   * rather than derived so a second unit can be left open while you work in
+   * the first, and re-opened whenever the active unit changes underneath.
+   */
+  const [expandedUnits, setExpandedUnits] = useState(() => new Set(selectedId ? [selectedId] : []));
+  useEffect(() => {
+    if (selectedId) setExpandedUnits((current) => new Set(current).add(selectedId));
+  }, [selectedId]);
+  const toggleUnit = (id) => setExpandedUnits((current) => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
 
   const settingsActive = location.pathname.startsWith('/settings');
 
@@ -261,49 +286,83 @@ export function Sidebar({
           )}
         </div>
 
-        {/* Business unit scope */}
-        <div className="px-3 pb-3 border-b border-border">
-          <BusinessUnitSelector compact={rail} />
-        </div>
+        {/* At 82px a unit's name cannot be drawn, so the rail keeps the
+            picker it always had. At full width the nav itself names every
+            unit, and a dropdown saying the same thing twice is one control
+            too many. */}
+        {rail && (
+          <div className="px-3 pb-3 border-b border-border">
+            <BusinessUnitSelector compact />
+          </div>
+        )}
 
         {/* ---------- Navigation ---------- */}
         <nav className="flex-1 overflow-y-auto overflow-x-hidden px-3 pt-1 pb-[14px] flex flex-col gap-0.5" aria-label="Primary">
-          {sections.map((section) => (
-            <div key={section.title} className="contents">
-              {rail ? (
-                // A rule stands in for the group heading, so the rail keeps
-                // the same grouping without a column of clipped words.
-                <div className="mx-auto my-2 h-px w-7 bg-border" aria-hidden="true" />
-              ) : (
-                <div className="px-2.5 pt-4 pb-[7px] text-[10px] font-bold tracking-[.1em] uppercase text-secondary-400">
-                  {section.title}
-                </div>
-              )}
-              {section.items.map(({ label, path, Icon }) => (
-                <RailTooltip key={label} label={label} active={rail}>
+          {/* The rail shows the active unit's screens only: the unit headings
+              it would need are exactly what does not fit at this width. */}
+          {rail && items.map(({ label, path, Icon }) => (
+            <RailTooltip key={label} label={label} active>
+              <NavLink
+                to={path}
+                end={path === '/'}
+                onClick={() => setMobileOpen(false)}
+                aria-label={label}
+                className={({ isActive }) =>
+                  rowClass(isActive || (label === 'Dashboard' && location.pathname.startsWith('/saved-reports')))
+                }
+              >
+                <Icon size={18} className="flex-shrink-0" />
+                <span className={labelClass}>{label}</span>
+              </NavLink>
+            </RailTooltip>
+          ))}
+
+          {!rail && unitGroups.map((unit) => {
+            const open = expandedUnits.has(unit.id);
+            const isCurrent = unit.id === selectedId;
+            return (
+              <div key={unit.id} className="contents">
+                <button
+                  type="button"
+                  onClick={() => toggleUnit(unit.id)}
+                  aria-expanded={open}
+                  className={cn(
+                    'flex items-center gap-2 w-full px-2.5 pt-4 pb-[7px] text-[10px] font-bold tracking-[.1em] uppercase',
+                    'transition-colors',
+                    isCurrent ? 'text-primary-700' : 'text-secondary-400 hover:text-secondary-600',
+                  )}
+                >
+                  {/* A filled dot marks the unit whose data every screen is
+                      currently showing, so an open group is never mistaken
+                      for the active one. */}
+                  <span className={cn('h-1.5 w-1.5 flex-none rounded-full', isCurrent ? 'bg-primary-600' : 'bg-border')} aria-hidden="true" />
+                  <span className="truncate">{unit.name}</span>
+                  <ChevronDown size={13} className={cn('ml-auto flex-none transition-transform', open ? 'rotate-180' : '')} />
+                </button>
+
+                {open && items.map(({ label, path, Icon }) => (
                   <NavLink
+                    key={`${unit.id}-${label}`}
                     to={path}
                     end={path === '/'}
-                    onClick={() => setMobileOpen(false)}
-                    // The label is hidden in the rail, so the accessible name
-                    // has to come from somewhere.
-                    aria-label={rail ? label : undefined}
-                    className={({ isActive }) =>
-                      rowClass(isActive || (label === 'Dashboard' && location.pathname.startsWith('/saved-reports')))
-                    }
+                    /* Picking a screen is what changes unit, so the row you
+                       click and the data you get are the same decision. */
+                    onClick={() => {
+                      if (unit.id !== selectedId) selectUnit(unit.id);
+                      setMobileOpen(false);
+                    }}
+                    className={({ isActive }) => rowClass(
+                      isCurrent
+                      && (isActive || (label === 'Dashboard' && location.pathname.startsWith('/saved-reports'))),
+                    )}
                   >
                     <Icon size={18} className="flex-shrink-0" />
                     <span className={labelClass}>{label}</span>
-                    {label === 'Follow-ups' && !rail && (
-                      <span className="ml-auto text-[10.5px] font-bold px-[7px] py-0.5 rounded-full bg-danger-bg text-danger">
-                        24
-                      </span>
-                    )}
                   </NavLink>
-                </RailTooltip>
-              ))}
-            </div>
-          ))}
+                ))}
+              </div>
+            );
+          })}
 
           {/* System group: Settings + submenu.
               The whole group is dropped when the user has no settings screen

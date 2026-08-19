@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Copy, Eye, X, CreditCard, FileText, Building2, ListChecks, MessageSquareText, Link, Tags, CircleDot, ListPlus, CalendarClock, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Copy, Eye, X, CreditCard, FileText, Building2, ListChecks, MessageSquareText, Link, Tags, CircleDot, ListPlus, CalendarClock, Pencil, Trash2, Info, Upload, Image as ImageIcon } from 'lucide-react';
 import { api } from '../api.js';
 import FormFieldBuilder from '../components/FormFieldBuilder.jsx';
 import '../styles/PaymentForms.css';
@@ -7,6 +7,8 @@ import '../styles/PaymentForms.css';
 const emptyForm = {
   title: '',
   description: '',
+  logo: '',
+  componentType: '',
   branchId: '',
   selectionType: 'single',
   fields: [],
@@ -19,6 +21,18 @@ const emptyForm = {
 
 /** "2026-08-20 23:59:59" -> "2026-08-20" for the date input. */
 const toDateInput = value => (value ? String(value).slice(0, 10) : '');
+
+/**
+ * An explanation parked behind an icon.
+ *
+ * The dialog carried three of these as paragraphs under their fields -- the
+ * Jodo component note alone ran to four lines -- which is what made it a
+ * scrolling form. The words are unchanged; they are simply not occupying the
+ * dialog until someone asks for them.
+ */
+function FieldInfo({ text }) {
+  return <button type="button" className="field-info-tip" title={text} aria-label={text}><Info size={12} /></button>;
+}
 
 const formatExpiry = value => (value
   ? new Date(value).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -72,6 +86,8 @@ export default function PaymentFormsPage({ onMessage }) {
       setFormData({
         title: detail.title || '',
         description: detail.description || '',
+        logo: detail.logo_url || '',
+        componentType: detail.jodo_component_type || '',
         branchId: String(detail.branch_id || ''),
         selectionType: detail.selection_type || 'single',
         fields: Array.isArray(detail.additional_fields_json) ? detail.additional_fields_json : [],
@@ -89,6 +105,26 @@ export default function PaymentFormsPage({ onMessage }) {
     }
   }
 
+  /*
+   * The logo is read into a data URI and travels with the form, the way a
+   * business unit's sidebar mark does -- there is no upload endpoint and no
+   * static file serving to depend on. 1 MB keeps a form row sane; anything a
+   * payer sees at 40px does not need more.
+   */
+  function pickLogo(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (file.size > 1024 * 1024) {
+      notify('error', 'Logo must be 1 MB or smaller');
+      event.target.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setFormData(current => ({ ...current, logo: String(reader.result || '') }));
+    reader.onerror = () => notify('error', 'Could not read that image');
+    reader.readAsDataURL(file);
+  }
+
   async function handleSave() {
     if (!formData.title || !formData.branchId) {
       notify('error', 'Title and branch are required');
@@ -104,6 +140,8 @@ export default function PaymentFormsPage({ onMessage }) {
     const payload = {
       title: formData.title,
       description: formData.description,
+      logo: formData.logo || null,
+      componentType: formData.componentType || null,
       branchId: Number(formData.branchId),
       selectionType: formData.selectionType,
       fields: formData.fields,
@@ -292,7 +330,7 @@ export default function PaymentFormsPage({ onMessage }) {
         <div className="modal-overlay">
           <section className="modal-content payment-form-modal">
             <header className="modal-header">
-              <div className="payment-modal-title"><span><CreditCard size={19} /></span><div><h2>{editingId ? 'Edit Payment Form' : 'Create Payment Form'}</h2><p>Configure customer details and payment options.</p></div></div>
+              <div className="payment-modal-title"><span><CreditCard size={19} /></span><div><h2>{editingId ? 'Edit Payment Form' : 'Create Payment Form'}</h2></div></div>
               <button type="button" onClick={() => { setShowCreate(false); setEditingId(null); }}>
                 <X size={20} />
               </button>
@@ -322,6 +360,30 @@ export default function PaymentFormsPage({ onMessage }) {
               </div>
 
               <div className="form-group">
+                <label>
+                  <ImageIcon size={14} />Logo <span className="field-hint">optional</span>
+                  <FieldInfo text="PNG, JPG, GIF or WebP up to 1 MB. Shown beside the title on the public payment page." />
+                </label>
+                {/* The native file input states its own filename and cannot be
+                    shortened, so it is hidden behind a button the row can size. */}
+                <div className="payment-logo-picker">
+                  {formData.logo
+                    ? <img src={formData.logo} alt="Payment form logo preview" />
+                    : <span className="payment-logo-empty"><ImageIcon size={15} /></span>}
+                  <label className="payment-logo-choose" title={formData.logo ? 'Replace the logo' : 'Choose a logo'}>
+                    <Upload size={13} />
+                    <span>{formData.logo ? 'Replace' : 'Choose file'}</span>
+                    <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={pickLogo} />
+                  </label>
+                  {formData.logo && (
+                    <button type="button" className="payment-logo-clear" title="Remove logo" aria-label="Remove logo" onClick={() => setFormData({ ...formData, logo: '' })}>
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="form-group">
                 <label><Building2 size={14} />Branch *</label>
                 <select
                   value={formData.branchId}
@@ -344,35 +406,47 @@ export default function PaymentFormsPage({ onMessage }) {
                     type="button"
                     className={formData.selectionType === 'single' ? 'active' : ''}
                     aria-pressed={formData.selectionType === 'single'}
+                    title="The payer picks one category"
                     onClick={() => setFormData({ ...formData, selectionType: 'single' })}
                   >
-                    <CircleDot size={15} />
-                    <span><strong>Single</strong><small>One category</small></span>
+                    <CircleDot size={14} />Single
                   </button>
                   <button
                     type="button"
                     className={formData.selectionType === 'multiple' ? 'active' : ''}
                     aria-pressed={formData.selectionType === 'multiple'}
+                    title="The payer can pick several categories and pay the total"
                     onClick={() => setFormData({ ...formData, selectionType: 'multiple' })}
                   >
-                    <ListPlus size={15} />
-                    <span><strong>Multiple</strong><small>Many categories</small></span>
+                    <ListPlus size={14} />Multiple
                   </button>
                 </div>
               </div>
 
               <div className="form-group">
-                <label><CalendarClock size={14} />Expiry Date</label>
+                <label>
+                  <CalendarClock size={14} />Expiry Date
+                  <FieldInfo text="The link stops accepting payments at the end of the chosen day. Leave blank for no expiry." />
+                </label>
                 <input
                   type="date"
                   value={formData.expiresOn}
                   onChange={e => setFormData({ ...formData, expiresOn: e.target.value })}
                 />
-                <small className="field-hint">
-                  {formData.expiresOn
-                    ? 'The link stops accepting payments at the end of this day.'
-                    : 'Leave blank for no expiry.'}
-                </small>
+              </div>
+
+              <div className="form-group">
+                <label>
+                  <Tags size={14} />Jodo Component <span className="field-hint">optional</span>
+                  <FieldInfo text="The component this form's payments settle against in Jodo, which is how they are told apart there. Must match a component configured on the branch's Jodo collector, or Jodo rejects the payment. Leave blank to use the branch default." />
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Sports Fee"
+                  value={formData.componentType}
+                  onChange={e => setFormData({ ...formData, componentType: e.target.value })}
+                  maxLength={120}
+                />
               </div>
 
               <div className="form-group">
@@ -422,6 +496,9 @@ export default function PaymentFormsPage({ onMessage }) {
                     {formData.categories.length > 1 && (
                       <button
                         type="button"
+                        className="category-remove"
+                        title={`Remove ${cat.name || 'this category'}`}
+                        aria-label={`Remove ${cat.name || 'this category'}`}
                         onClick={() => {
                           setFormData({
                             ...formData,
@@ -429,13 +506,14 @@ export default function PaymentFormsPage({ onMessage }) {
                           });
                         }}
                       >
-                        <X size={16} />
+                        <X size={15} />
                       </button>
                     )}
                   </div>
                 ))}
                 <button
                   type="button"
+                  className="category-add"
                   onClick={() => {
                     setFormData({
                       ...formData,
@@ -443,29 +521,32 @@ export default function PaymentFormsPage({ onMessage }) {
                     });
                   }}
                 >
-                  <Plus size={16} />
-                  Add Category
+                  <Plus size={15} />
+                  Add category
                 </button>
               </fieldset>
 
-              <div className="form-group">
-                <label><MessageSquareText size={14} />Success Message</label>
-                <textarea
-                  placeholder="Message shown after successful payment"
-                  value={formData.successMessage}
-                  onChange={e => setFormData({ ...formData, successMessage: e.target.value })}
-                  rows={2}
-                />
-              </div>
+              {/* Two short fields that were a row each. */}
+              <div className="payment-form-tail-row">
+                <div className="form-group">
+                  <label><MessageSquareText size={14} />Success Message</label>
+                  <textarea
+                    placeholder="Message shown after successful payment"
+                    value={formData.successMessage}
+                    onChange={e => setFormData({ ...formData, successMessage: e.target.value })}
+                    rows={2}
+                  />
+                </div>
 
-              <div className="form-group">
-                <label><Link size={14} />Redirect URL (after payment)</label>
-                <input
-                  type="url"
-                  placeholder="https://example.com/success"
-                  value={formData.redirectUrl}
-                  onChange={e => setFormData({ ...formData, redirectUrl: e.target.value })}
-                />
+                <div className="form-group">
+                  <label><Link size={14} />Redirect URL <span className="field-hint">after payment</span></label>
+                  <input
+                    type="url"
+                    placeholder="https://example.com/success"
+                    value={formData.redirectUrl}
+                    onChange={e => setFormData({ ...formData, redirectUrl: e.target.value })}
+                  />
+                </div>
               </div>
 
               <div className="modal-footer">

@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
-import { CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Download, Filter, History, Megaphone, NotebookPen, MessageCircle, Mail, MoreVertical, PanelRightClose, PanelRightOpen, PhoneCall, Pencil, Plus, RotateCcw, Search, Trash2, Upload, UserRoundPlus, X, GitBranch, MessageSquare} from "lucide-react";
+import { Bookmark, BookmarkCheck, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Download, Filter, History, Megaphone, NotebookPen, MessageCircle, Mail, MoreVertical, PanelRightClose, PanelRightOpen, PhoneCall, Pencil, Plus, RotateCcw, Search, Trash2, Upload, UserRoundPlus, X, GitBranch, MessageSquare} from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { api } from "./api";
@@ -23,6 +23,7 @@ import "./ProjectPagination.css";
 
 const emptyForm = {
   studentName: "",
+  studentId: "",
   phone: "",
   alternatePhone: "",
   email: "",
@@ -49,6 +50,39 @@ const emptyForm = {
 };
 
 const cleanPhone = (value) => String(value || "").replace(/\D/g, "").slice(-10);
+
+/*
+ * Whether the lead's application payment has actually been collected.
+ *
+ * Jodo reports several words for money that arrived -- paid on capture,
+ * settled once it reaches the account -- and the screen must not treat a
+ * settled payment as unpaid. Everything else, a started order or no order at
+ * all, is not paid.
+ */
+/*
+ * Every source a lead came through, oldest first.
+ *
+ * A lead that re-enquires through a second advertisement keeps its original
+ * source on the lead row and gains a row in its source history. Filtering on
+ * the lead row alone therefore could not find a lead by the source that
+ * actually brought it back -- and the export had the same blind spot.
+ *
+ * The first entry is the primary source; everything after it is secondary,
+ * which is what the history's own ordering already means.
+ */
+function leadSources(lead) {
+  const ids = String(lead?.sourceIdList || "").split(",").map(part => part.trim()).filter(Boolean);
+  const names = String(lead?.sourceNameList || "").split("||").map(part => part.trim());
+  // A lead with no history row at all still has the source on its own row.
+  if (!ids.length) return lead?.sourceId ? [{ id: String(lead.sourceId), name: lead.source || "" }] : [];
+  return ids.map((id, index) => ({ id, name: names[index] || "" }));
+}
+
+const secondarySources = (lead) => leadSources(lead).slice(1);
+
+const PAID_STATUSES = ["paid", "settled", "success", "completed", "captured"];
+const isPaymentCollected = (lead) => PAID_STATUSES.includes(String(lead?.paymentStatus || "").toLowerCase());
+const hasStudentId = (lead) => Boolean(String(lead?.studentId || "").trim());
 
 function toLocalInput(value) {
   if (!value) return "";
@@ -338,6 +372,9 @@ function FunnelStrip({
   onAddLead,
   onClearFilters,
   onOpenFilters,
+  parkedOnly,
+  onToggleParked,
+  parkedCount = 0,
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const moreMenuRef = useRef(null);
@@ -415,6 +452,23 @@ function FunnelStrip({
           <Plus size={17} />
           Add lead
           <span className="add-lead-shortcut" aria-hidden="true"><kbd>Ctrl/⌘</kbd><kbd>Q</kbd></span>
+        </button>
+
+        {/* Parked leads: a switch rather than another filter chip, because it
+            answers a different question -- not "which leads match" but "show
+            me the ones I put aside". The badge counts them whether the switch
+            is on or off, so the shelf is visible without opening it. */}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={Boolean(parkedOnly)}
+          className={parkedOnly ? "parked-switch is-on" : "parked-switch"}
+          onClick={onToggleParked}
+          title={parkedOnly ? "Showing parked leads only. Click to show all leads." : "Show only parked leads"}
+        >
+          <Bookmark size={16} className="parked-switch-icon" />
+          <span>Parked</span>
+          {parkedCount > 0 && <span className="parked-switch-badge">{parkedCount > 99 ? "99+" : parkedCount}</span>}
         </button>
 
         <div className="lead-quick-actions funnel-filter-actions">
@@ -603,6 +657,10 @@ function buildLeadExportGroups(meta) {
   const base = [
     { id:"leadId", label:"Lead ID", group:"Lead details", defaultSelected:true, get:lead=>lead.leadId },
     { id:"studentName", label:"Student name", group:"Lead details", defaultSelected:true, get:lead=>lead.studentName },
+    { id:"studentId", label:"Student ID", group:"Lead details", get:lead=>lead.studentId || "" },
+    { id:"studentIdGenerated", label:"Student ID generated", group:"Lead details", defaultSelected:true, get:lead=>hasStudentId(lead) ? "Yes" : "No" },
+    { id:"paymentDone", label:"Payment status", group:"Lead details", defaultSelected:true, get:lead=>isPaymentCollected(lead) ? "Yes" : "No" },
+    { id:"paymentAmount", label:"Payment amount", group:"Lead details", get:lead=>isPaymentCollected(lead) ? Number(lead.paymentAmount || 0) : "" },
     { id:"primaryPhone", label:"Primary phone", group:"Communication details", defaultSelected:true, get:lead=>lead.phone },
     { id:"alternatePhone", label:"Alternate phone", group:"Communication details", get:lead=>lead.alternatePhone },
     { id:"email", label:"Email", group:"Communication details", get:lead=>lead.email },
@@ -615,7 +673,14 @@ function buildLeadExportGroups(meta) {
     { id:"admissionType", label:"Admission type", group:"Academic details", get:lead=>lead.admissionType },
     { id:"stage", label:"Stage", group:"Lead journey details", defaultSelected:true, get:lead=>lead.stage },
     { id:"substage", label:"Sub-stage", group:"Lead journey details", get:lead=>meta.substages.find(item=>String(item.id)===String(lead.substageId))?.displayName || "" },
-    { id:"source", label:"Source", group:"Source details", get:lead=>lead.source },
+    { id:"source", label:"Source", group:"Source details", get:lead=>leadSources(lead)[0]?.name || lead.source || "" },
+    /* The export had the same blind spot as the filter: a lead found through
+       a second advertisement exported as though it only ever had the first. */
+    { id:"secondarySources", label:"Secondary sources", group:"Source details",
+      get:lead=>secondarySources(lead).map(item=>item.name).filter(Boolean).join(", ") },
+    { id:"allSources", label:"All sources", group:"Source details",
+      get:lead=>leadSources(lead).map(item=>item.name).filter(Boolean).join(", ") },
+    { id:"sourceCount", label:"Source count", group:"Source details", get:lead=>leadSources(lead).length },
     { id:"channel", label:"Channel", group:"Source details", get:lead=>meta.channels.find(item=>String(item.id)===String(lead.channelId))?.displayName || "" },
     { id:"campaign", label:"Campaign", group:"Source details", get:lead=>meta.campaigns.find(item=>String(item.id)===String(lead.campaignId))?.displayName || "" },
     { id:"owner", label:"Counsellor", group:"Lead ownership", defaultSelected:true, get:lead=>lead.owner },
@@ -675,7 +740,6 @@ export default function LeadsPage() {
   });
   const [search, setSearch] = useState("");
   const [stageFilter, setStageFilter] = useState("");
-  const [paymentStatusFilter, setPaymentStatusFilter] = useState("");
   const [branchFilter, setBranchFilter] = useState([]);
   const [loading, setLoading] = useState(true);
   const [drawer, setDrawer] = useState(null);
@@ -685,6 +749,14 @@ export default function LeadsPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
+  /*
+   * Leads set aside to come back to, and whether the list is showing only
+   * them. Parking is a property of the lead, so it is written straight
+   * through rather than held here -- this only tracks the rows in flight so
+   * a second click cannot fire before the first has answered.
+   */
+  const [parkedOnly, setParkedOnly] = useState(false);
+  const [parkingIds, setParkingIds] = useState([]);
   const [openActionId,setOpenActionId]=useState(null);
   useEffect(() => {
     if (!openActionId) return undefined;
@@ -713,7 +785,6 @@ export default function LeadsPage() {
   }, [openActionId]);
   const [referLead,setReferLead]=useState(null);
   const [followupModal,setFollowupModal]=useState(null);
-  const [historyModal,setHistoryModal]=useState(null);
   const [followupForm,setFollowupForm]=useState({stageId:"",substageId:"",comment:"",comments:[],nextFollowupAt:"",followupType:"",referralBranchId:"",referralEmployeeId:""});
   const [referBranchId,setReferBranchId]=useState("");
   const [referEmployeeId,setReferEmployeeId]=useState("");
@@ -1021,10 +1092,19 @@ export default function LeadsPage() {
       leads.filter(
         (lead) =>
           (!branchFilter.length || branchFilter.includes(String(lead.branchId))) &&
-          (!paymentStatusFilter || (paymentStatusFilter==='collected'
-            ? ['paid','settled','success','completed','captured'].includes(String(lead.paymentStatus||'').toLowerCase())
-            : String(lead.paymentStatus||'').toLowerCase()===paymentStatusFilter)) &&
-          (!advancedFilters.sourceId.length || advancedFilters.sourceId.includes(String(lead.sourceId))) &&
+          /* "yes"/"no" answer the Payment column; the remaining values are the
+             Jodo statuses this filter has always offered. */
+          (!advancedFilters.paymentStatus.length || advancedFilters.paymentStatus.some(value =>
+            value === "yes" ? isPaymentCollected(lead)
+              : value === "no" ? !isPaymentCollected(lead)
+                : String(lead.paymentStatus || "").toLowerCase() === value)) &&
+          (!advancedFilters.studentIdStatus.length || advancedFilters.studentIdStatus.some(value =>
+            value === "yes" ? hasStudentId(lead) : !hasStudentId(lead))) &&
+          /* The switch is a view, not a filter: on, it shows the shelf and
+             nothing else; off, it says nothing about which leads appear. */
+          (!parkedOnly || Boolean(lead.parkedAt)) &&
+          /* Any of the lead's sources, primary or secondary. */
+          (!advancedFilters.sourceId.length || leadSources(lead).some(item => advancedFilters.sourceId.includes(item.id))) &&
           (!advancedFilters.ownerEmployeeId.length || advancedFilters.ownerEmployeeId.includes(String(lead.ownerEmployeeId))) &&
           (!advancedFilters.classId.length || advancedFilters.classId.includes(String(lead.classId))) &&
           (!advancedFilters.curriculumId.length || advancedFilters.curriculumId.includes(String(lead.curriculumId))) &&
@@ -1061,8 +1141,9 @@ export default function LeadsPage() {
           matchesDateRange(lead, "nextFollowup", advancedFilters.nextFollowupFrom || advancedFilters.followupFrom, advancedFilters.nextFollowupTo || advancedFilters.followupTo) &&
           matchesDateRange(lead, "reEnquiredAt", advancedFilters.reEnquiredFrom, advancedFilters.reEnquiredTo),
       ),
-    [leads, branchFilter, paymentStatusFilter, advancedFilters],
+    [leads, branchFilter, advancedFilters, parkedOnly],
   );
+  const parkedCount = useMemo(() => leads.filter(lead => lead.parkedAt).length, [leads]);
   const filtered = useMemo(
     () => leadsMatchingActiveFilters.filter(
       lead =>
@@ -1097,6 +1178,8 @@ export default function LeadsPage() {
     add(lead, "Branch", findLabels(branchFilter, meta.branches));
     add(lead, "Touch status", advancedFilters.touchStatus.map(value => value === "touched" ? "Is touched" : value === "untouched" ? "Untouched" : value));
     add(lead, "Lead added via", advancedFilters.leadEntryPath.map(value => ({manual:"Manually added",bulk_upload:"Bulk upload",google_sheets:"Google Sheets",integration:"Integration (Facebook and others)",website_form:"Website enquiry form"}[value] || value)));
+    add(lead, "Payment status", advancedFilters.paymentStatus.map(value => ({yes:"Paid",no:"Not paid",order_created:"Order created",unpaid:"Unpaid",expired:"Expired",failed:"Failed"}[value] || value)));
+    add(lead, "Student ID generated", advancedFilters.studentIdStatus.map(value => value === "yes" ? "Generated" : "Not generated"));
     add(lead, "Pending follow-ups", advancedFilters.pendingFollowupsOnly ? "Due through today" : "");
     add(lead, "Sub-stage", findLabels(advancedFilters.substageId, meta.substages));
     add(lead, "Lead source", findLabels(advancedFilters.sourceId, meta.sources));
@@ -1193,6 +1276,29 @@ export default function LeadsPage() {
       setMessage({ type: "success", text: result.message });
     } catch (error) {
       setMessage({ type: "error", text: error.message });
+    }
+  }
+
+  /**
+   * Park or unpark one lead.
+   *
+   * The row updates as soon as the server confirms, without reloading the
+   * list: a parked lead stays where it is so the next one is still under the
+   * pointer, which is the whole point of setting several aside in a row.
+   */
+  async function toggleParked(lead) {
+    if (parkingIds.includes(lead.id)) return;
+    const next = !lead.parkedAt;
+    setParkingIds(current => [...current, lead.id]);
+    try {
+      await api(`/leads/${lead.id}/park`, { method: "POST", body: JSON.stringify({ parked: next }) });
+      setLeads(current => current.map(item => (
+        item.id === lead.id ? { ...item, parkedAt: next ? new Date().toISOString() : null } : item
+      )));
+    } catch (error) {
+      setMessage({ type: "error", text: error.message });
+    } finally {
+      setParkingIds(current => current.filter(id => id !== lead.id));
     }
   }
 
@@ -1353,9 +1459,19 @@ export default function LeadsPage() {
     } catch (error) { setMessage({type:"error",text:error.message}); }
   }
 
+  /*
+   * History is a tab of the lead dialog, not a dialog of its own.
+   *
+   * Both were built on the same GET /leads/:id payload and showed the same
+   * lead -- one its details, the other what had happened to it -- so opening
+   * one to answer a question about the other meant closing it first. The
+   * icon on the row still goes straight to the history, it just arrives
+   * inside the dialog that already holds everything else.
+   */
   async function openHistory(lead){
     setOpenActionId(null);
-    try{const {data}=await api(`/leads/${lead.id}`);setHistoryModal(data)}catch(error){setMessage({type:"error",text:error.message})}
+    await openLead(lead.id, "view");
+    setDrawerTab("history");
   }
 
   async function saveFollowup(event) {
@@ -1546,7 +1662,7 @@ export default function LeadsPage() {
     <main className={`page leads-page ${showAppliedFiltersPanel ? (appliedFiltersExpanded ? "applied-filters-open" : "applied-filters-collapsed") : ""}`}>
       <section className="lead-command-center">
         <div className="funnel-callout">
-          <FunnelStrip funnels={funnels} onApply={applyFunnel} onDelete={deleteFunnel} onCreate={createFunnel} onAddLead={openCreate} onClearFilters={clearLeadFilters} onOpenFilters={() => setFilterPanel("filter")}/>
+          <FunnelStrip funnels={funnels} onApply={applyFunnel} onDelete={deleteFunnel} onCreate={createFunnel} onAddLead={openCreate} onClearFilters={clearLeadFilters} onOpenFilters={() => setFilterPanel("filter")} parkedOnly={parkedOnly} onToggleParked={() => setParkedOnly(current => !current)} parkedCount={parkedCount}/>
         </div>
         <div className={`stage-tabs-shell ${stageTabScroll.overflow ? "has-overflow" : ""}`}>
           <button type="button" className="stage-scroll-button previous" aria-label="Show previous lead stages" disabled={!stageTabScroll.left} onClick={() => moveStageTabs(-1)}><ChevronLeft size={15}/></button>
@@ -1562,7 +1678,7 @@ export default function LeadsPage() {
           <div className="inline-lead-filter touch-status-filter"><span>Touch status</span><div className="touch-status-control"><MultiSearchSelect label="Touch status" value={advancedFilters.touchStatus} onChange={value=>setAdvancedFilters(current=>({...current,touchStatus:value}))} options={[{value:"",label:"Any touch status"},{value:"touched",label:"Is touched"},{value:"untouched",label:"Untouched"}]}/><span className={`touch-status-count-badge ${untouchedAssignedCount>0?"has-untouched":""}`} title={`${untouchedAssignedCount} untouched leads assigned to you`}>{untouchedAssignedCount>99?"99+":untouchedAssignedCount}</span></div></div>
           <div className="inline-lead-filter"><span>Sub-stage</span><MultiSearchSelect label="Sub-stage" value={advancedFilters.substageId} onChange={value=>setAdvancedFilters(current=>({...current,substageId:value}))} options={[{value:"",label:"All sub-stages"},...meta.substages.filter(item=>!stageFilter||String(item.stageId)===String(meta.stages.find(stage=>stage.displayName===stageFilter)?.id)).map(item=>({value:String(item.id),label:item.displayName}))]}/></div>
           <div className="inline-lead-filter"><span>Source</span><MultiSearchSelect label="Source" value={advancedFilters.sourceId} onChange={value=>setAdvancedFilters(current=>({...current,sourceId:value}))} options={[{value:"",label:"All sources"},...meta.sources.map(item=>({value:String(item.id),label:item.displayName}))]}/></div>
-          <label className="inline-lead-filter"><span>Payment status</span><select value={paymentStatusFilter} onChange={event=>setPaymentStatusFilter(event.target.value)}><option value="">All payment statuses</option><option value="collected">Payment collected</option><option value="order_created">Order created</option><option value="unpaid">Unpaid</option><option value="expired">Expired</option><option value="failed">Failed</option></select></label>
+          <div className="inline-lead-filter"><span>Student ID</span><MultiSearchSelect label="Student ID" value={advancedFilters.studentIdStatus} onChange={value=>setAdvancedFilters(current=>({...current,studentIdStatus:value}))} options={[{value:"",label:"All leads"},{value:"yes",label:"Generated"},{value:"no",label:"Not generated"}]}/></div>
           <label className={`pending-followups-check ${advancedFilters.pendingFollowupsOnly?"active":""}`} data-tooltip="Show pending follow-ups due from the beginning through today">
             <input type="checkbox" checked={Boolean(advancedFilters.pendingFollowupsOnly)} onChange={event=>setAdvancedFilters(current=>({...current,pendingFollowupsOnly:event.target.checked}))}/>
             <span className="sr-only">Pending follow-ups due through today</span>
@@ -1594,10 +1710,13 @@ export default function LeadsPage() {
             <thead>
               <tr>
                 <th><input type="checkbox" aria-label="Select all visible leads" checked={filtered.length > 0 && filtered.every(lead => selectedIds.includes(lead.id))} onChange={event => setSelectedIds(event.target.checked ? filtered.map(lead => lead.id) : [])}/></th>
+                <th className="park-col"><span className="sr-only">Parked</span></th>
                 <th>Student</th>
                 <th>Class</th>
                 <th>Source</th>
                 <th>Stage</th>
+                <th>Payment</th>
+                <th>Student ID</th>
                 <th>Owner</th>
                 <th>Next follow-up</th>
                 <th>Recent modified</th>
@@ -1608,6 +1727,22 @@ export default function LeadsPage() {
               {paginatedLeads.map((lead) => (
                 <tr key={lead.id}>
                   <td><input type="checkbox" aria-label={`Select ${lead.studentName}`} checked={selectedIds.includes(lead.id)} onChange={event => setSelectedIds(current => event.target.checked ? [...new Set([...current, lead.id])] : current.filter(id => id !== lead.id))}/></td>
+                  {/* Distinct from the selection box beside it on purpose: a
+                      tick selects a row for a bulk action and is forgotten on
+                      reload, a filled pin is stored on the lead. */}
+                  <td className="park-col">
+                    <button
+                      type="button"
+                      className={lead.parkedAt ? "park-toggle is-parked" : "park-toggle"}
+                      aria-pressed={Boolean(lead.parkedAt)}
+                      disabled={parkingIds.includes(lead.id)}
+                      title={lead.parkedAt ? `Parked · click to remove ${lead.studentName} from the parked list` : `Park ${lead.studentName} to follow up later`}
+                      aria-label={lead.parkedAt ? `Remove ${lead.studentName} from the parked list` : `Park ${lead.studentName}`}
+                      onClick={() => toggleParked(lead)}
+                    >
+                      {lead.parkedAt ? <BookmarkCheck size={17} /> : <Bookmark size={17} />}
+                    </button>
+                  </td>
                   <td>
                     <div className="student">
                       <button type="button" className={`avatar muted lead-view-avatar ${lead.touchStatus||"unassigned"}`} title={`${lead.studentName}${lead.touchStatus!=="unassigned"?` · ${lead.touchStatus}`:""}`} aria-label={`View ${lead.studentName}${lead.touchStatus!=="unassigned"?`, ${lead.touchStatus}`:""}`} onClick={()=>openLead(lead.id,"view")}>
@@ -1622,18 +1757,39 @@ export default function LeadsPage() {
                           <strong className="lead-view-name">{lead.studentName}</strong>
                         </span>
                         <small>{lead.phone}</small>
-                        {['paid','settled','success','completed','captured'].includes(String(lead.paymentStatus||'').toLowerCase())&&<small className="text-emerald-700 font-semibold">Paid ₹{Number(lead.paymentAmount||0).toLocaleString('en-IN')}</small>}
                       </span>
                     </div>
                   </td>
                   <td><div className="lead-academic"><strong>{[lead.curriculum,lead.applyingClass].filter(Boolean).join(" - ") || "—"}</strong><small>{lead.branch || "—"}</small></div></td>
-                  <td><div className="lead-source"><span>{lead.source || "—"}</span><small>{lead.addedAt?new Date(lead.addedAt).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}):"—"}</small></div></td>
+                  <td><div className="lead-source">
+                    <span>
+                      {leadSources(lead)[0]?.name || lead.source || "—"}
+                      {/* Without this, a lead matched on a secondary source
+                          looks like it should not be in the results. */}
+                      {secondarySources(lead).length > 0 && (
+                        <em className="lead-source-more" title={`Also from: ${secondarySources(lead).map(item=>item.name).join(", ")}`}>
+                          +{secondarySources(lead).length}
+                        </em>
+                      )}
+                    </span>
+                    <small>{lead.addedAt?new Date(lead.addedAt).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}):"—"}</small>
+                  </div></td>
                   <td>
                     <span
                       className={`stage ${String(lead.stage).toLowerCase().replaceAll(" ", "-")}`}
                     >
                       {lead.stage}
                     </span>
+                  </td>
+                  {/* Yes only once the money is actually collected; an order
+                      that was created and never paid is still No. */}
+                  <td>
+                    <span className={`lead-flag ${isPaymentCollected(lead) ? "is-yes" : "is-no"}`}>{isPaymentCollected(lead) ? "Yes" : "No"}</span>
+                    {isPaymentCollected(lead) && Number(lead.paymentAmount) > 0 && <small className="lead-flag-note">₹{Number(lead.paymentAmount).toLocaleString("en-IN")}</small>}
+                  </td>
+                  <td>
+                    <span className={`lead-flag ${hasStudentId(lead) ? "is-yes" : "is-no"}`}>{hasStudentId(lead) ? "Yes" : "No"}</span>
+                    {hasStudentId(lead) && <small className="lead-flag-note">{lead.studentId}</small>}
                   </td>
                   <td>{lead.owner}</td>
                   <td>
@@ -1807,30 +1963,6 @@ export default function LeadsPage() {
           <label className="wide">New comment *<textarea required rows="4" placeholder="Write a new comment…" value={followupForm.comment} onChange={e=>setFollowupForm({...followupForm,comment:e.target.value})}/></label>
         </div><footer><button type="button" className="secondary" onClick={()=>setFollowupModal(null)}>Cancel</button><button className="primary" disabled={saving}>{saving?"Saving…":"Save follow-up"}</button></footer></form>
       </section></>}
-      {historyModal&&<><div className="drawer-backdrop" onClick={()=>setHistoryModal(null)}/><section className="lead-history-dialog" role="dialog" aria-modal="true" aria-labelledby="lead-history-title">
-        <header><div><span className="eyebrow">Lead history</span><h2 id="lead-history-title">{historyModal.studentName}</h2><p>{historyModal.leadId}</p></div><button type="button" className="icon-btn" onClick={()=>setHistoryModal(null)}><X/></button></header>
-        <div className="history-current-grid">
-          <div><span>Current stage</span><strong>{historyModal.stage||"—"}</strong></div>
-          <div><span>Current sub-stage</span><strong>{meta.substages.find(item=>String(item.id)===String(historyModal.substageId))?.displayName||"Not specified"}</strong></div>
-          <div><span>Next follow-up</span><strong>{historyModal.nextFollowupAt?new Date(historyModal.nextFollowupAt).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}):"Not scheduled"}</strong></div>
-          <div><span>Lead owner</span><strong>{historyModal.owner||"Unassigned"}</strong></div>
-        </div>
-        {/* What used to be the lead modal's Activity tab. The two showed the
-            same lead from the same payload -- one as a flat comment list, the
-            other as a timeline -- so history is now the single place that
-            answers "what has happened to this lead", in the richer form. */}
-        <div className="history-body">
-          <section className="form-section lead-dates-section">
-            <h3>Lead timeline</h3>
-            <LeadTimeline lead={historyModal} />
-          </section>
-          <section className="activity-section modal-activity">
-            <h3>Activity</h3>
-            <ActivityTimeline activities={historyModal.activities || []} />
-          </section>
-        </div>
-        <footer><button type="button" className="primary" onClick={()=>setHistoryModal(null)}>Close</button></footer>
-      </section></>}
       {drawer && (
         <>
           <div className="drawer-backdrop" onClick={() => setDrawer(null)} />
@@ -1849,7 +1981,7 @@ export default function LeadsPage() {
             {drawer.mode !== "create"&&<nav className="lead-detail-tabs" aria-label="Lead detail categories">
               <button type="button" className={drawerTab==="student"?"active":""} onClick={()=>setDrawerTab("student")}>Student &amp; contact</button>
               <button type="button" className={drawerTab==="source"?"active":""} onClick={()=>setDrawerTab("source")}>Source details</button>
-              {/* Activity moved to the history dialog on the lead row. */}
+              <button type="button" className={drawerTab==="history"?"active":""} onClick={()=>setDrawerTab("history")}>History</button>
             </nav>}
             {drawer.mode!=="create"&&['paid','settled','success','completed','captured'].includes(String(form.paymentStatus||'').toLowerCase())&&<div className="mx-5 mt-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800"><strong>Payment collected · ₹{Number(form.paymentAmount||0).toLocaleString('en-IN')}</strong>{form.paymentAt&&<small className="block mt-1">{new Date(form.paymentAt).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})}</small>}</div>}
             <form onSubmit={save}>
@@ -1876,6 +2008,17 @@ export default function LeadsPage() {
                         onChange={(e) =>
                           setForm({ ...form, studentName: e.target.value })
                         }
+                      />
+                    </label>
+                    {/* Filled in once the school issues one. Its presence is
+                        what the Leads screen reports as "Student ID generated". */}
+                    <label>
+                      Student ID
+                      <input
+                        maxLength="60"
+                        placeholder="Issued after admission"
+                        value={form.studentId || ""}
+                        onChange={(e) => setForm({ ...form, studentId: e.target.value })}
                       />
                     </label>
                     <label>
@@ -1982,7 +2125,6 @@ export default function LeadsPage() {
                 <div className={`form-section ${drawerTab!=="source"?"tab-hidden":""}`}>
                   <h3>Source details</h3>
                   <div className="form-grid source-layout">
-                    <section className="source-primary"><div className="source-primary-grid">
                     <label>Channel {drawer.mode==="edit"?"*":""}<select required={drawer.mode==="edit"} disabled={drawer.mode==="edit"} title={drawer.mode==="edit"?"Primary source details cannot be edited":undefined} value={form.channelId || ""} onChange={(e) => setForm({...form,channelId:e.target.value,sourceId:"",campaignId:""})}><option value="">Select channel</option>{meta.channels.map(item => <option key={item.id} value={item.id}>{item.displayName} · {item.category}</option>)}</select></label>
                     <label>
                       Source {drawer.mode==="edit"?"*":""}
@@ -2001,13 +2143,51 @@ export default function LeadsPage() {
                       </select>
                     </label>
                     <label>Campaign {drawer.mode==="edit"?"*":""}<select required={drawer.mode==="edit"} disabled={drawer.mode==="edit"} title={drawer.mode==="edit"?"Primary source details cannot be edited":undefined} value={form.campaignId || ""} onChange={(e) => setForm({...form,campaignId:e.target.value})}><option value="">Select campaign</option>{meta.campaigns.filter(campaign=>!form.sourceId||!meta.campaignLinks.some(link=>String(link.sourceId)===String(form.sourceId))||meta.campaignLinks.some(link=>String(link.sourceId)===String(form.sourceId)&&String(link.campaignId)===String(campaign.id))).map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
-                    </div></section>
                     {drawer.mode==="edit"&&<section className="wide secondary-source-entry"><header><strong>Add secondary source</strong><small>The primary source above remains unchanged.</small></header><div className="secondary-source-grid">
                       <label>Channel *<select value={secondarySource.channelId} onChange={e=>setSecondarySource({...secondarySource,channelId:e.target.value,sourceId:"",campaignId:""})}><option value="">Select channel</option>{meta.channels.map(item=><option key={item.id} value={item.id}>{item.displayName} · {item.category}</option>)}</select></label>
                       <label>Source *<select value={secondarySource.sourceId} onChange={e=>setSecondarySource({...secondarySource,sourceId:e.target.value,campaignId:""})}><option value="">Select source</option>{sourcesForChannel(meta.sources, meta.sourceLinks, secondarySource.channelId).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
                       <label>Campaign *<select value={secondarySource.campaignId} onChange={e=>setSecondarySource({...secondarySource,campaignId:e.target.value})}><option value="">Select campaign</option>{meta.campaigns.filter(campaign=>!secondarySource.sourceId||!meta.campaignLinks.some(link=>String(link.sourceId)===String(secondarySource.sourceId))||meta.campaignLinks.some(link=>String(link.sourceId)===String(secondarySource.sourceId)&&String(link.campaignId)===String(campaign.id))).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
                     </div><button type="button" className="primary add-secondary-source" disabled={saving||!secondarySource.sourceId||!secondarySource.channelId||!secondarySource.campaignId} onClick={addSecondarySource}><Plus size={15}/> Add source</button></section>}
-                    {drawer.mode!=="create"&&<div className="wide source-history"><strong>Source history</strong>{form.sourceHistory?.length?form.sourceHistory.map(item=><article key={item.id}><b>{item.isPrimary?"Primary":"Secondary"}</b><span>{item.academicYear} · {item.channel} · {item.source} · {item.campaign}</span><small>{item.addedBy} · {new Date(item.createdAt).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"})}</small></article>):<p>No source history available</p>}</div>}
+                    {/* Only the sources the fields above do not already show.
+                        The list used to repeat the primary as its first row,
+                        so the same channel, source and campaign appeared
+                        twice on one tab -- and every row had to carry a
+                        PRIMARY/SECONDARY label to tell them apart. Everything
+                        here is, by definition, a source added after the
+                        first. */}
+                    {drawer.mode!=="create"&&(()=>{
+                      const extra=(form.sourceHistory||[]).filter(item=>!item.isPrimary);
+                      return <div className="wide source-history">
+                        <strong>Secondary sources</strong>
+                        {extra.length
+                          ? extra.map(item=><article key={item.id}>
+                              <span>{[item.channel,item.source,item.campaign].filter(Boolean).join(" · ")}</span>
+                              <small>{[item.academicYear,item.addedBy].filter(Boolean).join(" · ")} · {new Date(item.createdAt).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"})}</small>
+                            </article>)
+                          : <p>None. A source added after the first appears here.</p>}
+                      </div>;
+                    })()}
+                  </div>
+                </div>
+                {/* Everything that was the separate Lead history dialog. It
+                    keeps that dialog's classes, so it keeps its styling. */}
+                <div className={`form-section ${drawerTab!=="history"?"tab-hidden":""}`}>
+                  <h3>Lead history</h3>
+                  <div className="history-current-grid">
+                    <div><span>Current stage</span><strong>{form.stage||meta.stages.find(item=>String(item.id)===String(form.stageId))?.displayName||"—"}</strong></div>
+                    <div><span>Current sub-stage</span><strong>{meta.substages.find(item=>String(item.id)===String(form.substageId))?.displayName||"Not specified"}</strong></div>
+                    <div><span>Next follow-up</span><strong>{form.nextFollowupAt?new Date(form.nextFollowupAt).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}):"Not scheduled"}</strong></div>
+                    <div><span>Lead owner</span><strong>{form.owner||"Unassigned"}</strong></div>
+                  </div>
+                  <div className="history-body">
+                    <section className="form-section lead-dates-section">
+                      <h3>Lead timeline</h3>
+                      <LeadTimeline lead={form} />
+                    </section>
+                    <section className="activity-section modal-activity">
+                      <h3>Activity</h3>
+                      <ActivityTimeline activities={drawer.activities || []} />
+                    </section>
                   </div>
                 </div>
                 </>}
@@ -2069,9 +2249,6 @@ export default function LeadsPage() {
                   </div>
                 </div>}
               </fieldset>
-              {/* The timeline and activity feed that used to live here now
-                  open from the history icon on the lead row, where the same
-                  question was already being asked. */}
               <div className="drawer-actions">
                 <button
                   type="button"

@@ -4,6 +4,23 @@ import { branchScopeSql, denyBranch } from './rbac/branch-scope.js';
 import { requireAdminOrPermission } from './rbac/rbac.middleware.js';
 
 const clean = (value, max = 500) => String(value ?? '').trim().slice(0, max);
+
+/*
+ * A form logo, kept only if it is something a browser can safely render.
+ *
+ * Either an https URL or an inline data URI for a raster image. Anything
+ * else -- an http URL, an SVG, a javascript: scheme dressed up as a link --
+ * is dropped rather than rejected: a logo is decoration, and a bad one is
+ * not worth failing somebody's form save over. The ceiling is the column's,
+ * not a rule of its own; the page that uploads it holds the payer to 1 MB.
+ */
+const formLogo = value => {
+  const raw = String(value ?? '').trim();
+  if (!raw || raw.length > 1_500_000) return null;
+  if (/^https:\/\/[^\s"'<>]+$/i.test(raw)) return raw;
+  if (/^data:image\/(png|jpeg|jpg|gif|webp);base64,[A-Za-z0-9+/=]+$/i.test(raw)) return raw;
+  return null;
+};
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const baseUrl = environment => environment === 'uat' ? 'https://ext.devtest1.jodopay.com' : 'https://ext.jodo.in';
 const endpoint = '/api/v1/integrations/pay/payment_links';
@@ -119,7 +136,7 @@ export function createPaymentFormsRoutes(pool, authenticate, requireCrmAccess, r
 
   // Create form
   adminRouter.post('/', requireUserAdmin, wrap(async (req, res) => {
-    const { title, description, selectionType, successMessage, redirectUrl, branchId, categories, fields, expiresOn } = req.body;
+    const { title, description, logo, componentType, selectionType, successMessage, redirectUrl, branchId, categories, fields, expiresOn } = req.body;
     if (!title || !branchId || !Array.isArray(categories) || !categories.length) {
       return res.status(400).json({ message: 'Title, branch, and at least one category required' });
     }
@@ -136,10 +153,10 @@ export function createPaymentFormsRoutes(pool, authenticate, requireCrmAccess, r
     try {
       await conn.beginTransaction();
       const [result] = await conn.execute(
-        `INSERT INTO crm_payment_forms (business_unit_id, branch_id, form_key, title, description, selection_type, additional_fields_json, expires_at_utc, success_message, redirect_url, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO crm_payment_forms (business_unit_id, branch_id, form_key, title, description, logo_url, jodo_component_type, selection_type, additional_fields_json, expires_at_utc, success_message, redirect_url, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [req.businessUnit.id, branchId, formKey, clean(title, 255), description ? clean(description, 1000) : null,
-         selectionType, fieldSchema(fields), endOfDay(expiresOn),
+         formLogo(logo), clean(componentType, 120) || null, selectionType, fieldSchema(fields), endOfDay(expiresOn),
          successMessage ? clean(successMessage, 1000) : null, redirectUrl ? clean(redirectUrl, 1000) : null, req.user.id]
       );
       const formId = Number(result.insertId);
@@ -157,7 +174,7 @@ export function createPaymentFormsRoutes(pool, authenticate, requireCrmAccess, r
 
   // Update form
   adminRouter.put('/:id', requireUserAdmin, wrap(async (req, res) => {
-    const { title, description, selectionType, successMessage, redirectUrl, branchId, categories, fields, expiresOn, isActive } = req.body;
+    const { title, description, logo, componentType, selectionType, successMessage, redirectUrl, branchId, categories, fields, expiresOn, isActive } = req.body;
     if (!title || !branchId || !Array.isArray(categories) || !categories.length) {
       return res.status(400).json({ message: 'Title, branch, and at least one category required' });
     }
@@ -184,10 +201,11 @@ export function createPaymentFormsRoutes(pool, authenticate, requireCrmAccess, r
       await conn.beginTransaction();
       await conn.execute(
         `UPDATE crm_payment_forms
-            SET branch_id=?, title=?, description=?, selection_type=?, additional_fields_json=?,
+            SET branch_id=?, title=?, description=?, logo_url=?, jodo_component_type=?, selection_type=?, additional_fields_json=?,
                 expires_at_utc=?, success_message=?, redirect_url=?, is_active=?
           WHERE id=? AND business_unit_id=?`,
-        [branchId, clean(title, 255), description ? clean(description, 1000) : null, selectionType,
+        [branchId, clean(title, 255), description ? clean(description, 1000) : null, formLogo(logo),
+         clean(componentType, 120) || null, selectionType,
          fieldSchema(fields), endOfDay(expiresOn),
          successMessage ? clean(successMessage, 1000) : null, redirectUrl ? clean(redirectUrl, 1000) : null,
          isActive === false ? 0 : 1, existing.id, req.businessUnit.id],
@@ -294,6 +312,7 @@ export function createPaymentFormsRoutes(pool, authenticate, requireCrmAccess, r
       formKey: form.form_key,
       title: form.title,
       description: form.description,
+      logo: form.logo_url || null,
       selectionType: form.selection_type,
       fields: parseFields(form.additional_fields_json),
       categories,
@@ -348,18 +367,31 @@ export function createPaymentFormsRoutes(pool, authenticate, requireCrmAccess, r
 
     try {
       const config = await branchConfig(pool, form.branch_id);
+      /*
+       * What this payment books against at Jodo.
+       *
+       * Jodo validates component_type against the components set up for the
+       * collector -- it answers "Invalid component type Payment" otherwise --
+       * so this is the form's own configured component where it has one, and
+       * the branch default where it has not. Without the override every form
+       * on a branch settles under one label and a Jodo report cannot say
+       * which form took the money.
+       *
+       * The title travels as well, in the fields that do take free text, so
+       * even forms sharing a component stay tellable apart on the order.
+       */
+      const component = clean(form.jodo_component_type, 120) || config.paymentComponent || 'Payable Amount';
       const payload = {
         name: clean(name, 200), phone: payerPhone, email: clean(email, 254),
         student_name: payerStudentName, new_admission: true,
-        /*
-         * The branch's configured component, not a literal "Payment": Jodo
-         * validates this against the components set up for the collector and
-         * answers "Invalid component type Payment". The public enquiry form
-         * has always used application_payment_component; payment forms were
-         * the odd one out.
-         */
-        details: [{ component_type: config.paymentComponent || 'Payable Amount', amount }],
-        notes: [{ key: 'form_key', value: form.form_key }, { key: 'categories', value: selectedCats.map(c => c.category_name).join(', ') }]
+        custom_identifier: clean(form.title, 120) || undefined,
+        details: [{ component_type: component, amount }],
+        notes: [
+          { key: 'crm_source', value: 'payment_form' },
+          { key: 'crm_form_key', value: form.form_key },
+          { key: 'crm_form_title', value: clean(form.title, 255) },
+          { key: 'crm_categories', value: clean(selectedCats.map(c => c.category_name).join(', '), 500) },
+        ]
       };
 
       const response = await jodo(config, 'production', 'POST', '', payload);

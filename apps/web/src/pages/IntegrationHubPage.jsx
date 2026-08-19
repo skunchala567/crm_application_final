@@ -283,8 +283,11 @@ export default function IntegrationHubPage() {
                   <strong>{type.name}</strong>
                   <small>{type.providers.join(', ')}</small>
                 </span>
+                {/* The number alone: "connected" was the widest thing in the
+                    tile and said the same as the count beside it. The word
+                    stays as the accessible name and the tooltip. */}
                 {type.available
-                  ? <span className={count ? 'count on' : 'count'}>{count} connected</span>
+                  ? <span className={count ? 'count on' : 'count'} title={`${count} connected`} aria-label={`${count} connected`}>{count}</span>
                   : <span className="count soon">Coming soon</span>}
               </button>
             );

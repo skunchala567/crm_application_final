@@ -591,6 +591,7 @@ export function EnquiryFormEditor({form,setForm,config,saving,onCancel,onSubmit}
       <label className="check-option"><input type="checkbox" checked={Boolean(form.paymentRequired)} onChange={e=>patch({paymentRequired:e.target.checked})}/>Collect an application payment on this form</label>
       {form.paymentRequired&&<>
         <label>Amount to collect<input type="number" min="1" step="0.01" value={form.paymentAmount??''} onChange={e=>patch({paymentAmount:e.target.value})} placeholder="Leave blank to use the branch amount"/></label>
+        <label>Jodo component<input value={form.settings?.paymentComponentType||''} onChange={e=>patchSettings({paymentComponentType:e.target.value})} placeholder="Leave blank to use the branch component" maxLength={120}/><small>What this form&apos;s payments settle against in Jodo, which is how they are told apart there. Must match a component configured on the branch&apos;s Jodo collector.</small></label>
         <small>Jodo API key, secret and collector code come from the selected branch in Branches &amp; payments. Without them the form cannot take payment.</small>
       </>}
     </fieldset>

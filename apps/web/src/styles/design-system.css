@@ -808,3 +808,38 @@ input.is-readonly {
   opacity: .4;
   cursor: default;
 }
+
+/* ---------------------------------------------------------------------
+   Source details tab, after the primary source stopped being a box.
+
+   Its three fields now sit in the tab's own .form-grid, the way Student &
+   contact does, so the tab reads as fields rather than as a card with a
+   list under it. The rules that styled the old .source-primary wrapper
+   have nothing left to match.
+   --------------------------------------------------------------------- */
+
+.lead-modal .form-grid.source-layout { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+/* Every row here is a secondary source, so the column that held a
+   PRIMARY/SECONDARY badge is gone with it. */
+.lead-modal .source-history article {
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: baseline;
+}
+
+.lead-modal .source-history > strong {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink-500);
+}
+
+@media (max-width: 900px) {
+  .lead-modal .form-grid.source-layout { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .lead-modal .form-grid.source-layout { grid-template-columns: 1fr; }
+  .lead-modal .source-history article { grid-template-columns: 1fr; }
+}

@@ -75,7 +75,7 @@ export default function PaymentCollectionsPage({ onMessage }) {
 
   function exportCsv() {
     const columns = [
-      ['Source', 'source'], ['Branch', 'branchName'], ['Lead', 'leadNumber'], ['Payer', 'payerName'],
+      ['Source', 'source'], ['Form / link', 'sourceName'], ['Branch', 'branchName'], ['Lead', 'leadNumber'], ['Payer', 'payerName'],
       ['Email', 'payerEmail'], ['Phone', 'payerPhone'], ['Order ID', 'orderId'], ['Transaction ID', 'transactionId'],
       ['Amount', 'amount'], ['Status', 'status'], ['Paid at', 'paidAt'], ['Settled at', 'settledAt'],
       ['Settlement UTR', 'settlementUtr'], ['Created at', 'createdAt'],
@@ -129,7 +129,7 @@ export default function PaymentCollectionsPage({ onMessage }) {
           <input
             value={filters.search}
             onChange={e => patch('search', e.target.value)}
-            placeholder="Order, transaction, payer or lead…"
+            placeholder="Order, transaction, payer, lead or form…"
             aria-label="Search payments"
           />
         </label>
@@ -166,6 +166,7 @@ export default function PaymentCollectionsPage({ onMessage }) {
                 <tr>
                   <th>Payer</th>
                   <th>Source</th>
+                  <th>Form / link</th>
                   <th>Branch</th>
                   <th>Reference</th>
                   <th className="num">Amount</th>
@@ -182,6 +183,10 @@ export default function PaymentCollectionsPage({ onMessage }) {
                       <small>{row.leadNumber || row.payerEmail || row.payerPhone || '—'}</small>
                     </td>
                     <td><span className={`source-pill is-${row.source}`}>{titleCase(row.source)}</span></td>
+                    {/* Which form or link credited this amount. Blank for
+                        payments taken before the form was recorded against
+                        the lead, and for links raised without a reference. */}
+                    <td>{row.sourceName || <span className="muted">—</span>}</td>
                     {/* A lead with no branch yet still owes or has paid money. */}
                     <td>{row.branchName || <span className="muted">Unassigned</span>}</td>
                     <td className="reference-col">

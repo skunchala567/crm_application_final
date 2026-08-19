@@ -150,8 +150,8 @@ export default function PublicPaymentPage() {
 
   if (loading) {
     return (
-      <div className="public-payment loading">
-        <Loader className="spinner" />
+      <div className="public-payment pp-status">
+        <Loader className="pp-spinner" />
         <p>Loading payment form...</p>
       </div>
     );
@@ -159,8 +159,8 @@ export default function PublicPaymentPage() {
 
   if (!form) {
     return (
-      <div className="public-payment error-page">
-        <div className="error-box">
+      <div className="public-payment pp-status">
+        <div className="pp-status-box">
           <AlertCircle size={48} />
           <h2>Payment Form Not Found</h2>
           <p>The payment form you're looking for doesn't exist or has been deactivated.</p>
@@ -173,25 +173,30 @@ export default function PublicPaymentPage() {
 
   return (
     <div className="public-payment">
-      <div className="payment-container">
-        <div className="payment-header">
-          <h1>{form.title}</h1>
-          {form.description && <p className="description">{form.description}</p>}
+      <div className="pp-card">
+        <div className="pp-head">
+          {/* The logo is optional, and a form without one keeps the plain
+              title rather than reserving an empty square for it. */}
+          {form.logo && <img className="pp-logo" src={form.logo} alt="" />}
+          <div className="pp-head-text">
+            <h1>{form.title}</h1>
+            {form.description && <p className="pp-description">{form.description}</p>}
+          </div>
         </div>
 
         {error && (
-          <div className="error-banner">
+          <div className="pp-alert">
             <AlertCircle size={20} />
             {error}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="payment-form">
-          <div className="form-section">
-            <h3>Your Details</h3>
-
+        <form onSubmit={handleSubmit} className="pp-form">
+          <div className="pp-section">
+            <h3>Your details</h3>
+            <div className="pp-fields">
             {visibleFields().map(field => (
-              <div className="form-group" key={field.name}>
+              <div className={`pp-field${['textarea', 'checkbox'].includes(field.type) ? ' pp-field-wide' : ''}`} key={field.name}>
                 <label htmlFor={`pf-${field.name}`}>
                   {field.label || field.name}{field.required ? ' *' : ''}
                 </label>
@@ -217,7 +222,7 @@ export default function PublicPaymentPage() {
                     ))}
                   </select>
                 ) : field.type === 'checkbox' ? (
-                  <label className="public-checkbox">
+                  <label className="pp-checkbox">
                     <input
                       id={`pf-${field.name}`}
                       type="checkbox"
@@ -245,13 +250,14 @@ export default function PublicPaymentPage() {
                 })()}
               </div>
             ))}
+            </div>
           </div>
 
-          <div className="form-section">
-            <h3>Select Categories</h3>
-            <div className="categories-list">
+          <div className="pp-section">
+            <h3>Select categories</h3>
+            <div className="pp-categories">
               {form.categories.map(category => (
-                <label key={category.id} className="category-item">
+                <label key={category.id} className="pp-category">
                   <input
                     type={isSingleChoice() ? 'radio' : 'checkbox'}
                     name={isSingleChoice() ? 'category-single' : 'category-multiple'}
@@ -259,16 +265,17 @@ export default function PublicPaymentPage() {
                     checked={formData.selectedCategoryIds.includes(category.id)}
                     onChange={() => toggleCategory(category.id)}
                   />
-                  <span className="category-info">
-                    <span className="category-name">{category.category_name}</span>
-                    <span className="category-amount">₹{Number(category.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <span className="pp-category-info">
+                    <span className="pp-category-name">{category.category_name}</span>
+                    <span className="pp-category-amount">₹{Number(category.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </span>
                 </label>
               ))}
             </div>
           </div>
 
-          <div className="amount-display">
+          <div className="pp-footer">
+          <div className="pp-total">
             <span>Total Amount</span>
             <strong>₹{Number(total).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
           </div>
@@ -276,11 +283,11 @@ export default function PublicPaymentPage() {
           <button
             type="submit"
             disabled={submitting || total <= 0}
-            className="submit-button"
+            className="pp-submit"
           >
             {submitting ? (
               <>
-                <Loader size={18} className="spinner-small" />
+                <Loader size={18} className="pp-spinner pp-spinner-sm" />
                 Processing...
               </>
             ) : (
@@ -288,9 +295,10 @@ export default function PublicPaymentPage() {
             )}
           </button>
 
-          <p className="security-note">
+          <p className="pp-note">
             Secured by <strong>Jodo Pay</strong> • Your information is protected
           </p>
+          </div>
         </form>
       </div>
     </div>

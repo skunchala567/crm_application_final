@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { CreditCard, ExternalLink, Zap } from 'lucide-react';
+import { CreditCard, ExternalLink, Send, Zap } from 'lucide-react';
 import PaymentFormsPage from './PaymentFormsPage.jsx';
 import PaymentCollectionsPage from './PaymentCollectionsPage.jsx';
 import EnquiryFormsSettings from './EnquiryFormsSettings.jsx';
+import BulkPaymentLinksPage from './BulkPaymentLinksPage.jsx';
 import { usePermissions } from '../PermissionContext';
 
 /**
@@ -16,6 +17,10 @@ import { usePermissions } from '../PermissionContext';
 const TABS = [
   { id: 'forms', label: 'Payment Forms', Icon: Zap, Component: PaymentFormsPage, permission: 'payments.forms.view' },
   { id: 'collections', label: 'Collections', Icon: CreditCard, Component: PaymentCollectionsPage, permission: 'payments.collections.view' },
+  /* Raising links in bulk spends real money against a branch's Jodo account,
+     so it is offered to whoever may create a payment link -- not to everyone
+     who may read the collections report. */
+  { id: 'bulk-links', label: 'Bulk Links', Icon: Send, Component: BulkPaymentLinksPage, permission: 'payments.links.create' },
   /* Enquiry forms live here rather than under Business Units: a public form
      that takes an application fee is payment work, not unit configuration. */
   { id: 'enquiry', label: 'Enquiry Forms', Icon: ExternalLink, Component: EnquiryFormsSettings, permission: 'payments.enquiry_forms.view' },

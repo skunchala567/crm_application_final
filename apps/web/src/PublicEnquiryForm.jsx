@@ -87,6 +87,48 @@ function isValidIndianPhone(value) {
   return /^[6-9]\d{9}$/.test(normalizeIndianPhone(value));
 }
 
+/*
+ * The order id has to survive the round trip to Jodo and back.
+ *
+ * Jodo returns the payer to the API callback, which redirects here -- and what
+ * lands in the query string is up to Jodo, so we cannot count on the order id
+ * being in it. Stashing it before leaving means the return page can always
+ * confirm the payment itself.
+ */
+const PAYMENT_ORDER_STORAGE_KEY = "crm.publicEnquiry.paymentOrder";
+
+function rememberPaymentOrder(formKey, orderId) {
+  try {
+    window.sessionStorage.setItem(PAYMENT_ORDER_STORAGE_KEY, JSON.stringify({ formKey, orderId }));
+  } catch {
+    /* private browsing, or storage full -- the query string is still there */
+  }
+}
+
+function recallPaymentOrder(formKey) {
+  try {
+    const stored = JSON.parse(window.sessionStorage.getItem(PAYMENT_ORDER_STORAGE_KEY) || "null");
+    return stored && stored.formKey === formKey ? String(stored.orderId || "") : "";
+  } catch {
+    return "";
+  }
+}
+
+function forgetPaymentOrder() {
+  try {
+    window.sessionStorage.removeItem(PAYMENT_ORDER_STORAGE_KEY);
+  } catch {
+    /* nothing to clean up */
+  }
+}
+
+function paymentReturn(formKey) {
+  const params = new URLSearchParams(window.location.search);
+  const outcome = String(params.get("payment") || "").toLowerCase();
+  if (!outcome) return null;
+  return { outcome, orderId: params.get("orderId") || params.get("order_id") || recallPaymentOrder(formKey) };
+}
+
 function isValidEmail(value) {
   const email = String(value || "").trim();
   if (!email) return true;
@@ -97,6 +139,7 @@ export default function PublicEnquiryForm({ formKey }) {
   const [form, setForm] = useState(null);
   const [values, setValues] = useState({});
   const [payment, setPayment] = useState(null);
+  const [paymentResult, setPaymentResult] = useState(() => paymentReturn(formKey));
   const [status, setStatus] = useState({ loading: true, saving: false, error: "", success: "" });
   useEffect(() => {
     setStatus({ loading: true, saving: false, error: "", success: "" });
@@ -107,6 +150,27 @@ export default function PublicEnquiryForm({ formKey }) {
         setStatus({ loading: false, saving: false, error: "", success: "" });
       })
       .catch(error => setStatus({ loading: false, saving: false, error: error.message, success: "" }));
+  }, [formKey]);
+  /*
+   * Coming back from Jodo, confirm the payment rather than believing the URL.
+   * The callback already verified it server-side; this is what turns "the
+   * gateway sent me back" into a status the applicant can trust, and it covers
+   * the case where Jodo returned no order id for the callback to work with.
+   */
+  useEffect(() => {
+    const result = paymentReturn(formKey);
+    if (!result) return;
+    setPaymentResult(result);
+    if (!result.orderId) return;
+    let cancelled = false;
+    api(`/public/enquiry-forms/${formKey}/payment-status`, { method: "POST", body: JSON.stringify({ orderId: result.orderId }) })
+      .then(response => {
+        if (cancelled) return;
+        setPaymentResult({ outcome: response.paid ? "paid" : String(response.status || "unpaid").toLowerCase(), orderId: result.orderId });
+        if (response.paid) forgetPaymentOrder();
+      })
+      .catch(() => { /* keep whatever the callback told us */ });
+    return () => { cancelled = true; };
   }, [formKey]);
   const color = form?.color || "#0b7a4f";
   const fields = useMemo(() => form?.fields || [], [form]);
@@ -162,6 +226,7 @@ export default function PublicEnquiryForm({ formKey }) {
       }
       const result = await api(`/public/enquiry-forms/${formKey}/submit`, { method: "POST", body: JSON.stringify({ values, tracking, payment: paymentInfo ? { orderId: paymentInfo.orderId, status: paymentInfo.status || "order_created" } : null, website: "" }) });
       if (paymentInfo?.paymentUrl) {
+        rememberPaymentOrder(formKey, paymentInfo.orderId);
         window.location.assign(paymentInfo.paymentUrl);
         return;
       }
@@ -172,8 +237,19 @@ export default function PublicEnquiryForm({ formKey }) {
     }
   }
   if (status.loading) return <main className="public-enquiry-page"><div className="public-enquiry-card loading"><Loader2 />Loading form...</div></main>;
-  if (status.error && !form) return <main className="public-enquiry-page"><div className="public-enquiry-card"><h1>Form unavailable</h1><p>{status.error}</p></div></main>;
+  if (status.error && !form) return <main className="public-enquiry-page"><div className="public-enquiry-card state"><h1>Form unavailable</h1><p>{status.error}</p></div></main>;
   if (status.success) return <main className="public-enquiry-page"><section className="public-enquiry-card success" style={{ "--accent": color }}><CheckCircle2 /><h1>Enquiry submitted</h1><p>{status.success}</p></section></main>;
+  if (paymentResult) {
+    const paid = paymentResult.outcome === "paid";
+    return <main className="public-enquiry-page"><section className={`public-enquiry-card ${paid ? "success" : "state"}`} style={{ "--accent": color }}>
+      {paid ? <CheckCircle2 /> : <Loader2 />}
+      <h1>{paid ? "Payment received" : "Payment is being confirmed"}</h1>
+      <p>{paid
+        ? (form?.successMessage || "Your application fee has been paid and your enquiry is with our admissions team.")
+        : "We have not had confirmation from the payment gateway yet. If the amount has left your account, our admissions team will see it shortly -- there is no need to pay again."}</p>
+      {paymentResult.orderId && <small>Payment reference: {paymentResult.orderId}</small>}
+    </section></main>;
+  }
   return <main className="public-enquiry-page" style={{ "--accent": color }}>
     <section className="public-enquiry-card">
       <header><span>{form.businessUnitName}</span><h1>{form.name}</h1>{form.description && <p>{form.description}</p>}</header>

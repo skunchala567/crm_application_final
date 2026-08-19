@@ -60,6 +60,7 @@ export const ROUTE_RULES = [
   { method: '*', test: /^\/api\/leads\/actions\/bulk-/, key: 'bulk_actions.change_stage.edit' },
   { method: 'POST', test: /^\/api\/leads\/(bulk|import)/, key: 'bulk_actions.upload.import' },
   { method: 'POST', test: /^\/api\/leads\/[^/]+\/(assign|refer|reassign)/, key: 'leads.list.assign' },
+  { method: 'POST', test: /^\/api\/leads\/[^/]+\/park/, key: 'leads.list.edit' },
   { method: 'GET', test: /^\/api\/leads\/export/, key: 'bulk_actions.export.export' },
   { method: 'GET', test: /^\/api\/leads/, key: 'leads.list.view' },
   { method: 'POST', test: /^\/api\/leads/, key: 'leads.list.create' },

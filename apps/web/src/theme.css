@@ -316,7 +316,7 @@ table th{background:var(--surface-3)}.avatar.muted{background:var(--accent-soft)
    after theme.css and would otherwise take the generic button rules. */
 .settings-integration-page .integration-type-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(268px,1fr));gap:14px;align-items:stretch}
 .settings-integration-page .integration-type-tile{
-  width:100%;min-height:82px;padding:15px;margin:0;
+  width:100%;min-width:0;min-height:82px;padding:15px;margin:0;
   display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:13px;
   text-align:left;border:1px solid var(--line);border-radius:12px;background:#fff;
   box-shadow:0 1px 2px color-mix(in srgb, var(--ink-900) 4%, transparent);

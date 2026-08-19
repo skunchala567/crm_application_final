@@ -1,349 +1,430 @@
+/* =====================================================================
+   Public payment form — the page a payer sees, on their phone.
+   --------------------------------------------------------------------
+   Every rule is scoped under .public-payment and every class carries a
+   pp- prefix. The old sheet used bare .form-section / .form-group /
+   .spinner, which the lead drawer also defines in styles.css: the drawer's
+   panel styling (a grey card with 18px margins) landed on this page and
+   pushed each section into a box of its own, so a phone showed barely six
+   categories. Scoping is what keeps that from happening again.
+
+   Sizing is deliberately tight -- this is a form people fill in once, on a
+   small screen, and the thing they need to see is the list of categories
+   and what they add up to.
+   ===================================================================== */
+
 .public-payment {
   min-height: 100vh;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  background: linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%);
-  padding: 2rem 1rem;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  padding: 12px;
+  background: var(--bg);
+  color: var(--ink-800);
+  font-family: var(--ff);
 }
 
-.public-payment.loading,
-.public-payment.error-page {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.public-payment.loading {
+/* Loading and not-found share one centred layout. */
+.public-payment.pp-status {
   flex-direction: column;
-  gap: 1rem;
-  color: white;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--ink-500);
+  font-size: 13px;
 }
 
-.spinner {
-  animation: spin 1s linear infinite;
-  width: 48px;
-  height: 48px;
+.public-payment.pp-status p {
+  margin: 0;
 }
 
-@keyframes spin {
-  from { transform: rotate(0deg); }
+.pp-spinner {
+  width: 34px;
+  height: 34px;
+  color: var(--brand-600);
+  animation: pp-spin 1s linear infinite;
+}
+
+.pp-spinner-sm {
+  width: 16px;
+  height: 16px;
+  color: currentColor;
+}
+
+@keyframes pp-spin {
   to { transform: rotate(360deg); }
 }
 
-.spinner-small {
-  animation: spin 1s linear infinite;
-  width: 18px;
-  height: 18px;
+.pp-status-box {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  width: min(420px, 100%);
+  padding: 28px 22px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-md);
+  text-align: center;
 }
 
-.error-page {
-  min-height: 100vh;
-  flex-direction: column;
+.pp-status-box svg {
+  width: 38px;
+  height: 38px;
+  color: var(--red);
 }
 
-.error-box {
+.pp-status-box h2 {
+  margin: 0;
+  font: 800 17px var(--ff-d);
+  color: var(--ink-800);
+}
+
+.pp-status-box p {
+  margin: 0;
+  color: var(--ink-500);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+/* ---- the form card ---------------------------------------------- */
+
+.pp-card {
+  width: min(640px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--brand-600);
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-md);
+}
+
+.pp-head {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 1rem;
-  padding: 2rem;
-  background: white;
-  border-radius: 12px;
-  text-align: center;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  gap: 11px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--line);
 }
 
-.error-box svg {
-  color: #c33d35;
-  width: 48px;
-  height: 48px;
+.pp-head-text {
+  min-width: 0;
 }
 
-.error-box h2 {
+/* Sized by height so a wide wordmark and a square badge both sit on the
+   title's line without one of them dictating the header's height. */
+.pp-logo {
+  flex: 0 0 auto;
+  height: 40px;
+  width: auto;
+  max-width: 120px;
+  object-fit: contain;
+  border-radius: 6px;
+}
+
+.pp-head h1 {
   margin: 0;
-  color: var(--ink-800);
+  font: 800 19px var(--ff-d);
+  line-height: 1.25;
+  color: var(--ink-900);
 }
 
-.error-box p {
-  margin: 0;
+.pp-head .pp-description {
+  margin: 5px 0 0;
   color: var(--ink-500);
-}
-
-.payment-container {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-  padding: 2rem;
-  background: white;
-  border-radius: 16px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  max-width: 500px;
-  width: 100%;
-}
-
-.payment-header {
-  text-align: center;
-  border-bottom: 2px solid var(--surface-3);
-  padding-bottom: 1.5rem;
-}
-
-.payment-header h1 {
-  margin: 0 0 0.5rem;
-  font-size: 1.75rem;
-  color: var(--ink-800);
-}
-
-.payment-header .description {
-  margin: 0;
-  color: var(--ink-500);
-  font-size: 0.95rem;
+  font-size: 12.5px;
   line-height: 1.5;
 }
 
-.error-banner {
+.pp-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 16px 0;
+  padding: 9px 11px;
+  background: var(--red-bg);
+  border: 1px solid color-mix(in srgb, var(--red) 26%, transparent);
+  border-radius: 8px;
+  color: var(--red);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.pp-alert svg {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+}
+
+.pp-form {
+  display: grid;
+  gap: 16px;
+  padding: 14px 16px 0;
+}
+
+.pp-section {
+  display: grid;
+  gap: 8px;
+}
+
+/* A quiet rule-and-label heading: it separates the two halves of the form
+   without spending a card's worth of vertical space on doing so. */
+.pp-section h3 {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  background: rgba(195, 61, 53, 0.1);
-  border: 1px solid rgba(195, 61, 53, 0.3);
-  border-radius: 6px;
-  color: #c33d35;
-  font-size: 0.9rem;
-}
-
-.error-banner svg {
-  flex-shrink: 0;
-}
-
-.payment-form {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-.form-section {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.form-section h3 {
+  gap: 8px;
   margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--ink-800);
+  color: var(--ink-400);
+  font: 800 10.5px var(--ff);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-size: 0.85rem;
+  letter-spacing: .07em;
 }
 
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
+.pp-section h3::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--ink-200);
 }
 
-.form-group label {
-  font-weight: 500;
-  color: var(--ink-700);
-  font-size: 0.9rem;
+.pp-fields {
+  display: grid;
+  gap: 10px;
 }
 
-.form-group input {
-  padding: 0.75rem;
+.pp-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.pp-field > label {
+  color: var(--ink-600);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.pp-field input,
+.pp-field select,
+.pp-field textarea {
+  width: 100%;
+  padding: 9px 11px;
   border: 1px solid var(--ink-200);
   border-radius: 8px;
-  font-size: 0.95rem;
-  font-family: inherit;
-  transition: all 0.2s;
+  background: var(--surface);
+  color: var(--ink-800);
+  font: 500 13px var(--ff);
+  outline: 0;
+  transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
 }
 
-.form-group input:focus {
-  outline: none;
-  border-color: var(--brand-700);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-500) 10%, transparent);
+.pp-field textarea {
+  resize: vertical;
+  min-height: 64px;
 }
 
-.amount-options {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 0.75rem;
-}
-
-.amount-option {
-  display: flex;
-  align-items: center;
-  padding: 0.75rem;
-  border: 2px solid var(--ink-200);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
-  background: white;
-}
-
-.amount-option input[type="radio"] {
-  margin-right: 0.5rem;
-  cursor: pointer;
-}
-
-.amount-option:hover {
-  border-color: var(--brand-700);
-  background: color-mix(in srgb, var(--brand-500) 5%, transparent);
-}
-
-.amount-option input[type="radio"]:checked + span,
-.amount-option input:checked ~ span {
-  color: var(--brand-700);
-  font-weight: 600;
-}
-
-.amount-option input[type="radio"]:checked ~ *,
-.amount-option input:checked ~ span {
-  color: var(--brand-700);
-}
-
-.amount-option.selected,
-.amount-option input[type="radio"]:checked {
-  border-color: var(--brand-700);
-  background: color-mix(in srgb, var(--brand-500) 10%, transparent);
-}
-
-.amount-display {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1rem;
-  background: color-mix(in srgb, var(--brand-500) 5%, transparent);
-  border: 1px solid color-mix(in srgb, var(--brand-500) 20%, transparent);
-  border-radius: 8px;
-}
-
-.amount-display span {
-  color: var(--ink-500);
-  font-size: 0.9rem;
-}
-
-.amount-display strong {
-  font-size: 1.5rem;
-  color: var(--brand-700);
-}
-
-.submit-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  padding: 1rem;
-  background: linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-  margin-top: 1rem;
-}
-
-.submit-button:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 20px color-mix(in srgb, var(--brand-500) 30%, transparent);
-}
-
-.submit-button:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-
-.security-note {
-  margin: 0;
-  text-align: center;
-  font-size: 0.85rem;
+.pp-field input::placeholder,
+.pp-field textarea::placeholder {
   color: var(--ink-400);
 }
 
-.categories-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+.pp-field input:focus,
+.pp-field select:focus,
+.pp-field textarea:focus {
+  border-color: var(--brand-600);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-600) 15%, transparent);
 }
 
-.category-item {
+.pp-checkbox {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  padding: 1rem;
-  border: 2px solid var(--ink-200);
+  gap: 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--ink-200);
   border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
-  background: white;
-}
-
-.category-item:hover {
-  border-color: var(--brand-700);
-  background: color-mix(in srgb, var(--brand-500) 2%, transparent);
-}
-
-.category-item input[type="radio"],
-.category-item input[type="checkbox"] {
-  width: 20px;
-  height: 20px;
-  cursor: pointer;
-  margin: 0;
-}
-
-.category-item input[type="radio"]:checked,
-.category-item input[type="checkbox"]:checked {
-  accent-color: var(--brand-700);
-}
-
-.category-info {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex: 1;
-  gap: 1rem;
-}
-
-.category-name {
+  color: var(--ink-700);
+  font-size: 13px;
   font-weight: 500;
+  cursor: pointer;
+}
+
+.pp-checkbox input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--brand-600);
+  cursor: pointer;
+}
+
+/* ---- categories -------------------------------------------------- */
+
+.pp-categories {
+  display: grid;
+  gap: 8px;
+}
+
+.pp-category {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--ink-200);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color .15s var(--ease), background .15s var(--ease);
+}
+
+.pp-category:hover {
+  border-color: var(--brand-300);
+  background: var(--brand-50);
+}
+
+.pp-category input {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--brand-600);
+  cursor: pointer;
+}
+
+.pp-category-info {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.pp-category-name {
   color: var(--ink-800);
-}
-
-.category-amount {
-  font-size: 1.1rem;
+  font-size: 13px;
   font-weight: 600;
-  color: var(--brand-700);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+/* The amount never wraps and never pushes the name into three lines --
+   that is what turned a six-word list into a full screen before. */
+.pp-category-amount {
+  flex: 0 0 auto;
+  color: var(--brand-600);
+  font: 800 13px var(--ff-d);
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
-.category-item input:checked {
-  accent-color: var(--brand-700);
+.pp-category:has(input:checked) {
+  border-color: var(--brand-600);
+  background: var(--brand-50);
+  box-shadow: inset 0 0 0 1px var(--brand-600);
 }
 
-.category-item:has(input:checked) {
-  border-color: var(--brand-700);
-  background: color-mix(in srgb, var(--brand-500) 5%, transparent);
+/* ---- total and submit -------------------------------------------- */
+
+/*
+ * The total follows the payer down the page. On a long category list the
+ * running total is the one number worth keeping on screen, and it saves a
+ * scroll back down to find the button.
+ */
+.pp-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: grid;
+  gap: 8px;
+  margin-top: 2px;
+  padding: 10px 16px 12px;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 var(--r-md) var(--r-md);
 }
 
-@media (max-width: 640px) {
-  .public-payment {
-    padding: 1rem;
-  }
+.pp-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 11px;
+  background: var(--brand-50);
+  border: 1px solid var(--brand-100);
+  border-radius: 8px;
+}
 
-  .payment-container {
-    padding: 1.5rem;
-  }
+.pp-total span {
+  color: var(--ink-600);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
 
-  .payment-header h1 {
-    font-size: 1.5rem;
-  }
+.pp-total strong {
+  color: var(--brand-700);
+  font: 800 18px var(--ff-d);
+  font-variant-numeric: tabular-nums;
+}
 
-  .amount-options {
-    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-  }
+.pp-submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--brand-600);
+  color: #fff;
+  font: 800 14px var(--ff-d);
+  cursor: pointer;
+  transition: background .15s var(--ease), box-shadow .15s var(--ease);
+}
+
+.pp-submit:hover:not(:disabled) {
+  background: var(--brand-700);
+  box-shadow: var(--sh-brand);
+}
+
+.pp-submit:disabled {
+  background: var(--ink-300);
+  cursor: not-allowed;
+}
+
+.pp-note {
+  margin: 0;
+  text-align: center;
+  color: var(--ink-400);
+  font-size: 10.5px;
+}
+
+.pp-note strong {
+  color: var(--ink-500);
+}
+
+/* ---- roomier screens --------------------------------------------- */
+
+@media (min-width: 520px) {
+  .public-payment { padding: 24px 16px; }
+  .pp-head { padding: 18px 20px 14px; gap: 13px; }
+  .pp-head h1 { font-size: 21px; }
+  .pp-logo { height: 46px; max-width: 150px; }
+  .pp-alert { margin: 14px 20px 0; }
+  .pp-form { padding: 16px 20px 0; }
+  .pp-fields { grid-template-columns: 1fr 1fr; gap: 12px; }
+  .pp-field-wide { grid-column: 1 / -1; }
+  .pp-categories { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+  .pp-footer { padding: 12px 20px 14px; }
+  .pp-total strong { font-size: 19px; }
+}
+
+/* Landscape phones and anything short: the sticky footer would eat the
+   form, so it goes back to being an ordinary block at the end. */
+@media (max-height: 520px) {
+  .pp-footer { position: static; }
 }
