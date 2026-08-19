@@ -646,6 +646,7 @@ export default function MetaLeadAdsSettings() {
                               || <span className="text-secondary-400">Default</span>}
                           </td>
                           <td>
+                            <div className="flex items-center gap-2 justify-end flex-wrap">
                             <button
                               className="secondary text-xs"
                               disabled={busy === `forms-${page.page_id}`}
@@ -655,6 +656,26 @@ export default function MetaLeadAdsSettings() {
                             >
                               {busy === `forms-${page.page_id}` ? 'Syncing…' : 'Sync forms'}
                             </button>
+                            {/* Stops this Page at Meta and forgets it, without
+                                touching the leads it has already delivered. */}
+                            <button
+                              className="secondary text-xs inline-flex items-center gap-1 text-danger"
+                              title={`Disconnect ${page.page_name || page.page_id}`}
+                              disabled={busy === `drop-${page.page_id}`}
+                              onClick={() => {
+                                const label = page.page_name || page.page_id;
+                                if (!window.confirm(`Disconnect "${label}"?\n\nIt stops receiving leads and is removed from the CRM along with its forms. Leads already imported are kept.`)) return;
+                                run(`drop-${page.page_id}`,
+                                  () => api.delete(`/meta/pages/${page.page_id}`),
+                                  (r) => r.data?.warning || `${r.data?.name || label} disconnected`);
+                              }}
+                            >
+                              {busy === `drop-${page.page_id}`
+                                ? <Loader2 size={12} className="animate-spin" />
+                                : <XCircle size={12} />}
+                              Disconnect
+                            </button>
+                            </div>
                           </td>
                         </tr>
                       ))}

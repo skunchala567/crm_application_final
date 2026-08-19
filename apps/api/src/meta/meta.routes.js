@@ -306,11 +306,70 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
 
   /** Disconnect every Page discovered through one Facebook account. */
   router.delete('/accounts/:accountId', requireUserAdmin, wrap(async (req, res) => {
+    const accountId = req.params.accountId === 'unknown' ? null : req.params.accountId;
+    // The forms belong to the pages. Nothing enforces that in the schema --
+    // crm_meta_forms has no foreign key -- so removing the pages alone left
+    // their forms behind, still listed and still mapped to fields.
+    await pool.execute(
+      `DELETE f FROM crm_meta_forms f
+         JOIN crm_meta_pages p ON p.page_id = f.page_id
+        WHERE p.meta_account_id <=> ?`,
+      [accountId],
+    );
     const [result] = await pool.execute(
       'DELETE FROM crm_meta_pages WHERE meta_account_id <=> ?',
-      [req.params.accountId === 'unknown' ? null : req.params.accountId],
+      [accountId],
     );
     res.json({ success: true, data: { removed: result.affectedRows } });
+  }));
+
+  /*
+   * Disconnect one Page.
+   *
+   * Stops lead delivery at Meta first, then forgets the Page and the forms
+   * that belong to it. Leads already imported are untouched, and so is the
+   * import ledger -- disconnecting a Page says "stop sending", not "erase
+   * what it sent".
+   *
+   * A failed unsubscribe does not block the removal. A revoked or expired
+   * Page token is one of the reasons somebody wants rid of the Page, and
+   * refusing to delete it would leave a row nothing can clear.
+   */
+  router.delete('/pages/:pageId', requireUserAdmin, wrap(async (req, res) => {
+    const pageId = String(req.params.pageId);
+    const [[page]] = await pool.execute('SELECT * FROM crm_meta_pages WHERE page_id=? LIMIT 1', [pageId]);
+    if (!page) return res.status(404).json({ message: 'Page not found' });
+
+    let unsubscribed = false;
+    let unsubscribeError = null;
+    const token = decryptPageToken(page);
+    if (token) {
+      try {
+        unsubscribed = await unsubscribePage(pageId, token, { logger });
+        if (!unsubscribed) unsubscribeError = 'Meta returned success=false';
+      } catch (error) {
+        unsubscribeError = error.message;
+      }
+    } else {
+      unsubscribeError = 'No usable Page token stored';
+    }
+
+    const [forms] = await pool.execute('DELETE FROM crm_meta_forms WHERE page_id=?', [pageId]);
+    await pool.execute('DELETE FROM crm_meta_pages WHERE page_id=?', [pageId]);
+    logger.info?.(`[Meta] Disconnected page ${page.page_name || pageId}${unsubscribeError ? ` (unsubscribe: ${unsubscribeError})` : ''}`);
+
+    res.json({
+      success: true,
+      data: {
+        pageId,
+        name: page.page_name || null,
+        unsubscribed,
+        formsRemoved: forms.affectedRows,
+        // Surfaced rather than thrown: the Page is gone either way, but Meta
+        // may still believe it is subscribed and that is worth knowing.
+        warning: unsubscribeError ? `Removed from the CRM, but Meta could not be told to stop: ${unsubscribeError}` : null,
+      },
+    });
   }));
 
   router.patch('/pages/:pageId', requireUserAdmin, wrap(async (req, res) => {
