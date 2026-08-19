@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle, AlertTriangle, CheckCircle2, Copy, Download, Loader2, Plus,
-  RefreshCw, Save, ShieldCheck, XCircle,
+  RefreshCw, Save, Search, ShieldCheck, XCircle,
 } from 'lucide-react';
 import { api } from '../api';
 import MetaLeadReview from '../components/MetaLeadReview.jsx';
@@ -99,6 +99,12 @@ export default function MetaLeadAdsSettings() {
   // Adding a second Facebook account: its token is used once for discovery.
   const [addAccountOpen, setAddAccountOpen] = useState(false);
   const [accountToken, setAccountToken] = useState('');
+  /* Pages the supplied token can see, and the ones ticked to connect. Nothing
+     is connected until the second step, so a token that reaches a dozen Pages
+     no longer subscribes all twelve to lead delivery. */
+  const [discovered, setDiscovered] = useState(null);
+  const [chosenPages, setChosenPages] = useState([]);
+  const closeAddAccount = () => { setAddAccountOpen(false); setAccountToken(''); setDiscovered(null); setChosenPages([]); };
 
   // Pages carry the account they were discovered through. Pages connected
   // before that was recorded group under a single "unknown" bucket.
@@ -462,7 +468,7 @@ export default function MetaLeadAdsSettings() {
             <button
               className="primary inline-flex items-center gap-2"
               disabled={!meta?.configured}
-              onClick={() => { setAddAccountOpen((open) => !open); setAccountToken(''); }}
+              onClick={() => { if (addAccountOpen) closeAddAccount(); else setAddAccountOpen(true); }}
             >
               <Plus size={14} />
               Add Facebook account
@@ -495,22 +501,96 @@ export default function MetaLeadAdsSettings() {
               />
               <button
                 className="primary inline-flex items-center gap-2"
-                disabled={!accountToken.trim() || busy === 'add-account'}
-                onClick={() => run('add-account',
-                  () => api.post('/meta/pages/sync', { subscribe: true, userToken: accountToken.trim() }),
+                disabled={!accountToken.trim() || busy === 'find-pages'}
+                onClick={() => run('find-pages',
+                  () => api.post('/meta/pages/discover', { userToken: accountToken.trim() }),
                   (r) => {
-                    setAddAccountOpen(false);
-                    setAccountToken('');
-                    return `${r.data.account?.name || 'Account'}: ${r.data.subscribed}/${r.data.total} pages connected${r.data.failed ? `, ${r.data.failed} failed` : ''}`;
+                    setDiscovered(r.data);
+                    // Nothing pre-ticked: connecting a Page subscribes it to
+                    // lead delivery, so it should be a choice, not a default.
+                    setChosenPages([]);
+                    return `${r.data.account?.name || 'Account'}: ${r.data.pages.length} page${r.data.pages.length === 1 ? '' : 's'} found`;
                   })}
               >
-                {busy === 'add-account' ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-                Connect pages
+                {busy === 'find-pages' ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+                Find pages
               </button>
-              <button className="secondary" onClick={() => { setAddAccountOpen(false); setAccountToken(''); }}>
+              <button className="secondary" onClick={closeAddAccount}>
                 Cancel
               </button>
             </div>
+
+            {discovered && (
+              <div className="mt-4 border-t border-border pt-3">
+                <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                  <strong className="text-sm">
+                    {discovered.account?.name || 'Account'} · choose the pages to connect
+                  </strong>
+                  <button
+                    className="secondary text-xs"
+                    onClick={() => setChosenPages(
+                      chosenPages.length === discovered.pages.length
+                        ? []
+                        : discovered.pages.map((page) => page.pageId),
+                    )}
+                  >
+                    {chosenPages.length === discovered.pages.length ? 'Clear all' : 'Select all'}
+                  </button>
+                </div>
+
+                <div className="grid gap-1 max-h-64 overflow-y-auto">
+                  {discovered.pages.map((page) => (
+                    <label
+                      key={page.pageId}
+                      className="flex items-center gap-2 p-2 rounded-lg border border-border bg-surface hover:bg-surface-3 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={chosenPages.includes(page.pageId)}
+                        onChange={(e) => setChosenPages((current) => (
+                          e.target.checked
+                            ? [...current, page.pageId]
+                            : current.filter((id) => id !== page.pageId)
+                        ))}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-semibold truncate">{page.name || page.pageId}</span>
+                        <span className="block text-[11px] text-secondary-500">{page.pageId}</span>
+                      </span>
+                      {page.alreadyConnected && (
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-primary-700 bg-primary-50 rounded-full px-2 py-0.5">
+                          {page.alreadySubscribed ? 'Connected' : 'Added, not subscribed'}
+                        </span>
+                      )}
+                    </label>
+                  ))}
+                  {!discovered.pages.length && (
+                    <p className="text-sm text-secondary-600">This token can see no Pages.</p>
+                  )}
+                </div>
+
+                <div className="flex gap-2 flex-wrap mt-3">
+                  <button
+                    className="primary inline-flex items-center gap-2"
+                    disabled={!chosenPages.length || busy === 'add-account'}
+                    onClick={() => run('add-account',
+                      () => api.post('/meta/pages/sync', {
+                        subscribe: true,
+                        userToken: accountToken.trim(),
+                        pageIds: chosenPages,
+                      }),
+                      (r) => {
+                        closeAddAccount();
+                        return `${r.data.account?.name || 'Account'}: ${r.data.subscribed}/${r.data.total} page${r.data.total === 1 ? '' : 's'} connected${r.data.failed ? `, ${r.data.failed} failed` : ''}`;
+                      })}
+                  >
+                    {busy === 'add-account' ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                    Connect {chosenPages.length || ''} selected
+                  </button>
+                  <button className="secondary" onClick={closeAddAccount}>Cancel</button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

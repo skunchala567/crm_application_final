@@ -141,6 +141,57 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
    * One Page failing must not abort the run, so each is isolated -- a Page the
    * token cannot manage is reported and skipped rather than killing the sync.
    */
+  /*
+   * What Pages a token can see, without connecting any of them.
+   *
+   * Handing over a user token used to connect and subscribe every Page on
+   * that Facebook account at once -- including Pages that have nothing to do
+   * with admissions, each one then receiving lead webhooks. This answers the
+   * question the screen actually needs to ask first, so the choice of which
+   * Pages to connect stays with the person holding the token.
+   *
+   * Read-only: nothing is written, nothing is subscribed, and the supplied
+   * token is used for this call and discarded.
+   */
+  router.post('/pages/discover', requireUserAdmin, wrap(async (req, res) => {
+    const config = await loadMetaConfig(pool, { useCache: false });
+    const suppliedToken = typeof req.body?.userToken === 'string' ? req.body.userToken.trim() : '';
+    if (!suppliedToken) requireConfigured(config, ['systemUserToken']);
+    else if (!config) throw Object.assign(new Error('Meta integration is not configured'), { status: 400 });
+    const discoveryToken = suppliedToken || config.systemUserToken;
+
+    let account;
+    try {
+      account = await getTokenOwner(discoveryToken, { logger });
+    } catch (error) {
+      throw Object.assign(
+        new Error(`Could not identify the Facebook account for this token: ${error.message}`),
+        { status: 400 },
+      );
+    }
+
+    const pages = await listPages(discoveryToken, { logger });
+    // Which of them the CRM already has, so the screen can say so rather than
+    // offering to connect something that is already delivering leads.
+    const [known] = await pool.execute(
+      'SELECT page_id AS pageId, is_subscribed AS isSubscribed FROM crm_meta_pages',
+    );
+    const byId = new Map(known.map(row => [String(row.pageId), row]));
+
+    res.json({
+      success: true,
+      data: {
+        account: { id: account.id, name: account.name },
+        pages: pages.map(page => ({
+          pageId: String(page.id),
+          name: page.name || null,
+          alreadyConnected: byId.has(String(page.id)),
+          alreadySubscribed: Boolean(byId.get(String(page.id))?.isSubscribed),
+        })),
+      },
+    });
+  }));
+
   router.post('/pages/sync', requireUserAdmin, wrap(async (req, res) => {
     const config = await loadMetaConfig(pool, { useCache: false });
 
@@ -168,7 +219,20 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
 
     const shouldSubscribe = req.body?.subscribe !== false && config.autoSubscribePages !== false;
     const masterKey = getMasterKey();
-    const pages = await listPages(discoveryToken, { logger });
+    const discovered = await listPages(discoveryToken, { logger });
+
+    /*
+     * Only the Pages asked for. Re-syncing a saved account sends no list and
+     * still means "all of them", which is what that button has always done;
+     * adding an account now sends the ones ticked on the screen.
+     */
+    const chosen = Array.isArray(req.body?.pageIds)
+      ? new Set(req.body.pageIds.map(id => String(id)))
+      : null;
+    const pages = chosen ? discovered.filter(page => chosen.has(String(page.id))) : discovered;
+    if (chosen && !pages.length) {
+      throw Object.assign(new Error('None of the selected Pages are available on this token'), { status: 400 });
+    }
     const results = [];
 
     for (const page of pages) {
