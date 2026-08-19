@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AlertCircle, AlertTriangle, CheckCircle2, Copy, Download, Loader2, Plus,
-  RefreshCw, Save, Search, ShieldCheck, XCircle,
+  AlertCircle, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Copy, Download,
+  Inbox, LayoutList, Link2, Loader2, Plus, RefreshCw, Save, Search, ShieldCheck, Users, X, XCircle,
 } from 'lucide-react';
 import { api } from '../api';
 import MetaLeadReview from '../components/MetaLeadReview.jsx';
 import { SearchSelect } from '../FilterWorkspace.jsx';
+import './MetaLeadAdsFilters.css';
 
 /**
  * Meta Lead Ads settings.
@@ -78,6 +79,140 @@ function StepChip({ done, label }) {
   );
 }
 
+/* ---------------------------------------------------------------------
+   Shared bits for the tabbed lists below: one CSV writer, one paginator.
+   Both follow what Leads and WhatsApp Templates already do, so the controls
+   look and behave the same wherever they appear.
+   --------------------------------------------------------------------- */
+
+const PAGE_SIZES = [10, 20, 50];
+
+/** Every value quoted, so a comma or a newline in a form name cannot shift columns. */
+const csvCell = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+
+function downloadCsv(filename, columns, rows) {
+  const csv = [
+    columns.map((c) => csvCell(c.label)).join(','),
+    ...rows.map((row) => columns.map((c) => csvCell(c.get(row))).join(',')),
+  ].join('\n');
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+/*
+ * One filter row, shared by the three list tabs.
+ *
+ * A free-text box plus as many dropdowns as the list needs. Everything
+ * filters in the browser -- these lists are already loaded whole, so a
+ * round trip per keystroke would buy nothing.
+ */
+function FilterBar({ search, onSearch, placeholder, selects = [], showing, total, onClear }) {
+  const filtered = showing !== total;
+  return (
+    <div className="meta-filter-bar">
+      <label className="meta-filter-search">
+        <Search size={15} />
+        <input value={search} onChange={(e) => onSearch(e.target.value)} placeholder={placeholder} />
+      </label>
+      {selects.map((select) => (
+        <select key={select.label} value={select.value} onChange={(e) => select.onChange(e.target.value)} aria-label={select.label}>
+          <option value="">{select.label}</option>
+          {select.options.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+      ))}
+      {/* Only when something is actually hidden: a count that always reads
+          "6 of 6" is noise, and a clear button with nothing to clear is worse. */}
+      {filtered && (
+        <span className="meta-filter-count">
+          {showing} of {total}
+          <button type="button" onClick={onClear} title="Clear filters"><X size={13} /></button>
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ExportButton({ onClick, disabled }) {
+  return (
+    <button
+      className="secondary inline-flex items-center gap-2"
+      onClick={onClick}
+      disabled={disabled}
+      title={disabled ? 'Nothing to export' : 'Download this list as CSV'}
+    >
+      <Download size={14} /> Export
+    </button>
+  );
+}
+
+/** Slices a list and hands back what the bar below needs to describe it. */
+function usePaged(rows, initialSize = 10) {
+  const [page, setPage] = useState(1);
+  const [size, setSize] = useState(initialSize);
+  const total = rows.length;
+  const pages = Math.max(1, Math.ceil(total / size));
+  // Clamped rather than reset: deleting the last row of page 3 should land on
+  // page 2, not throw the reader back to the top of the list.
+  const current = Math.min(page, pages);
+  const start = (current - 1) * size;
+  return {
+    slice: rows.slice(start, start + size),
+    bar: { total, page: current, pages, size, from: total ? start + 1 : 0, to: Math.min(start + size, total),
+      onPage: setPage, onSize: (next) => { setSize(next); setPage(1); } },
+  };
+}
+
+/*
+ * One Facebook account's Pages.
+ *
+ * A component rather than JSX inside the map: each account paginates its own
+ * table, and a hook cannot be called from inside a loop.
+ */
+function AccountPagesTable({ group, children }) {
+  const paged = usePaged(group.pages);
+  return (
+    <>
+      <div className="table-wrap overflow-x-auto">
+        <table className="table">
+          <thead>
+            <tr><th>Page</th><th>Receiving leads</th><th>Branch</th><th>Forms</th></tr>
+          </thead>
+          <tbody>{paged.slice.map(children)}</tbody>
+        </table>
+      </div>
+      <PaginationBar {...paged.bar} />
+    </>
+  );
+}
+
+function PaginationBar({ total, page, pages, size, from, to, onPage, onSize }) {
+  // One page of results needs no controls to move between pages.
+  if (total <= PAGE_SIZES[0]) return null;
+  return (
+    <div className="pagination-controls">
+      <div className="page-size-selector">
+        <label>Records per page:</label>
+        <select value={size} onChange={(e) => onSize(Number(e.target.value))}>
+          {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+      </div>
+      <div className="pagination-info">Showing {from} to {to} of {total} records</div>
+      <div className="pagination-buttons">
+        <button className="pagination-btn" title="First page" disabled={page === 1} onClick={() => onPage(1)}>&lsaquo;&lsaquo;</button>
+        <button className="pagination-btn" title="Previous page" disabled={page === 1} onClick={() => onPage(page - 1)}><ChevronLeft size={16} /></button>
+        <div className="page-indicator">Page {page} of {pages}</div>
+        <button className="pagination-btn" title="Next page" disabled={page === pages} onClick={() => onPage(page + 1)}><ChevronRight size={16} /></button>
+        <button className="pagination-btn" title="Last page" disabled={page === pages} onClick={() => onPage(pages)}>&rsaquo;&rsaquo;</button>
+      </div>
+    </div>
+  );
+}
+
 export default function MetaLeadAdsSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -97,6 +232,12 @@ export default function MetaLeadAdsSettings() {
   const [ledger, setLedger] = useState({ counts: {}, imports: [] });
 
   // Adding a second Facebook account: its token is used once for discovery.
+  /* One section at a time. The screen carried six of them stacked, so
+     checking a form's mapping meant scrolling past the credentials and the
+     whole page list to get there. */
+  const [tab, setTab] = useState('connect');
+  const [pageFilter, setPageFilter] = useState({ q: '', account: '', subscribed: '', branch: '' });
+  const [formFilter, setFormFilter] = useState({ q: '', page: '', status: '', mapped: '' });
   const [addAccountOpen, setAddAccountOpen] = useState(false);
   const [accountToken, setAccountToken] = useState('');
   /* Pages the supplied token can see, and the ones ticked to connect. Nothing
@@ -108,9 +249,32 @@ export default function MetaLeadAdsSettings() {
 
   // Pages carry the account they were discovered through. Pages connected
   // before that was recorded group under a single "unknown" bucket.
+  /* What each list shows after its filters. The lists are already loaded in
+     full, so this is a filter over what is in hand rather than a refetch. */
+  const visiblePages = useMemo(() => {
+    const q = pageFilter.q.trim().toLowerCase();
+    return pages.filter((page) => (
+      (!q || `${page.page_name || ''} ${page.page_id}`.toLowerCase().includes(q))
+      && (!pageFilter.account || String(page.meta_account_id || '') === pageFilter.account)
+      && (!pageFilter.subscribed || (pageFilter.subscribed === 'yes') === Boolean(page.is_subscribed))
+      && (!pageFilter.branch || String(page.branch_id || '') === pageFilter.branch)
+    ));
+  }, [pages, pageFilter]);
+
+  const visibleForms = useMemo(() => {
+    const q = formFilter.q.trim().toLowerCase();
+    return forms.filter((form) => {
+      const mapped = Object.keys(form.field_mapping || {}).length > 0;
+      return (!q || `${form.form_name || ''} ${form.form_id}`.toLowerCase().includes(q))
+        && (!formFilter.page || String(form.page_id) === formFilter.page)
+        && (!formFilter.status || String(form.form_status || '').toUpperCase() === formFilter.status)
+        && (!formFilter.mapped || (formFilter.mapped === 'yes') === mapped);
+    });
+  }, [forms, formFilter]);
+
   const accountGroups = useMemo(() => {
     const groups = new Map();
-    for (const page of pages) {
+    for (const page of visiblePages) {
       const key = page.meta_account_id || 'unknown';
       if (!groups.has(key)) {
         groups.set(key, {
@@ -123,7 +287,7 @@ export default function MetaLeadAdsSettings() {
       groups.get(key).pages.push(page);
     }
     return [...groups.values()];
-  }, [pages]);
+  }, [visiblePages]);
 
   const branchOptions = useMemo(() => [
     { value: '', label: '— No default branch —' },
@@ -236,6 +400,39 @@ export default function MetaLeadAdsSettings() {
     await loadAll();
   }
 
+  /* Each list paginates on its own, so a long form list does not drag the
+     pages tab with it. */
+  const pagedForms = usePaged(visibleForms);
+  const pagedImports = usePaged(ledger.imports || []);
+
+  const exportPages = () => downloadCsv('meta-facebook-pages.csv', [
+    { label: 'Account', get: (r) => r.meta_account_name || r.meta_account_id || '' },
+    { label: 'Page', get: (r) => r.page_name || '' },
+    { label: 'Page ID', get: (r) => r.page_id },
+    { label: 'Receiving leads', get: (r) => (r.is_subscribed ? 'Yes' : 'No') },
+    { label: 'Branch', get: (r) => branchName(r.branch_id) || 'Default' },
+    { label: 'Forms', get: (r) => forms.filter((f) => String(f.page_id) === String(r.page_id)).length },
+    { label: 'Last error', get: (r) => r.subscribe_error || '' },
+  ], pages);
+
+  const exportForms = () => downloadCsv('meta-lead-forms.csv', [
+    { label: 'Form', get: (r) => r.form_name || '' },
+    { label: 'Form ID', get: (r) => r.form_id },
+    { label: 'Page', get: (r) => pages.find((p) => String(p.page_id) === String(r.page_id))?.page_name || '' },
+    { label: 'Page ID', get: (r) => r.page_id },
+    { label: 'Status', get: (r) => r.form_status || '' },
+    { label: 'Branch', get: (r) => branchName(r.branch_id) || 'Default' },
+    { label: 'Mapped questions', get: (r) => Object.keys(r.field_mapping || {}).length },
+  ], forms);
+
+  const exportImports = () => downloadCsv('meta-recent-imports.csv', [
+    { label: 'Leadgen ID', get: (r) => r.leadgen_id },
+    { label: 'Status', get: (r) => r.status || '' },
+    { label: 'Lead', get: (r) => r.lead_number || '' },
+    { label: 'Error', get: (r) => r.error_message || '' },
+    { label: 'Received', get: (r) => (r.created_at_utc ? new Date(r.created_at_utc).toLocaleString() : '') },
+  ], ledger.imports || []);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16 text-secondary-500">
@@ -246,6 +443,7 @@ export default function MetaLeadAdsSettings() {
 
   const counts = ledger.counts || {};
   const subscribedPages = pages.filter((p) => p.is_subscribed).length;
+
   // The one setting that stops imports dead, so it gets its own banner.
   const missingActor = !routing.actorUserId;
 
@@ -293,7 +491,31 @@ export default function MetaLeadAdsSettings() {
         </div>
       )}
 
+      <div className="config-tabs academic-config-tabs" role="tablist" aria-label="Meta Lead Ads">
+        {[
+          ['connect', 'Connect to Meta', Link2],
+          ['routing', 'Where new leads go', Users],
+          ['pages', `Facebook pages (${pages.length})`, LayoutList],
+          ['forms', `Lead forms (${forms.length})`, LayoutList],
+          ['review', 'Waiting for review', Inbox],
+          ['imports', 'Recent imports', RefreshCw],
+        ].map(([id, label, Icon]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            className={tab === id ? 'active' : ''}
+            onClick={() => setTab(id)}
+          >
+            <Icon size={15} />
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* 1. Connection */}
+      {tab === 'connect' && (
       <section className="panel card">
         <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
           <h3 className="card-title">1. Connect to Meta</h3>
@@ -392,8 +614,10 @@ export default function MetaLeadAdsSettings() {
           </p>
         </div>
       </section>
+      )}
 
       {/* 2. Routing */}
+      {tab === 'routing' && (
       <section className="panel card">
         <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
           <h3 className="card-title">2. Where new leads go</h3>
@@ -443,8 +667,10 @@ export default function MetaLeadAdsSettings() {
 
         <div className="flex items-center gap-3 mt-4 flex-wrap">{saveButton}</div>
       </section>
+      )}
 
       {/* 3. Pages, grouped by the Facebook account they were connected through */}
+      {tab === 'pages' && (
       <section className="panel card">
         <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
           <h3 className="card-title">
@@ -465,6 +691,7 @@ export default function MetaLeadAdsSettings() {
               {busy === 'pages' ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
               Re-sync saved account
             </button>
+            <ExportButton onClick={exportPages} disabled={!pages.length} />
             <button
               className="primary inline-flex items-center gap-2"
               disabled={!meta?.configured}
@@ -594,12 +821,33 @@ export default function MetaLeadAdsSettings() {
           </div>
         )}
 
+        <FilterBar
+          search={pageFilter.q}
+          onSearch={(q) => setPageFilter({ ...pageFilter, q })}
+          placeholder="Search page name or ID…"
+          showing={visiblePages.length}
+          total={pages.length}
+          onClear={() => setPageFilter({ q: '', account: '', subscribed: '', branch: '' })}
+          selects={[
+            { label: 'All accounts', value: pageFilter.account, onChange: (v) => setPageFilter({ ...pageFilter, account: v }),
+              options: [...new Map(pages.map((p) => [String(p.meta_account_id || ''), p.meta_account_name || p.meta_account_id || 'Unknown'])).entries()]
+                .map(([value, label]) => ({ value, label })) },
+            { label: 'Receiving leads: any', value: pageFilter.subscribed, onChange: (v) => setPageFilter({ ...pageFilter, subscribed: v }),
+              options: [{ value: 'yes', label: 'Receiving leads' }, { value: 'no', label: 'Not receiving' }] },
+            { label: 'All branches', value: pageFilter.branch, onChange: (v) => setPageFilter({ ...pageFilter, branch: v }),
+              options: [...new Map(pages.map((p) => [String(p.branch_id || ''), branchName(p.branch_id) || 'Default'])).entries()]
+                .map(([value, label]) => ({ value, label })) },
+          ]}
+        />
         {pages.length === 0 ? (
           <p className="text-sm text-secondary-600">
             No pages yet. Save credentials and re-sync, or add a Facebook account above.
           </p>
         ) : (
           <div className="space-y-5">
+            {!visiblePages.length && (
+              <p className="text-sm text-secondary-600">No pages match these filters.</p>
+            )}
             {accountGroups.map((group) => (
               <div key={group.key} className="border border-border rounded-lg overflow-hidden">
                 <div className="flex items-center justify-between gap-3 flex-wrap px-4 py-3 bg-surface-3 border-b border-border">
@@ -625,13 +873,8 @@ export default function MetaLeadAdsSettings() {
                   </button>
                 </div>
 
-                <div className="table-wrap overflow-x-auto">
-                  <table className="table">
-                    <thead>
-                      <tr><th>Page</th><th>Receiving leads</th><th>Branch</th><th>Forms</th></tr>
-                    </thead>
-                    <tbody>
-                      {group.pages.map((page) => (
+                <AccountPagesTable group={group}>
+                  {(page) => (
                         <tr key={page.page_id}>
                           <td>
                             <div className="font-semibold">{page.page_name || '(unnamed)'}</div>
@@ -678,29 +921,55 @@ export default function MetaLeadAdsSettings() {
                             </div>
                           </td>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                  )}
+                </AccountPagesTable>
               </div>
             ))}
           </div>
         )}
       </section>
+      )}
 
       {/* 4. Forms */}
+      {tab === 'forms' && (
       <section className="panel card">
-        <h3 className="card-title mb-1">4. Lead forms ({forms.length})</h3>
+        <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
+          <h3 className="card-title">4. Lead forms ({forms.length})</h3>
+          <ExportButton onClick={exportForms} disabled={!forms.length} />
+        </div>
         <p className="text-xs text-secondary-500 mb-4">
           Send each form&apos;s leads to a specific branch, and check that its questions land
           on the right CRM fields. <strong>Backfill</strong> pulls in leads submitted before
           the form was connected.
         </p>
+        <FilterBar
+          search={formFilter.q}
+          onSearch={(q) => setFormFilter({ ...formFilter, q })}
+          placeholder="Search form name or ID…"
+          showing={visibleForms.length}
+          total={forms.length}
+          onClear={() => setFormFilter({ q: '', page: '', status: '', mapped: '' })}
+          selects={[
+            { label: 'All pages', value: formFilter.page, onChange: (v) => setFormFilter({ ...formFilter, page: v }),
+              options: [...new Map(forms.map((f) => [String(f.page_id), pages.find((p) => String(p.page_id) === String(f.page_id))?.page_name || f.page_id])).entries()]
+                .map(([value, label]) => ({ value, label })) },
+            { label: 'Any status', value: formFilter.status, onChange: (v) => setFormFilter({ ...formFilter, status: v }),
+              options: [...new Set(forms.map((f) => String(f.form_status || '').toUpperCase()).filter(Boolean))]
+                .map((value) => ({ value, label: value })) },
+            /* Which forms still have questions landing nowhere -- the thing
+               most worth finding on this tab. */
+            { label: 'Mapping: any', value: formFilter.mapped, onChange: (v) => setFormFilter({ ...formFilter, mapped: v }),
+              options: [{ value: 'yes', label: 'Questions mapped' }, { value: 'no', label: 'Not mapped yet' }] },
+          ]}
+        />
         {forms.length === 0 ? (
           <p className="text-sm text-secondary-600">No forms yet. Sync forms from a page above.</p>
         ) : (
           <div className="space-y-4">
-            {forms.map((f) => (
+            {!visibleForms.length && (
+              <p className="text-sm text-secondary-600">No forms match these filters.</p>
+            )}
+            {pagedForms.slice.map((f) => (
               <div key={f.form_id} className="border border-border rounded-lg p-4">
                 <div className="flex items-start justify-between gap-3 flex-wrap">
                   <div className="min-w-0">
@@ -779,17 +1048,24 @@ export default function MetaLeadAdsSettings() {
             ))}
           </div>
         )}
+        <PaginationBar {...pagedForms.bar} />
       </section>
+      )}
 
-      {/* 5. Ledger */}
-      {/* Waiting leads sit above the history: what needs a decision comes
-          before what has already been decided. */}
+      {/* 5. Waiting for review */}
+      {tab === 'review' && (
       <section className="panel card">
         <MetaLeadReview onMessage={handleReviewMessage} />
       </section>
+      )}
 
+      {/* 6. Recent imports */}
+      {tab === 'imports' && (
       <section className="panel card">
-        <h3 className="card-title mb-1">Recent imports</h3>
+        <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
+          <h3 className="card-title">6. Recent imports</h3>
+          <ExportButton onClick={exportImports} disabled={!(ledger.imports || []).length} />
+        </div>
         <p className="text-xs text-secondary-500 mb-4">
           Every lead Meta has sent. Failed ones are kept and can be retried once the
           cause is fixed.
@@ -817,7 +1093,7 @@ export default function MetaLeadAdsSettings() {
                 <tr><th>Leadgen ID</th><th>Status</th><th>Lead</th><th>Detail</th><th>When</th></tr>
               </thead>
               <tbody>
-                {ledger.imports.map((row) => (
+                {pagedImports.slice.map((row) => (
                   <tr key={row.leadgen_id}>
                     <td className="text-xs font-mono">{row.leadgen_id}</td>
                     <td>
@@ -848,7 +1124,9 @@ export default function MetaLeadAdsSettings() {
             </table>
           </div>
         )}
+        <PaginationBar {...pagedImports.bar} />
       </section>
+      )}
     </div>
   );
 }

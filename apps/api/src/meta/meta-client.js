@@ -76,8 +76,22 @@ async function graphRequest(method, url, { params, data, logger = console } = {}
     }
   }
   const code = lastError?.response?.data?.error?.code;
+  const metaAuthFailure = AUTH_CODES.has(code);
+  /*
+   * A dead Meta token is a bad gateway, not an unauthenticated caller.
+   *
+   * This used to answer 401 when Facebook rejected the token, and the browser
+   * treats 401 as "your CRM session has expired" -- it clears the stored token
+   * and signs the user out. So pressing Save or Test token with an expired
+   * system user token logged the administrator out of the CRM instead of
+   * telling them the Meta token needed replacing.
+   *
+   * 502 is what every other provider failure in this codebase reports.
+   * metaAuth marks it as a credentials problem so callers can say so.
+   */
   throw Object.assign(new Error(describeError(lastError)), {
-    status: AUTH_CODES.has(code) ? 401 : 502,
+    status: 502,
+    metaAuth: metaAuthFailure,
     metaCode: code ?? null,
   });
 }

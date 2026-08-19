@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Inbox, Loader2, RefreshCw, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Download, Inbox, Loader2, RefreshCw, Search, X } from 'lucide-react';
 import { api } from '../api';
+import '../pages/MetaLeadAdsFilters.css';
 
 /**
  * Meta leads waiting to be looked at.
@@ -14,11 +15,50 @@ import { api } from '../api';
  * them, and what the form's mapping makes of them. When those disagree, the
  * mapping is what needs fixing, and that is visible before any data lands.
  */
+const PAGE_SIZES = [10, 20, 50];
+const csvCell = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+
+/*
+ * The waiting list as a spreadsheet.
+ *
+ * Each lead carries whatever questions its form asked, and no two forms
+ * necessarily ask the same ones -- so the columns are the union of every
+ * question present, and a lead that was not asked one exports blank there.
+ */
+function exportWaiting(rows) {
+  const questions = [...new Set(rows.flatMap((row) => (row.answers || []).map((a) => a.name)))];
+  const columns = [
+    { label: 'Leadgen ID', get: (r) => r.leadgenId },
+    { label: 'Form', get: (r) => r.formName || r.formId || '' },
+    { label: 'Page', get: (r) => r.pageName || r.pageId || '' },
+    { label: 'Student name', get: (r) => r.mapped?.studentName || '' },
+    { label: 'Phone', get: (r) => r.mapped?.phone || '' },
+    { label: 'Email', get: (r) => r.mapped?.email || '' },
+    { label: 'Received', get: (r) => (r.receivedAt ? new Date(r.receivedAt).toLocaleString() : '') },
+    ...questions.map((name) => ({
+      label: name,
+      get: (r) => (r.answers || []).find((a) => a.name === name)?.value || '',
+    })),
+  ];
+  const csv = [
+    columns.map((c) => csvCell(c.label)).join(','),
+    ...rows.map((row) => columns.map((c) => csvCell(c.get(row))).join(',')),
+  ].join('\n');
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  link.download = 'meta-leads-waiting-for-review.csv';
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
 export default function MetaLeadReview({ onMessage }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
   const [loaded, setLoaded] = useState(false);
+  const [filter, setFilter] = useState({ q: '', form: '' });
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   /*
    * The callback is held in a ref rather than depended on.
@@ -85,6 +125,17 @@ export default function MetaLeadReview({ onMessage }) {
     }
   }
 
+  /* Name, phone, email, the leadgen id, or anything a form asked -- someone
+     looking for one lead in a waiting list searches for what they know. */
+  const query = filter.q.trim().toLowerCase();
+  const visible = rows.filter(row => (
+    (!filter.form || String(row.formId) === filter.form)
+    && (!query || [
+      row.mapped?.studentName, row.mapped?.phone, row.mapped?.email, row.leadgenId, row.formName,
+      ...(row.answers || []).map(answer => answer.value),
+    ].some(value => String(value ?? '').toLowerCase().includes(query)))
+  ));
+
   if (loading && !loaded) return <div className="loading"><span /></div>;
 
   return (
@@ -98,12 +149,41 @@ export default function MetaLeadReview({ onMessage }) {
               : 'Nothing waiting. Leads collected from Meta appear here before they become CRM leads.'}
           </span>
         </div>
-        <button className="secondary" onClick={load}><RefreshCw size={15} /> Refresh</button>
+        <div className="flex items-center gap-2">
+          <button className="secondary" onClick={() => exportWaiting(visible)} disabled={!visible.length} title={rows.length ? 'Download this list as CSV' : 'Nothing to export'}>
+            <Download size={15} /> Export
+          </button>
+          <button className="secondary" onClick={load}><RefreshCw size={15} /> Refresh</button>
+        </div>
       </header>
 
-      {!rows.length && <div className="empty"><Inbox size={30} /><strong>No leads waiting</strong></div>}
+      {rows.length > 0 && (
+        <div className="meta-filter-bar">
+          <label className="meta-filter-search">
+            <Search size={15} />
+            <input value={filter.q} onChange={e => setFilter({ ...filter, q: e.target.value })} placeholder="Search name, phone, email or answer…" />
+          </label>
+          <select value={filter.form} onChange={e => setFilter({ ...filter, form: e.target.value })} aria-label="Form">
+            <option value="">All forms</option>
+            {[...new Map(rows.map(row => [String(row.formId), row.formName || row.formId])).entries()]
+              .map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+          {visible.length !== rows.length && (
+            <span className="meta-filter-count">
+              {visible.length} of {rows.length}
+              <button type="button" title="Clear filters" onClick={() => setFilter({ q: '', form: '' })}><X size={13} /></button>
+            </span>
+          )}
+        </div>
+      )}
 
-      {rows.map(row => {
+      {!rows.length && <div className="empty"><Inbox size={30} /><strong>No leads waiting</strong></div>}
+      {rows.length > 0 && !visible.length && (
+        <div className="empty"><Inbox size={30} /><strong>No leads match these filters</strong></div>
+      )}
+
+      {visible.slice((Math.min(page, Math.max(1, Math.ceil(visible.length / pageSize))) - 1) * pageSize,
+                     (Math.min(page, Math.max(1, Math.ceil(visible.length / pageSize))) - 1) * pageSize + pageSize).map(row => {
         const name = row.mapped?.studentName;
         const phone = row.mapped?.phone;
         return (
@@ -150,6 +230,30 @@ export default function MetaLeadReview({ onMessage }) {
           </article>
         );
       })}
+
+      {visible.length > PAGE_SIZES[0] && (() => {
+        const pages = Math.max(1, Math.ceil(visible.length / pageSize));
+        const current = Math.min(page, pages);
+        const from = (current - 1) * pageSize + 1;
+        return (
+          <div className="pagination-controls">
+            <div className="page-size-selector">
+              <label>Records per page:</label>
+              <select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}>
+                {PAGE_SIZES.map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </div>
+            <div className="pagination-info">Showing {from} to {Math.min(from + pageSize - 1, visible.length)} of {visible.length} records</div>
+            <div className="pagination-buttons">
+              <button className="pagination-btn" title="First page" disabled={current === 1} onClick={() => setPage(1)}>&lsaquo;&lsaquo;</button>
+              <button className="pagination-btn" title="Previous page" disabled={current === 1} onClick={() => setPage(current - 1)}><ChevronLeft size={16} /></button>
+              <div className="page-indicator">Page {current} of {pages}</div>
+              <button className="pagination-btn" title="Next page" disabled={current === pages} onClick={() => setPage(current + 1)}><ChevronRight size={16} /></button>
+              <button className="pagination-btn" title="Last page" disabled={current === pages} onClick={() => setPage(pages)}>&rsaquo;&rsaquo;</button>
+            </div>
+          </div>
+        );
+      })()}
     </section>
   );
 }
