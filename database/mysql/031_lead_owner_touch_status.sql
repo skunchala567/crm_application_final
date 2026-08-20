@@ -1,4 +1,3 @@
-USE attendance_biometric;
 SET NAMES utf8mb4;
 
 SET @owner_assigned_column_exists = (

@@ -1,10 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Filter, Pencil, Play, Megaphone, Plus, Save, Trash2, UserCog, Workflow, Zap } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowLeft, Filter, History, Inbox, LayoutList, Pencil, Play, Megaphone, Plus, Radio, Save, Trash2, UserCog, Workflow, Zap } from "lucide-react";
 import { api } from "./api";
 import { useBusinessUnit } from "./BusinessUnitContext.jsx";
 import { MultiSearchSelect, SearchSelect } from "./FilterWorkspace.jsx";
 import { MarketingCampaignList } from "./MarketingCampaigns.jsx";
 import { AssignmentRuleList } from "./AssignmentRules.jsx";
+import { usePermissions } from "./PermissionContext.jsx";
+/* Remarketing lives here rather than under Meta Lead Ads: building an
+   audience from CRM leads and pushing it to Meta is an automation, not part
+   of setting the integration up. The panels are unchanged -- only the screen
+   that hosts them moved. */
+import { MetaRemarketingAudiences, MetaSyncHistory } from "./pages/MetaRemarketing.jsx";
+import "./pages/MetaRemarketing.css";
+import MetaLeadReview from "./components/MetaLeadReview.jsx";
+import MetaLeadForms from "./pages/MetaLeadForms.jsx";
 
 const categories = [
   {
@@ -89,7 +98,28 @@ export default function AutomationPage() {
     [loadingTemplates, setLoadingTemplates] = useState(""),
     [query, setQuery] = useState(""),
     [notice, setNotice] = useState(""),
+    /* The remarketing panels report both successes and failures, and the
+       shared notice above is rendered success-styled on this screen. */
+    [remarketingMessage, setRemarketingMessage] = useState(null),
     [editingId, setEditingId] = useState(null);
+  const { can } = usePermissions();
+  const canRemarket = can('integrations.meta_lead_ads.view');
+  /*
+   * Counts for the two Meta tabs, so they carry a badge like the rest.
+   *
+   * Fetched here rather than inside the panels: a tab has to show its count
+   * before it is opened, and the panels only load once they are. Both are
+   * small reads, and they are skipped entirely without the Meta permission.
+   */
+  const [ruleBranches, setRuleBranches] = useState([]);
+  const [pendingReviewCount, setPendingReviewCount] = useState(0);
+  const [metaFormCount, setMetaFormCount] = useState(0);
+  const refreshMetaCounts = useCallback(() => {
+    if (!canRemarket) return;
+    api('/meta/imports/pending').then(r => setPendingReviewCount((r.data || []).length)).catch(() => {});
+    api('/meta/forms').then(r => setMetaFormCount((r.data || []).length)).catch(() => {});
+  }, [canRemarket]);
+  useEffect(() => { refreshMetaCounts(); }, [refreshMetaCounts]);
   const [automationTab, setAutomationTab] = useState("workflows");
   const [ruleModal, setRuleModal] = useState(null); // null | { editingRule: rule|null }
   const [activeStep, setActiveStep] = useState("if");
@@ -116,6 +146,10 @@ export default function AutomationPage() {
     setMeta(leadMeta);
     setCampaigns(campaignResult.data || []);
     setAssignmentRules(ruleResult.data || []);
+    /* Rules may target any branch, not only the ones this user works in, so
+       the rule editor uses the list its own endpoint returns rather than the
+       branch-scoped one on /leads/meta. */
+    setRuleBranches(ruleResult.branches || []);
     setWhatsappIntegrations(
       (integrations.data || []).filter(
         (item) =>
@@ -945,30 +979,81 @@ export default function AutomationPage() {
           <Workflow /> Workflows <span>{items.length}</span>
         </button>
         <button
-          className={automationTab === "campaigns" ? "active" : ""}
-          onClick={() => setAutomationTab("campaigns")}
-        >
-          <Megaphone /> Bulk campaigns <span>{campaigns.length}</span>
-        </button>
-        <button
           className={automationTab === "assignmentRules" ? "active" : ""}
           onClick={() => setAutomationTab("assignmentRules")}
         >
           <UserCog /> Assignment rules <span>{assignmentRules.length}</span>
+        </button>
+        {/* Hidden without the Meta Lead Ads permission: the endpoints behind
+            these two answer to it, so showing the tabs would only lead to a
+            screen full of 403s. */}
+        {canRemarket && <>
+          <button
+            className={automationTab === "review" ? "active" : ""}
+            onClick={() => setAutomationTab("review")}
+          >
+            <Inbox /> Review Meta Leads <span>{pendingReviewCount}</span>
+          </button>
+          <button
+            className={automationTab === "metaForms" ? "active" : ""}
+            onClick={() => setAutomationTab("metaForms")}
+          >
+            <LayoutList /> Meta Lead Forms <span>{metaFormCount}</span>
+          </button>
+          <button
+            className={automationTab === "remarketing" ? "active" : ""}
+            onClick={() => setAutomationTab("remarketing")}
+          >
+            <Radio /> Remarketing audiences
+          </button>
+          <button
+            className={automationTab === "syncHistory" ? "active" : ""}
+            onClick={() => setAutomationTab("syncHistory")}
+          >
+            <History /> Sync history
+          </button>
+        </>}
+        {/* Last, as the least frequently used of the sections. */}
+        <button
+          className={automationTab === "campaigns" ? "active" : ""}
+          onClick={() => setAutomationTab("campaigns")}
+        >
+          <Megaphone /> Bulk campaigns <span>{campaigns.length}</span>
         </button>
         </nav>
         {automationTab === "assignmentRules" ? (
           <button className="primary" onClick={() => setRuleModal({ editingRule: null })}>
             <Plus size={18} /> Add assignment rule
           </button>
-        ) : (
+        ) : ["review", "metaForms", "remarketing", "syncHistory"].includes(automationTab) ? null : (
           <button className="primary" onClick={() => begin("attribute")}>
             <Plus size={18} /> Add workflow
           </button>
         )}
       </div>
       {notice && <div className="notice success">{notice}</div>}
-      {automationTab === "campaigns" ? (
+      {remarketingMessage && ["review", "metaForms", "remarketing", "syncHistory"].includes(automationTab) && (
+        <div className={`notice ${remarketingMessage.type === "error" ? "error" : "success"}`}>{remarketingMessage.text}</div>
+      )}
+      {automationTab === "review" ? (
+        <article className="panel meta-embed">
+          {/* Given the same lead metadata the Leads screen uses, so the
+              "where added leads go" pickers offer exactly what a lead can hold. */}
+          <MetaLeadReview meta={meta} onMessage={(message) => { setRemarketingMessage(message); refreshMetaCounts(); }} />
+        </article>
+      ) : automationTab === "metaForms" ? (
+        <article className="panel meta-embed">
+          <MetaLeadForms onMessage={(message) => { setRemarketingMessage(message); refreshMetaCounts(); }} />
+        </article>
+      ) : automationTab === "remarketing" ? (
+        <article className="panel meta-embed">
+          <MetaRemarketingAudiences meta={meta || {}} onMessage={setRemarketingMessage} />
+        </article>
+      ) : automationTab === "syncHistory" ? (
+        <article className="panel meta-embed">
+          <MetaSyncHistory onMessage={setRemarketingMessage} />
+        </article>
+      ) : automationTab === "campaigns" ? (
         <MarketingCampaignList
           campaigns={campaigns}
           onStatus={(campaign, statusValue) =>
@@ -980,7 +1065,7 @@ export default function AutomationPage() {
       ) : automationTab === "assignmentRules" ? (
         <AssignmentRuleList
           rules={assignmentRules}
-          meta={meta || { branches: [], sources: [], employees: [] }}
+          meta={{ ...(meta || { sources: [], employees: [] }), branches: ruleBranches.length ? ruleBranches : (meta?.branches || []) }}
           modal={ruleModal}
           onOpenEdit={(rule) => setRuleModal({ editingRule: rule })}
           onCloseModal={() => setRuleModal(null)}
@@ -995,7 +1080,7 @@ export default function AutomationPage() {
         />
       ) : (
       <>
-      <article className="panel">
+      <article className="panel meta-embed">
         <div className="table-tools">
           <div className="local-search">
             <Filter />

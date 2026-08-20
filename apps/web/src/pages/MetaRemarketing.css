@@ -1,0 +1,188 @@
+/*
+ * Meta Remarketing panels.
+ *
+ * Scoped under .rm-* on purpose: BulkUpload.css styles bare `button` with
+ * min-width:max-content app-wide, which pushes the per-row action buttons
+ * apart until the table overflows. Everything here that is a button says
+ * what its own min-width is.
+ */
+
+.rm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0.65rem 0.85rem;
+  margin-bottom: 0.5rem;
+}
+
+.rm-grid > label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-secondary-600, #4b5563);
+  min-width: 0;
+}
+
+.rm-grid > label.rm-wide { grid-column: 1 / -1; }
+
+/* auto-fit stretches a lone control across the whole dialog. These sections
+   have one or two fields and should sit in the same columns as the rest. */
+.rm-grid-fixed { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+@media (max-width: 720px) {
+  .rm-grid-fixed { grid-template-columns: 1fr; }
+}
+
+.rm-grid input,
+.rm-grid select {
+  width: 100%;
+  min-width: 0;
+  padding: 0.42rem 0.55rem;
+  border: 1px solid var(--color-secondary-200, #e5e7eb);
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 400;
+  background: #fff;
+}
+
+.rm-grid small {
+  font-weight: 400;
+  font-size: 0.68rem;
+  color: var(--color-secondary-500, #6b7280);
+}
+
+/* Wider than the default dialog so the filters sit three to a row instead
+   of two -- the same set of conditions in two-thirds the scrolling.
+   The doubled class beats .modal-content's own max-width. */
+.rm-editor.rm-editor { max-width: 940px; width: 96vw; }
+
+.rm-editor-body {
+  padding: 0.9rem 1.1rem;
+  overflow-y: auto;
+  max-height: min(70vh, 620px);
+}
+
+.rm-editor-body h4 {
+  margin: 0.9rem 0 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-secondary-500, #6b7280);
+}
+
+/* The live count. It is the answer to "who will this reach", so it stays
+   in view while the conditions above it are edited rather than sitting at
+   the bottom of a scrolled form. */
+.rm-preview {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--color-primary-200, #c7d2fe);
+  border-radius: 8px;
+  background: var(--color-primary-50, #eef2ff);
+}
+
+.rm-preview > div { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.rm-preview strong { font-size: 0.85rem; }
+.rm-preview span { font-size: 0.8rem; color: var(--color-secondary-700, #374151); }
+.rm-preview small { font-size: 0.72rem; color: var(--color-amber-700, #b45309); }
+.rm-preview button { min-width: 0; }
+
+.rm-preview-list {
+  margin-top: 0.6rem;
+  border: 1px solid var(--color-secondary-200, #e5e7eb);
+  border-radius: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.rm-preview-list > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.8rem;
+  border-bottom: 1px solid var(--color-secondary-100, #f3f4f6);
+}
+
+.rm-preview-list > div:last-child { border-bottom: none; }
+.rm-preview-list small { color: var(--color-secondary-500, #6b7280); font-size: 0.7rem; }
+.rm-preview-list p { padding: 0.5rem 0.7rem; font-size: 0.78rem; color: var(--color-secondary-500, #6b7280); margin: 0; }
+
+/* Six actions per row.
+   They wrap, but the cell has to be wide enough for two per line -- capped
+   at max-width alone the column collapsed to the width of one button and the
+   row grew to 300px tall. */
+.rm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  justify-content: flex-end;
+  width: 232px;
+}
+
+.rm-audience-table td:last-child,
+.rm-audience-table th:last-child { width: 248px; }
+
+/* Column widths are declared rather than left to the content.
+   Meta's failure text is a paragraph, and as free-flowing table content it
+   stretched the first column past a thousand pixels and squeezed every
+   count and date column to nothing. */
+.rm-audience-table { table-layout: fixed; width: 100%; min-width: 1080px; }
+.rm-audience-table th:first-child,
+.rm-audience-table td:first-child { width: 250px; }
+.rm-audience-table td {
+  vertical-align: top;
+  /* .table sets nowrap, which turned the wrapped error into one clipped
+     line and kept dates from breaking. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Counts are narrow, names and dates need the room. */
+.rm-audience-table th:nth-child(3), .rm-audience-table td:nth-child(3),
+.rm-audience-table th:nth-child(4), .rm-audience-table td:nth-child(4) { width: 78px; }
+.rm-audience-table th:nth-child(5), .rm-audience-table td:nth-child(5),
+.rm-audience-table th:nth-child(6), .rm-audience-table td:nth-child(6) { width: 92px; }
+.rm-audience-table th:nth-child(8), .rm-audience-table td:nth-child(8) { width: 140px; }
+
+/* Two lines of the error, the rest on hover. */
+.rm-audience-error {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.rm-actions button {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.22rem 0.45rem;
+  white-space: nowrap;
+}
+
+.rm-pill {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.rm-pill.is-ok { background: #dcfce7; color: #15803d; }
+.rm-pill.is-draft { background: #e5e7eb; color: #4b5563; }
+.rm-pill.is-paused { background: #fef3c7; color: #b45309; }
+.rm-pill.is-error { background: #fee2e2; color: #b91c1c; }

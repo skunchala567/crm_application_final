@@ -177,18 +177,36 @@ export async function listLeadForms(pageId, pageAccessToken, { logger = console 
   });
 }
 
+/*
+ * What a lead is asked for.
+ *
+ * LEAD_FIELDS is the set that has always worked. The names are requested
+ * alongside it, but separately, so a Graph refusal over them can drop back
+ * to the original list rather than losing the lead.
+ */
+const LEAD_FIELDS = 'id,created_time,ad_id,adset_id,campaign_id,form_id,is_organic,field_data';
+const LEAD_NAME_FIELDS = 'campaign_name,adset_name,ad_name';
+
 /**
  * Fetch one lead by its leadgen_id. This is the webhook path -- the
  * webhook payload carries only ids, never the answers themselves.
  */
 export async function getLead(leadgenId, pageAccessToken, { logger = console } = {}) {
-  return graphRequest('GET', `${GRAPH_BASE}/${leadgenId}`, {
-    params: {
-      fields: 'id,created_time,ad_id,adset_id,campaign_id,form_id,is_organic,field_data',
-      access_token: pageAccessToken,
-    },
-    logger,
-  });
+  try {
+    return await graphRequest('GET', `${GRAPH_BASE}/${leadgenId}`, {
+      params: { fields: `${LEAD_FIELDS},${LEAD_NAME_FIELDS}`, access_token: pageAccessToken },
+      logger,
+    });
+  } catch (error) {
+    /* The names are a bonus, the answers are not. If this token or this
+       lead cannot serve campaign_name and friends, fall back to exactly
+       the field list that worked before they were asked for. */
+    logger.warn?.(`[Meta] lead ${leadgenId}: name fields unavailable (${error.message}); fetching without them`);
+    return graphRequest('GET', `${GRAPH_BASE}/${leadgenId}`, {
+      params: { fields: LEAD_FIELDS, access_token: pageAccessToken },
+      logger,
+    });
+  }
 }
 
 /**
@@ -218,3 +236,71 @@ export async function debugToken(inputToken, appId, appSecret, { logger = consol
 }
 
 export const __testing = { redactToken, isRetryable, describeError };
+
+/* =====================================================================
+   Marketing API — Custom Audiences.
+
+   Same transport as everything above: graphRequest owns the retries, the
+   token redaction and the error mapping, so a dead token or a rate limit
+   behaves here exactly as it does for leadgen.
+
+   These need `ads_management` on the token. Lead Ads does not, so a token
+   that fetches leads perfectly well can still fail every call below --
+   which is why the routes check for it and say so rather than reporting a
+   generic Meta error.
+   ===================================================================== */
+
+/** Ad accounts the token can act on. Needs ads_management or ads_read. */
+export async function listAdAccounts(token, { logger = console } = {}) {
+  return graphPaginate(`${GRAPH_BASE}/me/adaccounts`, {
+    params: { access_token: token, fields: 'id,account_id,name,currency,account_status,business', limit: 100 },
+    logger,
+  });
+}
+
+/**
+ * Create a Custom Audience of type CUSTOM//user-provided data.
+ *
+ * customer_file_source tells Meta where the data came from; leads that
+ * filled in a Meta form and were then worked by the school are "both",
+ * which is what Meta expects for a CRM export of enquiries.
+ */
+export async function createCustomAudience(adAccountId, token, { name, description }, { logger = console } = {}) {
+  return graphRequest('POST', `${GRAPH_BASE}/${adAccountId}/customaudiences`, {
+    params: {
+      access_token: token,
+      name,
+      description: description || '',
+      subtype: 'CUSTOM',
+      customer_file_source: 'BOTH_USER_AND_PARTNER_PROVIDED',
+    },
+    logger,
+  });
+}
+
+export async function getCustomAudience(audienceId, token, { logger = console } = {}) {
+  return graphRequest('GET', `${GRAPH_BASE}/${audienceId}`, {
+    params: { access_token: token, fields: 'id,name,description,approximate_count_lower_bound,delivery_status,operation_status,time_updated' },
+    logger,
+  });
+}
+
+export async function deleteCustomAudience(audienceId, token, { logger = console } = {}) {
+  return graphRequest('DELETE', `${GRAPH_BASE}/${audienceId}`, { params: { access_token: token }, logger });
+}
+
+/**
+ * Add or remove hashed customer records.
+ *
+ * `payload` is Meta's {schema, data} shape and must already be hashed --
+ * see buildAudiencePayload in meta-remarketing.service.js, which is the only
+ * thing allowed to see the raw values. Passing it through as JSON keeps this
+ * function unable to normalise or hash anything itself, so a caller cannot
+ * accidentally send plaintext by taking a shortcut here.
+ */
+export async function updateAudienceUsers(audienceId, token, payload, { remove = false, logger = console } = {}) {
+  return graphRequest(remove ? 'DELETE' : 'POST', `${GRAPH_BASE}/${audienceId}/users`, {
+    params: { access_token: token, payload: JSON.stringify(payload) },
+    logger,
+  });
+}

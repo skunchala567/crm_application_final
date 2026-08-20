@@ -154,7 +154,13 @@ export const REGISTRY = [
     screens: [
       { screen: 'hub', label: 'Integrations', route: '/settings/integrations', actions: ['view', 'edit', 'manage'] },
       { screen: 'google_sheets', label: 'Google Sheets', route: '/settings/google-sheets', actions: ['view', 'edit', 'manage', 'import'] },
-      { screen: 'meta_lead_ads', label: 'Meta Lead Ads', route: '/settings/meta-lead-ads', actions: ['view', 'edit', 'manage', 'import'] },
+      /*
+       * One key, several screens. Granting this also controls the Meta tabs
+       * on Automations -- Review Meta Leads, Meta Lead Forms, Remarketing
+       * audiences and Sync history -- which is not obvious from the settings
+       * route alone, so the label says so.
+       */
+      { screen: 'meta_lead_ads', label: 'Meta Lead Ads (settings, lead forms, review queue, remarketing)', route: '/settings/meta-lead-ads', actions: ['view', 'edit', 'manage', 'import'] },
       { screen: 'callerdesk', label: 'CallerDesk', route: '/settings/callerdesk', actions: ['view', 'edit', 'manage'] },
       { screen: 'smartflo', label: 'Smartflo', route: '/settings/smartflo', actions: ['view', 'edit', 'manage'] },
     ],

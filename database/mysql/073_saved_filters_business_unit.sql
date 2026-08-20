@@ -1,4 +1,3 @@
-USE attendance_biometric;
 SET NAMES utf8mb4;
 
 -- Saved filters/views are private to both the active business unit and creator.

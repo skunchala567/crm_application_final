@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Copy, Download,
-  Inbox, LayoutList, Link2, Loader2, Plus, RefreshCw, Save, Search, ShieldCheck, Users, X, XCircle,
+  LayoutList, Link2, Loader2, Plus, RefreshCw, Save, Search, ShieldCheck, Users, X, XCircle,
 } from 'lucide-react';
 import { api } from '../api';
-import MetaLeadReview from '../components/MetaLeadReview.jsx';
 import { SearchSelect } from '../FilterWorkspace.jsx';
 import './MetaLeadAdsFilters.css';
+import { recordDownload } from '../downloadAudit.js';
 
 /**
  * Meta Lead Ads settings.
@@ -23,7 +23,7 @@ import './MetaLeadAdsFilters.css';
  * end up with a number that imports nothing.
  */
 
-const CRM_FIELDS = [
+export const CRM_FIELDS = [
   { value: '', label: '— Ignore —' },
   { value: 'studentName', label: 'Student name' },
   { value: 'firstName', label: 'First name' },
@@ -33,11 +33,17 @@ const CRM_FIELDS = [
   { value: 'email', label: 'Email' },
   { value: 'parentName', label: 'Parent name' },
   { value: 'city', label: 'City' },
+  /* The rest of what a Meta Custom Audience matches on. Mapping a form's
+     state/pincode question here raises the audience match rate; leaving it
+     unmapped only means the answer stays in the lead's remarks. */
+  { value: 'state', label: 'State' },
+  { value: 'postalCode', label: 'PIN / postal code' },
+  { value: 'country', label: 'Country' },
   { value: 'applyingClass', label: 'Applying class' },
   { value: 'academicYear', label: 'Academic year' },
 ];
 
-function StatusPill({ ok, children }) {
+export function StatusPill({ ok, children }) {
   const Icon = ok ? CheckCircle2 : XCircle;
   return (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${
@@ -50,7 +56,7 @@ function StatusPill({ ok, children }) {
 }
 
 /** A labelled field with room for the one line of context it needs. */
-function Field({ label, hint, required, error, children }) {
+export function Field({ label, hint, required, error, children }) {
   return (
     <div className="form-group">
       <span className="label">
@@ -90,7 +96,7 @@ const PAGE_SIZES = [10, 20, 50];
 /** Every value quoted, so a comma or a newline in a form name cannot shift columns. */
 const csvCell = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
 
-function downloadCsv(filename, columns, rows) {
+export function downloadCsv(filename, columns, rows, dataset) {
   const csv = [
     columns.map((c) => csvCell(c.label)).join(','),
     ...rows.map((row) => columns.map((c) => csvCell(c.get(row))).join(',')),
@@ -100,6 +106,8 @@ function downloadCsv(filename, columns, rows) {
   link.download = filename;
   link.click();
   URL.revokeObjectURL(link.href);
+  // Recorded so Bulk Actions can say who took what, and when.
+  recordDownload(dataset || filename.replace(/\.csv$/, ''), rows.length, filename, { columns: columns.map((c) => c.label), content: csv });
 }
 
 /*
@@ -109,7 +117,7 @@ function downloadCsv(filename, columns, rows) {
  * filters in the browser -- these lists are already loaded whole, so a
  * round trip per keystroke would buy nothing.
  */
-function FilterBar({ search, onSearch, placeholder, selects = [], showing, total, onClear }) {
+export function FilterBar({ search, onSearch, placeholder, selects = [], showing, total, onClear }) {
   const filtered = showing !== total;
   return (
     <div className="meta-filter-bar">
@@ -137,7 +145,7 @@ function FilterBar({ search, onSearch, placeholder, selects = [], showing, total
   );
 }
 
-function ExportButton({ onClick, disabled }) {
+export function ExportButton({ onClick, disabled }) {
   return (
     <button
       className="secondary inline-flex items-center gap-2"
@@ -151,7 +159,7 @@ function ExportButton({ onClick, disabled }) {
 }
 
 /** Slices a list and hands back what the bar below needs to describe it. */
-function usePaged(rows, initialSize = 10) {
+export function usePaged(rows, initialSize = 10) {
   const [page, setPage] = useState(1);
   const [size, setSize] = useState(initialSize);
   const total = rows.length;
@@ -180,7 +188,7 @@ function AccountPagesTable({ group, children }) {
       <div className="table-wrap overflow-x-auto">
         <table className="table">
           <thead>
-            <tr><th>Page</th><th>Receiving leads</th><th>Branch</th><th>Forms</th></tr>
+            <tr><th>Page</th><th>Receiving leads</th><th>Destination</th><th>Forms</th></tr>
           </thead>
           <tbody>{paged.slice.map(children)}</tbody>
         </table>
@@ -190,7 +198,7 @@ function AccountPagesTable({ group, children }) {
   );
 }
 
-function PaginationBar({ total, page, pages, size, from, to, onPage, onSize }) {
+export function PaginationBar({ total, page, pages, size, from, to, onPage, onSize }) {
   // One page of results needs no controls to move between pages.
   if (total <= PAGE_SIZES[0]) return null;
   return (
@@ -225,7 +233,7 @@ export default function MetaLeadAdsSettings() {
   const [routing, setRouting] = useState({ defaultBranchId: '', defaultBusinessUnitId: '', actorUserId: '' });
 
   // Names for every id the screen would otherwise have asked for.
-  const [lookups, setLookups] = useState({ users: [], branches: [], businessUnits: [] });
+  const [lookups, setLookups] = useState({ users: [], branches: [], businessUnits: [], pipelines: [], stages: [], substages: [] });
 
   const [pages, setPages] = useState([]);
   const [forms, setForms] = useState([]);
@@ -237,7 +245,7 @@ export default function MetaLeadAdsSettings() {
      whole page list to get there. */
   const [tab, setTab] = useState('connect');
   const [pageFilter, setPageFilter] = useState({ q: '', account: '', subscribed: '', branch: '' });
-  const [formFilter, setFormFilter] = useState({ q: '', page: '', status: '', mapped: '' });
+  const [formFilter, setFormFilter] = useState({ q: '', page: '', status: '', mapped: '', unit: '' });
   const [addAccountOpen, setAddAccountOpen] = useState(false);
   const [accountToken, setAccountToken] = useState('');
   /* Pages the supplied token can see, and the ones ticked to connect. Nothing
@@ -249,6 +257,50 @@ export default function MetaLeadAdsSettings() {
 
   // Pages carry the account they were discovered through. Pages connected
   // before that was recorded group under a single "unknown" bucket.
+  /* Branches are not owned by a business unit -- the two are independent
+     dimensions of where a lead lands -- so a Meta Page or form has to name
+     both, and both are shown wherever a destination is displayed. */
+  const unitName = useCallback(
+    (id) => lookups.businessUnits.find((u) => String(u.id) === String(id))?.name || null,
+    [lookups.businessUnits],
+  );
+
+  const branchName = useCallback(
+    (id) => lookups.branches.find((b) => String(b.id) === String(id))?.name || null,
+    [lookups.branches],
+  );
+
+  /*
+   * Stages this form may route to, labelled by their pipeline.
+   *
+   * Narrowed to the business unit the form is bound to -- offering a stage
+   * from another unit would send the lead somewhere the unit's own screens
+   * never show it. The pipeline name is on every label because that is the
+   * thing being chosen; the stage is only how it is chosen.
+   */
+  const stageOptionsFor = useCallback((form) => {
+    const unitId = form.business_unit_id
+      || pages.find((p) => String(p.page_id) === String(form.page_id))?.business_unit_id
+      || routing.defaultBusinessUnitId;
+    const pipelines = (lookups.pipelines || []).filter((p) => !unitId || String(p.businessUnitId) === String(unitId));
+    const byId = new Map(pipelines.map((p) => [String(p.id), p.name]));
+    return (lookups.stages || [])
+      .filter((stage) => byId.has(String(stage.pipelineId)))
+      .map((stage) => ({ id: stage.id, label: `${byId.get(String(stage.pipelineId))} · ${stage.name}` }));
+  }, [lookups.pipelines, lookups.stages, pages, routing.defaultBusinessUnitId]);
+
+  /* Mirrors resolveRouting on the server: a form's own value wins, then the
+     Page's, then the global default. Shown so an admin can see where a lead
+     actually lands without holding all three levels in their head. */
+  const effectiveDestination = useCallback((form) => {
+    const page = pages.find((p) => String(p.page_id) === String(form.page_id));
+    const unitId = form.business_unit_id ?? page?.business_unit_id ?? routing.defaultBusinessUnitId;
+    const branchId = form.branch_id ?? page?.branch_id ?? routing.defaultBranchId;
+    const source = form.business_unit_id || form.branch_id ? 'form'
+      : (page?.business_unit_id || page?.branch_id) ? 'page' : 'default';
+    return { unitId, branchId, unit: unitName(unitId), branch: branchName(branchId), source };
+  }, [pages, routing.defaultBusinessUnitId, routing.defaultBranchId, unitName, branchName]);
+
   /* What each list shows after its filters. The lists are already loaded in
      full, so this is a filter over what is in hand rather than a refetch. */
   const visiblePages = useMemo(() => {
@@ -268,9 +320,10 @@ export default function MetaLeadAdsSettings() {
       return (!q || `${form.form_name || ''} ${form.form_id}`.toLowerCase().includes(q))
         && (!formFilter.page || String(form.page_id) === formFilter.page)
         && (!formFilter.status || String(form.form_status || '').toUpperCase() === formFilter.status)
-        && (!formFilter.mapped || (formFilter.mapped === 'yes') === mapped);
+        && (!formFilter.mapped || (formFilter.mapped === 'yes') === mapped)
+        && (!formFilter.unit || String(effectiveDestination(form).unitId ?? '') === formFilter.unit);
     });
-  }, [forms, formFilter]);
+  }, [forms, formFilter, effectiveDestination]);
 
   const accountGroups = useMemo(() => {
     const groups = new Map();
@@ -304,17 +357,14 @@ export default function MetaLeadAdsSettings() {
     ...lookups.users.map((u) => ({ value: String(u.id), label: `${u.name} (${u.email})` })),
   ], [lookups.users]);
 
-  const branchName = useCallback(
-    (id) => lookups.branches.find((b) => String(b.id) === String(id))?.name || null,
-    [lookups.branches],
-  );
+
 
   const loadAll = useCallback(async () => {
     setError('');
     try {
       const [configRes, lookupRes, pagesRes, formsRes, importsRes] = await Promise.all([
         api.get('/meta/config'),
-        api.get('/meta/lookups').catch(() => ({ data: { users: [], branches: [], businessUnits: [] } })),
+        api.get('/meta/lookups').catch(() => ({ data: { users: [], branches: [], businessUnits: [], pipelines: [], stages: [], substages: [] } })),
         api.get('/meta/pages').catch(() => ({ data: [] })),
         api.get('/meta/forms').catch(() => ({ data: [] })),
         api.get('/meta/imports?limit=25').catch(() => ({ data: { counts: {}, imports: [] } })),
@@ -345,19 +395,6 @@ export default function MetaLeadAdsSettings() {
     setTimeout(() => setNotice(''), 4000);
   };
 
-  /*
-   * Stable across renders on purpose. App re-renders every second while the
-   * idle timer ticks, and an inline callback here would hand MetaLeadReview a
-   * new prop each time -- which is what had it refetching, and flickering,
-   * once a second.
-   */
-  const handleReviewMessage = useCallback((message) => {
-    if (!message) return;
-    if (message.type === 'error') { setError(message.text); setNotice(''); }
-    else { setNotice(message.text); setError(''); }
-    // Approving a lead moves it into the ledger, so refresh the counts.
-    loadAll();
-  }, [loadAll]);
 
   async function saveConfig() {
     setSaving(true);
@@ -410,10 +447,11 @@ export default function MetaLeadAdsSettings() {
     { label: 'Page', get: (r) => r.page_name || '' },
     { label: 'Page ID', get: (r) => r.page_id },
     { label: 'Receiving leads', get: (r) => (r.is_subscribed ? 'Yes' : 'No') },
+    { label: 'Business unit', get: (r) => unitName(r.business_unit_id) || 'Default' },
     { label: 'Branch', get: (r) => branchName(r.branch_id) || 'Default' },
     { label: 'Forms', get: (r) => forms.filter((f) => String(f.page_id) === String(r.page_id)).length },
     { label: 'Last error', get: (r) => r.subscribe_error || '' },
-  ], pages);
+  ], pages, 'Facebook pages');
 
   const exportForms = () => downloadCsv('meta-lead-forms.csv', [
     { label: 'Form', get: (r) => r.form_name || '' },
@@ -421,17 +459,24 @@ export default function MetaLeadAdsSettings() {
     { label: 'Page', get: (r) => pages.find((p) => String(p.page_id) === String(r.page_id))?.page_name || '' },
     { label: 'Page ID', get: (r) => r.page_id },
     { label: 'Status', get: (r) => r.form_status || '' },
+    { label: 'Business unit', get: (r) => unitName(r.business_unit_id) || 'Default' },
     { label: 'Branch', get: (r) => branchName(r.branch_id) || 'Default' },
+    // Where a lead actually lands once the page and global defaults apply.
+    { label: 'Effective unit', get: (r) => effectiveDestination(r).unit || '' },
+    { label: 'Effective branch', get: (r) => effectiveDestination(r).branch || '' },
     { label: 'Mapped questions', get: (r) => Object.keys(r.field_mapping || {}).length },
   ], forms);
 
   const exportImports = () => downloadCsv('meta-recent-imports.csv', [
     { label: 'Leadgen ID', get: (r) => r.leadgen_id },
+    { label: 'Campaign', get: (r) => r.campaign_name || '' },
+    { label: 'Ad set', get: (r) => r.adgroup_name || '' },
+    { label: 'Ad', get: (r) => r.ad_name || '' },
     { label: 'Status', get: (r) => r.status || '' },
     { label: 'Lead', get: (r) => r.lead_number || '' },
     { label: 'Error', get: (r) => r.error_message || '' },
     { label: 'Received', get: (r) => (r.created_at_utc ? new Date(r.created_at_utc).toLocaleString() : '') },
-  ], ledger.imports || []);
+  ], ledger.imports || [], 'Meta recent imports');
 
   if (loading) {
     return (
@@ -445,7 +490,6 @@ export default function MetaLeadAdsSettings() {
   const subscribedPages = pages.filter((p) => p.is_subscribed).length;
 
   // The one setting that stops imports dead, so it gets its own banner.
-  const missingActor = !routing.actorUserId;
 
   const saveButton = (
     <button className="primary inline-flex items-center gap-2" onClick={saveConfig} disabled={saving}>
@@ -459,7 +503,6 @@ export default function MetaLeadAdsSettings() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
           <StepChip done={!!meta?.configured} label="1. Connected" />
-          <StepChip done={!missingActor} label="2. Lead routing" />
           <StepChip done={subscribedPages > 0} label="3. Pages subscribed" />
           <StepChip done={forms.length > 0} label="4. Forms synced" />
         </div>
@@ -479,25 +522,11 @@ export default function MetaLeadAdsSettings() {
           <CheckCircle2 size={16} /> {notice}
         </div>
       )}
-      {missingActor && (
-        <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
-          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-          <span>
-            <strong>Leads are not being imported.</strong> Choose an <em>Import leads as</em> user
-            below — every incoming lead is recorded against a CRM user, and without one each
-            lead is rejected and listed as failed under Recent imports. Fix this and use
-            <em> retry</em> to bring them in.
-          </span>
-        </div>
-      )}
 
       <div className="config-tabs academic-config-tabs" role="tablist" aria-label="Meta Lead Ads">
         {[
           ['connect', 'Connect to Meta', Link2],
-          ['routing', 'Where new leads go', Users],
           ['pages', `Facebook pages (${pages.length})`, LayoutList],
-          ['forms', `Lead forms (${forms.length})`, LayoutList],
-          ['review', 'Waiting for review', Inbox],
           ['imports', 'Recent imports', RefreshCw],
         ].map(([id, label, Icon]) => (
           <button
@@ -617,57 +646,6 @@ export default function MetaLeadAdsSettings() {
       )}
 
       {/* 2. Routing */}
-      {tab === 'routing' && (
-      <section className="panel card">
-        <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
-          <h3 className="card-title">2. Where new leads go</h3>
-          <StatusPill ok={!missingActor}>{missingActor ? 'Incomplete' : 'Ready'}</StatusPill>
-        </div>
-        <p className="text-xs text-secondary-500 mb-4">
-          Applied to every lead Meta sends. A form with its own branch (step 4) overrides
-          the default below.
-        </p>
-
-        <div className="grid gap-4 md:grid-cols-3">
-          <Field
-            label="Import leads as"
-            required
-            error={missingActor ? 'Required — imports fail without this' : ''}
-            hint="The CRM user recorded as having created the lead. A webhook has nobody signed in, so it acts as this user. Shown as the author in the lead's activity timeline."
-          >
-            <SearchSelect
-              label="Import leads as"
-              value={String(routing.actorUserId ?? '')}
-              options={userOptions}
-              onChange={(value) => setRouting({ ...routing, actorUserId: value })}
-            />
-          </Field>
-          <Field label="Default branch" hint="Used when a form has no branch of its own.">
-            <SearchSelect
-              label="Default branch"
-              value={String(routing.defaultBranchId ?? '')}
-              options={branchOptions}
-              onChange={(value) => setRouting({ ...routing, defaultBranchId: value })}
-            />
-          </Field>
-          <Field label="Default business unit" hint="Which business the leads belong to.">
-            <SearchSelect
-              label="Default business unit"
-              value={String(routing.defaultBusinessUnitId ?? '')}
-              options={unitOptions}
-              onChange={(value) => setRouting({ ...routing, defaultBusinessUnitId: value })}
-            />
-          </Field>
-        </div>
-
-        <p className="text-xs text-secondary-500 mt-3">
-          Only users with CRM access appear in the list. To use a different person, give
-          them CRM access under Settings → User Management first.
-        </p>
-
-        <div className="flex items-center gap-3 mt-4 flex-wrap">{saveButton}</div>
-      </section>
-      )}
 
       {/* 3. Pages, grouped by the Facebook account they were connected through */}
       {tab === 'pages' && (
@@ -885,8 +863,13 @@ export default function MetaLeadAdsSettings() {
                           </td>
                           <td><StatusPill ok={!!page.is_subscribed}>{page.is_subscribed ? 'Yes' : 'No'}</StatusPill></td>
                           <td className="text-sm">
-                            {branchName(page.branch_id)
-                              || <span className="text-secondary-400">Default</span>}
+                            {/* Both halves of where this Page's leads go. A
+                                form can still override either one. */}
+                            <div>{unitName(page.business_unit_id)
+                              || <span className="text-secondary-400">Default unit</span>}</div>
+                            <div className="text-xs text-secondary-500">
+                              {branchName(page.branch_id) || 'Default branch'}
+                            </div>
                           </td>
                           <td>
                             <div className="flex items-center gap-2 justify-end flex-wrap">
@@ -931,133 +914,8 @@ export default function MetaLeadAdsSettings() {
       )}
 
       {/* 4. Forms */}
-      {tab === 'forms' && (
-      <section className="panel card">
-        <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
-          <h3 className="card-title">4. Lead forms ({forms.length})</h3>
-          <ExportButton onClick={exportForms} disabled={!forms.length} />
-        </div>
-        <p className="text-xs text-secondary-500 mb-4">
-          Send each form&apos;s leads to a specific branch, and check that its questions land
-          on the right CRM fields. <strong>Backfill</strong> pulls in leads submitted before
-          the form was connected.
-        </p>
-        <FilterBar
-          search={formFilter.q}
-          onSearch={(q) => setFormFilter({ ...formFilter, q })}
-          placeholder="Search form name or ID…"
-          showing={visibleForms.length}
-          total={forms.length}
-          onClear={() => setFormFilter({ q: '', page: '', status: '', mapped: '' })}
-          selects={[
-            { label: 'All pages', value: formFilter.page, onChange: (v) => setFormFilter({ ...formFilter, page: v }),
-              options: [...new Map(forms.map((f) => [String(f.page_id), pages.find((p) => String(p.page_id) === String(f.page_id))?.page_name || f.page_id])).entries()]
-                .map(([value, label]) => ({ value, label })) },
-            { label: 'Any status', value: formFilter.status, onChange: (v) => setFormFilter({ ...formFilter, status: v }),
-              options: [...new Set(forms.map((f) => String(f.form_status || '').toUpperCase()).filter(Boolean))]
-                .map((value) => ({ value, label: value })) },
-            /* Which forms still have questions landing nowhere -- the thing
-               most worth finding on this tab. */
-            { label: 'Mapping: any', value: formFilter.mapped, onChange: (v) => setFormFilter({ ...formFilter, mapped: v }),
-              options: [{ value: 'yes', label: 'Questions mapped' }, { value: 'no', label: 'Not mapped yet' }] },
-          ]}
-        />
-        {forms.length === 0 ? (
-          <p className="text-sm text-secondary-600">No forms yet. Sync forms from a page above.</p>
-        ) : (
-          <div className="space-y-4">
-            {!visibleForms.length && (
-              <p className="text-sm text-secondary-600">No forms match these filters.</p>
-            )}
-            {pagedForms.slice.map((f) => (
-              <div key={f.form_id} className="border border-border rounded-lg p-4">
-                <div className="flex items-start justify-between gap-3 flex-wrap">
-                  <div className="min-w-0">
-                    <div className="font-semibold">{f.form_name || f.form_id}</div>
-                    <div className="text-xs text-secondary-500">
-                      Form {f.form_id} · Page {f.page_id}
-                      {f.form_status ? ` · ${f.form_status}` : ''}
-                    </div>
-                  </div>
-                  <div className="flex items-end gap-2 flex-wrap">
-                    {/* Native select on purpose: this writes as soon as it
-                        changes, and a type-ahead fires onChange while you are
-                        still typing -- which would blank the branch mid-search. */}
-                    <div className="w-[220px]">
-                      <span className="label text-xs">Send leads to branch</span>
-                      <select
-                        className="input"
-                        aria-label={`Branch for ${f.form_name || f.form_id}`}
-                        value={String(f.branch_id ?? '')}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          if (String(value) === String(f.branch_id ?? '')) return;
-                          run(`branch-${f.form_id}`,
-                            () => api.patch(`/meta/forms/${f.form_id}`, { branchId: value || null }),
-                            'Branch updated');
-                        }}
-                      >
-                        <option value="">Use default branch</option>
-                        {lookups.branches.map((b) => (
-                          <option key={b.id} value={String(b.id)}>{b.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <button
-                      className="secondary inline-flex items-center gap-1.5 text-xs"
-                      disabled={busy === `bf-${f.form_id}`}
-                      onClick={() => run(`bf-${f.form_id}`,
-                        () => api.post(`/meta/forms/${f.form_id}/backfill`, {}),
-                        (r) => `Fetched ${r.data.fetched}: ${r.data.imported} imported, ${r.data.duplicate} duplicate, ${r.data.failed} failed`)}
-                    >
-                      {busy === `bf-${f.form_id}`
-                        ? <Loader2 size={13} className="animate-spin" />
-                        : <Download size={13} />}
-                      Backfill
-                    </button>
-                  </div>
-                </div>
-
-                {Object.keys(f.field_mapping || {}).length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-border">
-                    <div className="text-xs font-semibold text-secondary-700 mb-2">
-                      Form question → CRM field
-                    </div>
-                    <div className="grid gap-2 md:grid-cols-2">
-                      {Object.entries(f.field_mapping).map(([metaField, crmField]) => (
-                        <label key={metaField} className="flex items-center gap-2 text-xs">
-                          <span className="flex-1 truncate text-secondary-700" title={metaField}>{metaField}</span>
-                          <select
-                            className="input py-1 text-xs w-40"
-                            value={crmField || ''}
-                            onChange={(e) => updateMapping(f.form_id, metaField, e.target.value)}
-                          >
-                            {CRM_FIELDS.map((opt) => (
-                              <option key={opt.value} value={opt.value}>{opt.label}</option>
-                            ))}
-                          </select>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <p className="text-xs text-secondary-500 mt-2">
-                  Unmapped questions are auto-detected by name and stored on the lead.
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
-        <PaginationBar {...pagedForms.bar} />
-      </section>
-      )}
 
       {/* 5. Waiting for review */}
-      {tab === 'review' && (
-      <section className="panel card">
-        <MetaLeadReview onMessage={handleReviewMessage} />
-      </section>
-      )}
 
       {/* 6. Recent imports */}
       {tab === 'imports' && (
@@ -1090,7 +948,7 @@ export default function MetaLeadAdsSettings() {
           <div className="table-wrap overflow-x-auto">
             <table className="table">
               <thead>
-                <tr><th>Leadgen ID</th><th>Status</th><th>Lead</th><th>Detail</th><th>When</th></tr>
+                <tr><th>Leadgen ID</th><th>Status</th><th>Lead</th><th>Campaign</th><th>Detail</th><th>When</th></tr>
               </thead>
               <tbody>
                 {pagedImports.slice.map((row) => (
@@ -1104,6 +962,12 @@ export default function MetaLeadAdsSettings() {
                       }`}>{row.status}</span>
                     </td>
                     <td className="text-xs">{row.lead_number || '—'}</td>
+                    {/* Which advertisement produced this lead, by name rather
+                        than by Meta's numeric id. */}
+                    <td className="text-xs">
+                      {row.campaign_name || '—'}
+                      {row.ad_name && <div className="text-secondary-500">{row.ad_name}</div>}
+                    </td>
                     <td className="text-xs text-red-600 max-w-xs truncate" title={row.error_message || ''}>
                       {row.error_message || ''}
                       {row.status === 'failed' && (

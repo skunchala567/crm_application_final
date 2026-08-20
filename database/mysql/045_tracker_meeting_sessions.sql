@@ -1,4 +1,3 @@
-USE attendance_biometric;
 SET NAMES utf8mb4;
 
 CREATE TABLE IF NOT EXISTS crm_tracker_guest_owners (

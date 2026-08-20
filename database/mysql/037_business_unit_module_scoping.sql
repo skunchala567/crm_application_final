@@ -1,5 +1,4 @@
 -- Scope shared CRM module history and workflows to a Business Unit.
-USE attendance_biometric;
 SET NAMES utf8mb4;
 
 SET @default_business_unit_id=(

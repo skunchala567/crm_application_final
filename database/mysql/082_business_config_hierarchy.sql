@@ -1,4 +1,3 @@
-USE attendance_biometric;
 SET NAMES utf8mb4;
 
 -- Sub-values belong to a parent value, the way a sub-stage belongs to a stage.

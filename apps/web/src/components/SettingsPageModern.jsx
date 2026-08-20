@@ -17,6 +17,19 @@ import EmailTemplatesSettings from '../pages/EmailTemplatesSettings.jsx';
 import MessageTemplatesSettings from '../pages/MessageTemplatesSettings.jsx';
 import PageContainer from './PageContainer';
 
+/*
+ * Screens that left Settings but still render through this component.
+ *
+ * Payments, User Management and Templates are listed under each business
+ * unit now, so they have paths of their own; this maps those paths back to
+ * the tab they already had rather than duplicating the wiring.
+ */
+const MOVED_PATHS = {
+  '/payments': '/settings/payments',
+  '/user-management': '/settings/users',
+  '/templates': '/settings/templates',
+};
+
 const settingsTabs = [
   {
     id: 'users',
@@ -135,7 +148,7 @@ const settingsTabs = [
 // Derived from settingsTabs rather than a parallel hardcoded map, so adding a
 // tab can never leave the route silently falling back to User Management.
 const getActiveTabFromPath = (pathname) => {
-  const match = settingsTabs.find((tab) => tab.path === pathname);
+  const match = settingsTabs.find((tab) => tab.path === (MOVED_PATHS[pathname] || pathname));
   return match ? match.id : 'users';
 };
 

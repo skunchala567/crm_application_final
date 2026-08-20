@@ -1,4 +1,3 @@
-USE attendance_biometric;
 SET NAMES utf8mb4;
 
 SET @has_normalized_phone=(SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='crm_leads' AND column_name='normalized_phone');

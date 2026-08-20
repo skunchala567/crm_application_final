@@ -1,6 +1,5 @@
 -- Register existing School Admissions lead columns in the metadata layer.
 -- Legacy crm_leads columns remain authoritative for backward compatibility.
-USE attendance_biometric;
 SET NAMES utf8mb4;
 
 INSERT INTO crm_metadata_fields

@@ -1,18 +1,25 @@
 import { useEffect, useState } from 'react';
 import { Download, Eye, GitBranch, PhoneCall, RefreshCw, RotateCcw, Search, X, Upload, CheckCircle, AlertCircle, Clock } from 'lucide-react';
 import { api } from '../api';
+import { usePermissions } from '../PermissionContext.jsx';
 import { useBusinessUnit } from '../BusinessUnitContext';
 import { Button, Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Select, Tabs, TabsList, TabsTrigger, TabsContent, Badge, Skeleton } from './ui';
 import PageContainer from './PageContainer';
+import { recordDownload } from '../downloadAudit.js';
 
 export default function BulkActionsPageModern() {
   const { selectedId } = useBusinessUnit();
+  /* Re-downloading a stored export needs its own permission, so the button is
+     hidden from anyone the API would refuse rather than shown and then failing. */
+  const { can } = usePermissions();
+  const canDownloadFiles = can('bulk_actions.workspace.download');
   const [uploads, setUploads] = useState([]);
   const [operations, setOperations] = useState([]);
   const [dialerCampaigns, setDialerCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('uploads');
+  const [downloads, setDownloads] = useState([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
@@ -55,6 +62,19 @@ export default function BulkActionsPageModern() {
           successfulCount: Number(item.successfulRecords || 0),
           failureCount: Number(item.failedRecords || 0),
           details: item.details || {},
+        })));
+      /* Downloads were being filtered out with everything that was not a
+         stage change, so the record of who took what never reached a screen. */
+      setDownloads((operationData.data || [])
+        .filter(item => item.operationType === 'data_export')
+        .map(item => ({
+          ...item,
+          dataset: item.details?.dataset || 'Leads',
+          fileName: item.details?.fileName || '',
+          columns: item.details?.columns || [],
+          rows: Number(item.totalRecords || 0),
+          fileRetained: Boolean(item.fileRetained),
+          fileBytes: item.fileBytes || null,
         })));
       setDialerCampaigns(dialerData.data || []);
     } catch (error) {
@@ -121,6 +141,9 @@ export default function BulkActionsPageModern() {
       link.href = url;
       link.download = activeTab === 'uploads' ? `bulk-upload-${row.id}-leads.csv` : `bulk-${activeTab}-${row.id}-leads.csv`;
       link.click();
+      // Recorded so Bulk Actions can say who took what, and when.
+      recordDownload(activeTab === 'uploads' ? 'Bulk upload leads' : 'Bulk operation leads',
+        Number(row.totalRecords || row.affectedCount || 0), link.download);
       URL.revokeObjectURL(url);
     } catch (error) {
       window.alert(error.message);
@@ -145,6 +168,31 @@ export default function BulkActionsPageModern() {
     );
   };
 
+  /* Re-download the exact file. Fetched rather than linked so it carries the
+     same auth and business-unit headers as every other request. */
+  const downloadAgain = async (item) => {
+    try {
+      const response = await fetch(`/api/bulk-operations/${item.id}/file`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('crm_token')}`,
+          'X-Business-Unit-Id': String(selectedId),
+        },
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.message || 'That file could not be downloaded');
+      }
+      const blob = await response.blob();
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = item.fileName || 'download.csv';
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch (error) {
+      window.alert(error.message);
+    }
+  };
+
   const filteredData = {
     uploads: uploads.filter(item =>
       (!search || `${item.fileName} ${item.type}`.toLowerCase().includes(search.toLowerCase())) &&
@@ -156,6 +204,9 @@ export default function BulkActionsPageModern() {
     ),
     dialerCampaigns: dialerCampaigns.filter(item =>
       !search || `${item.campaignName} ${item.description}`.toLowerCase().includes(search.toLowerCase())
+    ),
+    downloads: downloads.filter(item =>
+      !search || `${item.dataset} ${item.fileName} ${item.createdBy || ''}`.toLowerCase().includes(search.toLowerCase())
     )
   };
 
@@ -166,7 +217,7 @@ export default function BulkActionsPageModern() {
       <PageContainer className="py-8">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="flex items-center gap-3 mb-8">
-            <TabsList className="grid flex-1 grid-cols-3">
+            <TabsList className="grid flex-1 grid-cols-4">
             <TabsTrigger value="uploads">
               <Upload size={18} className="mr-2" />
               <span>Uploads</span>
@@ -179,6 +230,13 @@ export default function BulkActionsPageModern() {
               <span>Stage changes</span>
               <span className="ml-2 px-2 py-1 rounded-full bg-primary-100 text-primary-700 text-xs font-semibold">
                 {operations.length}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="downloads">
+              <Download size={18} className="mr-2" />
+              <span>Downloads</span>
+              <span className="ml-2 px-2 py-1 rounded-full bg-primary-100 text-primary-700 text-xs font-semibold">
+                {downloads.length}
               </span>
             </TabsTrigger>
             <TabsTrigger value="campaigns">
@@ -374,6 +432,71 @@ export default function BulkActionsPageModern() {
                         </div>
                       </CardContent>
                     </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          {/* Who downloaded what, from this business unit.
+              Every CSV the app produces reports itself here, so a download
+              that used to leave no trace now names its dataset, its size and
+              the person who took it. */}
+          <TabsContent value="downloads" className="space-y-4">
+            {filteredData.downloads.length === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <Download size={32} className="mx-auto mb-3 opacity-50 text-secondary-600" />
+                  <p className="font-medium text-foreground">No downloads recorded</p>
+                  <p className="text-secondary-600 text-sm">Exports from Leads, Meta lead forms, the review queue and remarketing appear here</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {filteredData.downloads.map(item => (
+                  <Card key={item.id} className="hover:border-primary-300 transition-colors">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between gap-4 flex-wrap">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Download size={16} className="text-secondary-600" />
+                            <span className="font-semibold text-foreground">{item.dataset}</span>
+                            <Badge variant="secondary">{item.rows} record{item.rows === 1 ? '' : 's'}</Badge>
+                          </div>
+                          <p className="text-secondary-600 text-sm mt-1 break-all">{item.fileName}</p>
+                          {item.columns?.length > 0 && (
+                            <p className="text-secondary-500 text-xs mt-1">
+                              Columns: {item.columns.slice(0, 8).join(', ')}{item.columns.length > 8 ? ` +${item.columns.length - 8} more` : ''}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-start gap-3 shrink-0">
+                          <div className="text-right text-sm">
+                            <div className="font-medium text-foreground">{item.createdBy || 'Unknown user'}</div>
+                            <div className="text-secondary-600">
+                              {item.createdAt ? new Date(item.createdAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : ''}
+                            </div>
+                            {item.fileBytes ? (
+                              <div className="text-secondary-500 text-xs">{(item.fileBytes / 1024).toFixed(1)} KB</div>
+                            ) : null}
+                          </div>
+                          {/* Only offered when the file is actually there --
+                              downloads recorded before retention, or ones too
+                              large to keep, say so instead. */}
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={!item.fileRetained || !canDownloadFiles}
+                            title={!canDownloadFiles
+                              ? 'You do not have permission to download saved files'
+                              : item.fileRetained ? `Download ${item.fileName} again` : 'This file was not kept, so it cannot be downloaded again'}
+                            onClick={() => downloadAgain(item)}
+                          >
+                            <Download size={15} className="mr-1.5" /> Download
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
                 ))}
               </div>
             )}

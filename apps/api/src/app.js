@@ -30,6 +30,8 @@ import { createBusinessConfigRoutes } from './business-config.routes.js';
 import { createSmsTemplateRoutes } from './sms-templates.routes.js';
 import { createMetaRoutes } from './meta/meta.routes.js';
 import { createMetaWebhookRoutes } from './meta/meta-webhook.routes.js';
+import { createMetaRemarketingRoutes } from './meta/meta-remarketing.routes.js';
+import { syncAudience as syncRemarketingAudience, nextSyncAt as nextRemarketingSyncAt } from './meta/meta-remarketing.service.js';
 import { startMetaPoller } from './meta/meta-poller.js';
 import { createEmailRoutes } from './email/email.routes.js';
 import { recordLeadAttribution } from './attribution/attribution-contract.js';
@@ -39,6 +41,8 @@ import { createRbacRoutes } from './rbac/rbac.routes.js';
 import { bootstrapRbac } from './rbac/rbac-bootstrap.js';
 import { notifyEmployee } from './notification-service.js';
 import { resolveAssignmentRuleOwner } from './assignment-rules/engine.js';
+import { findDuplicateLead, loadDuplicateRule, normalizeDuplicateRule, describeRule, DUPLICATE_FIELDS } from './lead-duplicate-rule.js';
+import zlib from 'node:zlib';
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -1279,7 +1283,11 @@ app.post('/api/public/enquiry-forms/:formKey/submit', async (req, res) => {
         const [[lock]] = await connection.execute(`SELECT GET_LOCK(?,10) AS acquired`, [lockName]);
         if (!Number(lock.acquired)) return res.status(409).json({ message: 'This enquiry is being processed. Please retry.' });
         await connection.beginTransaction();
-        const [[existing]] = await connection.execute(`SELECT id,lead_number AS leadNumber FROM crm_leads WHERE business_unit_id=? AND branch_id=? AND normalized_phone=? AND deleted_at_utc IS NULL ORDER BY id LIMIT 1 FOR UPDATE`, [Number(form.businessUnitId), body.branchId, normalizedPhone]);
+        const { lead: existing } = await findDuplicateLead(connection, {
+            businessUnitId: Number(form.businessUnitId),
+            record: { ...body, normalizedPhone },
+            forUpdate: true,
+        });
         /*
          * A repeat enquiry from a number we already hold still went through the
          * payment page, so the order has to be written onto the lead we are
@@ -1713,6 +1721,16 @@ async function queryLeads(user, search, limit = null, options = {}) {
      * search is a browse, and stays on the list scope.
      */
     const scope = leadScopedWhere(user, search ? user.rbacSearchScope : null, options);
+    /*
+     * One pipeline's leads.
+     *
+     * A business unit can run several, and each has its own Leads screen. The
+     * lead's pipeline is its stage's pipeline -- crm_leads.stage_id is NOT
+     * NULL, so this is exact, and there is no second copy to fall out of step.
+     */
+    const pipelineId = Number(options.pipelineId) || null;
+    const pipelineClause = pipelineId ? ' AND s.pipeline_id = ?' : '';
+    const pipelineParams = pipelineId ? [pipelineId] : [];
     let whereClause = `(? = '' OR l.student_name LIKE ? OR l.phone LIKE ? OR l.lead_number LIKE ?)`;
     let params = [search, `%${search}%`, `%${search}%`, `%${search}%`];
 
@@ -1817,9 +1835,9 @@ async function queryLeads(user, search, limit = null, options = {}) {
      LEFT JOIN crm_lead_channels ch ON ch.id = l.channel_id LEFT JOIN crm_campaigns camp ON camp.id = l.campaign_id
      LEFT JOIN employees e ON e.id = l.owner_employee_id
      WHERE l.deleted_at_utc IS NULL AND ${scope.sql}
-       AND ${whereClause}
+       AND ${whereClause}${pipelineClause}
      ORDER BY l.created_at_utc DESC${limitClause}`,
-        [...scope.params, ...params],
+        [...scope.params, ...params, ...pipelineParams],
     );
     return rows.map((row) => {
         const customValues = parseJsonValue(row.customValues, {});
@@ -2072,13 +2090,36 @@ async function validateSourceDetails(body) {
     }
 }
 
+/*
+ * The lead pipelines this business unit runs.
+ *
+ * Small on purpose: the app shell needs it on every page to build one Leads
+ * entry per pipeline in the sidebar, and /leads/meta is far too heavy to
+ * load for that.
+ */
+app.get('/api/leads/pipelines', authenticate, requireCrmAccess, async (req, res) => {
+    const [rows] = await pool.execute(
+        `SELECT p.id, p.pipeline_key AS pipelineKey, p.display_name AS displayName,
+                p.description, p.is_default AS isDefault, p.position
+           FROM crm_lead_pipelines p
+          WHERE p.business_unit_id=? AND p.is_active=TRUE
+          ORDER BY p.position, p.display_name`,
+        [Number(req.businessUnit.id)],
+    );
+    res.json({ data: rows });
+});
+
 app.get('/api/leads/meta', authenticate, requireCrmAccess, async (req, res) => {
     const scope = scopedWhere(req.user, 'b.id');
     const [[unitDefaultsRow]] = await pool.execute(
         `SELECT manual_lead_defaults_json AS manualLeadDefaults FROM crm_business_units WHERE id=?`,
         [Number(req.businessUnit.id)],
     );
-    const [stages] = await pool.execute(`SELECT id, name, display_name AS displayName, color_code AS color, requires_followup AS requiresFollowup FROM crm_lead_stages WHERE business_unit_id=? AND is_active = TRUE ORDER BY position`, [Number(req.businessUnit.id)]);
+    /* Stages carry the pipeline they belong to: a unit can run several, and
+       two of them may both contain a stage called "New". Every stage picker
+       narrows to one pipeline, so the id has to travel with the stage. */
+    const [stages] = await pool.execute(`SELECT id, pipeline_id AS pipelineId, name, display_name AS displayName, color_code AS color, requires_followup AS requiresFollowup FROM crm_lead_stages WHERE business_unit_id=? AND is_active = TRUE ORDER BY position`, [Number(req.businessUnit.id)]);
+    const [pipelines] = await pool.execute(`SELECT id, pipeline_key AS pipelineKey, display_name AS displayName, is_default AS isDefault, position FROM crm_lead_pipelines WHERE business_unit_id=? AND is_active = TRUE ORDER BY position, display_name`, [Number(req.businessUnit.id)]);
     const [sources] = await pool.query(`SELECT id, name, display_name AS displayName FROM crm_lead_sources WHERE is_active = TRUE ORDER BY display_name`);
     const [classes] = await pool.query(`SELECT id, class_code AS code, display_name AS displayName FROM crm_classes WHERE is_active = TRUE ORDER BY position`);
     const [curricula] = await pool.query(`SELECT id, curriculum_code AS code, display_name AS displayName FROM crm_curricula WHERE is_active = TRUE ORDER BY position`);
@@ -2097,7 +2138,9 @@ app.get('/api/leads/meta', authenticate, requireCrmAccess, async (req, res) => {
     const [sourceLinks] = await pool.query(`SELECT channel_id AS channelId,id AS sourceId FROM crm_lead_sources WHERE channel_id IS NOT NULL AND is_active=TRUE`);
     const [campaignLinks] = await pool.query(`SELECT DISTINCT source_id AS sourceId,campaign_id AS campaignId FROM crm_lead_source_history WHERE source_id IS NOT NULL AND campaign_id IS NOT NULL`);
     const [admissionTypes] = await pool.query(`SELECT id, type_code AS code, display_name AS displayName FROM crm_admission_types WHERE is_active = TRUE ORDER BY display_name`);
-    const [substages] = await pool.execute(`SELECT ss.id, ss.stage_id AS stageId, ss.substage_code AS code, ss.display_name AS displayName FROM crm_lead_substages ss JOIN crm_lead_stages s ON s.id=ss.stage_id WHERE s.business_unit_id=? AND ss.is_active = TRUE ORDER BY s.position, ss.position`, [Number(req.businessUnit.id)]);
+    /* A sub-stage carries the pipeline of the stage it hangs off, so a Meta
+       lead form pointed at a sub-stage id lands its leads in that pipeline. */
+    const [substages] = await pool.execute(`SELECT ss.id, ss.stage_id AS stageId, s.pipeline_id AS pipelineId, ss.substage_code AS code, ss.display_name AS displayName FROM crm_lead_substages ss JOIN crm_lead_stages s ON s.id=ss.stage_id WHERE s.business_unit_id=? AND ss.is_active = TRUE ORDER BY s.position, ss.position`, [Number(req.businessUnit.id)]);
     const [branches] = await pool.execute(`SELECT b.id, b.branch_name AS name, b.short_name AS shortName FROM branches b WHERE b.is_active = TRUE AND ${scope.sql} ORDER BY b.branch_name`, scope.params);
     const [academicYears] = await pool.query(`SELECT id, academic_year AS academicYear, display_name AS displayName FROM crm_academic_years WHERE is_active = TRUE ORDER BY academic_year DESC`);
     const [leadFields] = await pool.execute(
@@ -2135,7 +2178,7 @@ app.get('/api/leads/meta', authenticate, requireCrmAccess, async (req, res) => {
         employeeScope.params,
     );
     res.json({
-        stages, sources, classes, curricula, channels, campaigns, sourceLinks, campaignLinks, admissionTypes, substages, branches, academicYears, employees,
+        stages, pipelines, sources, classes, curricula, channels, campaigns, sourceLinks, campaignLinks, admissionTypes, substages, branches, academicYears, employees,
         manualLeadDefaults: parseJsonValue(unitDefaultsRow?.manualLeadDefaults, {}),
         leadFields: leadFields.map(field => ({
             ...field,
@@ -2333,7 +2376,11 @@ app.post('/api/leads', authenticate, requireCrmAccess, requireLeadWrite, async (
      FROM crm_admission_class_configurations acc
      JOIN crm_admission_class_configuration_details detail
        ON detail.configuration_id=acc.id AND detail.class_id=? AND detail.is_active=TRUE
-     JOIN crm_academic_years ay ON ay.academic_year=acc.academic_year AND ay.is_active=TRUE
+     /* crm_academic_years was created utf8mb4_unicode_ci and
+        crm_admission_class_configurations utf8mb4_0900_ai_ci, so comparing
+        the two academic_year columns is an illegal mix of collations. Stated
+        explicitly here so the join works whichever way round the tables are. */
+     JOIN crm_academic_years ay ON ay.academic_year=acc.academic_year COLLATE utf8mb4_unicode_ci AND ay.is_active=TRUE
      JOIN branches b ON b.id=acc.branch_id AND b.is_active=TRUE
      JOIN crm_admission_types admission_type ON admission_type.id=acc.admission_type_id AND admission_type.is_active=TRUE
      JOIN crm_curricula curriculum ON curriculum.id=acc.curriculum_id AND curriculum.is_active=TRUE
@@ -2356,7 +2403,13 @@ app.post('/api/leads', authenticate, requireCrmAccess, requireLeadWrite, async (
         const [[lock]] = await connection.execute(`SELECT GET_LOCK(?,10) AS acquired`, [lockName]);
         if (!Number(lock.acquired)) return res.status(409).json({ message: 'This lead is being processed. Please retry.' });
         await connection.beginTransaction();
-        const [[existing]] = await connection.execute(`SELECT id,lead_number AS leadNumber FROM crm_leads WHERE business_unit_id=? AND branch_id=? AND normalized_phone=? AND deleted_at_utc IS NULL ORDER BY id LIMIT 1 FOR UPDATE`, [Number(req.businessUnit.id), Number(req.body.branchId), normalizedPhone]);
+        // What counts as the same lead is the unit's own rule, not a fixed
+        // branch + mobile pair. Unset units still match on branch + mobile.
+        const { lead: existing } = await findDuplicateLead(connection, {
+            businessUnitId: Number(req.businessUnit.id),
+            record: { ...req.body, normalizedPhone },
+            forUpdate: true,
+        });
         if (existing) {
             if (!req.body.sourceId || !req.body.channelId || !req.body.campaignId) {
                 await connection.commit();
@@ -2434,13 +2487,19 @@ app.put('/api/leads/:id', authenticate, requireCrmAccess, requireLeadWrite, asyn
         [Number(req.params.id), ...scope.params],
     );
     const [result] = await pool.execute(
-        `UPDATE crm_leads l SET student_name = ?,
+        /* academic_year and alternate_phone are updatable: both are editable
+           on the lead form, and without them here a change made on screen was
+           accepted and then silently dropped. The rest of the contact and
+           primary-source columns stay out on purpose -- the form locks them. */
+        `UPDATE crm_leads l SET student_name = ?, academic_year = ?, alternate_phone = ?,
       applying_class = ?, class_id = ?, curriculum_id = ?, parent_name = ?, city = ?, stage_id = ?,
       owner_assigned_at_utc = IF(NOT (owner_employee_id <=> ?), CURRENT_TIMESTAMP(6), owner_assigned_at_utc),
       owner_employee_id = ?, admission_type_id = ?, substage_id = ?,
       lead_score = ?, remarks = ?, custom_values_json = ?, next_followup_at_utc = ?, student_id = ?, updated_by_user_id = ?
      WHERE l.id = ? AND l.deleted_at_utc IS NULL AND ${scope.sql}`,
-        [cleanOptional(req.body.studentName, 200), cleanOptional(req.body.applyingClass, 50),
+        [cleanOptional(req.body.studentName, 200),
+        cleanOptional(req.body.academicYear, 20), cleanOptional(req.body.alternatePhone, 30),
+        cleanOptional(req.body.applyingClass, 50),
         req.body.classId ? Number(req.body.classId) : null, req.body.curriculumId ? Number(req.body.curriculumId) : null, cleanOptional(req.body.parentName, 200), cleanOptional(req.body.city, 100),
         Number(req.body.stageId),
         req.body.ownerEmployeeId ? Number(req.body.ownerEmployeeId) : null,
@@ -2615,6 +2674,64 @@ app.post('/api/leads/:id/sources', authenticate, requireCrmAccess, requireLeadWr
     res.status(201).json({ message: 'Secondary source added successfully' });
 });
 
+/**
+ * Where a lead lands when it is referred into another pipeline.
+ *
+ * A lead's pipeline is its stage's pipeline, so moving it between pipelines
+ * means giving it a stage in the target one. It goes to that pipeline's first
+ * active stage -- the entry point every new lead there starts at -- and that
+ * stage's first sub-stage, because substage_id must belong to stage_id.
+ *
+ * Returns null when the pipeline is not this unit's, or has no active stage
+ * to receive the lead; the caller refuses the referral rather than moving a
+ * lead somewhere it cannot be worked.
+ */
+async function resolvePipelineEntry(connection, businessUnitId, pipelineId) {
+    const [[pipeline]] = await connection.execute(
+        `SELECT id, display_name AS displayName FROM crm_lead_pipelines
+          WHERE id=? AND business_unit_id=? AND is_active=TRUE LIMIT 1`,
+        [Number(pipelineId), Number(businessUnitId)],
+    );
+    if (!pipeline) return null;
+    const [[stage]] = await connection.execute(
+        `SELECT id, display_name AS displayName FROM crm_lead_stages
+          WHERE pipeline_id=? AND is_active=TRUE ORDER BY position, id LIMIT 1`,
+        [pipeline.id],
+    );
+    if (!stage) return null;
+    const [[substage]] = await connection.execute(
+        `SELECT id FROM crm_lead_substages WHERE stage_id=? AND is_active=TRUE ORDER BY position, id LIMIT 1`,
+        [stage.id],
+    );
+    return { pipeline, stageId: Number(stage.id), stageName: stage.displayName, substageId: substage ? Number(substage.id) : null };
+}
+
+/**
+ * Move one lead onto the entry stage of another pipeline.
+ *
+ * Records the move in crm_lead_stage_history like any other stage change, so
+ * a lead that changed pipelines does not appear to have skipped a stage.
+ * Does nothing when the lead is already in that pipeline.
+ */
+async function moveLeadToPipeline(connection, leadId, entry, actorUserId) {
+    const [[lead]] = await connection.execute(
+        `SELECT l.stage_id AS stageId, l.substage_id AS substageId, s.pipeline_id AS pipelineId
+           FROM crm_leads l JOIN crm_lead_stages s ON s.id=l.stage_id WHERE l.id=? LIMIT 1`,
+        [Number(leadId)],
+    );
+    if (!lead || Number(lead.pipelineId) === Number(entry.pipeline.id)) return false;
+    await connection.execute(
+        `UPDATE crm_leads SET stage_id=?, substage_id=?, updated_by_user_id=?, updated_at_utc=CURRENT_TIMESTAMP(6) WHERE id=?`,
+        [entry.stageId, entry.substageId, actorUserId, Number(leadId)],
+    );
+    await connection.execute(
+        `INSERT INTO crm_lead_stage_history (lead_id, from_stage_id, to_stage_id, from_substage_id, to_substage_id, changed_by_user_id, changed_at_utc)
+         VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP(6))`,
+        [Number(leadId), lead.stageId, entry.stageId, lead.substageId, entry.substageId, actorUserId],
+    );
+    return true;
+}
+
 app.put('/api/leads/actions/bulk-refer', authenticate, requireCrmAccess, requireLeadWrite, async (req, res) => {
     const leadIds = [...new Set((Array.isArray(req.body.leadIds) ? req.body.leadIds : []).map(Number).filter(id => Number.isInteger(id) && id > 0))];
     const employeeId = Number(req.body.employeeId), branchId = Number(req.body.branchId);
@@ -2644,10 +2761,24 @@ app.put('/api/leads/actions/bulk-refer', authenticate, requireCrmAccess, require
         [...leadIds, ...scope.params],
     );
     if (accessible.length !== leadIds.length) return res.status(403).json({ message: 'One or more visible leads are outside your current access' });
+
+    // Optional destination pipeline, resolved before any write.
+    let entry = null;
+    if (req.body.pipelineId) {
+        entry = await resolvePipelineEntry(pool, Number(req.businessUnit.id), req.body.pipelineId);
+        if (!entry) return res.status(400).json({ message: 'That pipeline is not available in this business unit, or has no active stage to receive the leads' });
+    }
+
     const connection = await pool.getConnection();
+    let movedCount = 0;
     try {
         await connection.beginTransaction();
         await connection.execute(`UPDATE crm_leads SET owner_employee_id=?,owner_assigned_at_utc=CURRENT_TIMESTAMP(6),referred_to_branch_id=?,referred_to_branch_name=?,referred_at_utc=CURRENT_TIMESTAMP(6),referred_by_employee_id=?,updated_by_user_id=? WHERE id IN (${placeholders}) AND deleted_at_utc IS NULL`, [employeeId, branchId, counsellor.branchName, Number(req.user.employeeId) || null, Number(req.user.id), ...leadIds]);
+        if (entry) {
+            for (const leadId of leadIds) {
+                if (await moveLeadToPipeline(connection, leadId, entry, Number(req.user.id))) movedCount += 1;
+            }
+        }
         await connection.execute(`UPDATE crm_followups SET assigned_employee_id=? WHERE lead_id IN (${placeholders}) AND LOWER(status) IN ('p','pending')`, [employeeId, ...leadIds]);
         await connection.execute(
             `INSERT INTO crm_bulk_operations
@@ -2663,7 +2794,10 @@ app.put('/api/leads/actions/bulk-refer', authenticate, requireCrmAccess, require
             await notifyEmployee(connection, { businessUnitId: Number(req.businessUnit.id), employeeId, actorUserId: Number(req.user.id), type: 'lead_referred', title: 'Lead referred to you', message: `Lead #${leadId} · ${counsellor.branchName}`, link: `/leads?lead=${leadId}`, entityType: 'lead', entityId: leadId });
         }
         await connection.commit();
-        res.json({ message: `${leadIds.length} visible lead${leadIds.length === 1 ? '' : 's'} referred to ${counsellor.name} · ${counsellor.branchName}` });
+        const movedNote = entry
+            ? ` · moved ${movedCount} into ${entry.pipeline.displayName}`
+            : '';
+        res.json({ message: `${leadIds.length} visible lead${leadIds.length === 1 ? '' : 's'} referred to ${counsellor.name} · ${counsellor.branchName}${movedNote}` });
     } catch (error) {
         await connection.rollback();
         try {
@@ -2700,12 +2834,35 @@ app.put('/api/leads/:id/refer', authenticate, requireCrmAccess, requireLeadWrite
         [employeeId, branchId, leadId, ...scope.params],
     );
     if (!counsellor) return res.status(400).json({ message: 'The selected counsellor does not have active CRM access to the selected branch' });
-    const [result] = await pool.execute(`UPDATE crm_leads SET owner_employee_id=?,owner_assigned_at_utc=CURRENT_TIMESTAMP(6),referred_to_branch_id=?,referred_to_branch_name=?,referred_at_utc=CURRENT_TIMESTAMP(6),referred_by_employee_id=?,updated_by_user_id=? WHERE id=? AND deleted_at_utc IS NULL`, [employeeId, branchId, counsellor.branchName, Number(req.user.employeeId) || null, Number(req.user.id), leadId]);
-    if (!result.affectedRows) return res.status(404).json({ message: 'Lead not found' });
-    await pool.execute(`UPDATE crm_followups SET assigned_employee_id=? WHERE lead_id=? AND LOWER(status) IN ('p','pending')`, [employeeId, leadId]);
-    await pool.execute(`INSERT INTO crm_lead_activities (lead_id,activity_type,summary,actor_user_id) VALUES (?,'referred',?,?)`, [leadId, `Lead referred to ${counsellor.name} · ${counsellor.branchName}`, Number(req.user.id)]);
+
+    /* A referral may also hand the lead to another pipeline in this unit.
+       Resolved before anything is written, so an unusable pipeline stops the
+       referral rather than half-applying it. */
+    let entry = null;
+    if (req.body.pipelineId) {
+        entry = await resolvePipelineEntry(pool, Number(req.businessUnit.id), req.body.pipelineId);
+        if (!entry) return res.status(400).json({ message: 'That pipeline is not available in this business unit, or has no active stage to receive the lead' });
+    }
+
+    const connection = await pool.getConnection();
+    let moved = false;
+    try {
+        await connection.beginTransaction();
+        const [result] = await connection.execute(`UPDATE crm_leads SET owner_employee_id=?,owner_assigned_at_utc=CURRENT_TIMESTAMP(6),referred_to_branch_id=?,referred_to_branch_name=?,referred_at_utc=CURRENT_TIMESTAMP(6),referred_by_employee_id=?,updated_by_user_id=? WHERE id=? AND deleted_at_utc IS NULL`, [employeeId, branchId, counsellor.branchName, Number(req.user.employeeId) || null, Number(req.user.id), leadId]);
+        if (!result.affectedRows) { await connection.rollback(); return res.status(404).json({ message: 'Lead not found' }); }
+        if (entry) moved = await moveLeadToPipeline(connection, leadId, entry, Number(req.user.id));
+        await connection.execute(`UPDATE crm_followups SET assigned_employee_id=? WHERE lead_id=? AND LOWER(status) IN ('p','pending')`, [employeeId, leadId]);
+        const where = `${counsellor.name} · ${counsellor.branchName}${moved ? ` · ${entry.pipeline.displayName}` : ''}`;
+        await connection.execute(`INSERT INTO crm_lead_activities (lead_id,activity_type,summary,actor_user_id) VALUES (?,'referred',?,?)`, [leadId, `Lead referred to ${where}`, Number(req.user.id)]);
+        await connection.commit();
+    } catch (error) {
+        await connection.rollback();
+        throw error;
+    } finally { connection.release(); }
+
+    const destination = `${counsellor.name} · ${counsellor.branchName}${moved ? ` · ${entry.pipeline.displayName}` : ''}`;
     await notifyEmployee(pool, { businessUnitId: Number(req.businessUnit.id), employeeId, actorUserId: Number(req.user.id), type: 'lead_referred', title: 'Lead referred to you', message: `Lead #${leadId} · ${counsellor.branchName}`, link: `/leads?lead=${leadId}`, entityType: 'lead', entityId: leadId });
-    res.json({ message: `Lead referred to ${counsellor.name} · ${counsellor.branchName}` });
+    res.json({ message: `Lead referred to ${destination}` });
 });
 
 app.put('/api/leads/:id/mark-re-enquired', authenticate, requireCrmAccess, requireLeadWrite, async (req, res) => {
@@ -2826,7 +2983,15 @@ app.put('/api/leads/actions/bulk-change-stage', authenticate, requireCrmAccess, 
 
 app.get('/api/leads/referral-options/all', authenticate, requireCrmAccess, async (req, res) => {
     const [branches] = await pool.query(`SELECT id,branch_name AS name,short_name AS shortName FROM branches WHERE is_active=TRUE ORDER BY branch_name`);
-    const [employees] = await pool.query(
+    /*
+     * Who may receive a referral: CRM users of THIS business unit.
+     *
+     * The list used to be every CRM user in the system, so a referral could
+     * hand a lead to somebody who cannot open the unit it belongs to. Scoped
+     * the same way the Business Units screen scopes its own people picker --
+     * an explicit unit assignment, or an administrator role that spans units.
+     */
+    const [employees] = await pool.execute(
         `SELECT DISTINCT e.id,e.employee_name AS name,b.id AS branchId,b.branch_name AS branchName
      FROM employees e
      JOIN app_users u ON u.employee_id=e.id AND u.is_active=TRUE
@@ -2834,14 +2999,37 @@ app.get('/api/leads/referral-options/all', authenticate, requireCrmAccess, async
      JOIN crm_user_branches cub ON cub.user_id=u.id
      JOIN branches b ON b.id=cub.branch_id AND b.is_active=TRUE
      LEFT JOIN crm_user_access_status cuas ON cuas.user_id=u.id
+     LEFT JOIN crm_user_business_units ubu ON ubu.user_id=u.id AND ubu.business_unit_id=?
      WHERE e.status='Active' AND COALESCE(cuas.is_active,1)=1
        AND r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','SUPER_ADMIN')
+       AND (ubu.user_id IS NOT NULL OR EXISTS(
+             SELECT 1 FROM user_roles admin_role JOIN roles admin ON admin.id=admin_role.role_id
+              WHERE admin_role.user_id=u.id AND admin.normalized_name IN ('CRM_ADMIN','SUPER_ADMIN')))
     ORDER BY b.branch_name,e.employee_name`,
+        [Number(req.businessUnit.id)],
+    );
+
+    /* The unit's pipelines, so a referral can also move the lead onto another
+       one. The screen only asks when there is more than one to choose. */
+    const [pipelines] = await pool.execute(
+        `SELECT p.id, p.display_name AS displayName, p.is_default AS isDefault,
+                (SELECT COUNT(*) FROM crm_lead_stages s WHERE s.pipeline_id=p.id AND s.is_active=TRUE) AS stageCount
+           FROM crm_lead_pipelines p
+          WHERE p.business_unit_id=? AND p.is_active=TRUE
+          ORDER BY p.position, p.display_name`,
+        [Number(req.businessUnit.id)],
     );
     const [[currentEmployee]] = req.user.employeeId
         ? await pool.execute(`SELECT branch_id AS branchId FROM employees WHERE id=? LIMIT 1`, [Number(req.user.employeeId)])
         : [[]];
-    res.json({ branches, employees, currentEmployeeId: req.user.employeeId || null, currentBranchId: currentEmployee?.branchId || null });
+    res.json({
+        branches,
+        employees,
+        // A pipeline with no active stage cannot receive a lead, so it is not offered.
+        pipelines: pipelines.filter(pipeline => Number(pipeline.stageCount) > 0),
+        currentEmployeeId: req.user.employeeId || null,
+        currentBranchId: currentEmployee?.branchId || null,
+    });
 });
 
 app.delete('/api/leads/:id', authenticate, requireCrmAccess, requireLeadDelete, async (req, res) => {
@@ -3156,7 +3344,20 @@ app.post('/api/admin/lead-config/:type', authenticate, requireUserAdmin, async (
     const displayName = cleanOptional(req.body.displayName, 150); const code = configCode(req.body.code || displayName);
     if (!displayName || !code) return res.status(400).json({ message: 'Name is required' });
     try {
-        if (type === 'stages') await pool.execute(`INSERT INTO crm_lead_stages(name,display_name,position,color_code,requires_followup) SELECT ?,?,COALESCE(MAX(position),0)+1,'#555AB1',? FROM crm_lead_stages`, [code, displayName, req.body.requiresFollowup ? 1 : 0]);
+        /* A stage always belongs to a pipeline. This older route pre-dates
+           them, so it adds to the current unit's default pipeline and takes
+           its position from that pipeline rather than from every stage in
+           the table. */
+        if (type === 'stages') {
+            const [[pipeline]] = await pool.execute(
+                `SELECT id FROM crm_lead_pipelines WHERE business_unit_id=? ORDER BY is_default DESC, position LIMIT 1`,
+                [Number(req.businessUnit.id)]);
+            if (!pipeline) return res.status(400).json({ message: 'This business unit has no lead pipeline yet' });
+            await pool.execute(
+                `INSERT INTO crm_lead_stages(business_unit_id,pipeline_id,name,display_name,position,color_code,requires_followup)
+                 SELECT ?,?,?,?,COALESCE(MAX(position),0)+1,'#555AB1',? FROM crm_lead_stages WHERE pipeline_id=?`,
+                [Number(req.businessUnit.id), pipeline.id, code, displayName, req.body.requiresFollowup ? 1 : 0, pipeline.id]);
+        }
         else if (type === 'substages') await pool.execute(`INSERT INTO crm_lead_substages(stage_id,substage_code,display_name,position) SELECT ?,?,?,COALESCE(MAX(position),0)+1 FROM crm_lead_substages WHERE stage_id=?`, [Number(req.body.parentId), code, displayName, Number(req.body.parentId)]);
         else if (type === 'sources') {
             const [[channel]] = await pool.execute(`SELECT id FROM crm_lead_channels WHERE id=?`, [Number(req.body.parentId)]);
@@ -3490,7 +3691,20 @@ app.get('/api/assignment-rules', authenticate, requireCrmAccess, async (req, res
      ORDER BY r.created_at_utc DESC`,
         [Number(req.businessUnit.id)],
     );
+    /*
+     * Every active branch, not just the ones this user works in.
+     *
+     * A rule says where a lead should go, which is not the same question as
+     * which leads this person may open -- and the branch a Meta form routes
+     * to is often one the administrator writing the rule never handles. The
+     * Leads screen's own branch list stays scoped; only rule authoring sees
+     * the full set, and editing rules already requires automations.*.edit.
+     */
+    const [ruleBranches] = await pool.query(
+        'SELECT id, branch_name AS name, short_name AS shortName FROM branches WHERE is_active=TRUE ORDER BY branch_name',
+    );
     res.json({
+        branches: ruleBranches,
         data: rows.map((row) => ({
             ...row,
             id: Number(row.id),
@@ -3794,14 +4008,21 @@ app.get('/api/leads', authenticate, requireCrmAccess, async (req, res) => {
     // screen sets it -- it is the one place with a filter for them, and the
     // dashboards counting off this route must keep counting owned work.
     const includeReferredAway = ['1', 'true', 'yes'].includes(String(req.query.includeReferred || '').toLowerCase());
-    const rows = await queryLeads(req.user, search, limit, { includeReferredAway });
+    /* Each lead pipeline has its own Leads screen, so every count on this
+       route is narrowed the same way the list is -- a badge that counted
+       across pipelines would not match the rows underneath it. */
+    const pipelineId = Number(req.query.pipelineId) || null;
+    const pipelineJoin = pipelineId ? ' JOIN crm_lead_stages ps ON ps.id = l.stage_id' : '';
+    const pipelineWhere = pipelineId ? ' AND ps.pipeline_id = ?' : '';
+    const pipelineParams = pipelineId ? [pipelineId] : [];
+    const rows = await queryLeads(req.user, search, limit, { includeReferredAway, pipelineId });
     const scope = leadScopedWhere(req.user);
 
     // Get actual total count from database (not page size)
     const [[totalCount]] = await pool.execute(
-        `SELECT COUNT(*) AS count FROM crm_leads l
-     WHERE l.deleted_at_utc IS NULL AND ${scope.sql}`,
-        scope.params,
+        `SELECT COUNT(*) AS count FROM crm_leads l${pipelineJoin}
+     WHERE l.deleted_at_utc IS NULL AND ${scope.sql}${pipelineWhere}`,
+        [...scope.params, ...pipelineParams],
     );
 
     // Get stage counts
@@ -3809,9 +4030,9 @@ app.get('/api/leads', authenticate, requireCrmAccess, async (req, res) => {
         `SELECT s.display_name AS stage, COUNT(l.id) AS count
      FROM crm_leads l
      JOIN crm_lead_stages s ON s.id = l.stage_id
-     WHERE l.deleted_at_utc IS NULL AND ${scope.sql}
+     WHERE l.deleted_at_utc IS NULL AND ${scope.sql}${pipelineId ? ' AND s.pipeline_id = ?' : ''}
      GROUP BY s.id, s.display_name`,
-        scope.params,
+        [...scope.params, ...pipelineParams],
     );
     const stageCounts = Object.fromEntries(
         stageCountRows.map(row => [row.stage, Number(row.count || 0)]),
@@ -3824,10 +4045,10 @@ app.get('/api/leads', authenticate, requireCrmAccess, async (req, res) => {
     const dueOwnerSql = dueOwnOnly ? ' AND l.owner_employee_id = ?' : '';
     const dueOwnerParams = dueOwnOnly ? [Number(req.user.employeeId) || 0] : [];
     const [[due]] = await pool.execute(
-        `SELECT COUNT(*) AS count FROM crm_leads l
+        `SELECT COUNT(*) AS count FROM crm_leads l${pipelineJoin}
      WHERE l.deleted_at_utc IS NULL AND ${FOLLOWUP_DUE_SQL}
-       AND ${scope.sql}${dueOwnerSql}`,
-        [...scope.params, ...dueOwnerParams],
+       AND ${scope.sql}${pipelineWhere}${dueOwnerSql}`,
+        [...scope.params, ...pipelineParams, ...dueOwnerParams],
     );
 
     // Untouched means the current owner has not added a comment since this
@@ -3836,10 +4057,10 @@ app.get('/api/leads', authenticate, requireCrmAccess, async (req, res) => {
     const currentEmployeeId = Number(req.user.employeeId) || 0;
     const [[untouchedAssigned]] = await pool.execute(
         `SELECT COUNT(*) AS count
-     FROM crm_leads l
+     FROM crm_leads l${pipelineJoin}
      WHERE l.deleted_at_utc IS NULL
        AND l.owner_employee_id = ?
-       AND ${scope.sql}
+       AND ${scope.sql}${pipelineWhere}
        AND NOT EXISTS (
          SELECT 1
          FROM crm_lead_comments touch_comment
@@ -3848,20 +4069,20 @@ app.get('/api/leads', authenticate, requireCrmAccess, async (req, res) => {
            AND touch_user.employee_id = l.owner_employee_id
            AND touch_comment.created_at_utc >= COALESCE(l.owner_assigned_at_utc,l.referred_at_utc,l.created_at_utc)
        )`,
-        [currentEmployeeId, ...scope.params],
+        [currentEmployeeId, ...scope.params, ...pipelineParams],
     );
 
     // Get re-enquired count
     const [[reEnquiredCount]] = await pool.execute(
         `SELECT COUNT(*) AS count
-     FROM crm_leads l
+     FROM crm_leads l${pipelineJoin}
      WHERE l.deleted_at_utc IS NULL
        AND (
          l.re_enquired_at_utc IS NOT NULL
          OR (SELECT COUNT(*) FROM crm_lead_source_history h WHERE h.lead_id = l.id) > 1
        )
-       AND ${scope.sql}`,
-        scope.params,
+       AND ${scope.sql}${pipelineWhere}`,
+        [...scope.params, ...pipelineParams],
     );
 
     res.json({
@@ -4469,7 +4690,25 @@ app.get('/api/bulk-operations', authenticate, requireCrmAccess, requireLeadWrite
      ORDER BY bo.created_at_utc DESC LIMIT 250`,
         [Number(req.businessUnit.id), ...values],
     );
-    res.json({ data: rows.map(row => ({ ...row, id: Number(row.id), details: typeof row.details === 'string' ? JSON.parse(row.details) : row.details })) });
+    const ids = rows.map(row => Number(row.id));
+    const retained = new Set();
+    if (ids.length) {
+        const [files] = await pool.query(
+            `SELECT operation_id AS id, original_bytes AS bytes FROM crm_bulk_operation_files
+              WHERE operation_id IN (${ids.map(() => '?').join(',')})`, ids);
+        files.forEach(file => retained.add(Number(file.id)));
+        var sizeById = new Map(files.map(file => [Number(file.id), Number(file.bytes)]));
+    }
+    res.json({
+        data: rows.map(row => ({
+            ...row,
+            id: Number(row.id),
+            details: typeof row.details === 'string' ? JSON.parse(row.details) : row.details,
+            // Whether the exact file is still available to download again.
+            fileRetained: retained.has(Number(row.id)),
+            fileBytes: (typeof sizeById !== 'undefined' && sizeById.get(Number(row.id))) || null,
+        })),
+    });
 });
 
 /*
@@ -4521,17 +4760,106 @@ app.get('/api/leads/comments/recent', authenticate, requireCrmAccess, async (req
     res.json({ data: byLead });
 });
 
-app.post('/api/bulk-operations/data-export', authenticate, requireCrmAccess, requireLeadWrite, async (req, res) => {
+/*
+ * Record a download.
+ *
+ * Every CSV this app produces is built in the browser from data already on
+ * screen, so nothing reaches the server unless the screen says so. This is
+ * that report: who downloaded, from which business unit, what dataset, how
+ * many rows, and what narrowed it.
+ *
+ * `dataset` is what makes it general. It used to be leads only -- lead ids
+ * were the whole payload -- so downloads of forms, pages, audiences and the
+ * review queue left no trace at all.
+ *
+ * requireCrmAccess rather than requireLeadWrite: downloading a list of Meta
+ * forms is not a lead-writing action, and gating the record more tightly
+ * than the download itself would only lose the audit trail.
+ */
+/* Files larger than this are recorded but not kept. 8 MB of CSV is tens of
+   thousands of rows, and gzip means the stored copy is far smaller. */
+const DOWNLOAD_RETENTION_LIMIT = 8 * 1024 * 1024;
+
+app.post('/api/bulk-operations/data-export', authenticate, requireCrmAccess, async (req, res) => {
     const totalRecords = Math.max(0, Number(req.body.totalRecords) || 0);
-    const fileName = cleanOptional(req.body.fileName, 255) || `crm-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+    const dataset = cleanOptional(req.body.dataset, 80) || 'Leads';
+    const fileName = cleanOptional(req.body.fileName, 255) || `export-${new Date().toISOString().slice(0, 10)}.csv`;
     const leadIds = [...new Set((Array.isArray(req.body.leadIds) ? req.body.leadIds : []).map(Number).filter(id => Number.isInteger(id) && id > 0))];
+    // What the person could see when they pressed the button: which columns
+    // they chose, and whatever narrowed the list.
+    const context = req.body.context && typeof req.body.context === 'object' ? req.body.context : {};
+    const columns = Array.isArray(req.body.columns) ? req.body.columns.map(String).slice(0, 200) : [];
     const [result] = await pool.execute(
         `INSERT INTO crm_bulk_operations
      (business_unit_id,operation_type,status,created_by_user_id,total_records,successful_records,summary,details_json,completed_at_utc)
      VALUES (?,'data_export','completed',?,?,?,?,?,CURRENT_TIMESTAMP(6))`,
-        [Number(req.businessUnit.id), Number(req.user.id), totalRecords, totalRecords, `Exported ${totalRecords} lead${totalRecords === 1 ? '' : 's'}`, JSON.stringify({ fileName, leadIds })],
+        [
+            Number(req.businessUnit.id), Number(req.user.id), totalRecords, totalRecords,
+            `Downloaded ${totalRecords} ${dataset.toLowerCase()} record${totalRecords === 1 ? '' : 's'}`,
+            JSON.stringify({ dataset, fileName, columns, context, ...(leadIds.length ? { leadIds } : {}) }),
+        ],
     );
-    res.status(201).json({ id: Number(result.insertId), message: 'Export recorded' });
+    const operationId = Number(result.insertId);
+
+    /*
+     * Keep the file itself, so it can be handed back byte for byte.
+     *
+     * Anything over the ceiling is recorded but not retained: the point is
+     * an audit trail with a convenience attached, not a file store, and a
+     * runaway export should not be able to fill the database. The screen is
+     * told which it got, so a button is never offered for a file that is
+     * not there.
+     */
+    let retained = false;
+    const content = typeof req.body.content === 'string' ? req.body.content : null;
+    if (content) {
+        const raw = Buffer.from(content, 'utf8');
+        if (raw.byteLength <= DOWNLOAD_RETENTION_LIMIT) {
+            try {
+                /* gzip carries about twenty bytes of header, so on a very
+                   small file it costs more than it saves. Store whichever is
+                   actually smaller and say which it was. */
+                const packed = zlib.gzipSync(raw);
+                const useGzip = packed.byteLength < raw.byteLength;
+                const stored = useGzip ? packed : raw;
+                await pool.execute(
+                    `INSERT INTO crm_bulk_operation_files
+             (operation_id,file_name,content_type,stored_bytes,original_bytes,content_encoding,content)
+           VALUES (?,?,?,?,?,?,?)`,
+                    [operationId, fileName, 'text/csv;charset=utf-8', stored.byteLength, raw.byteLength, useGzip ? 'gzip' : 'identity', stored],
+                );
+                retained = true;
+            } catch (error) {
+                // The record is the thing that matters; a file that would not
+                // store must not fail the download that has already happened.
+                console.warn(`Download ${operationId} file not retained: ${error.message}`);
+            }
+        }
+    }
+    res.status(201).json({ id: operationId, retained, message: 'Download recorded' });
+});
+
+/*
+ * Hand back the exact file somebody downloaded earlier.
+ *
+ * Scoped to the business unit the request is made from, so one unit's
+ * downloads are not reachable from another.
+ */
+app.get('/api/bulk-operations/:id/file', authenticate, requireCrmAccess, async (req, res) => {
+    const operationId = Number(req.params.id);
+    if (!Number.isInteger(operationId) || operationId <= 0) return res.status(400).json({ message: 'Invalid download' });
+    const [[row]] = await pool.execute(
+        `SELECT f.file_name AS fileName, f.content_type AS contentType, f.content, f.content_encoding AS encoding
+       FROM crm_bulk_operation_files f
+       JOIN crm_bulk_operations bo ON bo.id = f.operation_id
+      WHERE f.operation_id=? AND bo.business_unit_id=? LIMIT 1`,
+        [operationId, Number(req.businessUnit.id)],
+    );
+    if (!row) return res.status(404).json({ message: 'That file was not kept — only downloads made after file retention was switched on can be downloaded again' });
+    const body = row.encoding === 'gzip' ? zlib.gunzipSync(row.content) : row.content;
+    res.setHeader('Content-Type', row.contentType || 'text/csv;charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${row.fileName.replace(/"/g, '')}"`);
+    res.send(body);
 });
 
 app.get('/api/bulk-operations/:id/export', authenticate, requireCrmAccess, requireLeadWrite, async (req, res) => {
@@ -4797,6 +5125,13 @@ async function processBulkUpload(uploadId, records, branchId, userId, pool) {
     const connection = await pool.getConnection();
     try {
         await connection.execute(`UPDATE crm_bulk_uploads SET processing_started_at_utc=CURRENT_TIMESTAMP(6) WHERE id=?`, [uploadId]);
+        /* The unit that owns this upload, and the rule it matches
+           duplicates on. Read once: it is the same for every row, and the
+           loop below runs thousands of times. */
+        const [[uploadRow]] = await connection.execute(
+            'SELECT business_unit_id AS businessUnitId FROM crm_bulk_uploads WHERE id=? LIMIT 1', [uploadId]);
+        const uploadBusinessUnitId = Number(uploadRow?.businessUnitId) || null;
+        const uploadDuplicateRule = await loadDuplicateRule(connection, uploadBusinessUnitId);
 
         let successCount = 0, failureCount = 0, duplicateCount = 0;
         const errors = [];
@@ -4860,17 +5195,13 @@ async function processBulkUpload(uploadId, records, branchId, userId, pool) {
             // Check for duplicates and create lead
             try {
                 const normalizedPhone = normalizeIndianMobile(record.phone);
-                const [[existing]] = await connection.execute(
-                    `SELECT l.id, l.lead_number
-             FROM crm_leads l
-             JOIN crm_bulk_uploads bu ON bu.id=?
-            WHERE l.business_unit_id=bu.business_unit_id
-              AND l.branch_id=?
-              AND l.normalized_phone=?
-              AND l.deleted_at_utc IS NULL
-            LIMIT 1`,
-                    [uploadId, branchId, normalizedPhone]
-                );
+                // Same rule as every other intake, so a row that would be a
+                // duplicate on the Add lead form is one here too.
+                const { lead: existing } = await findDuplicateLead(connection, {
+                    businessUnitId: uploadBusinessUnitId,
+                    record: { ...record, branchId, normalizedPhone },
+                    rule: uploadDuplicateRule,
+                });
 
                 if (existing) {
                     const enquiry = await appendLeadSourceOrDetectDuplicate(connection, existing, record, 'bulk', userId);
@@ -5546,6 +5877,13 @@ async function processBulkUploadImport(uploadId, records, branchId, userId, pool
     const connection = await pool.getConnection();
     try {
         await connection.execute(`UPDATE crm_bulk_uploads SET processing_started_at_utc=CURRENT_TIMESTAMP(6) WHERE id=?`, [uploadId]);
+        /* The unit that owns this upload, and the rule it matches
+           duplicates on. Read once: it is the same for every row, and the
+           loop below runs thousands of times. */
+        const [[uploadRow]] = await connection.execute(
+            'SELECT business_unit_id AS businessUnitId FROM crm_bulk_uploads WHERE id=? LIMIT 1', [uploadId]);
+        const commitBusinessUnitId = Number(uploadRow?.businessUnitId) || null;
+        const commitDuplicateRule = await loadDuplicateRule(connection, commitBusinessUnitId);
 
         // Query database for records with status='Pending' (validation passed)
         const [pendingRecords] = await connection.execute(
@@ -5607,10 +5945,11 @@ async function processBulkUploadImport(uploadId, records, branchId, userId, pool
 
                 // No need to re-check duplicates - already validated
                 const normalizedPhone = normalizeIndianMobile(record.phone);
-                const [[existing]] = await connection.execute(
-                    `SELECT id, lead_number FROM crm_leads WHERE branch_id=? AND normalized_phone=? AND deleted_at_utc IS NULL LIMIT 1`,
-                    [branchId, normalizedPhone]
-                );
+                const { lead: existing } = await findDuplicateLead(connection, {
+                    businessUnitId: commitBusinessUnitId,
+                    record: { ...record, branchId, normalizedPhone },
+                    rule: commitDuplicateRule,
+                });
 
                 if (existing) {
                     const enquiry = await appendLeadSourceOrDetectDuplicate(connection, existing, record, 'bulk', userId);
@@ -5803,6 +6142,7 @@ app.use('/api/email', createEmailRoutes(pool, authenticate, requireCrmAccess, em
 // Webhook first: it is public, and mounting it ahead of the authenticated
 // router keeps Meta's unauthenticated callbacks from hitting the JWT gate.
 app.use('/api/meta', createMetaWebhookRoutes(pool, console));
+app.use('/api/meta', createMetaRemarketingRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin, console));
 app.use('/api/meta', createMetaRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin, console));
 
 // ============= WhatsApp Template Routes =============
@@ -5908,6 +6248,48 @@ const runPaymentLinkBatchCycle = async () => {
 };
 setInterval(runPaymentLinkBatchCycle, 30_000).unref();
 runPaymentLinkBatchCycle();
+
+/*
+ * Automatic remarketing audiences.
+ *
+ * Claims one due audience at a time by moving its next_sync_at forward
+ * before syncing, so an overrunning sync cannot be started twice. Each run
+ * sends only the leads that changed -- syncAudience diffs against the
+ * materialised membership rather than re-uploading the audience.
+ */
+let remarketingCycleRunning = false;
+const runRemarketingCycle = async () => {
+    if (remarketingCycleRunning) return;
+    remarketingCycleRunning = true;
+    try {
+        const [due] = await pool.execute(
+            `SELECT id, sync_type, sync_interval FROM crm_remarketing_audiences
+              WHERE sync_type='automatic' AND status IN ('active','draft','error')
+                AND next_sync_at_utc IS NOT NULL AND next_sync_at_utc <= CURRENT_TIMESTAMP(6)
+              ORDER BY next_sync_at_utc LIMIT 5`,
+        );
+        for (const audience of due) {
+            const [claim] = await pool.execute(
+                `UPDATE crm_remarketing_audiences SET next_sync_at_utc=?
+                  WHERE id=? AND next_sync_at_utc <= CURRENT_TIMESTAMP(6)`,
+                [nextRemarketingSyncAt(audience), audience.id],
+            );
+            if (!claim.affectedRows) continue;
+            try {
+                await syncRemarketingAudience(pool, audience.id, { triggeredBy: 'schedule', logger: console });
+            } catch (error) {
+                // Already recorded on the audience and in its sync log.
+                console.error(`Remarketing audience ${audience.id} sync failed: ${error.message}`);
+            }
+        }
+    } catch (error) {
+        console.error('Remarketing sync cycle failed:', error.message);
+    } finally {
+        remarketingCycleRunning = false;
+    }
+};
+setInterval(runRemarketingCycle, 60_000).unref();
+runRemarketingCycle();
 
 app.listen(port, () => {
     console.log(`Admissions CRM API running at http://localhost:${port}`);

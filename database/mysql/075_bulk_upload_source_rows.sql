@@ -1,4 +1,3 @@
-USE attendance_biometric;
 SET NAMES utf8mb4;
 
 -- Retain the exact uploaded values so audit exports can reproduce the input

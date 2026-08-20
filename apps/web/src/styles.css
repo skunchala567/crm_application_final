@@ -536,3 +536,12 @@ table th{background:var(--surface-3)}.avatar.muted{background:var(--accent-soft)
 /* Shown in the Add-lead drawer when /leads/meta did not load, so the section
    explains itself instead of rendering as an empty box. */
 .form-load-error{margin:0;padding:14px 15px;border:1px solid #f1d2d2;border-radius:9px;background:#fdeeed;color:#a63e3e;font-size:11px;font-weight:600;line-height:1.6}
+
+/* Every question and answer a Meta form collected, on the lead's Source
+   details tab. Kept compact: some forms ask a dozen things. */
+.lead-form-answers{margin-top:18px;padding-top:16px;border-top:1px solid var(--border)}
+.lead-form-answers>strong{display:block;margin-bottom:9px;font-size:12px;color:var(--ink-800)}
+.lead-form-answers>strong em{font-style:normal;font-weight:500;color:var(--muted)}
+.lead-form-answers .table-wrap{max-height:280px;overflow:auto;border:1px solid var(--border);border-radius:8px}
+.lead-form-answers td{white-space:normal;word-break:break-word}
+.lead-form-answers td:first-child{width:45%;color:var(--muted)}

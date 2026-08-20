@@ -29,6 +29,11 @@ const CRUMBS = {
   '/saved-reports/new': ['Reports', 'New report'],
   '/automations': ['Automations'],
   '/whatsapp-inbox': ['WhatsApp Inbox'],
+  /* Listed under a business unit rather than Settings, so they read as
+     screens of their own instead of "Settings / …". */
+  '/payments': ['Payments'],
+  '/user-management': ['User Management'],
+  '/templates': ['Templates'],
 };
 
 const SETTINGS_CRUMBS = {

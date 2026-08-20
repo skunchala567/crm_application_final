@@ -1,4 +1,3 @@
-USE attendance_biometric;
 SET NAMES utf8mb4;
 
 -- User-level template assignment, matching WhatsApp template visibility.

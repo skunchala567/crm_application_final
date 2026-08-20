@@ -156,6 +156,38 @@ export async function saveMetaConfig(pool, updates = {}, { organizationId = 1, u
   return loadMetaConfig(pool, { useCache: false });
 }
 
+/*
+ * Reflect the live connection back onto the integration row.
+ *
+ * The Meta screens keep their own state -- the token in `config`, the pages
+ * and forms in their own tables -- and used to leave `crm_integrations.status`
+ * exactly as it was found. A row created through the Integration Hub starts
+ * INACTIVE, so a fully working Meta connection still showed as not connected
+ * on the Integrations tile, with "Last sync: Never" beside it.
+ *
+ * Only ever called with a fact: a token Meta has just accepted or rejected,
+ * or a poll cycle that has just completed.
+ */
+export async function markMetaIntegrationState(pool, { connected, synced = false, logger = console } = {}) {
+  try {
+    const row = await getMetaIntegrationRow(pool);
+    if (!row) return;
+    const status = connected ? 'CONNECTED' : 'ERROR';
+    await pool.execute(
+      `UPDATE crm_integrations
+          SET status=?,
+              connected_at=COALESCE(connected_at, IF(?, CURRENT_TIMESTAMP, NULL)),
+              last_sync_at=IF(?, CURRENT_TIMESTAMP, last_sync_at),
+              updated_at=CURRENT_TIMESTAMP
+        WHERE id=?`,
+      [status, connected ? 1 : 0, synced ? 1 : 0, row.id],
+    );
+  } catch (error) {
+    // Cosmetic: never let the tile's bookkeeping break a token test or a poll.
+    logger.warn?.(`[Meta] could not update integration status: ${error.message}`);
+  }
+}
+
 /** Strip secrets before sending config to the browser. */
 export function redactMetaConfig(config) {
   if (!config) return null;

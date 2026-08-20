@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Download, Search } from 'lucide-react';
 import { api } from '../api';
 import '../styles/PaymentForms.css';
+import { recordDownload } from '../downloadAudit.js';
 
 /**
  * Every payment that came in, whichever form took it.
@@ -89,6 +90,8 @@ export default function PaymentCollectionsPage({ onMessage }) {
     link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     link.download = `payment-collections-${today()}.csv`;
     link.click();
+    // Recorded so Bulk Actions can say who took what, and when.
+    recordDownload('Payment collections', rows.length, link.download, { content: csv });
     URL.revokeObjectURL(link.href);
     onMessage?.({ type: 'success', text: `Exported ${rows.length} payment records` });
   }

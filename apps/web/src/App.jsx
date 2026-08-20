@@ -31,7 +31,7 @@ import "./DashboardCanvas.css";
 // Must stay the last stylesheet imported: it applies the reference design
 // language over every legacy sheet above.
 import "./styles/design-system.css";
-import { BarChart3, CalendarClock, ChevronDown, CircleHelp, Eye, EyeOff, GraduationCap, LayoutDashboard, Plus, Search, Settings2, Settings, Sparkles, Target, UploadCloud, UserRound, Users, Zap, Workflow } from "lucide-react";
+import { BarChart3, CalendarClock, ChevronDown, CircleHelp, CreditCard, Eye, EyeOff, GraduationCap, LayoutDashboard, MessageSquare, Plus, Search, Settings2, Settings, Sparkles, Target, UploadCloud, UserCog, UserRound, Users, Zap, Workflow } from "lucide-react";
 
 // [label, path, icon, section, permission]
 // `section` drives the sidebar's group headers; `permission` decides whether
@@ -44,6 +44,17 @@ const menu = [
   ["Bulk Actions", "/bulk-actions", UploadCloud, "Operations", "bulk_actions.workspace.view"],
   ["Reports", "/reports", BarChart3, "Operations", "reports.list.view"],
   ["Automations", "/automations", Zap, "Operations", "automations.workflows.view"],
+  /*
+   * Listed under each business unit rather than under Settings.
+   *
+   * Opening one of these from a unit's section selects that unit first, so
+   * the screen loads that unit's data -- which is the point of moving them.
+   * Settings keeps only what is genuinely shared: Business Units itself, and
+   * Integrations, which connects one account for the whole system.
+   */
+  ["Payments", "/payments", CreditCard, "Operations", "payments.collections.view"],
+  ["User Management", "/user-management", UserCog, "Operations", "settings.users.view"],
+  ["Templates", "/templates", MessageSquare, "Operations", "whatsapp.templates.view"],
 ];
 
 function loadStoredUser() {
@@ -237,11 +248,7 @@ function Shell({ user, onLogout }) {
   // Nav is filtered by the same permissions that guard the routes, so a link
   // is never shown to a screen the user would be refused.
   const settingsMenu = [
-    { label: 'User Management', path: '/settings/users', permission: 'settings.users.view' },
     { label: 'Business Units', path: '/settings/business-units', permission: 'settings.business_units.view' },
-    /* Forms and what they collected are two halves of one job, so they share
-       a screen with a tab each rather than two sidebar entries. */
-    { label: 'Payments', path: '/settings/payments', permission: 'payments.collections.view' },
     /*
      * Integrations is the way in to every connected service. Email
      * Configuration and Google Sheets are reached by opening their tile
@@ -250,13 +257,43 @@ function Shell({ user, onLogout }) {
      * resolve, so links and the tiles' navigation keep working.
      */
     { label: 'Integrations', path: '/settings/integrations', permission: 'integrations.hub.view' },
-    /* One entry for all three channels; the per-channel routes still resolve
-       for existing links, they are just not listed separately. Shown to anyone
-       who may manage any channel, and the screen's own tabs do the rest. */
-    { label: 'Templates', path: '/settings/templates', permission: 'whatsapp.templates.view' },
   ].filter((item) => can(item.permission));
 
+  /*
+   * One Leads entry per lead pipeline.
+   *
+   * A business unit can run several, and each has its own Leads screen --
+   * same features, scoped to that pipeline. With a single pipeline the entry
+   * stays plain "Leads" pointing at /leads, so nothing changes for a unit
+   * that never splits them.
+   */
+  const [leadPipelines, setLeadPipelines] = useState([]);
+  useEffect(() => {
+    if (!activeBusinessUnitId || !can('leads.list.view')) { setLeadPipelines([]); return; }
+    let cancelled = false;
+    api('/leads/pipelines')
+      .then((result) => { if (!cancelled) setLeadPipelines(result.data || []); })
+      .catch(() => { if (!cancelled) setLeadPipelines([]); });
+    return () => { cancelled = true; };
+  }, [activeBusinessUnitId]);
+
+  /*
+   * The plain list, and the one with Leads split per pipeline.
+   *
+   * Pipelines are fetched for the unit currently selected, so expanding them
+   * under every unit heading listed another unit's pipelines under its name.
+   * The sidebar uses the expanded list for the active unit and the plain one
+   * for the rest -- opening those switches unit, and their own pipelines
+   * appear once they are the active one.
+   */
   const visibleMenu = menu.filter(([, , , , permission]) => can(permission));
+  const activeUnitMenu = visibleMenu.flatMap((entry) => {
+    if (entry[1] !== '/leads' || leadPipelines.length < 2) return [entry];
+    const [, , Icon, section, permission] = entry;
+    return leadPipelines.map((pipeline) => [
+      pipeline.displayName, `/leads/pipeline/${pipeline.id}`, Icon, section, permission,
+    ]);
+  });
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -280,6 +317,7 @@ function Shell({ user, onLogout }) {
 
       <Sidebar
         menu={visibleMenu}
+        activeUnitMenu={activeUnitMenu}
         settings={settingsMenu}
         mobileOpen={mobileNavOpen}
         onMobileOpenChange={setMobileNavOpen}
@@ -306,6 +344,10 @@ function Shell({ user, onLogout }) {
           <Routes location={location}>
             <Route path="/" element={<RequirePermission do="dashboard.overview.view"><DashboardPage key={activeBusinessUnitId} user={user} /></RequirePermission>} />
             <Route path="/leads" element={<RequirePermission do="leads.list.view"><BusinessUnitLeadRouter key={activeBusinessUnitId} /></RequirePermission>} />
+            {/* The same screen, scoped to one pipeline. Keyed on the pipeline
+                so switching between two of them starts from a clean slate
+                rather than carrying the previous one's selection. */}
+            <Route path="/leads/pipeline/:pipelineId" element={<RequirePermission do="leads.list.view"><BusinessUnitLeadRouter key={`${activeBusinessUnitId}-pipeline`} /></RequirePermission>} />
             <Route path="/tracker" element={<RequirePermission do="tracker.board.view"><OperationsPageModern key={activeBusinessUnitId} /></RequirePermission>} />
             <Route path="/operations" element={<Navigate to="/tracker" replace />} />
             <Route path="/whatsapp-inbox" element={<RequirePermission do="whatsapp.inbox.view"><WhatsAppInbox /></RequirePermission>} />
@@ -313,10 +355,17 @@ function Shell({ user, onLogout }) {
             <Route path="/reports" element={<RequirePermission do="reports.list.view"><ReportsPage key={activeBusinessUnitId} /></RequirePermission>} />
             <Route path="/saved-reports/new" element={<RequirePermission do="reports.builder.view"><SavedReportCreatePage key={activeBusinessUnitId} /></RequirePermission>} />
             <Route path="/settings" element={<SettingsPageModern />} />
-            <Route path="/settings/users" element={<RequirePermission do="settings.users.view"><SettingsPageModern /></RequirePermission>} />
+            {/* Moved out of Settings and under each business unit, so they
+                get paths of their own -- the old ones still resolve as
+                redirects, and the breadcrumb and sidebar no longer file them
+                under Settings. */}
+            <Route path="/user-management" element={<RequirePermission do="settings.users.view"><SettingsPageModern /></RequirePermission>} />
+            <Route path="/payments" element={<RequirePermission do="payments.collections.view"><SettingsPageModern /></RequirePermission>} />
+            <Route path="/templates" element={<RequirePermission do="whatsapp.templates.view"><SettingsPageModern /></RequirePermission>} />
+            <Route path="/settings/users" element={<Navigate to="/user-management" replace />} />
             <Route path="/settings/business-units" element={<RequirePermission do="settings.business_units.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/branches" element={<RequirePermission do="settings.branches.view"><SettingsPageModern /></RequirePermission>} />
-            <Route path="/settings/payments" element={<RequirePermission do="payments.collections.view"><SettingsPageModern /></RequirePermission>} />
+            <Route path="/settings/payments" element={<Navigate to="/payments" replace />} />
             <Route path="/settings/payment-forms" element={<RequirePermission do="payments.collections.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/payment-collections" element={<RequirePermission do="payments.collections.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/lead-config" element={<Navigate to="/settings/business-units?tab=sources" replace />} />
@@ -326,7 +375,7 @@ function Shell({ user, onLogout }) {
             <Route path="/settings/integrations" element={<RequirePermission do="integrations.hub.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/google-sheets" element={<RequirePermission do="integrations.google_sheets.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/meta-lead-ads" element={<RequirePermission do="integrations.meta_lead_ads.view"><SettingsPageModern /></RequirePermission>} />
-            <Route path="/settings/templates" element={<RequirePermission do="whatsapp.templates.view"><SettingsPageModern /></RequirePermission>} />
+            <Route path="/settings/templates" element={<Navigate to="/templates" replace />} />
             <Route path="/settings/whatsapp-templates" element={<RequirePermission do="whatsapp.templates.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/email-configuration" element={<RequirePermission do="email.configuration.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/email-templates" element={<RequirePermission do="email.templates.view"><SettingsPageModern /></RequirePermission>} />

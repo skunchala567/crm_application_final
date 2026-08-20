@@ -1,4 +1,3 @@
-USE attendance_biometric;
 SET NAMES utf8mb4;
 
 SET @default_business_unit_id=(SELECT id FROM crm_business_units WHERE unit_code='school_admissions' LIMIT 1);

@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { decryptToken, getMasterKey } from '../integration-hub/crypto-utils.js';
 import { getLead } from './meta-client.js';
 import { recordLeadAttribution } from '../attribution/attribution-contract.js';
+import { findDuplicateLead } from '../lead-duplicate-rule.js';
 import { notifyEmployee } from '../notification-service.js';
 import { resolveAssignmentRuleOwner } from '../assignment-rules/engine.js';
 
@@ -30,6 +31,12 @@ const AUTO_RULES = [
   { field: 'parentName', test: (n) => n.includes('parent') || n.includes('guardian') || n.includes('father') || n.includes('mother') },
   { field: 'alternatePhone', test: (n) => n.includes('alternate') || n.includes('whatsapp_number') },
   { field: 'city', test: (n) => n === 'city' || n.includes('city') || n.includes('location') },
+  /* Meta's own standard questions for the rest of what a Custom Audience
+     matches on. Without these the answers landed in the remarks blob and the
+     match keys they could have provided were lost. */
+  { field: 'state', test: (n) => n === 'state' || n === 'province' || n.includes('state') },
+  { field: 'postalCode', test: (n) => n === 'zip' || n === 'post_code' || n.includes('zip') || n.includes('postal') || n.includes('pincode') || n.includes('pin_code') },
+  { field: 'country', test: (n) => n === 'country' },
   { field: 'applyingClass', test: (n) => n.includes('class') || n.includes('grade') || n.includes('standard') },
   { field: 'academicYear', test: (n) => n.includes('academic_year') || n.includes('session') },
 ];
@@ -152,9 +159,12 @@ function firstDefined(...values) {
  * Resolve where a lead lands. Precedence: form override -> page default ->
  * integration config -> database fallback.
  */
-export async function resolveRouting(pool, { form, page, config }) {
-  const businessUnitId = Number(firstDefined(form?.business_unit_id, page?.business_unit_id, config?.defaultBusinessUnitId, 1));
-  const branchId = Number(firstDefined(form?.branch_id, page?.branch_id, config?.defaultBranchId, 0)) || null;
+export async function resolveRouting(pool, { form, page, config, overrides = null }) {
+  /* Whoever approves a waiting lead may say where it goes. That choice is
+     made about this one lead with the answers in front of them, so it beats
+     the form's mapping, the Page's, and the integration defaults. */
+  const businessUnitId = Number(firstDefined(overrides?.businessUnitId, form?.business_unit_id, page?.business_unit_id, config?.defaultBusinessUnitId, 1));
+  const branchId = Number(firstDefined(overrides?.branchId, form?.branch_id, page?.branch_id, config?.defaultBranchId, 0)) || null;
 
   let sourceId = Number(firstDefined(form?.source_id, config?.defaultSourceId, 0)) || null;
   if (!sourceId) {
@@ -178,7 +188,7 @@ export async function resolveRouting(pool, { form, page, config }) {
     campaignId = row ? Number(row.id) : null;
   }
 
-  let stageId = Number(firstDefined(form?.stage_id, config?.defaultStageId, 0)) || null;
+  let stageId = Number(firstDefined(overrides?.stageId, form?.stage_id, config?.defaultStageId, 0)) || null;
   if (!stageId) {
     const [[row]] = await pool.execute(
       `SELECT id FROM crm_lead_stages WHERE is_active=1 ORDER BY position ASC LIMIT 1`,
@@ -186,14 +196,33 @@ export async function resolveRouting(pool, { form, page, config }) {
     stageId = row ? Number(row.id) : null;
   }
 
-  const actorUserId = Number(firstDefined(config?.actorUserId, 0)) || null;
+  const actorUserId = Number(firstDefined(overrides?.actorUserId, config?.actorUserId, 0)) || null;
 
-  // No per-form or per-integration default owner -- fall back to whichever
-  // Assignment Rule matches this lead's resolved branch and source, if any.
-  let ownerEmployeeId = Number(firstDefined(form?.owner_employee_id, config?.defaultOwnerEmployeeId, 0)) || null;
+  /*
+   * Who the lead belongs to, most specific first:
+   *
+   *   1. a choice made while approving it on the review screen;
+   *   2. an owner named on the form itself;
+   *   3. the Assignment Rule matching the branch the form routed to;
+   *   4. the default owner set for the integration.
+   *
+   * The rule sits ahead of the default deliberately. Assignment rules are
+   * written per branch and source, so they are the more specific answer --
+   * with the default first, a single fallback owner silently swallowed every
+   * lead and the rules never got a say.
+   */
+  let ownerEmployeeId = Number(firstDefined(overrides?.ownerEmployeeId, form?.owner_employee_id, 0)) || null;
   if (!ownerEmployeeId && branchId && sourceId) {
     ownerEmployeeId = await resolveAssignmentRuleOwner(pool, { businessUnitId, branchId, sourceId });
   }
+  /*
+   * No rule, no owner.
+   *
+   * There is deliberately no fallback to an integration-level default here.
+   * One default owner silently collected every lead whose branch had no rule,
+   * which looks like the rules working until somebody checks whose desk the
+   * leads are on. Unassigned is visible; wrongly assigned is not.
+   */
 
   return {
     businessUnitId,
@@ -202,7 +231,7 @@ export async function resolveRouting(pool, { form, page, config }) {
     channelId,
     campaignId,
     stageId,
-    substageId: Number(firstDefined(form?.substage_id, 0)) || null,
+    substageId: Number(firstDefined(overrides?.substageId, form?.substage_id, 0)) || null,
     ownerEmployeeId,
     academicYear: firstDefined(form?.academic_year, config?.defaultAcademicYear),
     classId: Number(firstDefined(form?.class_id, 0)) || null,
@@ -257,12 +286,23 @@ async function persistLead(pool, { record, routing, unmapped, metaContext, logge
 
     await connection.beginTransaction();
 
-    const [[existing]] = await connection.execute(
-      `SELECT id, lead_number AS leadNumber FROM crm_leads
-        WHERE business_unit_id=? AND branch_id=? AND normalized_phone=? AND deleted_at_utc IS NULL
-        ORDER BY id LIMIT 1 FOR UPDATE`,
-      [routing.businessUnitId, routing.branchId, normalizedPhone],
-    );
+    /* The unit's own duplicate rule, so a Meta lead is judged the same way
+       a lead typed into the Add form is. Routing has already resolved the
+       branch, class and academic year, so the record can answer whichever
+       fields the rule names. */
+    const { lead: existing } = await findDuplicateLead(connection, {
+      businessUnitId: routing.businessUnitId,
+      record: {
+        ...record,
+        normalizedPhone,
+        branchId: routing.branchId,
+        classId: routing.classId,
+        curriculumId: routing.curriculumId,
+        academicYear: routing.academicYear || record.academicYear,
+        sourceId: routing.sourceId,
+      },
+      forUpdate: true,
+    });
 
     if (existing) {
       // Returning phone number. Record it as a re-enquiry from this source --
@@ -318,6 +358,27 @@ async function persistLead(pool, { record, routing, unmapped, metaContext, logge
       metaCampaignId: metaContext.campaignMetaId || null,
       metaIsOrganic: Boolean(metaContext.isOrganic),
       ...(Object.keys(unmapped).length ? { metaUnmappedAnswers: unmapped } : {}),
+      /*
+       * Every question and answer, exactly as Meta sent them.
+       *
+       * Mapped answers land in their own CRM columns, but the question that
+       * produced them is lost there -- "hr" in a text field says nothing
+       * without "which_mba_specialization_are_you_interested_in?" beside it.
+       * Kept here in the blob the lead already has rather than as columns,
+       * because two forms rarely ask the same things and a column per
+       * question would mean a schema change per campaign.
+       *
+       * Read off metaContext: this function is given the context, not the
+       * raw Graph payload, which lives one level up in importMetaLead.
+       */
+      ...(Array.isArray(metaContext.answers) && metaContext.answers.length
+        ? {
+          metaAnswers: metaContext.answers,
+          metaFormName: metaContext.formName || null,
+          metaPageName: metaContext.pageName || null,
+          metaCollectedAt: metaContext.collectedAt || null,
+        }
+        : {}),
     };
 
     const remarkLines = ['Imported from Meta Lead Ads'];
@@ -329,9 +390,10 @@ async function persistLead(pool, { record, routing, unmapped, metaContext, logge
       `INSERT INTO crm_leads
          (business_unit_id, lead_number, branch_id, student_name, phone, normalized_phone,
           alternate_phone, email, applying_class, class_id, curriculum_id, academic_year,
-          parent_name, city, stage_id, source_id, owner_employee_id, channel_id, campaign_id,
+          parent_name, city, state, country, postal_code, stage_id, source_id, owner_employee_id,
+          channel_id, campaign_id,
           substage_id, lead_score, remarks, custom_values_json, created_by_user_id)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         routing.businessUnitId, temporaryNumber, routing.branchId,
         cleanOptional(record.studentName, 200), cleanOptional(record.phone, 30) || '', normalizedPhone,
@@ -339,6 +401,8 @@ async function persistLead(pool, { record, routing, unmapped, metaContext, logge
         cleanOptional(record.applyingClass, 50), routing.classId, routing.curriculumId,
         cleanOptional(routing.academicYear || record.academicYear, 20),
         cleanOptional(record.parentName, 200), cleanOptional(record.city, 100),
+        cleanOptional(record.state, 100), cleanOptional(record.country, 100) || 'India',
+        cleanOptional(record.postalCode, 20),
         routing.stageId, routing.sourceId, routing.ownerEmployeeId, routing.channelId,
         routing.campaignId, routing.substageId, 0,
         cleanOptional(remarkLines.join('\n'), 10000), JSON.stringify(customValues),
@@ -491,6 +555,9 @@ export async function importMetaLead(pool, {
   createdTime = null,
   leadData = null,
   intakeSource = 'webhook',
+  /* Where this lead should land, chosen by the person approving it. Null for
+     every automatic path, which keeps their behaviour exactly as it was. */
+  overrides = null,
   /*
    * Hold the lead for a person to look at instead of creating it.
    *
@@ -572,7 +639,7 @@ export async function importMetaLead(pool, {
       return { status: 'failed', reason: 'invalid phone' };
     }
 
-    const routing = await resolveRouting(pool, { form: resolvedForm, page: resolvedPage, config });
+    const routing = await resolveRouting(pool, { form: resolvedForm, page: resolvedPage, config, overrides });
     if (!routing.branchId) {
       await settleLedger(pool, leadgenId, 'failed', { error: 'No branch configured for this Page/form' });
       return { status: 'failed', reason: 'missing branch' };
@@ -602,6 +669,17 @@ export async function importMetaLead(pool, {
         adgroupId: adgroupId || payload?.adset_id || null,
         campaignMetaId: campaignMetaId || payload?.campaign_id || null,
         isOrganic: payload?.is_organic,
+        /* The answers travel with the context so the lead can keep them.
+           Flattened here, where the payload actually is. */
+        answers: Array.isArray(payload?.field_data)
+          ? payload.field_data.map((field) => ({
+            question: field.name,
+            answer: Array.isArray(field.values) ? field.values.join(', ') : String(field.values ?? ''),
+          }))
+          : [],
+        formName: resolvedForm?.form_name || null,
+        pageName: resolvedPage?.page_name || null,
+        collectedAt: payload?.created_time || null,
       },
       logger,
     });
@@ -638,6 +716,25 @@ export async function importMetaLead(pool, {
       : result.outcome === 'reenquired' ? 'imported'
       : 'duplicate';
     await settleLedger(pool, leadgenId, ledgerStatus, { leadId: result.leadId });
+
+    /*
+     * The readable side of the attribution.
+     *
+     * The ledger already held campaign, ad set and ad ids; a reader asking
+     * "which campaign produced this lead" got an opaque number, and an
+     * audience filtered by campaign has to be choosable by name. Written
+     * with COALESCE so an existing value is never overwritten -- a later
+     * fetch that comes back without names leaves what is already there.
+     */
+    await pool.execute(
+      `UPDATE crm_meta_lead_imports
+          SET campaign_name = COALESCE(campaign_name, ?), adgroup_name = COALESCE(adgroup_name, ?),
+              ad_name = COALESCE(ad_name, ?), form_name = COALESCE(form_name, ?),
+              page_name = COALESCE(page_name, ?)
+        WHERE leadgen_id=?`,
+      [payload?.campaign_name || null, payload?.adset_name || null, payload?.ad_name || null,
+        resolvedForm?.form_name || null, resolvedPage?.page_name || null, String(leadgenId)],
+    ).catch((error) => logger.warn?.(`[Meta] could not record attribution names: ${error.message}`));
 
     return { status: result.outcome, leadId: result.leadId, leadNumber: result.leadNumber };
   } catch (error) {

@@ -1,4 +1,3 @@
-USE attendance_biometric;
 SET NAMES utf8mb4;
 
 -- Every existing Business Unit receives the same Tracker module used by future units.

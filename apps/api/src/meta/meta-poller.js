@@ -20,7 +20,7 @@
  *     second lead.
  */
 import { listFormLeads } from './meta-client.js';
-import { loadMetaConfig } from './meta-config.js';
+import { loadMetaConfig, markMetaIntegrationState } from './meta-config.js';
 import { importMetaLead, decryptPageToken } from './meta-lead.service.js';
 
 /** One pass over every enabled form. */
@@ -30,8 +30,14 @@ export async function pollMetaForms(pool, logger = console) {
   // than logging an error every interval.
   if (!config?.systemUserToken) return { skipped: 'not configured' };
 
+  /* The form's effective destination decides whether its leads wait.
+     A form that names both a business unit and a branch -- its own, or the
+     Page's -- has everything an import needs, so there is nothing for a
+     person to decide and the lead goes straight in. */
   const [forms] = await pool.execute(
-    `SELECT f.form_id AS formId, f.page_id AS pageId, f.last_backfill_time AS watermark
+    `SELECT f.form_id AS formId, f.page_id AS pageId, f.last_backfill_time AS watermark,
+            COALESCE(f.business_unit_id, p.business_unit_id) AS businessUnitId,
+            COALESCE(f.branch_id, p.branch_id) AS branchId
      FROM crm_meta_forms f
      JOIN crm_meta_pages p ON p.page_id = f.page_id
      WHERE COALESCE(f.is_active, TRUE) = TRUE AND COALESCE(p.is_active, TRUE) = TRUE`,
@@ -41,6 +47,7 @@ export async function pollMetaForms(pool, logger = console) {
   const totals = { forms: forms.length, fetched: 0, pending: 0, imported: 0, duplicate: 0, failed: 0, skipped: 0 };
 
   for (const form of forms) {
+    const routed = Boolean(form.businessUnitId) && Boolean(form.branchId);
     try {
       const [[page]] = await pool.execute('SELECT * FROM crm_meta_pages WHERE page_id=? LIMIT 1', [form.pageId]);
       const token = decryptPageToken(page);
@@ -65,9 +72,16 @@ export async function pollMetaForms(pool, logger = console) {
           // Named apart from a hand-pressed backfill so the ledger still shows
           // which leads arrived on their own.
           intakeSource: 'poll',
-          // Held, not imported: a person reads the answers first on
-          // Meta Lead Ads > Waiting for review.
-          holdForReview: true,
+          /*
+           * Held only when the form cannot say where the lead belongs.
+           *
+           * Once a form names its business unit and branch, holding adds
+           * nothing: the routing question a review answers is already
+           * answered, and every lead would queue up waiting for somebody to
+           * press a button that changes nothing. A form still missing either
+           * one keeps waiting, because importing it would guess.
+           */
+          holdForReview: !routed,
           config,
           logger,
         });
@@ -89,6 +103,9 @@ export async function pollMetaForms(pool, logger = console) {
   if (totals.pending || totals.imported || totals.failed) {
     logger.info?.('[Meta] Poll cycle', totals);
   }
+  /* A completed cycle is proof the connection works, and it is the only
+     thing that can honestly fill in "Last sync" on the Integrations tile. */
+  await markMetaIntegrationState(pool, { connected: true, synced: true, logger });
   return totals;
 }
 

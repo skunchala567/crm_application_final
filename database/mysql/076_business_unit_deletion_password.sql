@@ -1,4 +1,3 @@
-USE attendance_biometric;
 
 SET @has_deletion_password = (
   SELECT COUNT(*) FROM information_schema.columns

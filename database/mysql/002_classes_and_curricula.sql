@@ -1,5 +1,4 @@
 -- Admissions class and curriculum master data.
-USE attendance_biometric;
 SET NAMES utf8mb4;
 
 CREATE TABLE IF NOT EXISTS crm_classes (

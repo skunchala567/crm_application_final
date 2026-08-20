@@ -1,4 +1,3 @@
-USE attendance_biometric;
 SET NAMES utf8mb4;
 
 -- A lead may arrive before anyone knows which branch it belongs to.

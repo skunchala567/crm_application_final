@@ -6,7 +6,7 @@ import {
   listLeadForms, listFormLeads, debugToken, getTokenOwner, GRAPH_VERSION,
 } from './meta-client.js';
 import {
-  loadMetaConfig, saveMetaConfig, redactMetaConfig, META_PROVIDER,
+  loadMetaConfig, saveMetaConfig, redactMetaConfig, META_PROVIDER, markMetaIntegrationState,
 } from './meta-config.js';
 import { importMetaLead, decryptPageToken, mapFieldData } from './meta-lead.service.js';
 
@@ -63,6 +63,9 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
     const config = await loadMetaConfig(pool, { useCache: false });
     requireConfigured(config, ['appId', 'appSecret', 'systemUserToken']);
     const info = await debugToken(config.systemUserToken, config.appId, config.appSecret, { logger });
+    /* Meta has just given a verdict on the token, so the Integrations tile
+       should stop reporting whatever it was left at when the row was made. */
+    await markMetaIntegrationState(pool, { connected: Boolean(info?.is_valid), logger });
     res.json({
       success: true,
       data: {
@@ -111,12 +114,38 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
       `SELECT id, display_name AS name FROM crm_business_units
         WHERE is_active = TRUE ORDER BY is_default DESC, display_name`,
     );
+    /*
+     * Pipelines, and the stages and sub-stages under them, across every
+     * business unit -- a Meta form routes to a unit of its own choosing, so
+     * this cannot be narrowed to the caller's current one.
+     *
+     * Pointing a form at a stage or sub-stage is what decides which pipeline
+     * its leads land in: crm_meta_forms.stage_id already wins over every
+     * default in resolveRouting.
+     */
+    const [pipelines] = await pool.execute(
+      `SELECT id, business_unit_id AS businessUnitId, display_name AS name, is_default AS isDefault
+         FROM crm_lead_pipelines WHERE is_active = TRUE ORDER BY business_unit_id, position`,
+    );
+    const [stages] = await pool.execute(
+      `SELECT id, business_unit_id AS businessUnitId, pipeline_id AS pipelineId, display_name AS name, position
+         FROM crm_lead_stages WHERE is_active = TRUE ORDER BY pipeline_id, position`,
+    );
+    const [substages] = await pool.execute(
+      `SELECT ss.id, ss.stage_id AS stageId, s.pipeline_id AS pipelineId, s.business_unit_id AS businessUnitId,
+              ss.display_name AS name, ss.position
+         FROM crm_lead_substages ss JOIN crm_lead_stages s ON s.id = ss.stage_id
+        WHERE ss.is_active = TRUE ORDER BY s.pipeline_id, s.position, ss.position`,
+    );
     res.json({
       success: true,
       data: {
         users: users.map((row) => ({ id: Number(row.id), name: row.name, email: row.email })),
         branches: branches.map((row) => ({ id: Number(row.id), name: row.name })),
         businessUnits: businessUnits.map((row) => ({ id: Number(row.id), name: row.name })),
+        pipelines: pipelines.map((row) => ({ ...row, id: Number(row.id), businessUnitId: Number(row.businessUnitId) })),
+        stages: stages.map((row) => ({ ...row, id: Number(row.id), pipelineId: Number(row.pipelineId) })),
+        substages: substages.map((row) => ({ ...row, id: Number(row.id), stageId: Number(row.stageId), pipelineId: Number(row.pipelineId) })),
       },
     });
   }));
@@ -418,7 +447,11 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
       : await pool.execute(`SELECT * FROM crm_meta_forms ORDER BY form_name ASC`);
     res.json({
       success: true,
-      data: rows.map((row) => ({ ...row, field_mapping: parseJson(row.field_mapping, {}) })),
+      data: rows.map((row) => ({
+        ...row,
+        field_mapping: parseJson(row.field_mapping, {}),
+        questions: parseJson(row.questions_json, []),
+      })),
     });
   }));
 
@@ -432,12 +465,20 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
     const forms = await listLeadForms(page.page_id, token, { logger });
     for (const form of forms) {
       await pool.execute(
-        `INSERT INTO crm_meta_forms (page_id, form_id, form_name, form_status, last_synced_at_utc)
-         VALUES (?,?,?,?,CURRENT_TIMESTAMP(6))
+        /* The question list is stored, not just returned: the mapping editor
+           has to show every question a form asks, including the ones nobody
+           has mapped yet. field_mapping is deliberately untouched here so a
+           re-sync never overwrites a mapping somebody set by hand. */
+        `INSERT INTO crm_meta_forms (page_id, form_id, form_name, form_status, questions_json, last_synced_at_utc)
+         VALUES (?,?,?,?,?,CURRENT_TIMESTAMP(6))
          ON DUPLICATE KEY UPDATE
            page_id=VALUES(page_id), form_name=VALUES(form_name),
-           form_status=VALUES(form_status), last_synced_at_utc=CURRENT_TIMESTAMP(6)`,
-        [page.page_id, String(form.id), form.name || null, form.status || null],
+           form_status=VALUES(form_status), questions_json=VALUES(questions_json),
+           last_synced_at_utc=CURRENT_TIMESTAMP(6)`,
+        [
+          page.page_id, String(form.id), form.name || null, form.status || null,
+          JSON.stringify((form.questions || []).map((q) => ({ key: q.key || q.name, label: q.label || q.key || q.name, type: q.type || null }))),
+        ],
       );
     }
 
@@ -609,11 +650,12 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
    * reads them, so a wrong mapping shows up here rather than as a lead with a
    * blank name.
    */
-  router.get('/imports/pending', wrap(async (_req, res) => {
-    const [rows] = await pool.execute(
+  router.get('/imports/pending', wrap(async (req, res) => {
+    const [rows] = await pool.query(
       `SELECT i.leadgen_id AS leadgenId, i.form_id AS formId, i.page_id AS pageId,
               i.intake_source AS intakeSource, i.raw_payload AS rawPayload,
               i.meta_created_time AS metaCreatedTime, i.created_at_utc AS receivedAt,
+              i.campaign_name AS campaignName, i.adgroup_name AS adgroupName, i.ad_name AS adName,
               f.form_name AS formName, f.field_mapping AS fieldMapping,
               p.page_name AS pageName
          FROM crm_meta_lead_imports i
@@ -621,7 +663,17 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
          LEFT JOIN crm_meta_pages p ON p.page_id = i.page_id
         WHERE i.status='pending'
         ORDER BY i.id DESC
-        LIMIT 200`,
+        LIMIT ?`,
+      /*
+       * The whole queue, not a page of it.
+       *
+       * The screen filters and selects across everything it is given -- "tick
+       * all of this campaign" has to mean all of it -- so a silent cap of 200
+       * made the count on screen disagree with the count in the ledger and
+       * hid the rest from bulk actions. A ceiling remains as a safety valve
+       * against an unbounded read, and it is stated rather than assumed.
+       */
+      [Math.min(Math.max(Number(req.query.limit) || 5000, 1), 5000)],
     );
     const data = rows.map((row) => {
       const payload = typeof row.rawPayload === 'string' ? JSON.parse(row.rawPayload || '{}') : (row.rawPayload || {});
@@ -631,6 +683,7 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
         leadgenId: row.leadgenId,
         formId: row.formId, formName: row.formName,
         pageId: row.pageId, pageName: row.pageName,
+        campaignName: row.campaignName, adgroupName: row.adgroupName, adName: row.adName,
         intakeSource: row.intakeSource,
         receivedAt: row.receivedAt,
         metaCreatedTime: row.metaCreatedTime,
@@ -643,17 +696,92 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
         unmapped,
       };
     });
-    res.json({ success: true, data });
+    const [[total]] = await pool.execute("SELECT COUNT(*) AS count FROM crm_meta_lead_imports WHERE status='pending'");
+    res.json({ success: true, data, total: Number(total.count), truncated: Number(total.count) > data.length });
   }));
 
   /** Turn a waiting lead into a CRM lead. */
-  router.post('/imports/:leadgenId/approve', requireUserAdmin, wrap(async (req, res) => {
-    const leadgenId = String(req.params.leadgenId);
-    const [[row]] = await pool.execute('SELECT * FROM crm_meta_lead_imports WHERE leadgen_id=? LIMIT 1', [leadgenId]);
-    if (!row) return res.status(404).json({ message: 'Import record not found' });
-    if (row.status !== 'pending') {
-      return res.status(409).json({ message: `Only waiting leads can be approved (status: ${row.status})` });
+  /*
+   * Where an approved lead should go, as chosen on the review screen.
+   *
+   * Every id is checked against the business unit doing the approving, so a
+   * crafted request cannot file a lead into another unit's pipeline or hand
+   * it to somebody who cannot see it. Anything absent falls through to the
+   * form's own mapping and then the integration defaults, exactly as before.
+   */
+  async function readAssignment(req) {
+    const body = req.body || {};
+    const unitId = Number(req.businessUnit?.id) || null;
+    /*
+     * Only what was actually chosen.
+     *
+     * The business unit is deliberately NOT seeded from the screen the
+     * approver happens to be on: it sits ahead of the form's own routing in
+     * resolveRouting, so doing that sent every approved lead to the current
+     * unit and quietly overrode what the form said. It is set only when a
+     * stage is picked, and then it is that stage's unit -- the one place the
+     * choice is unambiguous.
+     */
+    const overrides = {};
+    /* The person pressing the button is who the lead is recorded as created
+       by, so approving never depends on an integration-level default user. */
+    if (req.user?.id) overrides.actorUserId = Number(req.user.id);
+
+    if (body.stageId) {
+      const [[stage]] = await pool.execute(
+        `SELECT s.id, s.pipeline_id AS pipelineId, s.business_unit_id AS businessUnitId
+           FROM crm_lead_stages s
+          WHERE s.id=? AND s.business_unit_id=? AND s.is_active=TRUE LIMIT 1`,
+        [Number(body.stageId), unitId],
+      );
+      if (!stage) throw Object.assign(new Error('That stage is not available in this business unit'), { status: 400 });
+      // A pipeline was named too: the stage has to be one of its own.
+      if (body.pipelineId && Number(body.pipelineId) !== Number(stage.pipelineId)) {
+        throw Object.assign(new Error('That stage does not belong to the chosen pipeline'), { status: 400 });
+      }
+      overrides.stageId = Number(stage.id);
+      overrides.businessUnitId = Number(stage.businessUnitId);
     }
+
+    if (body.substageId) {
+      const [[substage]] = await pool.execute(
+        'SELECT id FROM crm_lead_substages WHERE id=? AND stage_id=? LIMIT 1',
+        [Number(body.substageId), Number(overrides.stageId) || 0],
+      );
+      if (!substage) throw Object.assign(new Error('That sub-stage does not belong to the chosen stage'), { status: 400 });
+      overrides.substageId = Number(substage.id);
+    }
+
+    if (body.branchId) {
+      const [[branch]] = await pool.execute('SELECT id FROM branches WHERE id=? AND is_active=TRUE LIMIT 1', [Number(body.branchId)]);
+      if (!branch) throw Object.assign(new Error('That branch is not available'), { status: 400 });
+      overrides.branchId = Number(branch.id);
+    }
+
+    if (body.ownerEmployeeId) {
+      const [[owner]] = await pool.execute(
+        `SELECT DISTINCT e.id FROM employees e
+           JOIN app_users u ON u.employee_id=e.id AND u.is_active=TRUE
+           LEFT JOIN crm_user_access_status cuas ON cuas.user_id=u.id
+           LEFT JOIN crm_user_business_units ubu ON ubu.user_id=u.id AND ubu.business_unit_id=?
+          WHERE e.id=? AND e.status='Active' AND COALESCE(cuas.is_active,1)=1
+            AND (ubu.user_id IS NOT NULL OR EXISTS(
+                  SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id
+                   WHERE ur.user_id=u.id AND r.normalized_name IN ('CRM_ADMIN','SUPER_ADMIN')))
+          LIMIT 1`,
+        [unitId, Number(body.ownerEmployeeId)],
+      );
+      if (!owner) throw Object.assign(new Error('That lead owner does not have CRM access to this business unit'), { status: 400 });
+      overrides.ownerEmployeeId = Number(owner.id);
+    }
+    return overrides;
+  }
+
+  /** Approve one waiting lead: shared by the single and bulk routes. */
+  async function approveWaitingLead(leadgenId, overrides, logger) {
+    const [[row]] = await pool.execute('SELECT * FROM crm_meta_lead_imports WHERE leadgen_id=? LIMIT 1', [leadgenId]);
+    if (!row) return { leadgenId, status: 'failed', reason: 'Import record not found' };
+    if (row.status !== 'pending') return { leadgenId, status: 'skipped', reason: `no longer waiting (${row.status})` };
     // Re-open the claim so importMetaLead can settle it, then let it run the
     // usual validation and mapping -- approval changes who decides, not how.
     await pool.execute("UPDATE crm_meta_lead_imports SET status='failed' WHERE leadgen_id=?", [leadgenId]);
@@ -662,9 +790,59 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
     const result = await importMetaLead(pool, {
       leadgenId, formId: row.form_id, pageId: row.page_id, adId: row.ad_id,
       campaignMetaId: row.campaign_meta_id, createdTime: row.meta_created_time,
-      leadData: payload, intakeSource: 'review', config, logger,
+      leadData: payload, intakeSource: 'review', config, overrides, logger,
     });
+    return { leadgenId, ...result };
+  }
+
+  router.post('/imports/:leadgenId/approve', requireUserAdmin, wrap(async (req, res) => {
+    const overrides = await readAssignment(req);
+    const result = await approveWaitingLead(String(req.params.leadgenId), overrides, logger);
+    if (result.status === 'failed' && result.reason === 'Import record not found') {
+      return res.status(404).json({ message: 'Import record not found' });
+    }
+    if (result.status === 'skipped') return res.status(409).json({ message: `Only waiting leads can be approved (${result.reason})` });
     res.json({ success: true, data: result });
+  }));
+
+  /*
+   * Approve many at once.
+   *
+   * Each lead is imported on its own so one bad row -- a missing phone, a
+   * form whose mapping is incomplete -- cannot stop the rest, and the caller
+   * gets a per-lead breakdown rather than a single pass/fail.
+   */
+  router.post('/imports/bulk-approve', requireUserAdmin, wrap(async (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.leadgenIds) ? req.body.leadgenIds : []).map(String).filter(Boolean))];
+    if (!ids.length) return res.status(400).json({ message: 'Select at least one lead' });
+    if (ids.length > 200) return res.status(400).json({ message: 'A maximum of 200 leads can be added at once' });
+    const overrides = await readAssignment(req);
+    const results = [];
+    for (const leadgenId of ids) {
+      try {
+        results.push(await approveWaitingLead(leadgenId, overrides, logger));
+      } catch (error) {
+        results.push({ leadgenId, status: 'failed', reason: error.message });
+      }
+    }
+    const tally = results.reduce((all, row) => { all[row.status] = (all[row.status] || 0) + 1; return all; }, {});
+    res.json({ success: true, data: { results, tally, requested: ids.length } });
+  }));
+
+  /** Discard many at once, with one reason for the batch. */
+  router.post('/imports/bulk-discard', requireUserAdmin, wrap(async (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.leadgenIds) ? req.body.leadgenIds : []).map(String).filter(Boolean))];
+    if (!ids.length) return res.status(400).json({ message: 'Select at least one lead' });
+    if (ids.length > 500) return res.status(400).json({ message: 'A maximum of 500 leads can be discarded at once' });
+    const reason = String(req.body?.reason || '').trim().slice(0, 500) || 'Discarded during review';
+    const placeholders = ids.map(() => '?').join(',');
+    const [result] = await pool.execute(
+      `UPDATE crm_meta_lead_imports
+          SET status='skipped', error_message=?, updated_at_utc=CURRENT_TIMESTAMP(6)
+        WHERE leadgen_id IN (${placeholders}) AND status='pending'`,
+      [reason, ...ids],
+    );
+    res.json({ success: true, data: { discarded: result.affectedRows, requested: ids.length } });
   }));
 
   /** Leave a waiting lead out of the CRM, with a note saying who and why. */

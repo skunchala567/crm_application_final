@@ -7,10 +7,22 @@ import { ArrowRight, PhoneCall, Plug, RefreshCw, Radio } from 'lucide-react';
  * offline and without reaching a third-party CDN.
  */
 
+/*
+ * Every status the API can return needs an entry here.
+ *
+ * The API normalises the stored ENUM to lowercase: INACTIVE -> 'inactive',
+ * CONNECTED -> 'active', and some paths return 'pending_auth' directly.
+ * 'inactive' and 'pending_auth' had no entry and fell through to the
+ * fallback, so an integration that was switched off reported itself as
+ * "Pending" -- which reads as "half-way through connecting" rather than
+ * "not connected".
+ */
 const STATUS = {
   active: { label: 'Connected', dot: 'bg-primary-500', chip: 'bg-primary-50 text-primary-700' },
   error: { label: 'Error', dot: 'bg-danger', chip: 'bg-danger-bg text-danger' },
   pending: { label: 'Pending', dot: 'bg-warning', chip: 'bg-warning-bg text-warning' },
+  pending_auth: { label: 'Pending', dot: 'bg-warning', chip: 'bg-warning-bg text-warning' },
+  inactive: { label: 'Not connected', dot: 'bg-secondary-300', chip: 'bg-surface-3 text-secondary-500' },
   disconnected: { label: 'Disconnected', dot: 'bg-secondary-300', chip: 'bg-surface-3 text-secondary-500' },
 };
 
@@ -87,7 +99,9 @@ export default function IntegrationGrid({ integrations, onSync, onSettings, load
   return (
     <div className="grid gap-5 [grid-template-columns:repeat(auto-fill,minmax(310px,1fr))]">
       {integrations.map((integration) => {
-        const status = STATUS[integration.status] || STATUS.pending;
+        // An unrecognised status must not silently borrow another's label.
+        const status = STATUS[integration.status]
+          || { label: integration.status || 'Unknown', dot: 'bg-secondary-300', chip: 'bg-surface-3 text-secondary-500' };
         const { Mark, tone } = providerVisual(integration.provider_name);
 
         return (

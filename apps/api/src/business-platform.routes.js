@@ -54,6 +54,7 @@ const isAdmin = user => (user.roles || []).some(role => ['CRM_ADMIN','SUPER_ADMI
 
 import { LEAD_FIELD_CATALOGUE, CATALOGUE_BY_KEY, SOURCE_LABELS } from './lead-field-catalogue.js';
 import { notifyTrackerTask } from './tracker-notifications.js';
+import { DUPLICATE_FIELDS, normalizeDuplicateRule, describeRule } from './lead-duplicate-rule.js';
 
 export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin, hashPassword, integrationHubService = null) {
   const router = express.Router();
@@ -158,6 +159,15 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
          VALUES (?,'default','Default Pipeline',TRUE)`,[unitId],
       );
       const pipelineId=Number(pipelineResult.insertId);
+      /* The lead pipeline a new unit starts with. Stages seeded below join
+         it, so a unit created today looks exactly like one whose stages were
+         gathered by the migration -- and the administrator can add more
+         pipelines beside it straight away. */
+      const [leadPipelineResult]=await connection.execute(
+        `INSERT INTO crm_lead_pipelines(business_unit_id,pipeline_key,display_name,description,is_default,position)
+         VALUES (?,'main','Main pipeline','The stages leads move through in this business unit.',TRUE,1)`,[unitId],
+      );
+      const leadPipelineId=Number(leadPipelineResult.insertId);
       for(const [key,label,type,color,position] of [
         ['new','New','open','#555AB1',1],['qualified','Qualified','open','#3B82F6',2],
         ['won','Won','won','#258268',3],['lost','Lost','lost','#B84848',4],
@@ -171,9 +181,9 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
           [Number(stageResult.insertId),label],
         );
         const [sharedStageResult]=await connection.execute(
-          `INSERT INTO crm_lead_stages(business_unit_id,name,display_name,position,color_code,requires_followup)
-           VALUES(?,?,?,?,?,FALSE)`,
-          [unitId,`bu${unitId}__${key}`,label,position,color],
+          `INSERT INTO crm_lead_stages(business_unit_id,pipeline_id,name,display_name,position,color_code,requires_followup)
+           VALUES(?,?,?,?,?,?,FALSE)`,
+          [unitId,leadPipelineId,`bu${unitId}__${key}`,label,position,color],
         );
         await connection.execute(
           `INSERT INTO crm_lead_substages(stage_id,substage_code,display_name,position)
@@ -362,11 +372,19 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     let leadSubstages=[];
     if(unit){
       const [[legacyStages],[legacySubstages]]=await Promise.all([
-        pool.execute(`SELECT id,name AS stageKey,display_name AS displayName,'open' AS stageType,color_code AS color,position,is_active AS isActive,requires_followup AS requiresFollowup FROM crm_lead_stages WHERE business_unit_id=? ORDER BY position,display_name`,[unitId]),
-        pool.execute(`SELECT ss.id,ss.stage_id AS stageId,ss.substage_code AS substageKey,ss.display_name AS displayName,ss.position,ss.is_active AS isActive FROM crm_lead_substages ss JOIN crm_lead_stages s ON s.id=ss.stage_id WHERE s.business_unit_id=? ORDER BY s.position,ss.position,ss.display_name`,[unitId]),
+        pool.execute(`SELECT id,pipeline_id AS pipelineId,name AS stageKey,display_name AS displayName,'open' AS stageType,color_code AS color,position,is_active AS isActive,requires_followup AS requiresFollowup,is_admission_stage AS isAdmissionStage FROM crm_lead_stages WHERE business_unit_id=? ORDER BY position,display_name`,[unitId]),
+        pool.execute(`SELECT ss.id,ss.stage_id AS stageId,s.pipeline_id AS pipelineId,ss.substage_code AS substageKey,ss.display_name AS displayName,ss.position,ss.is_active AS isActive FROM crm_lead_substages ss JOIN crm_lead_stages s ON s.id=ss.stage_id WHERE s.business_unit_id=? ORDER BY s.position,ss.position,ss.display_name`,[unitId]),
       ]);
-      resolvedPipelines=[{id:0,pipelineKey:'school_admissions',displayName:'School Admissions',isDefault:true,isActive:true}];
-      resolvedPipelineStages=legacyStages.map(row=>({...row,pipelineId:0}));
+      /* Real pipelines, from real rows. This used to invent a single one
+         with id 0 and stamp every stage with it, which is what limited a
+         business unit to one ladder of stages. */
+      const [leadPipelines]=await pool.execute(
+        `SELECT id,pipeline_key AS pipelineKey,display_name AS displayName,description,
+                is_default AS isDefault,position,is_active AS isActive
+           FROM crm_lead_pipelines WHERE business_unit_id=? ORDER BY position,display_name`,[unitId],
+      );
+      resolvedPipelines=leadPipelines;
+      resolvedPipelineStages=legacyStages;
       leadSubstages=legacySubstages;
     }else{
       const [metadataSubstages]=await pool.execute(
@@ -381,7 +399,25 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     res.json({unit:{
       id:Number(unit.id),code:unit.unit_code,name:unit.display_name,industryType:unit.industry_type,
       compatibilityMode:unit.compatibility_mode,color:unit.color_code,
-    },manualLeadDefaults:parseJson(unit.manual_lead_defaults_json,{}),fields:normalize(fields),forms:normalize(forms),pipelines:resolvedPipelines,pipelineStages:resolvedPipelineStages,
+    },manualLeadDefaults:parseJson(unit.manual_lead_defaults_json,{}),
+    /* What counts as the same lead in this unit, and the fields it can be
+       built from. The pool is the unit's own active lead fields, so a school
+       offers its branch and academic configuration while another unit offers
+       branch and whatever configuration sections it has defined. */
+    duplicateRule:normalizeDuplicateRule(unit.duplicate_rule_json),
+    duplicateRuleDescription:describeRule(normalizeDuplicateRule(unit.duplicate_rule_json)),
+    duplicateFields:normalize(fields)
+      .filter(field=>field.isActive!==false)
+      .map(field=>{
+        const known=DUPLICATE_FIELDS[field.fieldKey];
+        if(known)return{key:field.fieldKey,label:known.label,group:known.group};
+        // A unit's own field, whose value lives in the lead's custom values.
+        if(!field.isSystem&&['single_select','text','number','phone','email'].includes(field.fieldType)){
+          return{key:`custom:${field.fieldKey}`,label:field.displayName,group:'Configuration'};
+        }
+        return null;
+      })
+      .filter(Boolean),fields:normalize(fields),forms:normalize(forms),pipelines:resolvedPipelines,pipelineStages:resolvedPipelineStages,
     leadSubstages:normalize(leadSubstages),enquiryForms:normalize(enquiryForms),branches:normalize(branches),sources:normalize(sources),channels:normalize(channels),campaigns:normalize(campaigns),employees:normalize(employees),academicYears:normalize(academicYears),workflows:normalize(workflows),operationStages:normalize(operationStages),modules:normalize(modules)});
   });
 
@@ -903,15 +939,137 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     }finally{connection.release();}
   });
 
+  /*
+   * Lead pipelines.
+   *
+   * A business unit can run several: an admissions ladder and a transport
+   * enquiry ladder do not share stages, and forcing them into one list made
+   * every stage dropdown a mix of both. Stages hang off a pipeline; a lead
+   * carries the pipeline it is on.
+   */
+  /*
+   * Change what makes two leads the same lead.
+   *
+   * Applies to every intake at once -- the Add lead form, public enquiry
+   * forms, bulk uploads and Meta Lead Ads all ask the same question through
+   * one helper, so the rule cannot mean different things in different places.
+   */
+  router.put('/business-units/:id/duplicate-rule', requireUserAdmin, async (req,res)=>{
+    const unitId=Number(req.params.id);
+    if(!await accessibleUnit(req,unitId,true))return res.status(403).json({message:'Business unit management access required'});
+    const requested=Array.isArray(req.body?.fields)?req.body.fields:null;
+    if(!requested||!requested.length)return res.status(400).json({message:'Choose at least one field for the duplicate rule'});
+    const rule=normalizeDuplicateRule(requested);
+    // normalizeDuplicateRule silently falls back when nothing survives; say so
+    // rather than saving a rule the administrator did not choose.
+    const dropped=requested.filter(key=>!rule.includes(String(key)));
+    if(dropped.length===requested.length)return res.status(400).json({message:'None of those fields can be used in a duplicate rule'});
+    await pool.execute('UPDATE crm_business_units SET duplicate_rule_json=? WHERE id=?',[JSON.stringify(rule),unitId]);
+    res.json({message:`Leads are now matched on ${describeRule(rule)}`,fields:rule,ignored:dropped});
+  });
+
+  router.get('/business-units/:id/lead-pipelines', requireUserAdmin, async (req,res)=>{
+    const unitId=Number(req.params.id);
+    if(!await accessibleUnit(req,unitId,true))return res.status(403).json({message:'Business unit management access required'});
+    const [rows]=await pool.execute(
+      `SELECT p.id,p.pipeline_key AS pipelineKey,p.display_name AS displayName,p.description,
+              p.is_default AS isDefault,p.position,p.is_active AS isActive,
+              (SELECT COUNT(*) FROM crm_lead_stages s WHERE s.pipeline_id=p.id) AS stageCount,
+              (SELECT COUNT(*) FROM crm_leads l JOIN crm_lead_stages st ON st.id=l.stage_id
+                WHERE st.pipeline_id=p.id AND l.deleted_at_utc IS NULL) AS leadCount
+         FROM crm_lead_pipelines p WHERE p.business_unit_id=? ORDER BY p.position,p.display_name`,[unitId]);
+    res.json({pipelines:rows});
+  });
+
+  router.post('/business-units/:id/lead-pipelines', requireUserAdmin, async (req,res)=>{
+    const unitId=Number(req.params.id);
+    if(!await accessibleUnit(req,unitId,true))return res.status(403).json({message:'Business unit management access required'});
+    const displayName=text(req.body.displayName,150);
+    if(!displayName)return res.status(400).json({message:'Pipeline name is required'});
+    const key=slug(req.body.pipelineKey||displayName);
+    if(!key)return res.status(400).json({message:'Pipeline name must contain at least one letter or number'});
+    const [[next]]=await pool.execute(`SELECT COALESCE(MAX(position),0)+1 AS position FROM crm_lead_pipelines WHERE business_unit_id=?`,[unitId]);
+    // The first pipeline a unit ever gets is necessarily its default.
+    const [[existing]]=await pool.execute(`SELECT COUNT(*) AS count FROM crm_lead_pipelines WHERE business_unit_id=?`,[unitId]);
+    try{
+      const [result]=await pool.execute(
+        `INSERT INTO crm_lead_pipelines(business_unit_id,pipeline_key,display_name,description,is_default,position)
+         VALUES(?,?,?,?,?,?)`,
+        [unitId,key,displayName,text(req.body.description,500)||null,Number(existing.count)===0?1:0,Number(next.position)],
+      );
+      res.status(201).json({id:Number(result.insertId),message:'Lead pipeline added'});
+    }catch(error){
+      if(error.code==='ER_DUP_ENTRY')return res.status(409).json({message:'A pipeline with that name already exists in this business unit'});
+      throw error;
+    }
+  });
+
+  router.put('/business-units/:unitId/lead-pipelines/:id', requireUserAdmin, async (req,res)=>{
+    const unitId=Number(req.params.unitId),id=Number(req.params.id);
+    if(!await accessibleUnit(req,unitId,true))return res.status(403).json({message:'Business unit management access required'});
+    const [[pipeline]]=await pool.execute(`SELECT * FROM crm_lead_pipelines WHERE id=? AND business_unit_id=?`,[id,unitId]);
+    if(!pipeline)return res.status(404).json({message:'Lead pipeline not found'});
+    const makeDefault=req.body.isDefault===true;
+    const isActive=req.body.isActive===false?0:1;
+    // A unit must always have somewhere to put a lead that names no pipeline.
+    if(pipeline.is_default&&(!isActive||req.body.isDefault===false)){
+      return res.status(400).json({message:'Make another pipeline the default before changing this one'});
+    }
+    const connection=await pool.getConnection();
+    try{
+      await connection.beginTransaction();
+      if(makeDefault)await connection.execute(`UPDATE crm_lead_pipelines SET is_default=FALSE WHERE business_unit_id=?`,[unitId]);
+      await connection.execute(
+        `UPDATE crm_lead_pipelines SET display_name=?,description=?,is_active=?,is_default=? WHERE id=? AND business_unit_id=?`,
+        [text(req.body.displayName,150)||pipeline.display_name,
+         req.body.description===undefined?pipeline.description:(text(req.body.description,500)||null),
+         isActive,makeDefault?1:(pipeline.is_default?1:0),id,unitId],
+      );
+      await connection.commit();
+      res.json({message:'Lead pipeline updated'});
+    }catch(error){await connection.rollback();throw error;}finally{connection.release();}
+  });
+
+  router.delete('/business-units/:unitId/lead-pipelines/:id', requireUserAdmin, async (req,res)=>{
+    const unitId=Number(req.params.unitId),id=Number(req.params.id);
+    if(!await accessibleUnit(req,unitId,true))return res.status(403).json({message:'Business unit management access required'});
+    const [[pipeline]]=await pool.execute(`SELECT * FROM crm_lead_pipelines WHERE id=? AND business_unit_id=?`,[id,unitId]);
+    if(!pipeline)return res.status(404).json({message:'Lead pipeline not found'});
+    if(pipeline.is_default)return res.status(400).json({message:'The default pipeline cannot be deleted. Make another one the default first.'});
+    // Refuse rather than silently stranding leads or stages.
+    const [[counts]]=await pool.execute(
+      `SELECT (SELECT COUNT(*) FROM crm_leads l JOIN crm_lead_stages st ON st.id=l.stage_id
+                WHERE st.pipeline_id=? AND l.deleted_at_utc IS NULL) AS leads,
+              (SELECT COUNT(*) FROM crm_lead_stages WHERE pipeline_id=?) AS stages`,[id,id]);
+    if(Number(counts.leads)>0)return res.status(409).json({message:`Cannot delete this pipeline because ${counts.leads} lead${Number(counts.leads)===1?' is':'s are'} on it`});
+    if(Number(counts.stages)>0)return res.status(409).json({message:`Cannot delete this pipeline because it still has ${counts.stages} stage${Number(counts.stages)===1?'':'s'}. Delete them first.`});
+    await pool.execute(`DELETE FROM crm_lead_pipelines WHERE id=? AND business_unit_id=?`,[id,unitId]);
+    res.json({message:'Lead pipeline deleted'});
+  });
+
   router.post('/business-units/:id/pipeline-stages', requireUserAdmin, async (req,res)=>{
     const unitId=Number(req.params.id),unit=await accessibleUnit(req,unitId,true),pipelineId=Number(req.body.pipelineId),displayName=text(req.body.displayName,150),stageKey=slug(req.body.stageKey||displayName);
     if(!unit)return res.status(403).json({message:'Business unit management access required'});
     if(unit){
       if(!displayName)return res.status(400).json({message:'Stage name is required'});
-      const [[next]]=await pool.execute(`SELECT COALESCE(MAX(position),0)+1 AS position FROM crm_lead_stages WHERE business_unit_id=?`,[unitId]);
+      /* Which pipeline this stage joins. Falls back to the unit's default so
+         an older client that never sends one still lands somewhere sensible. */
+      const [[pipeline]]=await pool.execute(
+        pipelineId
+          ? `SELECT id FROM crm_lead_pipelines WHERE id=? AND business_unit_id=?`
+          : `SELECT id FROM crm_lead_pipelines WHERE business_unit_id=? ORDER BY is_default DESC,position LIMIT 1`,
+        pipelineId?[pipelineId,unitId]:[unitId],
+      );
+      if(!pipeline)return res.status(400).json({message:'Choose a pipeline for this stage'});
+      // Position runs within the pipeline, not across the whole unit.
+      const [[next]]=await pool.execute(`SELECT COALESCE(MAX(position),0)+1 AS position FROM crm_lead_stages WHERE pipeline_id=?`,[pipeline.id]);
+      /* The stage key is unique per unit, so two pipelines can both hold a
+         stage called "New" without colliding. */
+      const [[taken]]=await pool.execute(`SELECT COUNT(*) AS count FROM crm_lead_stages WHERE business_unit_id=? AND name=?`,[unitId,`bu${unitId}__${stageKey}`]);
+      const uniqueKey=Number(taken.count)?`bu${unitId}__${stageKey}_${pipeline.id}`:`bu${unitId}__${stageKey}`;
       const [result]=await pool.execute(
-        `INSERT INTO crm_lead_stages(business_unit_id,name,display_name,position,color_code,requires_followup) VALUES(?,?,?,?,?,?)`,
-        [unitId,`bu${unitId}__${stageKey}`,displayName,Number(next.position),/^#[0-9a-f]{6}$/i.test(req.body.color||'')?req.body.color:'#4A4FB1',req.body.requiresFollowup?1:0],
+        `INSERT INTO crm_lead_stages(business_unit_id,pipeline_id,name,display_name,position,color_code,requires_followup) VALUES(?,?,?,?,?,?,?)`,
+        [unitId,pipeline.id,uniqueKey,displayName,Number(next.position),/^#[0-9a-f]{6}$/i.test(req.body.color||'')?req.body.color:'#4A4FB1',req.body.requiresFollowup?1:0],
       );
       return res.status(201).json({id:Number(result.insertId),message:'Lead stage added'});
     }
@@ -947,6 +1105,91 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     );
     if(!result.affectedRows)return res.status(404).json({message:'Pipeline stage not found'});
     res.json({message:'Pipeline stage updated'});
+  });
+
+  /*
+   * Move a stage up or down within its pipeline.
+   *
+   * Position is unique per (pipeline_id, position), so the two rows cannot
+   * simply be given each other's numbers -- the first UPDATE would collide
+   * with the row still holding the target value. One is parked above every
+   * position in use while the other moves, then brought back down.
+   */
+  router.put('/business-units/:unitId/pipeline-stages/:id/move', requireUserAdmin, async (req,res)=>{
+    const unitId=Number(req.params.unitId),stageId=Number(req.params.id);
+    if(!await accessibleUnit(req,unitId,true))return res.status(403).json({message:'Business unit management access required'});
+    const direction=req.body.direction==='up'?'up':req.body.direction==='down'?'down':null;
+    if(!direction)return res.status(400).json({message:'Select a valid move direction'});
+    const connection=await pool.getConnection();
+    try{
+      await connection.beginTransaction();
+      const [[current]]=await connection.execute(
+        `SELECT id,pipeline_id AS pipelineId,position FROM crm_lead_stages
+         WHERE id=? AND business_unit_id=? FOR UPDATE`,[stageId,unitId],
+      );
+      if(!current){await connection.rollback();return res.status(404).json({message:'Lead stage not found'});}
+      const comparator=direction==='up'?'<':'>',order=direction==='up'?'DESC':'ASC';
+      // Its neighbour in the same pipeline -- ordering never crosses pipelines.
+      const [[adjacent]]=await connection.execute(
+        `SELECT id,position FROM crm_lead_stages
+         WHERE pipeline_id <=> ? AND position ${comparator} ?
+         ORDER BY position ${order},id ${order} LIMIT 1 FOR UPDATE`,
+        [current.pipelineId,Number(current.position)],
+      );
+      if(!adjacent){await connection.rollback();return res.json({message:`Stage is already ${direction==='up'?'first':'last'}`});}
+      const [[parking]]=await connection.execute(
+        `SELECT COALESCE(MAX(position),0)+1 AS slot FROM crm_lead_stages WHERE pipeline_id <=> ?`,[current.pipelineId]);
+      await connection.execute(`UPDATE crm_lead_stages SET position=? WHERE id=?`,[Number(parking.slot),Number(current.id)]);
+      await connection.execute(`UPDATE crm_lead_stages SET position=? WHERE id=?`,[Number(current.position),Number(adjacent.id)]);
+      await connection.execute(`UPDATE crm_lead_stages SET position=? WHERE id=?`,[Number(adjacent.position),Number(current.id)]);
+      await connection.commit();
+      res.json({message:`Stage moved ${direction}`});
+    }catch(error){await connection.rollback();throw error;}finally{connection.release();}
+  });
+
+  /*
+   * Move a sub-stage within its parent stage.
+   *
+   * Not a swap of two positions: sub-stages were seeded with position 1
+   * across the board, so "the row above me" cannot be found by comparing
+   * positions -- every sibling looks both first and last. Instead the whole
+   * sibling group is read in its displayed order, the item is moved one
+   * place in that list, and the group is renumbered 1..n. That also repairs
+   * the duplicate positions the first time any group is touched.
+   */
+  router.put('/business-units/:unitId/pipeline-substages/:id/move', requireUserAdmin, async (req,res)=>{
+    const unitId=Number(req.params.unitId),substageId=Number(req.params.id);
+    if(!await accessibleUnit(req,unitId,true))return res.status(403).json({message:'Business unit management access required'});
+    const direction=req.body.direction==='up'?'up':req.body.direction==='down'?'down':null;
+    if(!direction)return res.status(400).json({message:'Select a valid move direction'});
+    const connection=await pool.getConnection();
+    try{
+      await connection.beginTransaction();
+      const [[current]]=await connection.execute(
+        `SELECT ss.id,ss.stage_id AS stageId FROM crm_lead_substages ss
+         JOIN crm_lead_stages s ON s.id=ss.stage_id
+         WHERE ss.id=? AND s.business_unit_id=? FOR UPDATE`,[substageId,unitId],
+      );
+      if(!current){await connection.rollback();return res.status(404).json({message:'Lead sub-stage not found'});}
+      // (position, id) is the order the screen shows, so it is the order moved in.
+      const [siblings]=await connection.execute(
+        `SELECT id FROM crm_lead_substages WHERE stage_id=? ORDER BY position,id FOR UPDATE`,
+        [Number(current.stageId)],
+      );
+      const order=siblings.map(row=>Number(row.id));
+      const index=order.indexOf(Number(current.id));
+      const target=direction==='up'?index-1:index+1;
+      if(index<0||target<0||target>=order.length){
+        await connection.rollback();
+        return res.json({message:`Sub-stage is already ${direction==='up'?'first':'last'}`});
+      }
+      [order[index],order[target]]=[order[target],order[index]];
+      for(let position=0;position<order.length;position+=1){
+        await connection.execute(`UPDATE crm_lead_substages SET position=? WHERE id=?`,[position+1,order[position]]);
+      }
+      await connection.commit();
+      res.json({message:`Sub-stage moved ${direction}`});
+    }catch(error){await connection.rollback();throw error;}finally{connection.release();}
   });
 
   router.delete('/business-units/:unitId/pipeline-stages/:id', requireUserAdmin, async (req,res)=>{

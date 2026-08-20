@@ -73,6 +73,7 @@ function RailTooltip({ label, active, children }) {
  */
 export function Sidebar({
   menu = [],
+  activeUnitMenu = null,
   settings = [],
   // The topbar owns both toggles, so open/collapsed state lives in the shell.
   mobileOpen = false,
@@ -147,6 +148,9 @@ export function Sidebar({
    * caller has already filtered `menu` to the screens this person may open.
    */
   const items = menu.map(([label, path, Icon]) => ({ label, path, Icon }));
+  /* Lead pipelines belong to the unit that is currently selected, so only
+     that unit's section lists them; the others show the plain entries. */
+  const activeItems = (activeUnitMenu || menu).map(([label, path, Icon]) => ({ label, path, Icon }));
 
   const unitGroups = units.length
     ? units
@@ -300,7 +304,7 @@ export function Sidebar({
         <nav className="flex-1 overflow-y-auto overflow-x-hidden px-3 pt-1 pb-[14px] flex flex-col gap-0.5" aria-label="Primary">
           {/* The rail shows the active unit's screens only: the unit headings
               it would need are exactly what does not fit at this width. */}
-          {rail && items.map(({ label, path, Icon }) => (
+          {rail && activeItems.map(({ label, path, Icon }) => (
             <RailTooltip key={label} label={label} active>
               <NavLink
                 to={path}
@@ -340,7 +344,7 @@ export function Sidebar({
                   <ChevronDown size={13} className={cn('ml-auto flex-none transition-transform', open ? 'rotate-180' : '')} />
                 </button>
 
-                {open && items.map(({ label, path, Icon }) => (
+                {open && (isCurrent ? activeItems : items).map(({ label, path, Icon }) => (
                   <NavLink
                     key={`${unit.id}-${label}`}
                     to={path}

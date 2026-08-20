@@ -1,5 +1,4 @@
 -- Isolated source and campaign master data for metadata-driven Business Units.
-USE attendance_biometric;
 SET NAMES utf8mb4;
 
 CREATE TABLE IF NOT EXISTS crm_business_channel_categories (

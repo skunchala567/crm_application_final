@@ -20,6 +20,20 @@ import { syncPermissionRegistry } from './permission-service.js';
  *   - CRM_VIEWER was read-only by intent but not by enforcement; now it is.
  */
 const DEFAULTS = {
+  /*
+   * The superuser role holds every permission the registry defines.
+   *
+   * It already passes the middleware's admin bypass, so this changes nothing
+   * about what it can reach -- but a role showing zero grants in the Access
+   * Control matrix while being able to do everything is a screen that lies
+   * about who can do what. `alwaysComplete` tops it up on every start so a
+   * permission added next month is granted without anyone remembering to.
+   */
+  SUPER_ADMIN: {
+    scope: 'all',
+    allow: () => true,
+    alwaysComplete: true,
+  },
   CRM_ADMIN: {
     scope: 'all',
     allow: () => true,
@@ -121,7 +135,15 @@ export async function bootstrapRbac(pool, logger = console) {
         'SELECT COUNT(*) AS n FROM crm_role_permissions WHERE role_id = ?',
         [role.id],
       );
-      if (Number(existing.n) > 0) continue; // administrator-owned; leave alone
+      /*
+       * Seeded roles are left alone once an administrator has touched them --
+       * their choices are not ours to overwrite. A role marked
+       * alwaysComplete is the exception: it is defined as "everything", so
+       * having some rows is not a reason to stop granting the rest. The
+       * INSERT IGNORE below adds only what is missing either way, so an
+       * existing row keeps whatever scope it was given.
+       */
+      if (Number(existing.n) > 0 && !spec.alwaysComplete) continue;
 
       const granted = rows.filter(spec.allow);
       if (!granted.length) continue;
@@ -137,7 +159,7 @@ export async function bootstrapRbac(pool, logger = console) {
          VALUES ${values.join(',')}`,
         params,
       );
-      logger?.info?.(`[rbac] seeded ${granted.length} permissions for ${normalizedName}`);
+      logger?.info?.(`[rbac] ${normalizedName}: ${granted.length} permissions ensured`);
     } catch (error) {
       logger?.warn?.(`[rbac] could not seed ${normalizedName}: ${error.message}`);
     }

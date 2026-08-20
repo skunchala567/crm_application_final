@@ -73,6 +73,14 @@ export const ROUTE_RULES = [
   // the leads permission. Only creating and changing them is marketing work.
   { method: 'GET', test: /^\/api\/marketing/, key: 'leads.list.view' },
   { method: '*', test: /^\/api\/marketing/, key: 'leads.marketing.create' },
+  /*
+   * Handing back a stored export is a download of customer data, not a look
+   * at the history screen. bulk_actions.workspace.download exists for exactly
+   * this and was unused, so the file route answers to it while the rest of
+   * the screen stays on view.
+   */
+  { method: 'GET', test: /^\/api\/bulk-operations\/\d+\/(file|export)$/, key: 'bulk_actions.workspace.download' },
+  { method: 'GET', test: /^\/api\/bulk-uploads\/\d+\/download/, key: 'bulk_actions.workspace.download' },
   { method: '*', test: /^\/api\/bulk/, key: 'bulk_actions.workspace.view' },
 
   /*
@@ -154,6 +162,11 @@ export const ROUTE_RULES = [
   { method: '*', test: /^\/api\/email\/(send|attachments|messages\/[^/]+\/retry)/, key: 'email.messages.create' },
 
   // ---- Integrations -----------------------------------------------------
+  /* Counting the leads a set of filters would reach changes nothing and
+     shows what the person can already see on the Leads screen. It is a POST
+     only because the filters are too large for a query string, so it must
+     not demand the manage rights the rest of the POSTs here do. */
+  { method: 'POST', test: /^\/api\/meta\/audiences\/preview$/, key: 'integrations.meta_lead_ads.view' },
   { method: 'GET', test: /^\/api\/meta/, key: 'integrations.meta_lead_ads.view' },
   { method: '*', test: /^\/api\/meta/, key: 'integrations.meta_lead_ads.manage' },
   // Placing a call and reading its outcome is lead work done from the Leads

@@ -1,7 +1,6 @@
 -- Business-unit scoped sub-stages for metadata-driven lead pipelines.
 -- Existing School Admissions stages/sub-stages stay in their legacy tables so
 -- all current lead foreign keys and history remain unchanged.
-USE attendance_biometric;
 SET NAMES utf8mb4;
 
 CREATE TABLE IF NOT EXISTS crm_metadata_pipeline_substages (

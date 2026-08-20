@@ -1,13 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { AlertCircle, BarChart3, Building2, CalendarRange, ChevronLeft, ChevronRight, Download, IndianRupee, Loader, MessageCircle, Send, TrendingUp, X, UserPlus} from 'lucide-react';
+import { AlertCircle, BarChart3, CalendarRange, ChevronLeft, ChevronRight, Download, IndianRupee, Loader, MessageCircle, Send, TrendingUp, X} from 'lucide-react';
 import { api } from './api';
 import SettingsWhatsAppTemplates from './pages/SettingsWhatsAppTemplates';
 import SettingsWhatsAppTemplatesCreate from './pages/SettingsWhatsAppTemplatesCreate';
 import SettingsWhatsAppTemplatesView from './pages/SettingsWhatsAppTemplatesView';
 import { WhatsAppMessageHistory, WhatsAppSendPanel } from './components/WhatsAppSendPanel';
 import { MultiSearchSelect } from './FilterWorkspace';
-import WhatsAppBranchMapping from './components/WhatsAppBranchMapping.jsx';
-import WhatsAppLeadIntake from './components/WhatsAppLeadIntake.jsx';
+import { recordDownload } from './downloadAudit.js';
 
 export default function WhatsAppTemplatesSettings({ onMessage }) {
   const [integrationId, setIntegrationId] = useState('');
@@ -143,12 +142,8 @@ export default function WhatsAppTemplatesSettings({ onMessage }) {
             <nav className="whatsapp-settings-tabs">
               <button className={activeTab === 'dashboard' ? 'active' : ''} onClick={() => setActiveTab('dashboard')}><BarChart3 size={16}/> Dashboard</button>
               <button className={activeTab === 'templates' ? 'active' : ''} onClick={() => setActiveTab('templates')}><MessageCircle size={16}/> Templates</button>
-              <button className={activeTab === 'branches' ? 'active' : ''} onClick={() => setActiveTab('branches')}><Building2 size={16}/> Branch mapping</button>
-              <button className={activeTab === 'intake' ? 'active' : ''} onClick={() => setActiveTab('intake')}><UserPlus size={16}/> Lead intake</button>
             </nav>
-            {activeTab === 'intake' ? <WhatsAppLeadIntake onMessage={onMessage} />
-              : activeTab === 'branches' ? <WhatsAppBranchMapping onMessage={onMessage} />
-              : activeTab === 'dashboard' ? <WhatsAppDashboard integrations={integrations} /> : <SettingsWhatsAppTemplates
+            {activeTab === 'dashboard' ? <WhatsAppDashboard integrations={integrations} /> : <SettingsWhatsAppTemplates
               key={refreshKey}
               integrationId={integrationId}
               integrations={integrations}
@@ -254,6 +249,8 @@ function WhatsAppDashboard({ integrations }) {
     link.href = url;
     link.download = `whatsapp-day-wise-usage-${range.from}-to-${range.to}.csv`;
     link.click();
+    // Recorded so Bulk Actions can say who took what, and when.
+    recordDownload('WhatsApp usage', rows.length, link.download, { content: csv });
     URL.revokeObjectURL(url);
   };
   const branchOptions = (branches || [])

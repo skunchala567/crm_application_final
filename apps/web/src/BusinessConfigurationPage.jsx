@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, CornerDownRight, GripVertical, Layers3, ListPlus, Pencil, Plus, Search, Settings2, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CornerDownRight, GripVertical, Layers3, ListPlus, Pencil, Plus, Search, Settings2, Trash2, X } from 'lucide-react';
 import { api } from './api';
 
 /**
@@ -17,6 +17,8 @@ import { api } from './api';
 const blankSection = {
   displayName: '', description: '', placeholder: '',
   childLabel: '', childPlaceholder: '', sectionType: 'list', isActive: true,
+  // '' means top level; otherwise the id of the section this one sits under.
+  parentSectionId: '',
 };
 const blankValue = { code: '', displayName: '', position: 0, isActive: true };
 
@@ -60,6 +62,67 @@ function SectionManager({ sections, call, onOpen, onMessage, onChanged }) {
   const [busy, setBusy] = useState(false);
 
   const reset = () => { setEditing(null); setForm(blankSection); };
+
+  /*
+   * Sections nest, so the list is drawn as a tree rather than in the flat
+   * order the API returns. Children are grouped by their parent once and
+   * walked from the roots, which keeps the render linear no matter how deep
+   * a unit nests them.
+   */
+  const childrenOf = sections.reduce((all, section) => {
+    const key = section.parentSectionId ?? 'root';
+    (all[key] = all[key] || []).push(section);
+    return all;
+  }, {});
+  const [collapsed, setCollapsed] = useState(() => new Set());
+  const toggleCollapsed = id => setCollapsed(current => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  /* Flattened back out in display order, so one map renders the whole tree
+     and a collapsed branch simply contributes nothing. */
+  const visibleRows = [];
+  const walk = (parentKey, depth) => {
+    for (const section of childrenOf[parentKey] || []) {
+      const kids = childrenOf[section.id] || [];
+      visibleRows.push({ section, depth, hasChildren: kids.length > 0 });
+      if (kids.length && !collapsed.has(section.id)) walk(section.id, depth + 1);
+    }
+  };
+  walk('root', 0);
+
+  /*
+   * Sections this one may be moved under.
+   *
+   * Itself and everything below it are excluded: the API refuses those as
+   * cycles, and offering a choice that can only fail is worse than not
+   * offering it.
+   */
+  const descendantsOf = id => {
+    const out = new Set();
+    const visit = key => (childrenOf[key] || []).forEach(child => { out.add(child.id); visit(child.id); });
+    visit(id);
+    return out;
+  };
+  const blockedParents = editing ? new Set([editing, ...descendantsOf(editing)]) : new Set();
+  const parentOptions = sections.filter(section => !blockedParents.has(section.id));
+
+  /** "School › Admissions › Student Admissions", so a picker is unambiguous. */
+  const pathOf = section => {
+    const names = [section.displayName];
+    let cursor = section.parentSectionId;
+    const seen = new Set();
+    while (cursor && !seen.has(cursor)) {
+      seen.add(cursor);
+      const parent = sections.find(item => item.id === cursor);
+      if (!parent) break;
+      names.unshift(parent.displayName);
+      cursor = parent.parentSectionId;
+    }
+    return names.join(' › ');
+  };
   const isHierarchy = form.sectionType === 'hierarchy';
   // What the section was before this edit, so the form can explain a switch.
   const editingType = sections.find(section => section.id === editing)?.sectionType;
@@ -82,6 +145,8 @@ function SectionManager({ sections, call, onOpen, onMessage, onChanged }) {
           childPlaceholder: form.childPlaceholder.trim(),
           sectionType: form.sectionType,
           isActive: form.isActive,
+          // '' is a top-level section; the API stores NULL for it.
+          parentSectionId: form.parentSectionId === '' ? null : Number(form.parentSectionId),
         }),
       });
       onMessage?.({ type: 'success', text: editing ? 'Section updated' : 'Section added' });
@@ -106,15 +171,32 @@ function SectionManager({ sections, call, onOpen, onMessage, onChanged }) {
     }
   }
 
-  async function move(index, delta) {
-    const next = [...sections];
-    const target = index + delta;
-    if (target < 0 || target >= next.length) return;
-    [next[index], next[target]] = [next[target], next[index]];
+  const siblingsOf = section => childrenOf[section.parentSectionId ?? 'root'] || [];
+  const siblingIndex = section => siblingsOf(section).findIndex(item => item.id === section.id);
+
+  /*
+   * Reorder within one parent.
+   *
+   * The API stores a single position per section and orders the flat list by
+   * it, so moving a section means swapping its position with the sibling it
+   * passes -- the sections in between belong to other branches and must not
+   * shift. The whole order is sent back because that is the shape the
+   * reorder endpoint takes.
+   */
+  async function moveWithinSiblings(section, delta) {
+    const siblings = siblingsOf(section);
+    const from = siblingIndex(section);
+    const to = from + delta;
+    if (from < 0 || to < 0 || to >= siblings.length) return;
+
+    const order = sections.map(item => item.id);
+    const a = order.indexOf(siblings[from].id);
+    const b = order.indexOf(siblings[to].id);
+    [order[a], order[b]] = [order[b], order[a]];
     try {
       await call('/business-config/sections/reorder', {
         method: 'PUT',
-        body: JSON.stringify({ order: next.map(section => section.id) }),
+        body: JSON.stringify({ order }),
       });
       await onChanged();
     } catch (error) {
@@ -169,25 +251,62 @@ function SectionManager({ sections, call, onOpen, onMessage, onChanged }) {
             />
           </label>
 
+          {/* Where this section sits. Chosen independently of what it
+              contains, so a section created on its own today can be linked
+              under another one tomorrow without being rebuilt. */}
           <label>
             Section type *
             <select
-              value={form.sectionType}
-              onChange={event => setForm({ ...form, sectionType: event.target.value })}
+              value={form.parentSectionId === '' ? 'independent' : 'child'}
+              onChange={event => setForm({
+                ...form,
+                parentSectionId: event.target.value === 'independent' ? '' : (parentOptions[0]?.id ?? ''),
+              })}
             >
-              <option value="list">Simple list of values</option>
-              <option value="hierarchy">Parent with sub-values</option>
+              <option value="independent">Independent section</option>
+              <option value="child" disabled={!parentOptions.length}>
+                {parentOptions.length ? 'Link parent to this section' : 'Link parent to this section (none available yet)'}
+              </option>
             </select>
           </label>
 
-          {/* Turning a list into a hierarchy keeps every value, as a parent.
-              The reverse is refused by the API while sub-values exist. */}
-          {editing && editingType === 'list' && isHierarchy && (
+          {form.parentSectionId !== '' && (
+            <label>
+              Select parent section *
+              <select
+                value={form.parentSectionId}
+                onChange={event => setForm({ ...form, parentSectionId: event.target.value })}
+              >
+                <option value="">Select a section</option>
+                {parentOptions.map(section => (
+                  <option key={section.id} value={section.id}>{pathOf(section)}</option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {editing && form.parentSectionId !== '' && blockedParents.size > 1 && (
             <p className="config-hint">
-              Existing values stay, each becoming a {form.displayName.trim() || 'parent'} that can hold its own{' '}
-              {form.childLabel.trim() || 'sub-values'}.
+              Sections under this one are not listed: moving a section beneath its own child would
+              close a loop.
             </p>
           )}
+
+          {/* Kept for sections already built on the old two-level values.
+              New sections nest as sections, so this is not offered for them. */}
+          {editing && editingType === 'hierarchy' && (
+            <label>
+              Values inside this section
+              <select
+                value={form.sectionType}
+                onChange={event => setForm({ ...form, sectionType: event.target.value })}
+              >
+                <option value="hierarchy">Two levels (existing setup)</option>
+                <option value="list">Simple list of values</option>
+              </select>
+            </label>
+          )}
+
           {editing && editingType === 'hierarchy' && !isHierarchy && (
             <p className="config-hint">
               Only possible while no sub-values exist. Delete them first, or this will be refused.
@@ -235,22 +354,44 @@ function SectionManager({ sections, call, onOpen, onMessage, onChanged }) {
           <div className="config-list-tools">
             <span>{sections.length} sections</span>
           </div>
-          <div className="config-records">
-            {sections.map((section, index) => (
-              <article key={section.id} className={editing === section.id ? 'selected' : ''}>
+          <div className="config-records config-section-tree">
+            {visibleRows.map(({ section, depth, hasChildren }) => (
+              <article
+                key={section.id}
+                className={editing === section.id ? 'selected' : ''}
+                style={{ '--tree-depth': depth }}
+              >
                 <div>
-                  <strong><GripVertical size={13} /> {section.displayName}</strong>
+                  <strong>
+                    {/* Only a branch gets a toggle; a leaf keeps the same
+                        indent so names stay in one column. */}
+                    {hasChildren ? (
+                      <button
+                        type="button"
+                        className="tree-toggle"
+                        aria-expanded={!collapsed.has(section.id)}
+                        title={collapsed.has(section.id) ? `Expand ${section.displayName}` : `Collapse ${section.displayName}`}
+                        onClick={() => toggleCollapsed(section.id)}
+                      >
+                        {collapsed.has(section.id) ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                      </button>
+                    ) : <span className="tree-toggle is-leaf" aria-hidden="true" />}
+                    {section.displayName}
+                  </strong>
                   <small>
                     {countOf(section)}
                     {' · '}{section.isActive ? 'Active' : 'Inactive'}
+                    {section.parentSectionId ? ` · under ${sections.find(item => item.id === section.parentSectionId)?.displayName || 'another section'}` : ''}
                   </small>
                 </div>
                 <div className="config-record-actions">
                   <button className="config-edit" type="button" title="Open this section's values" onClick={() => onOpen(section.id)}>
                     <ListPlus size={14} /> Values
                   </button>
-                  <button type="button" title="Move up" onClick={() => move(index, -1)} disabled={index === 0}><ArrowUp size={14} /></button>
-                  <button type="button" title="Move down" onClick={() => move(index, 1)} disabled={index === sections.length - 1}><ArrowDown size={14} /></button>
+                  {/* Reordering happens among siblings: moving a section past
+                      one in another branch would say nothing about the tree. */}
+                  <button type="button" title="Move up" onClick={() => moveWithinSiblings(section, -1)} disabled={siblingIndex(section) === 0}><ArrowUp size={14} /></button>
+                  <button type="button" title="Move down" onClick={() => moveWithinSiblings(section, 1)} disabled={siblingIndex(section) === siblingsOf(section).length - 1}><ArrowDown size={14} /></button>
                   <button className="config-edit" type="button" onClick={() => {
                     setEditing(section.id);
                     setForm({
@@ -261,6 +402,7 @@ function SectionManager({ sections, call, onOpen, onMessage, onChanged }) {
                       childPlaceholder: section.childPlaceholder || '',
                       sectionType: section.sectionType,
                       isActive: section.isActive,
+                      parentSectionId: section.parentSectionId ?? '',
                     });
                   }}><Pencil size={14} /> Edit</button>
                   <button type="button" title="Delete section" onClick={() => remove(section)}><Trash2 size={14} /></button>

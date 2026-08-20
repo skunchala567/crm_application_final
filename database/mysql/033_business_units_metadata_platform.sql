@@ -1,6 +1,5 @@
 -- Metadata-driven multi-business CRM foundation.
 -- School Admissions remains the default legacy compatibility profile.
-USE attendance_biometric;
 SET NAMES utf8mb4;
 
 CREATE TABLE IF NOT EXISTS crm_business_units (

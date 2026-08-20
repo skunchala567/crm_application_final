@@ -1,6 +1,5 @@
 -- Admissions CRM extension for the existing attendance_biometric database.
 -- Non-destructive: creates crm_* tables only and references existing master data.
-USE attendance_biometric;
 SET NAMES utf8mb4;
 SET time_zone = '+00:00';
 

@@ -9,6 +9,7 @@ import BusinessConfigurationPage from './BusinessConfigurationPage.jsx';
 import LeadConfiguration from './LeadConfiguration.jsx';
 import ScrollableTabStrip from './components/ScrollableTabStrip.jsx';
 import './MetadataPlatform.css';
+import BranchWhatsAppSettings, { saveBranchWhatsApp } from './components/BranchWhatsAppSettings.jsx';
 
 const emptyUnit={name:'',brandTitle:'',brandSubtitle:'',brandLogo:'',helpUrl:'',helpTitle:'',helpSubtitle:'',industryType:'General',description:'',color:'#0b7a4f',deletionPassword:''};
 
@@ -117,6 +118,11 @@ export default function BusinessUnitsPage({onMessage}){
   const requestedTab=searchParams.get('tab');
   const [tab,setTab]=useState(['academic','sources'].includes(requestedTab)?requestedTab:'overview');
   const [pipelineTab,setPipelineTab]=useState('stages');
+  /* Which pipeline the Stages and Sub-stages lists are showing. A unit can
+     run several; without this the lists were every pipeline's stages at
+     once, which is what the single hardcoded pipeline used to hide. */
+  const [activePipelineId,setActivePipelineId]=useState(null);
+  const [pipelineForm,setPipelineForm]=useState({displayName:'',description:'',isDefault:false,isActive:true});
   const [dialog,setDialog]=useState(null);
   const [unitForm,setUnitForm]=useState(emptyUnit);
 
@@ -247,14 +253,17 @@ export default function BusinessUnitsPage({onMessage}){
       const result=await api(editingId?`/platform/business-units/${selectedId}/branches/${editingId}`:`/platform/business-units/${selectedId}/branches`,{method:editingId?'PUT':'POST',body:JSON.stringify(branchForm)});
       const branchId=editingId||result.id;
       if(branchForm.smartfloDidId&&branchForm.smartfloIvrId)await api(`/smartflo/branches/${branchId}/route-ivr`,{method:'PUT',body:'{}'});
+      /* After the branch, because a new one has no id until it exists. */
+      await saveBranchWhatsApp(branchId,selectedId,branchForm.whatsapp);
       await loadConfig(selectedId);setDialog(null);setEditingId(null);setBranchForm(emptyBranchForm);notify('success',result.message);
     }catch(error){notify('error',error.message);}finally{setSaving(false);}
   };
   const addPipelineStage=async event=>{
     event.preventDefault();setSaving(true);
     try{
-      const pipeline=config.pipelines.find(item=>item.isDefault)||config.pipelines[0];
-      const result=await api(editingId?`/platform/business-units/${selectedId}/pipeline-stages/${editingId}`:`/platform/business-units/${selectedId}/pipeline-stages`,{method:editingId?'PUT':'POST',body:JSON.stringify({...stageForm,pipelineId:pipeline.id})});
+      // The stage joins the pipeline being viewed, not whichever is default.
+      const pipelineId=activePipelineId||config.pipelines.find(item=>item.isDefault)?.id||config.pipelines[0]?.id;
+      const result=await api(editingId?`/platform/business-units/${selectedId}/pipeline-stages/${editingId}`:`/platform/business-units/${selectedId}/pipeline-stages`,{method:editingId?'PUT':'POST',body:JSON.stringify({...stageForm,pipelineId})});
       await loadConfig(selectedId);setDialog(null);setEditingId(null);setStageForm({displayName:'',stageType:'open',color:'#0b7a4f',requiresFollowup:false,isActive:true});notify('success',result.message);
     }catch(error){notify('error',error.message);}finally{setSaving(false);}
   };
@@ -264,6 +273,22 @@ export default function BusinessUnitsPage({onMessage}){
       const result=await api(editingId?`/platform/business-units/${selectedId}/pipeline-substages/${editingId}`:`/platform/business-units/${selectedId}/pipeline-substages`,{method:editingId?'PUT':'POST',body:JSON.stringify(substageForm)});
       await loadConfig(selectedId);setDialog(null);setEditingId(null);setSubstageForm({displayName:'',stageId:'',isActive:true});notify('success',result.message);
     }catch(error){notify('error',error.message);}finally{setSaving(false);}
+  };
+  const savePipeline=async event=>{
+    event.preventDefault();setSaving(true);
+    try{
+      const result=await api(editingId?`/platform/business-units/${selectedId}/lead-pipelines/${editingId}`:`/platform/business-units/${selectedId}/lead-pipelines`,{method:editingId?'PUT':'POST',body:JSON.stringify(pipelineForm)});
+      await loadConfig(selectedId);
+      if(!editingId&&result.id)setActivePipelineId(Number(result.id));
+      setDialog(null);setEditingId(null);setPipelineForm({displayName:'',description:'',isDefault:false,isActive:true});notify('success',result.message);
+    }catch(error){notify('error',error.message);}finally{setSaving(false);}
+  };
+  const removePipeline=async pipeline=>{
+    if(!window.confirm(`Delete the pipeline "${pipeline.displayName}"?\n\nOnly possible when it has no stages and no leads.`))return;
+    try{
+      const result=await api(`/platform/business-units/${selectedId}/lead-pipelines/${pipeline.id}`,{method:'DELETE'});
+      setActivePipelineId(null);notify('success',result.message);await loadConfig(selectedId);
+    }catch(error){notify('error',error.message);}
   };
   const removePipelineItem=async (type,item)=>{
     const label=type==='pipeline-stages'?'stage':'sub-stage';
@@ -305,6 +330,28 @@ export default function BusinessUnitsPage({onMessage}){
       await loadConfig(selectedId);setDialog(null);setEditingId(null);setStageForm({displayName:'',stageType:'open',color:'#0b7a4f'});notify('success',result.message);
     }catch(error){notify('error',error.message);}finally{setSaving(false);}
   };
+  /* Reorder a lead stage or sub-stage. The server swaps it with its
+     neighbour inside the same pipeline (or the same parent stage), so the
+     order here is the order leads move through. */
+  const saveDuplicateRule=async fields=>{
+    setSaving(true);
+    try{
+      const result=await api(`/platform/business-units/${selectedId}/duplicate-rule`,{
+        method:'PUT',body:JSON.stringify({fields}),
+      });
+      await loadConfig(selectedId);notify('success',result.message);
+    }catch(error){notify('error',error.message);}finally{setSaving(false);}
+  };
+
+  const movePipelineItem=async(type,item,direction)=>{
+    try{
+      const result=await api(`/platform/business-units/${selectedId}/${type}/${item.id}/move`,{
+        method:'PUT',body:JSON.stringify({direction}),
+      });
+      await loadConfig(selectedId);notify('success',result.message);
+    }catch(error){notify('error',error.message);}
+  };
+
   const moveOperationStage=async(stage,direction)=>{
     try{
       const result=await api(`/platform/business-units/${selectedId}/operation-stages/${stage.id}/move`,{
@@ -368,18 +415,51 @@ export default function BusinessUnitsPage({onMessage}){
               {[['overview',Layers3,'Overview'],['branches',CreditCard,'Branches & payments'],['fields',Settings2,'Lead fields'],['pipeline',GitBranch,'Lead pipeline'],['sources',Waypoints,'Source configuration'],...(selected.compatibilityMode==='legacy_school'?[['academic',CalendarRange,'Academic configuration']]:[['configuration',CalendarRange,'Configuration']]),['operations',Workflow,'Tracker'],['database',Database,'Database tables']].map(([id,Icon,label])=><button key={id} className={tab===id?'active':''} onClick={()=>changeTab(id)}><Icon size={16}/>{label}</button>)}
             </ScrollableTabStrip>
             </div>
-            {tab==='overview'&&<Overview config={config} selected={selected}/>}
+            {tab==='overview'&&<Overview config={config} selected={selected} onSaveDuplicateRule={saveDuplicateRule} saving={saving}/>}
             {tab==='branches'&&<BranchesPaymentPanel config={config} onAdd={()=>{setEditingId(null);setBranchForm(emptyBranchForm);setDialog('branch')}} onEdit={branch=>{const{applicationAmount,applicationStageId,applicationPaymentComponent,...rest}=branch;setEditingId(branch.id);setBranchForm({...emptyBranchForm,...rest,jodoApiKey:'',jodoSecretKey:'',jodoAuthHeader:'',jodoBaseUrl:branch.jodoBaseUrl||'https://ext.jodo.in'});setDialog('branch')}}/>}
             {tab==='fields'&&<MetadataList title="Lead fields" description="Configure forms, list columns, filters, search, and import templates for this business unit." action="Add field" onAdd={()=>{setEditingId(null);setFieldForm(emptyField);setDialog('field')}} onEdit={row=>{const field=config.fields.find(item=>item.id===row.id);setEditingId(field.id);setFieldForm({...emptyField,...field,...fieldUsageFromValidation(field),options:(field.options||[]).join(', '),optionsSectionId:field.optionsSectionId?String(field.optionsSectionId):'',optionsSectionLevel:field.optionsSectionLevel||'parent'});setDialog('field')}} onDelete={row=>removeConfiguredItem('fields',row,'lead field')} rows={config.fields.map(field=>({id:field.id,title:field.displayName,subtitle:`${field.fieldType.replace('_',' ')} · ${field.fieldKey}`,badges:[field.isSystem?'System field':null,field.isRequired?'Lead form mandatory':null,field.showInList?'List column':null,field.isFilterable?'Filter':null,field.isSearchable?'Search':null,field.validation?.usage?.reports!==false?'Reports':null,field.isImportable?(field.isImportRequired?'Import required':'Import column'):null].filter(Boolean)}))}/>}
-            {tab==='pipeline'&&<section className="pipeline-configuration">
+            {tab==='pipeline'&&(()=>{
+              /* Everything below is scoped to one pipeline. A unit may run
+                 several, and a stage belongs to exactly one of them. */
+              const pipelines=config.pipelines||[];
+              const current=pipelines.find(item=>item.id===activePipelineId)
+                ||pipelines.find(item=>item.isDefault)||pipelines[0]||null;
+              const stages=(config.pipelineStages||[]).filter(stage=>!current||stage.pipelineId===current.id);
+              const stageIds=new Set(stages.map(stage=>stage.id));
+              const substages=(config.leadSubstages||[]).filter(item=>stageIds.has(item.stageId));
+              return <section className="pipeline-configuration">
               <PipelineDefaults config={config} saving={saving} onSave={savePipelineDefaults}/>
+
+              <div className="pipeline-picker">
+                <div className="pipeline-picker-main">
+                  <span className="pipeline-picker-label">Pipeline</span>
+                  <select value={current?.id||''} onChange={event=>setActivePipelineId(Number(event.target.value))} aria-label="Lead pipeline">
+                    {pipelines.map(item=><option key={item.id} value={item.id}>{item.displayName}{item.isDefault?' (default)':''}{item.isActive===false?' · inactive':''}</option>)}
+                  </select>
+                  {current?.description&&<small>{current.description}</small>}
+                </div>
+                <div className="pipeline-picker-actions">
+                  <button type="button" className="ghost" disabled={!current} onClick={()=>{setEditingId(current.id);setPipelineForm({displayName:current.displayName,description:current.description||'',isDefault:Boolean(current.isDefault),isActive:current.isActive!==false});setDialog('lead-pipeline')}}>Rename</button>
+                  <button type="button" className="ghost danger" disabled={!current||current.isDefault} title={current?.isDefault?'The default pipeline cannot be deleted':undefined} onClick={()=>removePipeline(current)}>Delete</button>
+                  <button type="button" className="primary" onClick={()=>{setEditingId(null);setPipelineForm({displayName:'',description:'',isDefault:false,isActive:true});setDialog('lead-pipeline')}}>Add pipeline</button>
+                </div>
+              </div>
+
               <nav className="pipeline-config-tabs">
-                <button className={pipelineTab==='stages'?'active':''} onClick={()=>setPipelineTab('stages')}>Stages <span>{config.pipelineStages.length}</span></button>
-                <button className={pipelineTab==='substages'?'active':''} onClick={()=>setPipelineTab('substages')}>Sub-stages <span>{(config.leadSubstages||[]).length}</span></button>
+                <button className={pipelineTab==='stages'?'active':''} onClick={()=>setPipelineTab('stages')}>Stages <span>{stages.length}</span></button>
+                <button className={pipelineTab==='substages'?'active':''} onClick={()=>setPipelineTab('substages')}>Sub-stages <span>{substages.length}</span></button>
               </nav>
-              {pipelineTab==='stages'&&<MetadataList title="Lead stages" description="Configure the stages used to qualify and progress leads in this business unit." action="Add stage" onAdd={()=>{setEditingId(null);setStageForm({displayName:'',stageType:'open',color:'#0b7a4f',requiresFollowup:false,isActive:true});setDialog('pipeline-stage')}} onEdit={row=>{const stage=config.pipelineStages.find(item=>item.id===row.id);setEditingId(stage.id);setStageForm({displayName:stage.displayName,stageType:stage.stageType,color:stage.color,isActive:stage.isActive,requiresFollowup:Boolean(stage.requiresFollowup)});setDialog('pipeline-stage')}} onDelete={row=>removePipelineItem('pipeline-stages',row)} rows={config.pipelineStages.map(stage=>({id:stage.id,title:stage.displayName,subtitle:stage.requiresFollowup?'Follow-up required':'No required follow-up',badges:[`Position ${stage.position}`,stage.isActive?'Active':'Inactive'],color:stage.color}))}/>}
-              {pipelineTab==='substages'&&<MetadataList title="Lead sub-stages" description="Configure the detailed progress options available under each stage for this business unit." action="Add sub-stage" onAdd={()=>{setEditingId(null);setSubstageForm({displayName:'',stageId:config.pipelineStages[0]?.id||'',isActive:true});setDialog('pipeline-substage')}} onEdit={row=>{const item=(config.leadSubstages||[]).find(entry=>entry.id===row.id);setEditingId(item.id);setSubstageForm({displayName:item.displayName,stageId:item.stageId,isActive:item.isActive});setDialog('pipeline-substage')}} onDelete={row=>removePipelineItem('pipeline-substages',row)} rows={(config.leadSubstages||[]).map(item=>({id:item.id,title:item.displayName,subtitle:config.pipelineStages.find(stage=>stage.id===item.stageId)?.displayName||'Unknown stage',badges:[`Position ${item.position}`,item.isActive?'Active':'Inactive']}))}/>}
-            </section>}
+              {pipelineTab==='stages'&&<MetadataList title="Lead stages" description={`Stages in ${current?.displayName||'this pipeline'}, in the order leads move through them. Use the arrows to reorder.`} action="Add stage" onAdd={()=>{setEditingId(null);setStageForm({displayName:'',stageType:'open',color:'#0b7a4f',requiresFollowup:false,isActive:true});setDialog('pipeline-stage')}} onEdit={row=>{const stage=config.pipelineStages.find(item=>item.id===row.id);setEditingId(stage.id);setStageForm({displayName:stage.displayName,stageType:stage.stageType,color:stage.color,isActive:stage.isActive,requiresFollowup:Boolean(stage.requiresFollowup)});setDialog('pipeline-stage')}} onMove={(row,direction)=>movePipelineItem('pipeline-stages',row,direction)} onDelete={row=>removePipelineItem('pipeline-stages',row)} rows={stages.map((stage,index)=>({id:stage.id,title:stage.displayName,subtitle:stage.requiresFollowup?'Follow-up required':'No required follow-up',badges:[`Position ${index+1}`,stage.isActive?'Active':'Inactive',stage.isAdmissionStage?'Admission stage':null].filter(Boolean),color:stage.color,canMoveUp:index>0,canMoveDown:index<stages.length-1}))}/>}
+              {pipelineTab==='substages'&&<MetadataList title="Lead sub-stages" description={`Sub-stages under the stages of ${current?.displayName||'this pipeline'}. Each belongs to one parent stage, and the arrows reorder it within that stage.`} action="Add sub-stage" onAdd={()=>{setEditingId(null);setSubstageForm({displayName:'',stageId:stages[0]?.id||'',isActive:true});setDialog('pipeline-substage')}} onEdit={row=>{const item=(config.leadSubstages||[]).find(entry=>entry.id===row.id);setEditingId(item.id);setSubstageForm({displayName:item.displayName,stageId:item.stageId,isActive:item.isActive});setDialog('pipeline-substage')}} onMove={(row,direction)=>movePipelineItem('pipeline-substages',row,direction)} onDelete={row=>removePipelineItem('pipeline-substages',row)} rows={substages.map(item=>{
+                /* A sub-stage only moves among its own parent's children, so
+                   the arrows disable at the ends of that group rather than
+                   the ends of the whole list. */
+                const siblings=substages.filter(other=>other.stageId===item.stageId);
+                const index=siblings.findIndex(other=>other.id===item.id);
+                return {id:item.id,title:item.displayName,subtitle:stages.find(stage=>stage.id===item.stageId)?.displayName||'Unknown stage',badges:[`Position ${index+1}`,item.isActive?'Active':'Inactive'],canMoveUp:index>0,canMoveDown:index<siblings.length-1};
+              })}/>}
+            </section>;
+            })()}
             {tab==='sources'&&<section className="business-unit-source"><LeadConfiguration key={selectedId} embedded businessUnitId={selectedId} useBusinessUnitSources={selected.compatibilityMode==='metadata'} onMessage={message=>message&&notify(message.type,message.text)}/></section>}
             {tab==='academic'&&selected.compatibilityMode==='legacy_school'&&<section className="business-unit-academic"><AcademicConfigurationPage embedded onMessage={message=>message&&notify(message.type,message.text)}/></section>}
             {tab==='configuration'&&selected.compatibilityMode!=='legacy_school'&&<section className="business-unit-academic"><BusinessConfigurationPage key={selectedId} embedded businessUnitId={selectedId} onMessage={message=>message&&notify(message.type,message.text)}/></section>}
@@ -389,20 +469,81 @@ export default function BusinessUnitsPage({onMessage}){
         </section>
       </div>
       {dialog&&<><div className="drawer-backdrop" onClick={()=>setDialog(null)}/><section className="metadata-dialog" role="dialog" aria-modal="true">
-        <header><div><span className="eyebrow">Configuration</span><h2>{editingId?'Edit ':dialog==='unit'?'Add business unit':dialog==='field'?'Add lead field':dialog==='branch'?'Add branch':dialog==='pipeline-stage'?'Add pipeline stage':dialog==='pipeline-substage'?'Add pipeline sub-stage':'Add tracker status'}{editingId&&(dialog==='field'?'lead field':dialog==='branch'?'branch':dialog==='pipeline-stage'?'pipeline stage':dialog==='pipeline-substage'?'pipeline sub-stage':'tracker status')}</h2></div><button className="icon-btn" onClick={()=>{setDialog(null);setEditingId(null)}}><X/></button></header>
+        <header><div><span className="eyebrow">Configuration</span><h2>{editingId?'Edit ':dialog==='unit'?'Add business unit':dialog==='field'?'Add lead field':dialog==='branch'?'Add branch':dialog==='lead-pipeline'?'Add lead pipeline':dialog==='pipeline-stage'?'Add pipeline stage':dialog==='pipeline-substage'?'Add pipeline sub-stage':'Add tracker status'}{editingId&&(dialog==='field'?'lead field':dialog==='branch'?'branch':dialog==='lead-pipeline'?'lead pipeline':dialog==='pipeline-stage'?'pipeline stage':dialog==='pipeline-substage'?'pipeline sub-stage':'tracker status')}</h2></div><button className="icon-btn" onClick={()=>{setDialog(null);setEditingId(null)}}><X/></button></header>
         {dialog==='unit'&&<form onSubmit={createUnit}><label>Name *<input required value={unitForm.name} onChange={e=>setUnitForm({...unitForm,name:e.target.value})} placeholder="e.g. Real Estate"/></label><label>Industry type *<input required value={unitForm.industryType} onChange={e=>setUnitForm({...unitForm,industryType:e.target.value})} placeholder="e.g. Property Sales"/></label><label>Description<textarea rows="3" value={unitForm.description} onChange={e=>setUnitForm({...unitForm,description:e.target.value})}/></label><fieldset className="unit-branding"><legend>Sidebar branding</legend><label>Title<input value={unitForm.brandTitle} onChange={e=>setUnitForm({...unitForm,brandTitle:e.target.value})} placeholder="Orbit" maxLength={80}/></label><label>Sub title<input value={unitForm.brandSubtitle} onChange={e=>setUnitForm({...unitForm,brandSubtitle:e.target.value})} placeholder="Admissions CRM" maxLength={120}/></label><label>Logo<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={pickLogo}/><small>PNG, JPG, GIF or WebP up to 1 MB. Leave blank to keep the default mark.</small></label>{unitForm.brandLogo&&<div className="unit-branding-preview"><img src={unitForm.brandLogo} alt="Sidebar logo preview"/><button type="button" className="secondary" onClick={()=>setUnitForm({...unitForm,brandLogo:''})}>Remove logo</button></div>}</fieldset><fieldset className="unit-branding"><legend>Support card</legend><label>Link<input type="url" value={unitForm.helpUrl} onChange={e=>setUnitForm({...unitForm,helpUrl:e.target.value})} placeholder="https://wa.me/919000000000" maxLength={1000}/><small>Where the sidebar help card sends people: a WhatsApp chat, a Zoom room, a help desk, or a mailto: / tel: link. Must start with https://, mailto: or tel:. Leave blank to show the card without a link.</small></label><label>Title<input value={unitForm.helpTitle} onChange={e=>setUnitForm({...unitForm,helpTitle:e.target.value})} placeholder="Need a hand?" maxLength={80}/></label><label>Sub title<input value={unitForm.helpSubtitle} onChange={e=>setUnitForm({...unitForm,helpSubtitle:e.target.value})} placeholder="Visit the help centre" maxLength={160}/></label></fieldset><ColourField label="Theme colour" value={unitForm.color} onChange={color=>setUnitForm({...unitForm,color})}/><label>Deletion password<input type="password" value={unitForm.deletionPassword||''} onChange={e=>setUnitForm({...unitForm,deletionPassword:e.target.value})} maxLength={200} autoComplete="new-password" placeholder="No password required"/><small>Applied to every deletion in this Business Unit. Leave blank to allow deletion without a password.</small></label><DialogFooter saving={saving} onCancel={()=>setDialog(null)}/></form>}
         {dialog==='field'&&<FieldConfigurationForm fieldForm={fieldForm} setFieldForm={setFieldForm} sections={configSections} catalogue={editingId?[]:fieldCatalogue} onAddStandard={addStandardField} saving={saving} onCancel={()=>setDialog(null)} onSubmit={addField}/>}
-        {dialog==='branch'&&<BranchPaymentForm form={branchForm} setForm={setBranchForm} callingOptions={callingOptions} saving={saving} onCancel={()=>setDialog(null)} onSubmit={saveBranch}/>}
+        {dialog==='branch'&&<BranchPaymentForm branchId={editingId} whatsappMeta={{employees:config.employees||[]}} form={branchForm} setForm={setBranchForm} callingOptions={callingOptions} saving={saving} onCancel={()=>setDialog(null)} onSubmit={saveBranch}/>}
+        {dialog==='lead-pipeline'&&<form onSubmit={savePipeline}>
+          <label>Pipeline name *<input required value={pipelineForm.displayName} onChange={e=>setPipelineForm({...pipelineForm,displayName:e.target.value})} placeholder="e.g. Transport enquiries"/></label>
+          <label>Description<input value={pipelineForm.description} onChange={e=>setPipelineForm({...pipelineForm,description:e.target.value})} placeholder="What this pipeline is for"/></label>
+          {/* Where a lead goes when nothing names a pipeline: manual adds,
+              imports, enquiry forms and Meta leads all land here. */}
+          <label className="check-option"><input type="checkbox" checked={pipelineForm.isDefault} onChange={e=>setPipelineForm({...pipelineForm,isDefault:e.target.checked})}/>Default pipeline for new leads</label>
+          {editingId&&<label className="check-option"><input type="checkbox" checked={pipelineForm.isActive!==false} onChange={e=>setPipelineForm({...pipelineForm,isActive:e.target.checked})}/>Active</label>}
+          <DialogFooter saving={saving} onCancel={()=>setDialog(null)}/>
+        </form>}
         {['pipeline-stage','operation-stage'].includes(dialog)&&<form onSubmit={dialog==='pipeline-stage'?addPipelineStage:addOperationStage}><label>{dialog==='operation-stage'?'Status':'Stage'} name *<input required value={stageForm.displayName} onChange={e=>setStageForm({...stageForm,displayName:e.target.value})}/></label>{dialog==='operation-stage'&&<label>Status behaviour<select value={stageForm.stageType} onChange={e=>setStageForm({...stageForm,stageType:e.target.value})}><option value="open">Open / active</option><option value="on_hold">On hold</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></label>}<label>Colour<input type="color" value={stageForm.color} onChange={e=>setStageForm({...stageForm,color:e.target.value})}/></label>{dialog==='pipeline-stage'&&<label className="check-option"><input type="checkbox" checked={stageForm.requiresFollowup} onChange={e=>setStageForm({...stageForm,requiresFollowup:e.target.checked})}/>Next follow-up required</label>}{editingId&&<label className="check-option"><input type="checkbox" checked={stageForm.isActive!==false} onChange={e=>setStageForm({...stageForm,isActive:e.target.checked})}/>Active</label>}<DialogFooter saving={saving} onCancel={()=>setDialog(null)}/></form>}
-        {dialog==='pipeline-substage'&&<form onSubmit={addPipelineSubstage}><label>Parent stage *<select required value={substageForm.stageId} onChange={e=>setSubstageForm({...substageForm,stageId:Number(e.target.value)})}><option value="">Select stage</option>{config.pipelineStages.map(stage=><option key={stage.id} value={stage.id}>{stage.displayName}</option>)}</select></label><label>Sub-stage name *<input required value={substageForm.displayName} onChange={e=>setSubstageForm({...substageForm,displayName:e.target.value})}/></label>{editingId&&<label className="check-option"><input type="checkbox" checked={substageForm.isActive!==false} onChange={e=>setSubstageForm({...substageForm,isActive:e.target.checked})}/>Active</label>}<DialogFooter saving={saving} onCancel={()=>setDialog(null)}/></form>}
+        {dialog==='pipeline-substage'&&<form onSubmit={addPipelineSubstage}><label>Parent stage *<select required value={substageForm.stageId} onChange={e=>setSubstageForm({...substageForm,stageId:Number(e.target.value)})}><option value="">Select stage</option>{(config.pipelineStages||[]).filter(stage=>{const pipelines=config.pipelines||[];const current=pipelines.find(item=>item.id===activePipelineId)||pipelines.find(item=>item.isDefault)||pipelines[0];return !current||stage.pipelineId===current.id;}).map(stage=><option key={stage.id} value={stage.id}>{stage.displayName}</option>)}</select></label><label>Sub-stage name *<input required value={substageForm.displayName} onChange={e=>setSubstageForm({...substageForm,displayName:e.target.value})}/></label>{editingId&&<label className="check-option"><input type="checkbox" checked={substageForm.isActive!==false} onChange={e=>setSubstageForm({...substageForm,isActive:e.target.checked})}/>Active</label>}<DialogFooter saving={saving} onCancel={()=>setDialog(null)}/></form>}
       </section></>}
     </main>
   );
 }
 
-function Overview({config}){
+/**
+ * What makes two leads the same lead, for this business unit.
+ *
+ * The fields offered come from the unit's own configuration -- a school
+ * offers its branches and academic setup, another unit offers whatever
+ * configuration sections it has defined -- so the rule can only ever be
+ * built from things that unit's leads actually have.
+ */
+function DuplicateRulePanel({config,onSave,saving}){
+  const available=config.duplicateFields||[];
+  const [selected,setSelected]=useState(()=>config.duplicateRule||[]);
+  useEffect(()=>{setSelected(config.duplicateRule||[]);},[config.duplicateRule]);
+
+  const toggle=key=>setSelected(current=>current.includes(key)
+    ? current.filter(item=>item!==key)
+    : [...current,key]);
+
+  const groups=available.reduce((all,field)=>{(all[field.group]=all[field.group]||[]).push(field);return all;},{});
+  const labelFor=key=>available.find(field=>field.key===key)?.label||key;
+  const dirty=JSON.stringify(selected)!==JSON.stringify(config.duplicateRule||[]);
+
+  return <section className="duplicate-rule-panel">
+    <header>
+      <div>
+        <h3>Duplicate lead rule</h3>
+        <p>A new lead is treated as a duplicate when every field below already matches an existing lead in this business unit. Applies to the Add lead form, public enquiry forms, bulk uploads and Meta Lead Ads.</p>
+      </div>
+    </header>
+    <div className="duplicate-rule-groups">
+      {Object.entries(groups).map(([group,fields])=><div key={group}>
+        <span className="duplicate-rule-group">{group}</span>
+        {fields.map(field=><label key={field.key} className="check-option">
+          <input type="checkbox" checked={selected.includes(field.key)} onChange={()=>toggle(field.key)}/>
+          {field.label}
+        </label>)}
+      </div>)}
+    </div>
+    {/* The rule read back as a sentence, because a row of ticked boxes is
+        easy to misread and this one decides whether leads get merged. */}
+    <footer>
+      <p className={selected.length?'':'is-empty'}>
+        {selected.length
+          ? <>Two leads are the same when <strong>{selected.map(labelFor).join(' + ')}</strong> all match.</>
+          : 'Choose at least one field.'}
+      </p>
+      <button type="button" className="primary" disabled={!selected.length||!dirty||saving} onClick={()=>onSave(selected)}>
+        {saving?'Saving…':'Save duplicate rule'}
+      </button>
+    </footer>
+  </section>;
+}
+
+function Overview({config,onSaveDuplicateRule,saving}){
   const cards=[['Modules',config.modules.length,Layers3],['Lead fields',config.fields.length,Settings2],['Pipeline stages',config.pipelineStages.length,GitBranch],['Tracker stages',config.operationStages.length,Workflow]];
-  return <div className="metadata-overview"><div className="metadata-stat-grid">{cards.map(([label,value,Icon])=><article key={label}><Icon/><span>{label}</span><strong>{value}</strong></article>)}</div><section className="metadata-explanation"><h3>Business Unit configuration</h3><p>Manage this Business Unit’s fields, lead pipeline, source data, academic setup where applicable, and tracker workflow from the tabs above.</p></section></div>;
+  return <div className="metadata-overview"><div className="metadata-stat-grid">{cards.map(([label,value,Icon])=><article key={label}><Icon/><span>{label}</span><strong>{value}</strong></article>)}</div><section className="metadata-explanation"><h3>Business Unit configuration</h3><p>Manage this Business Unit’s fields, lead pipeline, source data, academic setup where applicable, and tracker workflow from the tabs above.</p></section><DuplicateRulePanel config={config} onSave={onSaveDuplicateRule} saving={saving}/></div>;
 }
 function PipelineDefaults({config,saving,onSave}){
   const [values,setValues]=useState({stageId:'',substageId:''});
@@ -422,7 +563,7 @@ function BranchesPaymentPanel({config,onAdd,onEdit}){
   </section>;
 }
 
-function BranchPaymentForm({form,setForm,callingOptions,saving,onCancel,onSubmit}){
+function BranchPaymentForm({form,setForm,callingOptions,saving,onCancel,onSubmit,branchId,whatsappMeta}){
   const patch=changes=>setForm({...form,...changes});
   return <form className="branch-config-form" onSubmit={onSubmit}>
     <fieldset>
@@ -459,6 +600,16 @@ function BranchPaymentForm({form,setForm,callingOptions,saving,onCancel,onSubmit
         <label className="check-option"><input type="checkbox" checked={form.smartfloOutboundEnabled!==false} onChange={e=>patch({smartfloOutboundEnabled:e.target.checked})}/>Outbound calls</label>
       </div>
       <small>DIDs and departments load from Tata Smartflo. Lead calls use this branch mapping before the account fallback.</small>
+    </fieldset>
+
+    <fieldset>
+      <legend>WhatsApp settings</legend>
+      <BranchWhatsAppSettings
+        branchId={branchId}
+        value={form.whatsapp}
+        onChange={update=>setForm(prev=>({...prev,whatsapp:typeof update==='function'?update(prev.whatsapp):update}))}
+        meta={whatsappMeta}
+      />
     </fieldset>
 
     <fieldset>

@@ -13,6 +13,7 @@ import { DateRangeFilterControl } from '../FilterWorkspace.jsx';
 // Supplies .mom-rich-editor / .mom-editor-toolbar / .mom-editor-content.
 import '../MetadataPlatform.css';
 import './TrackerCalendar.css';
+import { recordDownload } from '../downloadAudit.js';
 
 const emptyTask = {
   title: '', description: '', workflowId: '', stageId: '', ownerEmployeeId: '', guestOwnerId: '', guestOwnerName: '', ownerCrmUserId: '', estimatedHours: '', estimateUnit: 'hours', dueAt: '', minutesSpent: '', timeNote: '', approvalRequired: false, approverUserIds: [],
@@ -597,6 +598,8 @@ export default function OperationsPageModern() {
     link.href = url;
     link.download = `approvals-${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
+    // Recorded so Bulk Actions can say who took what, and when.
+    recordDownload('Tracker approvals', rows.length, link.download, { content: csv });
     URL.revokeObjectURL(url);
   };
   const visibleMomSessions = useMemo(() => {

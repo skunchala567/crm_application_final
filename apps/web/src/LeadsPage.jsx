@@ -1,6 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { Bookmark, BookmarkCheck, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Download, Filter, History, Megaphone, NotebookPen, MessageCircle, Mail, MoreVertical, PanelRightClose, PanelRightOpen, PhoneCall, Pencil, Plus, RotateCcw, Search, Trash2, Upload, UserRoundPlus, X, GitBranch, MessageSquare} from "lucide-react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { api } from "./api";
 import FilterWorkspace, { emptyAdvancedFilters, MultiSearchSelect, normalizeFilters } from "./FilterWorkspace.jsx";
@@ -204,6 +204,32 @@ function groupLeadFields(fields = []) {
   return sections.filter(section => section.fields.length);
 }
 
+/**
+ * A stage's label, disambiguated by pipeline only when it has to be.
+ *
+ * A business unit can run several lead pipelines, and two of them may each
+ * have a stage called "New". Where that happens the pipeline name is added so
+ * the two can be told apart; where a name is unique the label is left alone,
+ * so a single-pipeline unit reads exactly as it always did.
+ *
+ * Module scope on purpose: the add/edit form and the follow-up dialog are
+ * separate components and both need it.
+ */
+function stageLabelFor(stage, stages = [], pipelines = []) {
+  if (!stage) return "";
+  /* Only a clash across pipelines is worth naming. Two stages with the same
+     name inside one pipeline are not told apart by adding that pipeline's
+     name to both -- it would put the same suffix on each and say nothing. */
+  const clashesAcrossPipelines = stages.some(other => (
+    other.id !== stage.id
+    && other.displayName === stage.displayName
+    && String(other.pipelineId) !== String(stage.pipelineId)
+  ));
+  if (!clashesAcrossPipelines) return stage.displayName;
+  const pipeline = (pipelines || []).find(item => String(item.id) === String(stage.pipelineId));
+  return pipeline ? `${stage.displayName} · ${pipeline.displayName}` : stage.displayName;
+}
+
 function ConfiguredLeadFields({fields,form,setForm,meta,availableAdmissionTypes,availableCurricula,availableClasses,inputRef}){
   const update=(field,value)=>{
     const property=configuredFieldProperties[field.fieldKey];
@@ -222,6 +248,7 @@ function ConfiguredLeadFields({fields,form,setForm,meta,availableAdmissionTypes,
     const property=configuredFieldProperties[field.fieldKey];
     return property?form[property]??"":form.customValues?.[field.fieldKey]??"";
   };
+
   const optionsFor=field=>{
     const map={
       academic_year:meta.academicYears.map(item=>({id:item.academicYear,label:item.displayName||item.academicYear})),
@@ -231,7 +258,7 @@ function ConfiguredLeadFields({fields,form,setForm,meta,availableAdmissionTypes,
       channel_id:meta.channels.map(item=>({id:item.id,label:item.displayName})),
       source_id:sourcesForChannel(meta.sources,meta.sourceLinks,form.channelId).map(item=>({id:item.id,label:item.displayName})),
       campaign_id:meta.campaigns.map(item=>({id:item.id,label:item.displayName})),
-      stage_id:meta.stages.map(item=>({id:item.id,label:item.displayName})),
+      stage_id:meta.stages.map(item=>({id:item.id,label:stageLabelFor(item,meta.stages,meta.pipelines)})),
       substage_id:meta.substages.filter(item=>!form.stageId||String(item.stageId)===String(form.stageId)).map(item=>({id:item.id,label:item.displayName})),
       owner_employee_id:meta.employees.filter(item=>!form.branchId||String(item.branchId)===String(form.branchId)).map(item=>({id:item.id,label:item.name})),
       followup_type:["Call","WhatsApp","Email","Visit"].map(item=>({id:item,label:item})),
@@ -712,6 +739,15 @@ function buildLeadExportGroups(meta) {
 }
 
 export default function LeadsPage() {
+  /*
+   * Which lead pipeline this screen shows.
+   *
+   * A business unit can run several, and each gets its own Leads screen at
+   * /leads/pipeline/:pipelineId with the same features -- filters, bulk
+   * actions, exports. The plain /leads route carries no id and shows the
+   * unit's default pipeline, so a unit with one pipeline is unchanged.
+   */
+  const routePipelineId = Number(useParams().pipelineId) || null;
   const { can, roles } = usePermissions();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -720,8 +756,10 @@ export default function LeadsPage() {
   const [stageCounts, setStageCounts] = useState({});
   const [followupsTillToday,setFollowupsTillToday]=useState(0);
   const [untouchedAssignedCount,setUntouchedAssignedCount]=useState(0);
-  const [meta, setMeta] = useState({
+  const [rawMeta, setMeta] = useState({
     stages: [],
+    // The lead pipelines this business unit runs; stages belong to one each.
+    pipelines: [],
     sources: [],
     classes: [],
     curricula: [],
@@ -744,7 +782,45 @@ export default function LeadsPage() {
   const [loading, setLoading] = useState(true);
   const [drawer, setDrawer] = useState(null);
   const [drawerTab,setDrawerTab]=useState("student");
+  /* Which Meta audiences this lead is in. Loaded when the tab is opened --
+     most drawer visits never ask. */
+  const [leadAudiences,setLeadAudiences]=useState(null);
+  useEffect(()=>{
+    if(drawerTab!=="remarketing"||!drawer?.id||leadAudiences!==null)return;
+    let cancelled=false;
+    api(`/meta/leads/${drawer.id}/audiences`)
+      .then(result=>{if(!cancelled)setLeadAudiences(result.data||[]);})
+      .catch(()=>{if(!cancelled)setLeadAudiences([]);});
+    return()=>{cancelled=true;};
+  },[drawerTab,drawer?.id,leadAudiences]);
   const [secondarySource,setSecondarySource]=useState({academicYear:"",sourceId:"",channelId:"",campaignId:""});
+
+  /* The pipeline actually in force: the one named in the route, or the
+     unit's default when the plain /leads route is open. */
+  const activePipeline = useMemo(() => {
+    const list = rawMeta.pipelines || [];
+    return list.find(item => String(item.id) === String(routePipelineId))
+      || list.find(item => item.isDefault) || list[0] || null;
+  }, [rawMeta.pipelines, routePipelineId]);
+
+  /*
+   * Everything downstream reads `meta`, so narrowing the stage and sub-stage
+   * lists here scopes the whole screen at once -- the tab strip, the filters,
+   * the add/edit form, the bulk actions and the export all follow, and a
+   * child component cannot accidentally offer another pipeline's stages.
+   */
+  const meta = useMemo(() => {
+    if (!activePipeline) return rawMeta;
+    const stages = rawMeta.stages.filter(stage => String(stage.pipelineId) === String(activePipeline.id));
+    const stageIds = new Set(stages.map(stage => String(stage.id)));
+    return {
+      ...rawMeta,
+      stages,
+      substages: rawMeta.substages.filter(item => stageIds.has(String(item.stageId))),
+    };
+  }, [rawMeta, activePipeline]);
+
+
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
@@ -788,7 +864,10 @@ export default function LeadsPage() {
   const [followupForm,setFollowupForm]=useState({stageId:"",substageId:"",comment:"",comments:[],nextFollowupAt:"",followupType:"",referralBranchId:"",referralEmployeeId:""});
   const [referBranchId,setReferBranchId]=useState("");
   const [referEmployeeId,setReferEmployeeId]=useState("");
-  const [referralOptions,setReferralOptions]=useState({branches:[],employees:[]});
+  const [referralOptions,setReferralOptions]=useState({branches:[],employees:[],pipelines:[]});
+  /* Which pipeline the referral moves the lead to. "" leaves it where it is,
+     which is what every referral did before pipelines existed. */
+  const [referPipelineId,setReferPipelineId]=useState("");
   // Keyed by business unit, like the dashboard layout and saved reports. The
   // unscoped key meant a view saved under one business unit was remembered
   // while working in another, where it does not exist.
@@ -928,7 +1007,8 @@ export default function LeadsPage() {
       // includeReferred keeps the leads this user referred to someone else in
       // the result set. Ownership moves with a referral, so without it the
       // "Referred by me" filter below has nothing to match on.
-      const result = await api(`/leads?search=${encodeURIComponent(term)}&includeReferred=1`);
+      const pipelineQuery = activePipeline ? `&pipelineId=${activePipeline.id}` : "";
+      const result = await api(`/leads?search=${encodeURIComponent(term)}&includeReferred=1${pipelineQuery}`);
       setLeads(result.data);
       setTotalLeads(Number(result.total||0));
       setStageCounts(result.stageCounts||{});
@@ -955,6 +1035,23 @@ export default function LeadsPage() {
       setMessage({ type: "error", text: error.message }),
     );
   }, []);
+  /*
+   * Refetch once the pipeline is known, and again whenever it changes.
+   *
+   * The first load above runs before /leads/meta has answered, so it cannot
+   * know which pipeline is in force; and moving between two pipelines' Leads
+   * screens re-renders this component rather than remounting it. Both need
+   * the list, the counts and the stage tabs to be fetched again.
+   */
+  const loadedPipelineRef = useRef(undefined);
+  useEffect(() => {
+    if (!activePipeline) return;
+    if (loadedPipelineRef.current === activePipeline.id) return;
+    loadedPipelineRef.current = activePipeline.id;
+    setStageFilter("");
+    setSelectedIds([]);
+    loadLeads(search);
+  }, [activePipeline?.id]);
   useEffect(() => {
     const refresh = () => loadWhatsAppUnread();
     const timer = window.setInterval(refresh, 10000);
@@ -1411,6 +1508,7 @@ export default function LeadsPage() {
     });
     setDrawer({ mode: "create", title: "Add new lead" });
     setDrawerTab("student");
+    setLeadAudiences(null);
   }
 
   async function openLead(id, mode) {
@@ -1440,6 +1538,7 @@ export default function LeadsPage() {
         activities: data.activities || [],
       });
       setDrawerTab("student");
+    setLeadAudiences(null);
     } catch (error) {
       setMessage({ type: "error", text: error.message });
     }
@@ -1535,6 +1634,7 @@ export default function LeadsPage() {
     try {
       const options = await api('/leads/referral-options/all');
       setReferralOptions(options);
+      setReferPipelineId("");
       setReferLead(lead);
       const currentReferralBranch = lead.referredToBranchId || "";
       setReferBranchId(String(currentReferralBranch));
@@ -1562,6 +1662,7 @@ export default function LeadsPage() {
       const options=await api('/leads/referral-options/all');
       setReferralOptions(options);
       const selfOption=options.employees.find(employee=>String(employee.id)===String(options.currentEmployeeId)&&String(employee.branchId)===String(options.currentBranchId))||options.employees.find(employee=>String(employee.id)===String(options.currentEmployeeId));
+      setReferPipelineId("");
       setReferLead({
         bulk:true,
         ids:selectedVisibleIds,
@@ -1579,13 +1680,15 @@ export default function LeadsPage() {
     if (!referLead || !referEmployeeId) return;
     setSaving(true);
     try {
+      const pipelineId = referPipelineId ? Number(referPipelineId) : undefined;
       const result = referLead.bulk
-        ? await api('/leads/actions/bulk-refer',{method:"PUT",body:JSON.stringify({leadIds:referLead.ids,branchId:Number(referBranchId),employeeId:Number(referEmployeeId)})})
-        : await api(`/leads/${referLead.id}/refer`, { method: "PUT", body: JSON.stringify({ branchId: Number(referBranchId), employeeId: Number(referEmployeeId) }) });
+        ? await api('/leads/actions/bulk-refer',{method:"PUT",body:JSON.stringify({leadIds:referLead.ids,branchId:Number(referBranchId),employeeId:Number(referEmployeeId),pipelineId})})
+        : await api(`/leads/${referLead.id}/refer`, { method: "PUT", body: JSON.stringify({ branchId: Number(referBranchId), employeeId: Number(referEmployeeId), pipelineId }) });
       setMessage({ type: "success", text: result.message });
       setReferLead(null);
       setReferBranchId("");
       setReferEmployeeId("");
+      setReferPipelineId("");
       await loadLeads();
     } catch (error) {
       setMessage({ type: "error", text: error.message });
@@ -1946,15 +2049,32 @@ export default function LeadsPage() {
       {referLead&&<><div className="drawer-backdrop" onClick={()=>setReferLead(null)}/><section className="refer-dialog" role="dialog" aria-modal="true" aria-labelledby="refer-title">
         <div className="refer-dialog-head"><div><span className="eyebrow">{referLead.bulk?"Bulk lead referral":"Lead referral"}</span><h2 id="refer-title">Refer {referLead.studentName}</h2><p>{referLead.bulk?`${referLead.leadId} will be reassigned.`:`${referLead.leadId} · ${referLead.branch}`}</p></div><button className="icon-btn" onClick={()=>setReferLead(null)}><X/></button></div>
         <form onSubmit={submitReferral}>
+          {/* Pipeline first, and only when there is a choice to make: a unit
+              running one pipeline has nothing to ask about, and the referral
+              behaves exactly as it did before. */}
+          {(referralOptions.pipelines||[]).length>1&&<label className="refer-pipeline">
+            Pipeline
+            <select value={referPipelineId} onChange={event=>setReferPipelineId(event.target.value)}>
+              <option value="">Keep the current pipeline</option>
+              {referralOptions.pipelines.map(pipeline=>(
+                <option key={pipeline.id} value={pipeline.id}>{pipeline.displayName}{pipeline.isDefault?' (default)':''}</option>
+              ))}
+            </select>
+          </label>}
           <SearchSuggestion label="Counsellor" required options={referralChoices(referralOptions.employees)} value={referralKey(referBranchId,referEmployeeId)} onChange={(key)=>{const {branchId,employeeId}=splitReferralKey(key);setReferBranchId(branchId);setReferEmployeeId(employeeId);}} placeholder="Search by counsellor or branch…"/>
-          <small>Search by counsellor or branch name. Only counsellors with active CRM access are listed, and referring transfers the lead to that counsellor's branch.</small>
+          <small>
+            Only users with active CRM access to this business unit are listed, and referring transfers the lead to that user's branch.
+            {referPipelineId
+              ? ` The ${referLead.bulk?'leads':'lead'} will also move to the first stage of ${referralOptions.pipelines.find(item=>String(item.id)===String(referPipelineId))?.displayName||'the chosen pipeline'}.`
+              : ''}
+          </small>
           <div className="refer-dialog-actions"><button type="button" className="secondary" onClick={()=>setReferLead(null)}>Cancel</button><button className="primary" disabled={saving||!referBranchId||!referEmployeeId}>{saving?"Referring…":referLead.bulk?`Refer ${referLead.ids.length} leads`:"Refer lead"}</button></div>
         </form>
       </section></>}
       {followupModal&&<><div className="drawer-backdrop" onClick={()=>setFollowupModal(null)}/><section className="followup-notes-dialog" role="dialog" aria-modal="true" aria-labelledby="followup-notes-title">
         <header><div><span className="eyebrow">Lead activity</span><h2 id="followup-notes-title">Follow-up and notes</h2><p>{followupModal.name}</p></div><button type="button" className="icon-btn" onClick={()=>setFollowupModal(null)}><X/></button></header>
         <form onSubmit={saveFollowup}><div className="form-grid">
-          <label>Stage *<select required value={followupForm.stageId} onChange={e=>setFollowupForm({...followupForm,stageId:e.target.value,substageId:"",nextFollowupAt:"",followupType:""})}><option value="">Select stage</option>{meta.stages.map(stage=><option key={stage.id} value={stage.id}>{stage.displayName}</option>)}</select></label>
+          <label>Stage *<select required value={followupForm.stageId} onChange={e=>setFollowupForm({...followupForm,stageId:e.target.value,substageId:"",nextFollowupAt:"",followupType:""})}><option value="">Select stage</option>{/* Only this lead's own pipeline: a follow-up moves a lead along its ladder, it does not move it to a different one. */}{meta.stages.filter(stage=>{const current=meta.stages.find(item=>String(item.id)===String(followupForm.stageId));return !current?.pipelineId||stage.pipelineId===current.pipelineId;}).map(stage=><option key={stage.id} value={stage.id}>{stageLabelFor(stage,meta.stages,meta.pipelines)}</option>)}</select></label>
           <label>Sub-stage *<select required value={followupForm.substageId} onChange={e=>setFollowupForm({...followupForm,substageId:e.target.value})}><option value="">Select sub-stage</option>{meta.substages.filter(item=>!followupForm.stageId||String(item.stageId)===String(followupForm.stageId)).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
           {modalFollowupRequired&&<label>Next follow-up *<input required type="datetime-local" min={minimumFollowupTime} value={followupForm.nextFollowupAt} onChange={e=>setFollowupForm({...followupForm,nextFollowupAt:e.target.value})}/></label>}
           {modalFollowupRequired&&<label>Follow-up type *<select required value={followupForm.followupType} onChange={e=>setFollowupForm({...followupForm,followupType:e.target.value})}><option value="">Select follow-up type</option><option>Call</option><option>WhatsApp</option><option>Email</option><option>Campus Visit</option></select></label>}
@@ -1982,6 +2102,7 @@ export default function LeadsPage() {
               <button type="button" className={drawerTab==="student"?"active":""} onClick={()=>setDrawerTab("student")}>Student &amp; contact</button>
               <button type="button" className={drawerTab==="source"?"active":""} onClick={()=>setDrawerTab("source")}>Source details</button>
               <button type="button" className={drawerTab==="history"?"active":""} onClick={()=>setDrawerTab("history")}>History</button>
+              <button type="button" className={drawerTab==="remarketing"?"active":""} onClick={()=>setDrawerTab("remarketing")}>Remarketing</button>
             </nav>}
             {drawer.mode!=="create"&&['paid','settled','success','completed','captured'].includes(String(form.paymentStatus||'').toLowerCase())&&<div className="mx-5 mt-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800"><strong>Payment collected · ₹{Number(form.paymentAmount||0).toLocaleString('en-IN')}</strong>{form.paymentAt&&<small className="block mt-1">{new Date(form.paymentAt).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})}</small>}</div>}
             <form onSubmit={save}>
@@ -2028,8 +2149,12 @@ export default function LeadsPage() {
                         type="tel"
                         maxLength="10"
                         pattern="[6-9][0-9]{9}"
+                        /* Stays locked on edit: this is the number duplicate
+                           detection matches on, and the update statement does
+                           not carry it -- a change here would look accepted
+                           and quietly do nothing. */
                         disabled={drawer.mode === "edit"}
-                        title={drawer.mode === "edit" ? "Contact information cannot be edited" : "Enter a valid 10-digit Indian mobile number starting with 6-9"}
+                        title={drawer.mode === "edit" ? "The number this lead was matched on cannot be changed" : "Enter a valid 10-digit Indian mobile number starting with 6-9"}
                         placeholder="10-digit mobile number"
                         value={form.phone}
                         onChange={(e) => {
@@ -2044,8 +2169,11 @@ export default function LeadsPage() {
                         type="tel"
                         maxLength="10"
                         pattern="[6-9][0-9]{9}"
-                        disabled={drawer.mode === "edit"}
-                        title={drawer.mode === "edit" ? "Contact information cannot be edited" : "Enter a valid 10-digit Indian mobile number starting with 6-9"}
+                        /* Editable after creation, unlike the primary phone.
+                           The primary is what duplicate detection matches on;
+                           an alternate number is usually learnt later, so
+                           locking it left nowhere to record it. */
+                        title="Enter a valid 10-digit Indian mobile number starting with 6-9"
                         placeholder="10-digit mobile number"
                         value={form.alternatePhone || ""}
                         onChange={(e) => {
@@ -2086,7 +2214,10 @@ export default function LeadsPage() {
                     </label>
                     <label>
                       Academic year *
-                      <select required disabled={drawer.mode === "edit"} title={drawer.mode === "edit" ? "Primary source details cannot be edited" : undefined} value={form.academicYear} onChange={(e) => setForm({...form,academicYear:e.target.value})}>
+                      {/* Editable: the year an enquiry is for is often wrong
+                          or missing on intake, and the curriculum and class
+                          pickers below cannot resolve without it. */}
+                      <select required value={form.academicYear} onChange={(e) => setForm({...form,academicYear:e.target.value})}>
                         <option value="">Select academic year</option>
                         {meta.academicYears.map((year) => <option key={year.id} value={year.academicYear}>{year.academicYear}</option>)}
                       </select>
@@ -2168,6 +2299,60 @@ export default function LeadsPage() {
                       </div>;
                     })()}
                   </div>
+
+                  {/* What the lead actually answered.
+                      Mapped answers fill CRM fields, but the question behind
+                      them is lost there -- "hr" means nothing without the
+                      question beside it. Every question and answer the form
+                      collected is kept on the lead and shown here, so nothing
+                      a lead told you disappears once it becomes a record. */}
+                  {Array.isArray(form.customValues?.metaAnswers) && form.customValues.metaAnswers.length > 0 && (
+                    <div className="lead-form-answers">
+                      <strong>
+                        Form responses
+                        {form.customValues.metaFormName ? <em> · {form.customValues.metaFormName}</em> : null}
+                        {form.customValues.metaPageName ? <em> · {form.customValues.metaPageName}</em> : null}
+                      </strong>
+                      <div className="table-wrap overflow-x-auto">
+                        <table className="table">
+                          <thead><tr><th>Question</th><th>Answer</th></tr></thead>
+                          <tbody>
+                            {form.customValues.metaAnswers.map((row, index) => (
+                              <tr key={`${row.question}-${index}`}>
+                                <td className="text-xs">{row.question}</td>
+                                <td className="text-xs">{row.answer || <em>blank</em>}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {/* Which Meta Custom Audiences this lead is in, and whether
+                    Meta has actually been told. A lead with neither an email
+                    nor a phone can be in an audience and still be unmatchable,
+                    so eligibility is shown rather than assumed. */}
+                <div className={`form-section ${drawerTab!=="remarketing"?"tab-hidden":""}`}>
+                  <h3>Meta remarketing</h3>
+                  {leadAudiences===null?<p className="text-sm text-secondary-600">Loading…</p>
+                    :leadAudiences.length===0?<p className="text-sm text-secondary-600">This lead is not in any Meta remarketing audience.</p>
+                    :<div className="table-wrap overflow-x-auto">
+                      <table className="table">
+                        <thead><tr><th>Audience</th><th>Meta audience ID</th><th>Match keys</th><th>Sync status</th><th>Last synced</th></tr></thead>
+                        <tbody>
+                          {leadAudiences.map(row=>(
+                            <tr key={row.audienceId}>
+                              <td><div className="font-semibold">{row.name}</div><div className="text-xs text-secondary-500">{row.audienceStatus}</div></td>
+                              <td className="text-xs font-mono">{row.metaAudienceId||"not created at Meta"}</td>
+                              <td className="text-xs">{row.matchKeys||"—"}</td>
+                              <td className="text-xs">{row.syncStatus}</td>
+                              <td className="text-xs">{row.lastSyncedAt?new Date(row.lastSyncedAt).toLocaleString("en-IN",{dateStyle:"medium",timeStyle:"short"}):"—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>}
                 </div>
                 {/* Everything that was the separate Lead history dialog. It
                     keeps that dialog's classes, so it keeps its styling. */}
@@ -2284,6 +2469,7 @@ export default function LeadsPage() {
                       className="primary"
                       onClick={() => {
                         setDrawerTab("student");
+    setLeadAudiences(null);
                         setDrawer({
                           ...drawer,
                           mode: "edit",

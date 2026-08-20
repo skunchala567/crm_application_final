@@ -358,7 +358,7 @@ table tbody tr:hover { background: var(--brand-50); }
 }
 /* The class picker is a search control, so its inner input needs the same
    treatment or it stays taller than the fields beside it. */
-.lead-modal .form-grid .suggestion-field input { padding: 7px 9px; font-size: 12px; }
+.lead-modal .form-grid .suggestion-field input { padding: 7px 9px 7px 31px; font-size: 12px; }
 .lead-modal .form-grid .suggestion-field { border-radius: 7px; }
 
 /* Three columns need the room; below this the fields stop being readable. */

@@ -1,4 +1,3 @@
-USE attendance_biometric;
 SET NAMES utf8mb4;
 
 -- WhatsApp templates the Tracker sends when an action item is created.

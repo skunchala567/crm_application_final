@@ -3,6 +3,7 @@ import { AlertCircle, CheckCircle2, Download, FileUp, History, Loader, MessageCi
 import { api } from '../api';
 import './WhatsAppSendPanel.css';
 import './WhatsAppSendAdvanced.css';
+import { recordDownload } from '../downloadAudit.js';
 
 const cleanPhone = value => String(value || '').replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
 const validPhone = value => /^[6-9]\d{9}$/.test(cleanPhone(value));
@@ -378,6 +379,8 @@ export function WhatsAppMessageHistory({ open, onClose }) {
     link.href = url;
     link.download = `whatsapp-message-history-${dateRange.from}-to-${dateRange.to}.csv`;
     link.click();
+    // Recorded so Bulk Actions can say who took what, and when.
+    recordDownload('WhatsApp message history', data.length, link.download, { content: csv });
     URL.revokeObjectURL(url);
   };
 

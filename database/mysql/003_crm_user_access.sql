@@ -1,5 +1,4 @@
 -- CRM-specific branch assignments. These do not change Attendance user_branches.
-USE attendance_biometric;
 SET NAMES utf8mb4;
 
 CREATE TABLE IF NOT EXISTS crm_user_branches (
