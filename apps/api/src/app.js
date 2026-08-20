@@ -60,7 +60,7 @@ if (missingDatabaseSettings.length) {
     throw new Error(`MySQL configuration is required. Missing: ${missingDatabaseSettings.join(', ')}`);
 }
 
-app.use(cors({ origin: allowedOrigin, credentials: true }));
+app.use(cors({ origin: "*" }));
 app.use(express.json({
     limit: '1mb',
     // Meta signs the exact bytes it sent, so the HMAC must be computed over the
