@@ -1551,6 +1551,20 @@ export default function LeadsPage() {
     }
   }
 
+  async function openLeadHistory(){
+    setDrawerTab("history");
+    if(!drawer?.id)return;
+    try{
+      await api(`/smartflo/leads/${drawer.id}/sync`,{method:"POST",body:"{}"});
+      const {data}=await api(`/leads/${drawer.id}`);
+      setDrawer(current=>current&&current.id===drawer.id?{...current,activities:data.activities||[]}:current);
+    }catch(error){
+      // History already stored in CRM remains usable if Smartflo is temporarily
+      // unavailable; surface the reconciliation failure without hiding it.
+      setMessage({type:"error",text:`Could not refresh Smartflo call history: ${error.message}`});
+    }
+  }
+
   async function openFollowup(lead) {
     setOpenActionId(null);
     try {
@@ -2108,7 +2122,7 @@ export default function LeadsPage() {
             {drawer.mode !== "create"&&<nav className="lead-detail-tabs" aria-label="Lead detail categories">
               <button type="button" className={drawerTab==="student"?"active":""} onClick={()=>setDrawerTab("student")}>Student &amp; contact</button>
               <button type="button" className={drawerTab==="source"?"active":""} onClick={()=>setDrawerTab("source")}>Source details</button>
-              <button type="button" className={drawerTab==="history"?"active":""} onClick={()=>setDrawerTab("history")}>History</button>
+              <button type="button" className={drawerTab==="history"?"active":""} onClick={openLeadHistory}>History</button>
               <button type="button" className={drawerTab==="remarketing"?"active":""} onClick={()=>setDrawerTab("remarketing")}>Remarketing</button>
             </nav>}
             {drawer.mode!=="create"&&['paid','settled','success','completed','captured'].includes(String(form.paymentStatus||'').toLowerCase())&&<div className="mx-5 mt-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800"><strong>Payment collected · ₹{Number(form.paymentAmount||0).toLocaleString('en-IN')}</strong>{form.paymentAt&&<small className="block mt-1">{new Date(form.paymentAt).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})}</small>}</div>}

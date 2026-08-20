@@ -6,10 +6,24 @@ import { canAccessBranch } from '../rbac/branch-scope.js';
 
 const BASE='https://api-smartflo.tatateleservices.com';
 const tokens=new Map();
+const providerQueues=new Map();
 const clean=value=>String(value??'').trim();
 const digits=value=>clean(value).replace(/\D/g,'').slice(-15);
 const parse=value=>typeof value==='string'?JSON.parse(value||'{}'):(value||{});
+const list=value=>Array.isArray(value)?value:Array.isArray(value?.results)?value.results:Array.isArray(value?.data)?value.data:[];
 const wrap=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
+const wait=milliseconds=>new Promise(resolve=>setTimeout(resolve,milliseconds));
+
+function enqueue(configId,task){
+  // Smartflo applies a fairly small account-level burst limit. Serialize calls
+  // for an integration and leave a short gap so multiple mounted CRM screens
+  // cannot exhaust it together.
+  const previous=providerQueues.get(configId)||Promise.resolve();
+  const current=previous.catch(()=>{}).then(task).finally(()=>wait(350));
+  providerQueues.set(configId,current);
+  current.finally(()=>{if(providerQueues.get(configId)===current)providerQueues.delete(configId);}).catch(()=>{});
+  return current;
+}
 
 async function integration(pool,organizationId,required=true){
   const [[row]]=await pool.execute(`SELECT * FROM crm_integrations WHERE organization_id=? AND deleted_at IS NULL AND LOWER(provider)='smartflo' ORDER BY id DESC LIMIT 1`,[organizationId]);
@@ -26,17 +40,44 @@ async function token(config,force=false){
   if(!data?.access_token)throw Object.assign(new Error(data?.message||'Smartflo authentication failed'),{status:502});
   tokens.set(config.id,{value:data.access_token,expiresAt:Date.now()+(Number(data.expires_in)||3600)*1000});return data.access_token;
 }
+async function authorization(config,force=false){
+  // Smartflo's current API-token contract requires the Bearer scheme. Accept a
+  // token pasted with or without the scheme so existing configurations keep
+  // working and we never send "Bearer Bearer ...".
+  const value=clean(await token(config,force)).replace(/^Bearer\s+/i,'');
+  return `Bearer ${value}`;
+}
 async function request(config,method,path,{params,data}={}){
-  try{return (await axios({method,url:`${BASE}${path}`,params,data,timeout:25000,headers:{Accept:'application/json','Content-Type':'application/json',Authorization:await token(config)}})).data;}
-  catch(error){if(error.response?.status===401&&!config.permanentToken){tokens.delete(config.id);try{return (await axios({method,url:`${BASE}${path}`,params,data,timeout:25000,headers:{Accept:'application/json','Content-Type':'application/json',Authorization:await token(config,true)}})).data;}catch(retry){error=retry;}}
-    const detail=error.response?.data?.message||error.response?.data||error.message;throw Object.assign(new Error(typeof detail==='string'?detail:JSON.stringify(detail)),{status:502});}
+  return enqueue(config.id,async()=>{
+    let forceToken=false,error;
+    for(let attempt=0;attempt<3;attempt++){
+      try{return (await axios({method,url:`${BASE}${path}`,params,data,timeout:25000,headers:{Accept:'application/json','Content-Type':'application/json',Authorization:await authorization(config,forceToken)}})).data;}
+      catch(caught){
+        error=caught;
+        if(caught.response?.status===401&&!config.permanentToken&&!forceToken){tokens.delete(config.id);forceToken=true;continue;}
+        if(caught.response?.status!==429||attempt===2)break;
+        const retryAfter=Number(caught.response.headers?.['retry-after']);
+        await wait(Number.isFinite(retryAfter)?Math.min(Math.max(retryAfter*1000,1000),10000):1000*(attempt+1));
+      }
+    }
+    const detail=error.response?.data?.message||error.response?.data||error.message;
+    const status=error.response?.status===429?429:502;
+    throw Object.assign(new Error(typeof detail==='string'?detail:JSON.stringify(detail)),{status,providerStatus:error.response?.status});
+  });
 }
 
 export function createSmartfloRoutes(pool,authenticate,requireCrmAccess,requireUserAdmin){
   const router=Router(),org=req=>Number(req.user.organizationId||1);
   router.get('/config',authenticate,requireCrmAccess,wrap(async(req,res)=>{const item=await integration(pool,org(req),false);res.json({data:item?{id:Number(item.id),configured:true,accountName:item.name,email:item.email,hasPassword:Boolean(item.password),hasPermanentToken:Boolean(item.permanentToken),defaultDid:item.defaultDid||'',defaultDepartmentId:item.defaultDepartmentId||'',recordCalls:item.recordCalls!==false,webhookPath:`/api/smartflo/webhook/${item.id}?secret=${item.webhookSecret}`,isActive:['ACTIVE','CONNECTED'].includes(String(item.status).toUpperCase())}:{configured:false,recordCalls:true}});}));
   router.put('/config',authenticate,requireCrmAccess,requireUserAdmin,wrap(async(req,res)=>{const existing=await integration(pool,org(req),false),email=clean(req.body.email),password=clean(req.body.password),permanentToken=clean(req.body.permanentToken);if(!existing&&!permanentToken&&(!email||!password))return res.status(400).json({message:'Enter a Smartflo login email and password, or a permanent access token'});
-    const cfg={emailEncrypted:email?encryptToken(email,getMasterKey()):existing?.emailEncrypted||null,passwordEncrypted:password?encryptToken(password,getMasterKey()):existing?.passwordEncrypted||null,permanentTokenEncrypted:permanentToken?encryptToken(permanentToken,getMasterKey()):existing?.permanentTokenEncrypted||null,defaultDid:clean(req.body.defaultDid),defaultDepartmentId:clean(req.body.defaultDepartmentId),recordCalls:req.body.recordCalls!==false,defaultBusinessUnitId:req.businessUnit.id,webhookSecret:existing?.webhookSecret||crypto.randomBytes(24).toString('hex')};
+    const cfg={emailEncrypted:email?encryptToken(email,getMasterKey()):existing?.emailEncrypted||null,passwordEncrypted:password?encryptToken(password,getMasterKey()):existing?.passwordEncrypted||null,permanentTokenEncrypted:permanentToken?encryptToken(permanentToken,getMasterKey()):req.body.clearPermanentToken?null:existing?.permanentTokenEncrypted||null,defaultDid:clean(req.body.defaultDid),defaultDepartmentId:clean(req.body.defaultDepartmentId),recordCalls:req.body.recordCalls!==false,defaultBusinessUnitId:req.businessUnit.id,webhookSecret:existing?.webhookSecret||crypto.randomBytes(24).toString('hex')};
+    if(permanentToken){
+      try{await request({...existing,id:existing?.id||`validation:${org(req)}`,permanentToken},'GET','/v1/users',{params:{limit:1}});}
+      catch(error){
+        if([400,401,403].includes(error.providerStatus))return res.status(400).json({message:'This is not a valid Smartflo API access token, or it does not have Users access. A key generated under “Click to Call Support API Tokens” is a separate API key and cannot be used here. Generate the access token under API Connect → API Tokens.'});
+        throw error;
+      }
+    }
     if(existing)await pool.execute('UPDATE crm_integrations SET name=?,config=?,status=?,updated_by=? WHERE id=?',[clean(req.body.accountName)||'Tata Smartflo',JSON.stringify(cfg),req.body.isActive===false?'INACTIVE':'ACTIVE',req.user.id,existing.id]);
     else await pool.execute(`INSERT INTO crm_integrations(organization_id,name,type,provider,config,status,created_by) VALUES(?,?,'SMS','smartflo',?,?,?)`,[org(req),clean(req.body.accountName)||'Tata Smartflo',JSON.stringify(cfg),req.body.isActive===false?'INACTIVE':'ACTIVE',req.user.id]);res.json({success:true,message:'Smartflo configuration saved'});}));
   router.post('/test',authenticate,requireCrmAccess,requireUserAdmin,wrap(async(req,res)=>{const cfg=await integration(pool,org(req));await token(cfg,true);await Promise.all([request(cfg,'GET','/v1/my_number'),request(cfg,'GET','/v1/ivrs'),request(cfg,'GET','/v1/users')]);res.json({success:true,message:'Smartflo connection and required DID, IVR and user permissions are working'});}));
@@ -48,19 +89,42 @@ export function createSmartfloRoutes(pool,authenticate,requireCrmAccess,requireU
   router.put('/branches/:branchId/route-ivr',authenticate,requireCrmAccess,requireUserAdmin,wrap(async(req,res)=>{if(!canAccessBranch(req.user,req.params.branchId))return res.status(404).json({message:'Branch not found'});const cfg=await integration(pool,org(req));const [[branch]]=await pool.execute(`SELECT id,branch_name,smartflo_did_id,smartflo_did_number,smartflo_ivr_id,smartflo_ivr_name FROM branches WHERE id=? AND is_active=1 LIMIT 1`,[req.params.branchId]);if(!branch)return res.status(404).json({message:'Branch not found'});if(!branch.smartflo_did_id||!branch.smartflo_ivr_id)return res.status(400).json({message:'Select both a Smartflo DID and IVR for this branch'});
     const result=await request(cfg,'PUT',`/v1/my_number/${encodeURIComponent(branch.smartflo_did_id)}`,{data:{name:branch.branch_name,description:`CRM branch ${branch.branch_name}`,destination:`ivr||${branch.smartflo_ivr_id}`}});res.json({success:true,message:`${branch.smartflo_did_number} is routed to ${branch.smartflo_ivr_name||'the selected IVR'}`,data:result});}));
   router.get('/reports',authenticate,requireCrmAccess,wrap(async(req,res)=>{res.json({data:await request(await integration(pool,org(req)),'GET','/v1/call/records',{params:{from_date:req.query.from,to_date:req.query.to,page:req.query.page||1,limit:Math.min(Number(req.query.limit)||50,200),did_numbers:req.query.did||undefined,agents:req.query.agent||undefined,direction:req.query.direction||undefined}})});}));
+  router.post('/leads/:leadId/sync',authenticate,requireCrmAccess,wrap(async(req,res)=>{
+    const cfg=await integration(pool,org(req),false);
+    if(!cfg||!['ACTIVE','CONNECTED'].includes(String(cfg.status).toUpperCase()))return res.json({success:true,data:{synced:0}});
+    const [[lead]]=await pool.execute('SELECT id,phone,business_unit_id FROM crm_leads WHERE id=? AND business_unit_id=? AND deleted_at_utc IS NULL',[req.params.leadId,req.businessUnit.id]);
+    if(!lead)return res.status(404).json({message:'Lead not found'});
+    const from=new Date(Date.now()-30*86400000).toISOString().slice(0,19).replace('T',' ');
+    const response=await request(cfg,'GET','/v1/call/records',{params:{from_date:from,page:1,limit:100,destination:digits(lead.phone)}});
+    const records=list(response).filter(item=>{
+      const customer=digits(item.client_number??item.customer_number??item.destination_number??item.destination);
+      return customer&&customer===digits(lead.phone);
+    });
+    let synced=0;
+    for(const item of records){
+      const callId=clean(item.ref_id||item.call_id||item.uuid||item.id);if(!callId)continue;
+      const started=clean(item.start_stamp)||[clean(item.date),clean(item.time)].filter(Boolean).join(' ')||null;
+      const recordingUrl=cfg.recordCalls!==false?clean(item.recording_url)||null:null;
+      await pool.execute(`INSERT INTO crm_call_activities(integration_id,business_unit_id,lead_id,callerdesk_sid,direction,source_number,destination_number,agent_number,status,call_result,started_at_utc,ended_at_utc,duration_seconds,talk_seconds,recording_url,raw_payload)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE lead_id=VALUES(lead_id),status=VALUES(status),call_result=VALUES(call_result),started_at_utc=COALESCE(VALUES(started_at_utc),started_at_utc),ended_at_utc=COALESCE(VALUES(ended_at_utc),ended_at_utc),duration_seconds=VALUES(duration_seconds),talk_seconds=VALUES(talk_seconds),recording_url=COALESCE(VALUES(recording_url),recording_url),raw_payload=VALUES(raw_payload)`,
+        [cfg.id,lead.business_unit_id,lead.id,callId,clean(item.direction)||'outbound',clean(item.did_number||item.caller_id_num),clean(item.client_number||item.customer_number||item.destination_number),clean(item.agent_number),clean(item.status)||'completed',clean(item.description||item.hangup_cause||item.reason),started,clean(item.end_stamp)||null,Number(item.call_duration)||0,Number(item.answered_seconds)||0,recordingUrl,JSON.stringify(item)]);
+      synced++;
+    }
+    res.json({success:true,data:{synced}});
+  }));
   router.post('/leads/:leadId/call',authenticate,requireCrmAccess,wrap(async(req,res)=>{const cfg=await integration(pool,org(req));const [[lead]]=await pool.execute('SELECT id,student_name,phone,branch_id FROM crm_leads WHERE id=? AND business_unit_id=? AND deleted_at_utc IS NULL',[req.params.leadId,req.businessUnit.id]);if(!lead)return res.status(404).json({message:'Lead not found'});
     const agentUserId=Number(req.body.agentUserId||req.user.id);const [[agent]]=await pool.execute('SELECT smartflo_agent_id,smartflo_agent_number FROM app_users WHERE id=? AND smartflo_enabled=1',[agentUserId]);if(!agent)return res.status(400).json({message:'Map this CRM user to a Smartflo agent in User Management'});
     const [[branch]]=await pool.execute('SELECT smartflo_did_number FROM branches WHERE id=? AND smartflo_outbound_enabled=1',[lead.branch_id]);const callerId=clean(req.body.callerId)||branch?.smartflo_did_number||cfg.defaultDid;if(!callerId)return res.status(400).json({message:'Configure a Smartflo DID for this branch'});
-    const customIdentifier=`crm-lead:${lead.id}:${crypto.randomUUID()}`;const provider=await request(cfg,'POST','/v1/click_to_call',{data:{agent_number:agent.smartflo_agent_id||agent.smartflo_agent_number,destination_number:digits(lead.phone),caller_id:callerId,async:1,custom_identifier:customIdentifier}});
-    const [created]=await pool.execute(`INSERT INTO crm_call_activities(integration_id,business_unit_id,lead_id,agent_user_id,callerdesk_sid,direction,source_number,destination_number,agent_number,status,raw_payload) VALUES(?,?,?,?,?,'outbound',?,?,?,'initiated',?)`,[cfg.id,req.businessUnit.id,lead.id,agentUserId,customIdentifier,callerId,digits(lead.phone),agent.smartflo_agent_id||agent.smartflo_agent_number,JSON.stringify(provider)]);
-    await pool.execute(`INSERT INTO crm_lead_activities(lead_id,activity_type,summary,details_json,actor_user_id) VALUES(?,'call_initiated',?,?,?)`,[lead.id,`Smartflo call initiated to ${lead.student_name}`,JSON.stringify({callActivityId:created.insertId,customIdentifier}),req.user.id]);res.status(201).json({success:true,data:{callActivityId:Number(created.insertId),provider}});}));
+    const customIdentifier={crm_lead_id:String(lead.id),crm_call_key:crypto.randomUUID().replace(/-/g,'')};const provider=await request(cfg,'POST','/v1/click_to_call',{data:{agent_number:agent.smartflo_agent_id||agent.smartflo_agent_number,destination_number:digits(lead.phone),caller_id:callerId,async:1,custom_identifier:customIdentifier}});
+    const reference=clean(provider?.ref_id||provider?.data?.ref_id||customIdentifier.crm_call_key);
+    const [created]=await pool.execute(`INSERT INTO crm_call_activities(integration_id,business_unit_id,lead_id,agent_user_id,callerdesk_sid,direction,source_number,destination_number,agent_number,status,raw_payload) VALUES(?,?,?,?,?,'outbound',?,?,?,'initiated',?)`,[cfg.id,req.businessUnit.id,lead.id,agentUserId,reference,callerId,digits(lead.phone),agent.smartflo_agent_id||agent.smartflo_agent_number,JSON.stringify({request:{custom_identifier:customIdentifier},response:provider})]);
+    res.status(201).json({success:true,data:{callActivityId:Number(created.insertId),provider}});}));
   return router;
 }
 
 export function createSmartfloWebhookRoutes(pool){const router=Router();router.post('/webhook/:integrationId',wrap(async(req,res)=>{const [[row]]=await pool.execute(`SELECT id,config FROM crm_integrations WHERE id=? AND LOWER(provider)='smartflo' AND deleted_at IS NULL`,[req.params.integrationId]);const cfg=row?parse(row.config):null;if(!cfg||clean(req.query.secret||req.headers['x-webhook-secret'])!==cfg.webhookSecret)return res.status(401).json({message:'Invalid webhook secret'});
-  const body=req.body||{},value=(...names)=>{for(const name of names){if(body[name]!=null)return body[name];if(body[`$${name}`]!=null)return body[`$${name}`];}return null;},identifier=clean(value('custom_identifier','customIdentifier','ref_id')),leadMatch=/crm-lead:(\d+)/.exec(identifier),customer=digits(value('customer_no_with_prefix','client_number','customer_number','destination','call_to_number','source','caller_id_number'));let lead=null;if(leadMatch)[[lead]]=await pool.execute('SELECT id,business_unit_id FROM crm_leads WHERE id=?',[leadMatch[1]]);if(!lead&&customer)[[lead]]=await pool.execute(`SELECT id,business_unit_id FROM crm_leads WHERE normalized_phone=? AND deleted_at_utc IS NULL ORDER BY id DESC LIMIT 1`,[customer]);const callId=clean(value('call_id','uuid','id')||identifier);if(!callId)return res.status(400).json({message:'Smartflo call ID is required'});
-  const direction=clean(value('direction'))||'inbound',source=clean(value('source','caller_id_number')),destination=clean(value('destination','call_to_number','customer_no_with_prefix')),agent=clean(value('agent_number','answer_agent_number','agent_id')),status=clean(value('call_status','status','state')||'completed'),result=clean(value('hangup_cause','description','dept_name','ivr_name'));
+  const body=req.body||{},value=(...names)=>{for(const name of names){if(body[name]!=null)return body[name];if(body[`$${name}`]!=null)return body[`$${name}`];}return null;},custom=value('custom_identifier','customIdentifier'),customLeadId=custom&&typeof custom==='object'?clean(custom.crm_lead_id):'',identifier=clean(typeof custom==='string'?custom:value('ref_id')),leadMatch=/crm-lead:(\d+)/.exec(identifier),customer=digits(value('customer_no_with_prefix','client_number','customer_number','destination','call_to_number','source','caller_id_number'));let lead=null;if(customLeadId)[[lead]]=await pool.execute('SELECT id,business_unit_id FROM crm_leads WHERE id=?',[customLeadId]);if(!lead&&leadMatch)[[lead]]=await pool.execute('SELECT id,business_unit_id FROM crm_leads WHERE id=?',[leadMatch[1]]);if(!lead&&customer)[[lead]]=await pool.execute(`SELECT id,business_unit_id FROM crm_leads WHERE normalized_phone=? AND deleted_at_utc IS NULL ORDER BY id DESC LIMIT 1`,[customer]);const callId=clean(value('ref_id','call_id','uuid','id')||identifier);if(!callId)return res.status(400).json({message:'Smartflo call reference is required'});
+  const direction=clean(value('direction'))||'inbound',source=clean(value('source','caller_id_number')),destination=clean(value('destination','call_to_number','customer_number','customer_no_with_prefix')),agent=clean(value('agent_number','answer_agent_number','agent_id')),status=clean(value('call_status','status','state')||'completed'),result=clean(value('hangup_cause','description','dept_name','ivr_name'));
   const recordCalls=cfg.recordCalls!==false,recordingUrl=recordCalls?clean(value('recording_url','recordingUrl','call_recording_url'))||null:null,storedBody={...body};if(!recordCalls)for(const key of Object.keys(storedBody))if(/record(ing)?(_?url|_?id|identifier)?/i.test(key))delete storedBody[key];
   await pool.execute(`INSERT INTO crm_call_activities(integration_id,business_unit_id,lead_id,callerdesk_sid,direction,source_number,destination_number,agent_number,status,call_result,started_at_utc,ended_at_utc,duration_seconds,talk_seconds,recording_url,raw_payload) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE status=VALUES(status),call_result=VALUES(call_result),ended_at_utc=VALUES(ended_at_utc),duration_seconds=VALUES(duration_seconds),talk_seconds=VALUES(talk_seconds),recording_url=VALUES(recording_url),raw_payload=VALUES(raw_payload)`,[row.id,Number(lead?.business_unit_id||cfg.defaultBusinessUnitId||1),lead?.id||null,callId,direction,source,destination,agent,status,result,value('start_stamp','created_at'),value('end_stamp'),Number(value('duration','call_duration'))||0,Number(value('billsec','answered_seconds'))||0,recordingUrl,JSON.stringify(storedBody)]);
-  if(lead?.id)await pool.execute(`INSERT INTO crm_lead_activities(lead_id,activity_type,summary,details_json) VALUES(?,'call_completed',?,?)`,[lead.id,`Smartflo call ${status} · ${Number(value('billsec','answered_seconds'))||0}s talk time`,JSON.stringify({provider:'smartflo',callId,recordingUrl,recordingIdentifier:recordCalls?clean(value('aws_call_recording_identifier'))||null:null})]);
   res.json({success:true});}));return router;}

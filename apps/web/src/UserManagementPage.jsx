@@ -148,7 +148,7 @@ export default function UserManagementPage() {
   const [message, setMessage] = useState(null);
   const [loading, setLoading] = useState(true);
   const [callingOptions,setCallingOptions]=useState({configured:false,members:[],groups:[]});
-  const [smartfloOptions,setSmartfloOptions]=useState({configured:false,users:[],departments:[]});
+  const [smartfloOptions,setSmartfloOptions]=useState({configured:false,users:[],departments:[],error:''});
 
   async function load() {
     setLoading(true);
@@ -173,8 +173,9 @@ export default function UserManagementPage() {
     }).catch(()=>setCallingOptions({configured:false,members:[],groups:[]}));
     api('/smartflo/config').then(result=>result.data?.configured?Promise.allSettled([api('/smartflo/users'),api('/smartflo/departments')]):null).then(results=>{
       if(!results)return;
-      setSmartfloOptions({configured:true,users:results[0].status==='fulfilled'?firstOptionArray(results[0].value.data):[],departments:results[1].status==='fulfilled'?firstOptionArray(results[1].value.data):[]});
-    }).catch(()=>setSmartfloOptions({configured:false,users:[],departments:[]}));
+      const users=results[0].status==='fulfilled'?firstOptionArray(results[0].value.data):[];
+      setSmartfloOptions({configured:true,users,departments:results[1].status==='fulfilled'?firstOptionArray(results[1].value.data):[],error:results[0].status==='rejected'?(results[0].reason?.message||'Could not fetch Smartflo users'):''});
+    }).catch(error=>setSmartfloOptions({configured:false,users:[],departments:[],error:error.message||'Could not load Smartflo configuration'}));
   }, []);
 
   const filtered = users.filter((user) =>
@@ -577,6 +578,7 @@ export default function UserManagementPage() {
                 {!smartfloOptions.configured?<div className="account-note"><strong>Smartflo is not configured</strong><span>Connect Tata Smartflo from Settings → Integrations before mapping agents.</span></div>:<div className="form-grid">
                   <label className="check-option wide"><input type="checkbox" checked={form.smartfloEnabled} onChange={event=>setForm({...form,smartfloEnabled:event.target.checked})}/>Enable Smartflo one-click calling for this user</label>
                   {form.smartfloEnabled&&<>
+                    {smartfloOptions.error&&<div className="account-note wide"><strong>Smartflo users could not be loaded</strong><span>{smartfloOptions.error}. Test the connection in Settings → Smartflo and confirm the token includes user-list access.</span></div>}
                     <label className="wide">Smartflo user / agent *<select required value={form.smartfloUserId} onChange={event=>selectSmartfloUser(event.target.value)}><option value="">Select Smartflo user</option>{form.smartfloUserId&&!smartfloOptions.users.some(item=>String(item.id??item.user_id)===String(form.smartfloUserId))&&<option value={form.smartfloUserId}>{form.smartfloAgentName||form.smartfloAgentNumber} (saved)</option>}{smartfloOptions.users.map((user,index)=>{const agent=user.agent||{};return <option key={user.id||user.user_id||index} value={user.id||user.user_id}>{agent.name||user.name||user.login_id} · {agent.follow_me_number||user.phone||'No number'}</option>;})}</select></label>
                     <label>Agent name<input readOnly value={form.smartfloAgentName}/></label>
                     <label>Agent number<input readOnly value={form.smartfloAgentNumber}/></label>

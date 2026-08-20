@@ -9,11 +9,13 @@ This CRM integration follows Tata Smartflo's API reference at:
 
 1. Run `database/mysql/051_callerdesk_calling.sql` if it has not already been applied, followed by `database/mysql/052_smartflo_telephony.sql` and `database/mysql/053_smartflo_ivr_mapping.sql`.
 2. Open **Settings → Integrations**, add **Tata Cloud Telephony / Tata Smartflo**, and open its settings.
-3. Enter either the Smartflo login email and password or a permanent access token supplied by Tata.
+3. Enter either the Smartflo login email and password or an API access token from **API Connect → API Tokens**. Do not paste a key from **Click to Call Support API Tokens**: Tata documents that as a separate `api_key` for a predefined calling configuration, not an API authentication token, and it cannot fetch users, DIDs, or departments.
 4. Test the connection. The CRM then loads DIDs from `/v1/my_number`, departments from `/v1/departments`, and users/agents from `/v1/users`.
 5. Map each branch's DID, inbound IVR, and department in **Settings → Business Units → Branches**. Saving a DID and IVR updates the Tata My Number destination to `ivr||<IVR ID>`.
 6. Map each CRM user to a Smartflo agent in **Settings → User Management**.
 7. Configure the generated public HTTPS webhook URL in Smartflo.
+
+Opening a lead's **History** tab also reconciles the last 30 days of matching Smartflo CDRs. This provides a fallback for local/development installations whose webhook URL is not publicly reachable and imports Tata's documented `recording_url`, outcome, duration, and agent data into the CRM timeline.
 
 The webhook must not use `localhost`. In Smartflo, enable the relevant inbound and outbound triggers for each DID and use either JSON or form-urlencoded POST delivery. Tata may require a support request to enable Webhooks for the account.
 
