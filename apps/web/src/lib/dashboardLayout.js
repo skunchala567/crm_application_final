@@ -15,6 +15,25 @@ export const DASHBOARD_WIDGETS = [
 
 const DASHBOARD_SIZES = ['quarter', 'half', 'three-quarter', 'full'];
 
+/*
+ * How tall a widget is allowed to grow.
+ *
+ * 'auto' is what every widget was before this existed: the panel is as tall
+ * as its content, and a row is as tall as its tallest member. The named
+ * heights fix a widget instead, which is what makes a chart readable next to
+ * a short list -- and what lets a long table scroll inside its own panel
+ * rather than stretching the row.
+ */
+const DASHBOARD_HEIGHTS = ['auto', 'short', 'medium', 'tall', 'x-tall'];
+
+export const DASHBOARD_HEIGHT_LABELS = [
+  ['auto', 'Fit content'],
+  ['short', 'Short'],
+  ['medium', 'Medium'],
+  ['tall', 'Tall'],
+  ['x-tall', 'Extra tall'],
+];
+
 /** Fired after the layout is saved so an open Dashboard can pick it up. */
 export const DASHBOARD_LAYOUT_EVENT = 'crm:dashboard-layout-changed';
 
@@ -25,6 +44,7 @@ export function dashboardLayoutKey(unitId) {
 export function normalizeDashboardLayout(layout) {
   const known = new Set(DASHBOARD_WIDGETS.map((widget) => widget.id));
   const validSizes = new Set(DASHBOARD_SIZES);
+  const validHeights = new Set(DASHBOARD_HEIGHTS);
   const source = Array.isArray(layout) ? layout : [];
   const addingActivityWidget = !source.some((item) => item.id === 'activity');
   const cleaned = source
@@ -32,6 +52,9 @@ export function normalizeDashboardLayout(layout) {
     .map((item) => ({
       id: item.id,
       size: addingActivityWidget && item.id === 'stats' && item.size === 'full' ? 'half' : (validSizes.has(item.size) ? item.size : 'half'),
+      // Layouts saved before heights existed have none, and 'auto' is exactly
+      // how they were rendering.
+      height: validHeights.has(item.height) ? item.height : 'auto',
       // Product widgets are permanent dashboard defaults. Visibility is only
       // configurable for user-added saved reports.
       visible: known.has(item.id) ? true : item.visible !== false,
@@ -40,13 +63,13 @@ export function normalizeDashboardLayout(layout) {
   // Widgets added to the product after a layout was saved default to visible.
   const existing = new Set(cleaned.map((item) => item.id));
   DASHBOARD_WIDGETS.forEach((widget) => {
-    if (!existing.has(widget.id)) cleaned.push({ id: widget.id, size: widget.size, visible: true });
+    if (!existing.has(widget.id)) cleaned.push({ id: widget.id, size: widget.size, height: 'auto', visible: true });
   });
   return cleaned;
 }
 
 export function defaultDashboardLayout() {
-  return DASHBOARD_WIDGETS.map((widget) => ({ id: widget.id, size: widget.size, visible: true }));
+  return DASHBOARD_WIDGETS.map((widget) => ({ id: widget.id, size: widget.size, height: 'auto', visible: true }));
 }
 
 export function readDashboardLayout(unitId) {
@@ -76,6 +99,7 @@ export function isSameDashboardLayout(a, b) {
     return other
       && item.id === other.id
       && item.size === other.size
+      && (item.height || 'auto') === (other.height || 'auto')
       && (item.visible !== false) === (other.visible !== false);
   });
 }

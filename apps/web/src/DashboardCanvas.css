@@ -37,6 +37,47 @@
   margin: 0;
 }
 
+/* Heights chosen in the layout editor.
+
+   These must match WIDGET_HEIGHT in components/DashboardPage.jsx, which
+   applies the same heights on the Dashboard itself -- the editor is a preview
+   and is worth nothing if it previews something else.
+
+   A fixed height, not a floor: a minimum would let a long table push past it
+   and drag the row, which is the thing setting a height is meant to stop. The
+   content scrolls inside instead. 'auto' adds no rule at all, so a layout that
+   has never been given a height renders exactly as it always did. */
+.dashboard-widget.height-short { height: 260px; }
+.dashboard-widget.height-medium { height: 380px; }
+.dashboard-widget.height-tall { height: 520px; }
+.dashboard-widget.height-x-tall { height: 680px; }
+
+.dashboard-widget:not(.height-auto) { overflow: hidden; }
+.dashboard-widget:not(.height-auto) > .panel,
+.dashboard-widget:not(.height-auto) > .stats-grid { overflow: auto; }
+
+.dashboard-widget-height {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-500);
+  font-size: 9px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.dashboard-widget-height select {
+  height: 27px;
+  min-width: 84px;
+  padding: 0 6px;
+  border: 1px solid var(--ink-200);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--brand-600);
+  font-size: 10px;
+  font-weight: 800;
+}
+
 .dashboard-heading{position:relative;width:100%;padding-right:390px}
 .dashboard-toolbar{width:auto;margin:0;display:flex;align-items:center;justify-content:flex-end;gap:8px;position:absolute;z-index:20;right:0;bottom:-27px}
 .dashboard-tabs{flex:none;align-self:flex-end}

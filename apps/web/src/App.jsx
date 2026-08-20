@@ -14,7 +14,7 @@ import { BusinessUnitProvider, useBusinessUnit } from "./BusinessUnitContext.jsx
 import { LeadQuickActionsProvider } from "./LeadQuickActionsContext.jsx";
 import { PermissionProvider, usePermissions } from "./PermissionContext.jsx";
 import { RequirePermission } from "./components/Can.jsx";
-import { DASHBOARD_WIDGETS, dashboardMoveTarget, defaultDashboardLayout, isSameDashboardLayout, normalizeDashboardLayout, readDashboardLayout, writeDashboardLayout } from "./lib/dashboardLayout.js";
+import { DASHBOARD_HEIGHT_LABELS, DASHBOARD_WIDGETS, dashboardMoveTarget, defaultDashboardLayout, isSameDashboardLayout, normalizeDashboardLayout, readDashboardLayout, writeDashboardLayout } from "./lib/dashboardLayout.js";
 import { useDailyUsage } from "./lib/useDailyUsage.js";
 import AuthLayout from "./components/AuthLayout.jsx";
 import Sidebar from "./components/Sidebar.jsx";
@@ -580,7 +580,7 @@ function DashboardOverviewCanvas({ data, leads = [], cards, editable = false }) 
         const definition = report ? { title: report.title || "Saved report" } : DASHBOARD_WIDGETS.find(widget => widget.id === item.id);
         if (!definition) return null;
         const moveTargets = Object.fromEntries(["left", "right", "up", "down"].map(direction => [direction, dashboardMoveTarget(visibleLayout, item.id, direction)]));
-        return <article key={item.id} className={`dashboard-widget size-${item.size} ${item.visible === false ? "hidden-widget" : ""}`}>
+        return <article key={item.id} className={`dashboard-widget size-${item.size} height-${item.height || "auto"} ${item.visible === false ? "hidden-widget" : ""}`}>
           {editable && <div className="dashboard-widget-actions">
             <strong>{definition.title}</strong>
             <button type="button" title="Move left" aria-label={`Move ${definition.title} left`} onClick={() => move(item.id, "left")} disabled={!moveTargets.left}>←</button>
@@ -589,6 +589,7 @@ function DashboardOverviewCanvas({ data, leads = [], cards, editable = false }) 
             <button type="button" title="Move down" aria-label={`Move ${definition.title} down`} onClick={() => move(item.id, "down")} disabled={!moveTargets.down}>↓</button>
             {report?.type === "cards" && <label className="dashboard-report-columns"><span>Cards/row</span><select value={reportColumnsFor(report)} onChange={event => stageReportColumns(report.id, Number(event.target.value))} aria-label={`Cards per row for ${definition.title}`}><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>}
             <label className="dashboard-widget-size"><span className="sr-only">Width for {definition.title}</span><select value={item.size} onChange={event => patchWidget(item.id, { size: event.target.value })} aria-label={`Width for ${definition.title}`}><option value="quarter">¼</option><option value="half">½</option><option value="three-quarter">¾</option><option value="full">Full</option></select></label>
+            <label className="dashboard-widget-height"><span>Height</span><select value={item.height || "auto"} onChange={event => patchWidget(item.id, { height: event.target.value })} aria-label={`Height for ${definition.title}`}>{DASHBOARD_HEIGHT_LABELS.map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label>
             {String(item.id).startsWith("report:") && <button onClick={() => patchWidget(item.id, { visible: false })}>Remove</button>}
           </div>}
           <DashboardWidgetContent id={item.id} data={data} leads={leads} cards={cards} report={report ? { ...report, cardColumns: reportColumnsFor(report) } : null} />

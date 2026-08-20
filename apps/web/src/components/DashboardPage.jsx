@@ -305,7 +305,16 @@ export function DashboardPage({ user }) {
                 });
                 if (!content) return null;
                 return (
-                  <div key={item.id} className={cn('min-w-0 h-full', widgetMinHeight(item.id), COLUMN_SPAN[item.size] || COLUMN_SPAN.half)}>
+                  <div
+                    key={item.id}
+                    className={cn(
+                      'min-w-0 h-full',
+                      // A chosen height replaces the floor rather than fighting it.
+                      widgetHeight(item) || widgetMinHeight(item.id),
+                      widgetHeight(item) && 'overflow-auto',
+                      COLUMN_SPAN[item.size] || COLUMN_SPAN.half,
+                    )}
+                  >
                     {content}
                   </div>
                 );
@@ -408,6 +417,26 @@ const WIDGET_MIN_HEIGHT = {
 
 const widgetMinHeight = (id) =>
   WIDGET_MIN_HEIGHT[String(id || '').startsWith('report:') ? 'report' : String(id || '')] ?? 'min-h-[420px]';
+
+/**
+ * A height chosen in the layout editor, as a fixed height rather than a floor.
+ *
+ * The floor above is what every widget had: a minimum, so a panel could still
+ * grow past it and drag the whole row with it. A chosen height has to hold,
+ * or setting one on a long table would do nothing -- so the widget is pinned
+ * and its content scrolls inside.
+ *
+ * 'auto' keeps the old behaviour exactly, which is what every saved layout
+ * has until somebody changes it.
+ */
+const WIDGET_HEIGHT = {
+  short: 'h-[260px]',
+  medium: 'h-[380px]',
+  tall: 'h-[520px]',
+  'x-tall': 'h-[680px]',
+};
+
+const widgetHeight = (item) => WIDGET_HEIGHT[item?.height] || '';
 
 const STAT_COLUMNS = {
   quarter: 'grid-cols-1',
