@@ -113,7 +113,7 @@ CREATE TABLE IF NOT EXISTS crm_call_activities (
   CONSTRAINT fk_call_bu FOREIGN KEY (business_unit_id) REFERENCES crm_business_units(id) ON DELETE CASCADE,
   CONSTRAINT fk_call_lead FOREIGN KEY (lead_id) REFERENCES crm_leads(id) ON DELETE SET NULL,
   CONSTRAINT fk_call_user FOREIGN KEY (agent_user_id) REFERENCES app_users(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_dialer_campaigns (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -129,7 +129,7 @@ CREATE TABLE IF NOT EXISTS crm_dialer_campaigns (
   CONSTRAINT fk_dialer_campaign_bu FOREIGN KEY(business_unit_id) REFERENCES crm_business_units(id) ON DELETE CASCADE,
   CONSTRAINT fk_dialer_campaign_agent_user FOREIGN KEY(agent_user_id) REFERENCES app_users(id) ON DELETE SET NULL,
   CONSTRAINT fk_dialer_campaign_user FOREIGN KEY(created_by_user_id) REFERENCES app_users(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_dialer_queue (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, campaign_id BIGINT UNSIGNED NOT NULL, lead_id BIGINT UNSIGNED NOT NULL,
@@ -140,4 +140,4 @@ CREATE TABLE IF NOT EXISTS crm_dialer_queue (
   CONSTRAINT fk_dialer_queue_campaign FOREIGN KEY(campaign_id) REFERENCES crm_dialer_campaigns(id) ON DELETE CASCADE,
   CONSTRAINT fk_dialer_queue_lead FOREIGN KEY(lead_id) REFERENCES crm_leads(id) ON DELETE CASCADE,
   CONSTRAINT fk_dialer_queue_call FOREIGN KEY(last_call_activity_id) REFERENCES crm_call_activities(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

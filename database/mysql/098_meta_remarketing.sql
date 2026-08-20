@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS crm_meta_ad_accounts (
   updated_at_utc DATETIME(6) NULL ON UPDATE CURRENT_TIMESTAMP(6),
   PRIMARY KEY (id),
   UNIQUE KEY uq_meta_ad_account (ad_account_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
 -- 4. The audience itself.
@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS crm_remarketing_audiences (
   KEY ix_audience_unit (business_unit_id, status),
   -- The scheduler's claim query: what is due, soonest first.
   KEY ix_audience_due (sync_type, status, next_sync_at_utc)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
 -- 5. Who is in the audience, and what Meta has been told about them.
@@ -160,7 +160,7 @@ CREATE TABLE IF NOT EXISTS crm_remarketing_audience_members (
   KEY ix_member_state (audience_id, status),
   KEY ix_member_lead (lead_id),
   CONSTRAINT fk_member_audience FOREIGN KEY (audience_id) REFERENCES crm_remarketing_audiences(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
 -- 6. What each sync did.
@@ -187,4 +187,4 @@ CREATE TABLE IF NOT EXISTS crm_remarketing_sync_logs (
   PRIMARY KEY (id),
   KEY ix_sync_audience (audience_id, started_at_utc),
   CONSTRAINT fk_sync_audience FOREIGN KEY (audience_id) REFERENCES crm_remarketing_audiences(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

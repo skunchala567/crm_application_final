@@ -60,12 +60,33 @@ export function createPaymentLinkBatchRoutes(pool, authenticate, requireCrmAcces
   const canView = requireAdminOrPermission(pool, 'payments.collections.view');
   router.use(authenticate, requireCrmAccess);
 
+  /*
+   * What was actually collected, alongside what was asked for.
+   *
+   * Each row keeps the payment link it raised, so the money can be followed
+   * from the upload to the payment without matching on mobile numbers -- the
+   * link id is exact where a number is not, since one payer can be sent
+   * several links over time and only one of them was this upload's.
+   *
+   * The paid statuses are the same list Collections uses for its own totals
+   * (jodo-payment-links.routes.js). Kept identical on purpose: two screens
+   * reporting different totals for one payment is worse than either being
+   * slightly wrong.
+   */
+  const PAID_STATUSES = "'paid','settled','success','completed','captured'";
+
   const COUNTS = `
     (SELECT COUNT(*) FROM crm_payment_link_batch_rows r WHERE r.batch_id=b.id) AS totalRows,
     (SELECT COUNT(*) FROM crm_payment_link_batch_rows r WHERE r.batch_id=b.id AND r.status='sent') AS sentRows,
     (SELECT COUNT(*) FROM crm_payment_link_batch_rows r WHERE r.batch_id=b.id AND r.status='failed') AS failedRows,
     (SELECT COUNT(*) FROM crm_payment_link_batch_rows r WHERE r.batch_id=b.id AND r.status IN ('pending','link_created')) AS pendingRows,
-    (SELECT COALESCE(SUM(r.amount),0) FROM crm_payment_link_batch_rows r WHERE r.batch_id=b.id) AS totalAmount`;
+    (SELECT COALESCE(SUM(r.amount),0) FROM crm_payment_link_batch_rows r WHERE r.batch_id=b.id) AS totalAmount,
+    (SELECT COUNT(*) FROM crm_payment_link_batch_rows r
+       JOIN crm_jodo_payment_links p ON p.id=r.payment_link_id
+      WHERE r.batch_id=b.id AND LOWER(p.status) IN (${PAID_STATUSES})) AS paidRows,
+    (SELECT COALESCE(SUM(p.amount),0) FROM crm_payment_link_batch_rows r
+       JOIN crm_jodo_payment_links p ON p.id=r.payment_link_id
+      WHERE r.batch_id=b.id AND LOWER(p.status) IN (${PAID_STATUSES})) AS paidAmount`;
 
   router.get('/', canView, wrap(async (req, res) => {
     const scope = branchScopeSql(req.user, 'b.branch_id');

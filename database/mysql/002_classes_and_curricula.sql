@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS crm_classes (
     PRIMARY KEY (id),
     UNIQUE KEY uq_crm_classes_code (class_code),
     UNIQUE KEY uq_crm_classes_position (position)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_curricula (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS crm_curricula (
     PRIMARY KEY (id),
     UNIQUE KEY uq_crm_curricula_code (curriculum_code),
     UNIQUE KEY uq_crm_curricula_position (position)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO crm_classes (class_code, display_name, position) VALUES
 ('EY-1', 'EY - 1', 1), ('EY-2', 'EY - 2', 2), ('EY-3', 'EY - 3', 3),

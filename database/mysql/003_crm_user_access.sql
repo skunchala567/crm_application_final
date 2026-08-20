@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS crm_user_branches (
     CONSTRAINT fk_crm_user_branches_user FOREIGN KEY (user_id) REFERENCES app_users(id) ON DELETE CASCADE,
     CONSTRAINT fk_crm_user_branches_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
     CONSTRAINT fk_crm_user_branches_created_user FOREIGN KEY (created_by_user_id) REFERENCES app_users(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO role_permissions (role_id, permission_key, is_allowed, updated_at_utc)
 SELECT id, 'crm.users.manage', TRUE, UTC_TIMESTAMP(6)

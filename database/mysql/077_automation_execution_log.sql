@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS crm_automation_execution_log (
   KEY ix_crm_automation_log_workflow (workflow_id, executed_at_utc),
   CONSTRAINT fk_crm_automation_log_workflow FOREIGN KEY (workflow_id)
     REFERENCES crm_automation_workflows(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Backfill 1: terminal rows still sitting in the queue.
 INSERT INTO crm_automation_execution_log

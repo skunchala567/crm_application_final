@@ -3,6 +3,7 @@ import { Download, Search } from 'lucide-react';
 import { api } from '../api';
 import '../styles/PaymentForms.css';
 import { recordDownload } from '../downloadAudit.js';
+import DateRangePicker from '../components/DateRangePicker.jsx';
 
 /**
  * Every payment that came in, whichever form took it.
@@ -148,10 +149,12 @@ export default function PaymentCollectionsPage({ onMessage }) {
           <option value="">All branches</option>
           {branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
         </select>
-        <span className="collection-dates">
-          <input type="date" value={filters.from} onChange={e => patch('from', e.target.value)} aria-label="From date" />
-          <input type="date" value={filters.to} onChange={e => patch('to', e.target.value)} aria-label="To date" />
-        </span>
+        <DateRangePicker
+          label="Paid"
+          from={filters.from}
+          to={filters.to}
+          onChange={(from, to) => setFilters(current => ({ ...current, from, to }))}
+        />
       </div>
 
       <section className="forms-list">

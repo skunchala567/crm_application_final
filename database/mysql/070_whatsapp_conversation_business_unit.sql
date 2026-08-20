@@ -49,12 +49,12 @@ UPDATE crm_whatsapp_conversations c
      SELECT MIN(l.business_unit_id) FROM crm_leads l
       WHERE l.deleted_at_utc IS NULL
         AND RIGHT(REGEXP_REPLACE(l.phone, '[^0-9]', ''), 10)
-          = RIGHT(REGEXP_REPLACE(c.mobile, '[^0-9]', ''), 10) COLLATE utf8mb4_0900_ai_ci)
+          = RIGHT(REGEXP_REPLACE(c.mobile, '[^0-9]', ''), 10) COLLATE utf8mb4_unicode_ci)
  WHERE c.business_unit_id IS NULL
    AND (SELECT COUNT(DISTINCT l.business_unit_id) FROM crm_leads l
          WHERE l.deleted_at_utc IS NULL
            AND RIGHT(REGEXP_REPLACE(l.phone, '[^0-9]', ''), 10)
-          = RIGHT(REGEXP_REPLACE(c.mobile, '[^0-9]', ''), 10) COLLATE utf8mb4_0900_ai_ci) = 1;
+          = RIGHT(REGEXP_REPLACE(c.mobile, '[^0-9]', ''), 10) COLLATE utf8mb4_unicode_ci) = 1;
 
 -- 3. Whatever is left belongs to the default unit until a lead claims it.
 UPDATE crm_whatsapp_conversations

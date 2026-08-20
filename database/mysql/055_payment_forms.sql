@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS crm_payment_forms (
   CONSTRAINT fk_payment_form_bu FOREIGN KEY (business_unit_id) REFERENCES crm_business_units(id) ON DELETE CASCADE,
   CONSTRAINT fk_payment_form_branch FOREIGN KEY (branch_id) REFERENCES branches(id),
   CONSTRAINT fk_payment_form_user FOREIGN KEY (created_by_user_id) REFERENCES app_users(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Payment Form Categories (Payment components/categories that customers can select from)
 CREATE TABLE IF NOT EXISTS crm_payment_form_categories (
@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS crm_payment_form_categories (
   PRIMARY KEY (id),
   KEY ix_category_form (payment_form_id),
   CONSTRAINT fk_category_form FOREIGN KEY (payment_form_id) REFERENCES crm_payment_forms(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Payment Form Submissions (Track all payment attempts)
 CREATE TABLE IF NOT EXISTS crm_payment_form_submissions (
@@ -63,4 +63,4 @@ CREATE TABLE IF NOT EXISTS crm_payment_form_submissions (
   KEY ix_submission_jodo (jodo_order_id),
   CONSTRAINT fk_submission_bu FOREIGN KEY (business_unit_id) REFERENCES crm_business_units(id) ON DELETE CASCADE,
   CONSTRAINT fk_submission_form FOREIGN KEY (payment_form_id) REFERENCES crm_payment_forms(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

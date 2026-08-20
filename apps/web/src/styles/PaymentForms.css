@@ -456,17 +456,10 @@
   border-color: var(--brand-600);
 }
 
-.collection-dates {
-  display: flex;
-  gap: 0.4rem;
-}
-
-.collection-dates input { min-width: 130px; }
-
 @media (max-width: 900px) {
   .collection-filters { grid-template-columns: 1fr 1fr; }
   .collection-search,
-  .collection-dates { grid-column: 1 / -1; }
+  .collection-filters .date-range-picker { grid-column: 1 / -1; }
 }
 
 .collections-error {

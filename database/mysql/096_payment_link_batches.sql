@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS crm_payment_link_batches (
   KEY ix_link_batch_unit (business_unit_id, created_at_utc),
   KEY ix_link_batch_branch (branch_id),
   CONSTRAINT fk_link_batch_branch FOREIGN KEY (branch_id) REFERENCES branches(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_payment_link_batch_rows (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -83,4 +83,4 @@ CREATE TABLE IF NOT EXISTS crm_payment_link_batch_rows (
   -- The cycle's claim query: oldest pending rows first, across all batches.
   KEY ix_link_row_pending (status, id),
   CONSTRAINT fk_link_row_batch FOREIGN KEY (batch_id) REFERENCES crm_payment_link_batches(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

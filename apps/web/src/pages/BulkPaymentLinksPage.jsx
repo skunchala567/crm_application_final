@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Upload, Download, Send, AlertCircle, CheckCircle2, Loader, RefreshCw, Ban, FileSpreadsheet } from 'lucide-react';
+import { Upload, Download, Send, AlertCircle, CheckCircle2, Loader, RefreshCw, Ban, FileSpreadsheet, ChevronDown, ChevronRight, Plus, Search, X } from 'lucide-react';
 import { api } from '../api.js';
+import { recordDownload } from '../downloadAudit.js';
+import DateRangePicker from '../components/DateRangePicker.jsx';
 import '../styles/BulkPaymentLinks.css';
 
 /**
@@ -11,6 +13,11 @@ import '../styles/BulkPaymentLinks.css';
  * sent -- a mistyped mobile or a zero amount is worth catching in front of
  * the person who typed it, not in a failed-row report afterwards. The server
  * re-checks everything it is given; this is a preview, not the gate.
+ *
+ * What the screen leads with is the history. Uploading is something you do
+ * occasionally; checking whether last night's four hundred links went out is
+ * something you do every morning, and that read was previously below three
+ * full-height form cards. The form now opens from a button instead.
  */
 
 const HEADER_ALIASES = {
@@ -133,11 +140,20 @@ export default function BulkPaymentLinksPage({ onMessage }) {
   const [result, setResult] = useState(null);
   const [batches, setBatches] = useState([]);
   const [openBatch, setOpenBatch] = useState(null);
+  const [loadingBatches, setLoadingBatches] = useState(true);
+
+  const [showForm, setShowForm] = useState(false);
+  const [filters, setFilters] = useState({ search: '', status: '', branchId: '', from: '', to: '' });
+  const [exporting, setExporting] = useState(0);
 
   const notify = useCallback((type, text) => onMessage?.({ type, text }), [onMessage]);
 
   const loadBatches = useCallback(() => {
-    api('/jodo/payment-link-batches').then(r => setBatches(r.data || [])).catch(error => notify('error', error.message));
+    setLoadingBatches(true);
+    api('/jodo/payment-link-batches')
+      .then(r => setBatches(r.data || []))
+      .catch(error => notify('error', error.message))
+      .finally(() => setLoadingBatches(false));
   }, [notify]);
 
   useEffect(() => {
@@ -227,11 +243,58 @@ export default function BulkPaymentLinksPage({ onMessage }) {
       setRows([]);
       setFileName('');
       notify('success', `${response.data.queued} payment links queued`);
+      setShowForm(false);
       loadBatches();
     } catch (error) {
       notify('error', error.message);
     } finally {
       setSending(false);
+    }
+  }
+
+  /**
+   * One upload's rows as a CSV.
+   *
+   * Fetched rather than taken from `openBatch`, so a row can be exported
+   * without expanding it first, and so the file always reflects the run as it
+   * stands now rather than whenever it was last opened.
+   *
+   * Routed through recordDownload for the same reason every other export on
+   * this screen's siblings is: a file of payer names, mobile numbers and
+   * amounts leaving the CRM is exactly what Bulk Actions is meant to show.
+   */
+  async function exportBatch(batch) {
+    setExporting(batch.id);
+    try {
+      const detail = (await api(`/jodo/payment-link-batches/${batch.id}`)).data;
+      const header = ['Row', 'Mobile', 'Name', 'Email', 'Amount', 'Status', 'Payment', 'Lead', 'Order ID', 'Error', 'Processed'];
+      const cell = value => {
+        const text = value === null || value === undefined ? '' : String(value);
+        return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+      };
+      const body = (detail.rows || []).map(row => [
+        row.rowNumber, row.phone, row.name, row.email, row.amount, row.status,
+        row.paymentStatus || '', row.leadNumber || '', row.orderId || '', row.error || '',
+        row.processedAt || '',
+      ].map(cell).join(','));
+      const csv = [header.join(','), ...body].join('\n');
+      const fileName = `${(batch.fileName || `upload-${batch.id}`).replace(/\.csv$/i, '')}-results.csv`;
+
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+      link.download = fileName;
+      link.click();
+      URL.revokeObjectURL(link.href);
+
+      recordDownload('Bulk payment link results', body.length, fileName, {
+        columns: header,
+        context: { batchId: batch.id, branch: batch.branchName, status: batch.status },
+        content: csv,
+      });
+    } catch (error) {
+      notify('error', error.message);
+    } finally {
+      setExporting(0);
     }
   }
 
@@ -249,15 +312,34 @@ export default function BulkPaymentLinksPage({ onMessage }) {
     } catch (error) { notify('error', error.message); }
   }
 
-  return (
-    <main className="bulk-links">
-      <header className="bulk-links-head">
-        <div>
-          <h2>Bulk payment links</h2>
-          <p>Upload mobile numbers with the amount each owes. Every number gets its own Jodo payment link, sent on WhatsApp.</p>
-        </div>
-      </header>
+  /* Filtered client-side: the endpoint returns the latest 100 uploads, which
+     is already in hand, so a round trip per keystroke would buy nothing. */
+  const visible = batches.filter(batch => {
+    const text = `${batch.fileName || ''} ${batch.branchName || ''} ${batch.createdBy || ''}`.toLowerCase();
+    if (filters.search && !text.includes(filters.search.toLowerCase())) return false;
+    if (filters.status && batch.status !== filters.status) return false;
+    if (filters.branchId && String(batch.branchId) !== String(filters.branchId)) return false;
+    const day = (batch.createdAt || '').slice(0, 10);
+    if (filters.from && day < filters.from) return false;
+    if (filters.to && day > filters.to) return false;
+    return true;
+  });
 
+  /* Sent counts every number in the upload, which is what was asked for:
+     a raised link is a link the payer can use whether or not the CRM sent
+     the WhatsApp itself, since Jodo messages them too. */
+  const totals = visible.reduce((sum, batch) => ({
+    uploads: sum.uploads + 1,
+    sent: sum.sent + Number(batch.totalRows || 0),
+    amount: sum.amount + Number(batch.totalAmount || 0),
+    collected: sum.collected + Number(batch.paidAmount || 0),
+    paidRows: sum.paidRows + Number(batch.paidRows || 0),
+  }), { uploads: 0, sent: 0, amount: 0, collected: 0, paidRows: 0 });
+
+  const filtersOn = Boolean(filters.search || filters.status || filters.branchId || filters.from || filters.to);
+  const statuses = [...new Set(batches.map(batch => batch.status))];
+
+  const form = <>
       <section className="bulk-links-card">
         <h3>1 · Who is collecting</h3>
         <div className="bulk-links-grid">
@@ -371,10 +453,29 @@ export default function BulkPaymentLinksPage({ onMessage }) {
         </button>
       </section>
 
+  </>;
+
+  return (
+    <main className="bulk-links">
+      <header className="bulk-links-head">
+        <div>
+          <h2>Bulk payment links</h2>
+          <p>Upload mobile numbers with the amount each owes. Every number gets its own Jodo payment link, sent on WhatsApp.</p>
+        </div>
+        <div className="bulk-links-head-actions">
+          <button type="button" className="bulk-links-ghost" onClick={loadBatches} disabled={loadingBatches}>
+            <RefreshCw size={14} className={loadingBatches ? 'bulk-links-spin' : ''}/>Refresh
+          </button>
+          <button type="button" className="bulk-links-primary" onClick={() => { setResult(null); setShowForm(true); }}>
+            <Plus size={16}/>New upload
+          </button>
+        </div>
+      </header>
+
       {result && (
         <section className="bulk-links-card bulk-links-result">
           <h3><CheckCircle2 size={17}/>{result.queued} links queued</h3>
-          <p>They are raised and sent a few at a time in the background. Refresh the history below to follow progress.</p>
+          <p>They are raised and sent a few at a time in the background. The table below follows their progress.</p>
           {result.skipped?.length > 0 && (
             <details>
               <summary>{result.skipped.length} rows skipped</summary>
@@ -384,51 +485,164 @@ export default function BulkPaymentLinksPage({ onMessage }) {
         </section>
       )}
 
+      <section className="bulk-links-stats">
+        {[
+          ['Uploads', totals.uploads],
+          ['Sent', totals.sent.toLocaleString('en-IN')],
+          ['Value', money(totals.amount)],
+          ['Collected', money(totals.collected)],
+        ].map(([label, value]) => (
+          <article key={label} className={label === 'Collected' && totals.collected > 0 ? 'is-good' : ''}>
+            <span>{label}</span><strong>{value}</strong>
+            {label === 'Collected' && (
+              <small>{totals.paidRows} of {totals.sent} paid</small>
+            )}
+          </article>
+        ))}
+      </section>
+
       <section className="bulk-links-card">
-        <h3>Previous uploads <button className="bulk-links-refresh" onClick={loadBatches} aria-label="Refresh"><RefreshCw size={14}/></button></h3>
-        {!batches.length && <p className="bulk-links-hint">Nothing uploaded yet.</p>}
-        {batches.length > 0 && (
-          <div className="bulk-links-table-wrap">
-            <table>
-              <thead><tr><th>File</th><th>Branch</th><th className="num">Numbers</th><th className="num">Sent</th><th className="num">Failed</th><th className="num">Amount</th><th>Status</th><th/></tr></thead>
-              <tbody>
-                {batches.map(batch => (
-                  <>
-                    <tr key={batch.id}>
-                      <td><button className="bulk-links-link" onClick={() => openDetail(batch.id)}><FileSpreadsheet size={13}/>{batch.fileName || `Upload ${batch.id}`}</button></td>
-                      <td>{batch.branchName}</td>
-                      <td className="num">{batch.totalRows}</td>
-                      <td className="num">{batch.sentRows}</td>
-                      <td className="num">{batch.failedRows}</td>
-                      <td className="num">{money(batch.totalAmount)}</td>
-                      <td><span className={`bulk-links-status is-${batch.status}`}>{batch.status}</span></td>
-                      <td>{['queued', 'processing'].includes(batch.status) && <button className="bulk-links-cancel" onClick={() => cancelBatch(batch.id)}><Ban size={13}/>Cancel</button>}</td>
-                    </tr>
-                    {openBatch?.id === batch.id && (
-                      <tr key={`${batch.id}-detail`}>
-                        <td colSpan={8}>
-                          <div className="bulk-links-detail">
-                            {openBatch.rows.map(row => (
-                              <div key={row.id} className={`bulk-links-detail-row is-${row.status}`}>
-                                <span>{row.phone}</span>
-                                <span>{row.name || '—'}</span>
-                                <span className="num">{money(row.amount)}</span>
-                                <span>{row.leadNumber || '—'}</span>
-                                <span>{row.status}{row.paymentStatus ? ` · ${row.paymentStatus}` : ''}</span>
-                                <span className="bulk-links-error">{row.error || ''}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </>
-                ))}
-              </tbody>
-            </table>
+        <div className="bulk-links-filters">
+          <div className="bulk-links-search">
+            <Search size={15}/>
+            <input value={filters.search} placeholder="Search file, branch or who uploaded"
+              onChange={e => setFilters({ ...filters, search: e.target.value })}/>
           </div>
+          <select value={filters.status} onChange={e => setFilters({ ...filters, status: e.target.value })}>
+            <option value="">Any status</option>
+            {statuses.map(status => <option key={status} value={status}>{status}</option>)}
+          </select>
+          <select value={filters.branchId} onChange={e => setFilters({ ...filters, branchId: e.target.value })}>
+            <option value="">All branches</option>
+            {[...new Map(batches.map(b => [b.branchId, b.branchName])).entries()]
+              .map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </select>
+          <DateRangePicker
+            label="Uploaded"
+            from={filters.from}
+            to={filters.to}
+            onChange={(from, to) => setFilters({ ...filters, from, to })}
+          />
+          {filtersOn && (
+            <button type="button" className="bulk-links-ghost"
+              onClick={() => setFilters({ search: '', status: '', branchId: '', from: '', to: '' })}>
+              <X size={14}/>Clear
+            </button>
+          )}
+        </div>
+
+        <div className="bulk-links-table-wrap">
+          <table className="bulk-links-history">
+            <thead>
+              <tr>
+                <th className="col-toggle" aria-label="Expand"/>
+                <th>File</th><th>Branch</th><th>Uploaded</th>
+                <th className="num">Sent</th><th className="num">Value</th>
+                <th className="num">Collected</th>
+                <th>Status</th><th className="col-actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map(batch => [
+                <tr key={batch.id} className={openBatch?.id === batch.id ? 'is-open' : ''}>
+                  <td className="col-toggle">
+                    <button type="button" className="bulk-links-toggle" onClick={() => openDetail(batch.id)}
+                      aria-expanded={openBatch?.id === batch.id}
+                      aria-label={openBatch?.id === batch.id ? 'Hide rows' : 'Show rows'}>
+                      {openBatch?.id === batch.id ? <ChevronDown size={15}/> : <ChevronRight size={15}/>}
+                    </button>
+                  </td>
+                  <td>
+                    <button className="bulk-links-link" onClick={() => openDetail(batch.id)}>
+                      <FileSpreadsheet size={13}/>{batch.fileName || `Upload ${batch.id}`}
+                    </button>
+                    {batch.templateName && <small className="bulk-links-sub">{batch.templateName}</small>}
+                  </td>
+                  <td>{batch.branchName}</td>
+                  <td>
+                    {batch.createdAt ? new Date(batch.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                    {batch.createdBy && <small className="bulk-links-sub">{batch.createdBy}</small>}
+                  </td>
+                  <td className="num">{batch.totalRows}</td>
+                  <td className="num">{money(batch.totalAmount)}</td>
+                  <td className={`num${Number(batch.paidRows) > 0 ? ' is-good' : ''}`}>
+                    {money(batch.paidAmount)}
+                    <small className="bulk-links-sub">{batch.paidRows} of {batch.totalRows} paid</small>
+                  </td>
+                  <td><span className={`bulk-links-status is-${batch.status}`}>{batch.status}</span></td>
+                  <td className="col-actions">
+                    <button type="button" className="bulk-links-icon" title="Export these rows as CSV"
+                      disabled={exporting === batch.id} onClick={() => exportBatch(batch)}>
+                      {exporting === batch.id ? <Loader size={14} className="bulk-links-spin"/> : <Download size={14}/>}
+                    </button>
+                    {['queued', 'processing'].includes(batch.status) && (
+                      <button type="button" className="bulk-links-icon is-danger" title="Cancel what has not been sent"
+                        onClick={() => cancelBatch(batch.id)}><Ban size={14}/></button>
+                    )}
+                  </td>
+                </tr>,
+                openBatch?.id === batch.id ? (
+                  <tr key={`${batch.id}-detail`} className="bulk-links-detail-row-wrap">
+                    <td colSpan={9}>
+                      <div className="bulk-links-table-wrap is-inner">
+                        <table className="bulk-links-rows">
+                          <thead>
+                            <tr><th>#</th><th>Mobile</th><th>Name</th><th className="num">Amount</th><th>Lead</th><th>Status</th><th>Detail</th></tr>
+                          </thead>
+                          <tbody>
+                            {openBatch.rows.map(row => (
+                              <tr key={row.id} className={row.status === 'failed' ? 'is-bad' : ''}>
+                                <td>{row.rowNumber}</td>
+                                <td>{row.phone}</td>
+                                <td>{row.name || <span className="muted">From the lead</span>}</td>
+                                <td className="num">{money(row.amount)}</td>
+                                <td>{row.leadNumber || '—'}</td>
+                                <td><span className={`bulk-links-status is-${row.status}`}>{row.status}</span></td>
+                                <td>{row.error
+                                  ? <span className="bulk-links-error">{row.error}</span>
+                                  : <span className="muted">{row.paymentStatus || '—'}</span>}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </td>
+                  </tr>
+                ) : null,
+              ])}
+            </tbody>
+          </table>
+
+          {!visible.length && (
+            <div className="bulk-links-empty">
+              {loadingBatches ? 'Loading uploads…'
+                : batches.length ? 'No uploads match these filters.'
+                  : 'Nothing uploaded yet. Start with New upload.'}
+            </div>
+          )}
+        </div>
+
+        {visible.length > 0 && (
+          <p className="bulk-links-hint">
+            Showing {visible.length} of {batches.length} upload{batches.length === 1 ? '' : 's'}
+            {filtersOn ? ' matching these filters' : ''}. The list holds the most recent 100.
+          </p>
         )}
       </section>
+
+      {showForm && <>
+        <div className="drawer-backdrop" onClick={() => setShowForm(false)}/>
+        <section className="metadata-dialog bulk-links-dialog" role="dialog" aria-modal="true" aria-label="New bulk upload">
+          <header>
+            <div>
+              <span className="eyebrow">Payments</span>
+              <h2>New bulk upload</h2>
+            </div>
+            <button type="button" className="bulk-links-icon" onClick={() => setShowForm(false)} aria-label="Close"><X size={16}/></button>
+          </header>
+          <div className="bulk-links-dialog-body">{form}</div>
+        </section>
+      </>}
     </main>
   );
 }

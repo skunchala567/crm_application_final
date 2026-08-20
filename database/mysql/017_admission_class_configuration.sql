@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS crm_admission_class_configurations (
     INDEX idx_curriculum (curriculum_id),
     INDEX idx_admission_type (admission_type_id),
     INDEX idx_is_active (is_active)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Admission Class Configuration Details Table
 CREATE TABLE IF NOT EXISTS crm_admission_class_configuration_details (
@@ -40,4 +40,4 @@ CREATE TABLE IF NOT EXISTS crm_admission_class_configuration_details (
     INDEX idx_configuration (configuration_id),
     INDEX idx_class (class_id),
     INDEX idx_is_active (is_active)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

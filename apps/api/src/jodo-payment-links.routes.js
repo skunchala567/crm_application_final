@@ -54,7 +54,13 @@ export function createJodoPaymentLinkRoutes(pool,authenticate,requireCrmAccess,r
       SELECT l.business_unit_id businessUnitId,l.branch_id branchId,b.branch_name branchName,l.id leadId,l.lead_number leadNumber,
        'enquiry' source,l.jodo_order_id orderId,NULL transactionId,l.student_name payerName,l.email payerEmail,l.phone payerPhone,
        l.application_payment_amount amount,l.application_payment_status status,l.application_payment_at_utc paidAt,NULL settledAt,NULL settlementUtr,
-       l.created_at_utc createdAt,ef.display_name COLLATE utf8mb4_0900_ai_ci sourceName
+       l.created_at_utc createdAt,ef.display_name COLLATE utf8mb4_unicode_ci sourceName
+      /* The three sourceName columns come from tables created under
+         different collations, and a UNION needs one. It is spelled
+         utf8mb4_unicode_ci rather than utf8mb4_0900_ai_ci because the
+         latter exists only on MySQL 8: on MariaDB, which this deploys to,
+         it raises "Unknown collation" and the whole screen returns nothing.
+         utf8mb4_unicode_ci exists on both. */
       -- LEFT, because a lead may have no branch yet: WhatsApp intake creates
       -- leads with a null branch when no assignment rule matches, and money
       -- they pay must still be counted rather than dropped by the join.
@@ -65,11 +71,11 @@ export function createJodoPaymentLinkRoutes(pool,authenticate,requireCrmAccess,r
       WHERE l.jodo_order_id IS NOT NULL AND l.deleted_at_utc IS NULL
       UNION ALL
       SELECT s.business_unit_id,pf.branch_id,b.branch_name,NULL,NULL,'payment_form',s.jodo_order_id,s.transaction_id,s.payer_name,s.payer_email,s.payer_phone,
-       s.amount,s.status,s.paid_at_utc,s.settled_at_utc,s.settlement_utr,s.created_at_utc,pf.title COLLATE utf8mb4_0900_ai_ci
+       s.amount,s.status,s.paid_at_utc,s.settled_at_utc,s.settlement_utr,s.created_at_utc,pf.title COLLATE utf8mb4_unicode_ci
       FROM crm_payment_form_submissions s JOIN crm_payment_forms pf ON pf.id=s.payment_form_id JOIN branches b ON b.id=pf.branch_id
       UNION ALL
       SELECT p.business_unit_id,p.branch_id,b.branch_name,p.lead_id,l.lead_number,'payment_link',p.order_id,p.transaction_id,p.payer_name,p.payer_email,p.payer_phone,
-       p.amount,p.status,p.paid_at_utc,p.settled_at_utc,p.settlement_utr,p.created_at_utc,COALESCE(p.identifier,p.custom_identifier) COLLATE utf8mb4_0900_ai_ci
+       p.amount,p.status,p.paid_at_utc,p.settled_at_utc,p.settlement_utr,p.created_at_utc,COALESCE(p.identifier,p.custom_identifier) COLLATE utf8mb4_unicode_ci
       FROM crm_jodo_payment_links p JOIN branches b ON b.id=p.branch_id LEFT JOIN crm_leads l ON l.id=p.lead_id
     ) x WHERE ${where.join(' AND ')} ORDER BY x.createdAt DESC LIMIT 2000`,params);
     const summary=rows.reduce((s,row)=>{const status=String(row.status||'unknown').toLowerCase();s.count+=1;s.total+=Number(row.amount||0);if(['paid','settled','success','completed','captured'].includes(status)){s.collectedCount+=1;s.collectedAmount+=Number(row.amount||0);}return s;},{count:0,total:0,collectedCount:0,collectedAmount:0});

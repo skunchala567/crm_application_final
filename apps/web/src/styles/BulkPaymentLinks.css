@@ -295,19 +295,184 @@
 .bulk-links-status.is-completed { background: var(--brand-50); color: var(--brand-700); }
 .bulk-links-status.is-cancelled { background: var(--red-bg); color: var(--red); }
 
-.bulk-links-detail { display: grid; gap: 3px; padding: 8px 0; }
-.bulk-links-detail-row {
-  display: grid;
-  grid-template-columns: 110px 1fr 90px 130px 140px 1fr;
-  gap: 10px;
-  padding: 5px 8px;
-  border-radius: 6px;
-  font-size: 11.5px;
+/* ---------------------------------------------------------------------
+   The history, which is what this screen now leads with.
+   --------------------------------------------------------------------- */
+
+.bulk-links-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
 }
-.bulk-links-detail-row.is-sent { background: var(--brand-50); }
-.bulk-links-detail-row.is-failed { background: var(--red-bg); }
+.bulk-links-head-actions { display: flex; align-items: center; gap: 8px; }
+
+.bulk-links-primary,
+.bulk-links-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 15px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  /* .bulk-links button rules elsewhere set their own metrics; these are the
+     screen's two header actions and size themselves. */
+  min-width: 0;
+}
+.bulk-links-primary {
+  border: 0;
+  background: var(--brand-600);
+  color: #fff;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink-900) 12%, transparent);
+}
+.bulk-links-primary:hover { background: var(--brand-700); }
+.bulk-links-ghost {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink-600);
+}
+.bulk-links-ghost:hover { border-color: var(--brand-200); background: var(--brand-50); }
+.bulk-links-ghost:disabled { opacity: .6; cursor: default; }
+
+.bulk-links-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+}
+.bulk-links-stats article {
+  display: grid;
+  gap: 3px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+.bulk-links-stats span {
+  color: var(--ink-400);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.bulk-links-stats strong { font: 800 17px var(--ff-d); color: var(--ink-900); }
+.bulk-links-stats article.is-bad strong { color: var(--red); }
+.bulk-links-stats article.is-good strong { color: var(--brand-700); }
+.bulk-links-stats small { color: var(--ink-400); font-size: 10.5px; font-weight: 600; }
+
+/* Collected sits beside Value, so the money reads first and the count of
+   payers behind it second rather than competing with it. */
+.bulk-links-history td.is-good { color: var(--brand-700); font-weight: 700; }
+.bulk-links-history td.num .bulk-links-sub { font-weight: 600; }
+
+.bulk-links-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 12px;
+}
+.bulk-links-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 240px;
+  min-width: 200px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink-400);
+}
+.bulk-links-search input { flex: 1; min-width: 0; border: 0; outline: 0; padding: 9px 0; background: transparent; font-size: 12px; }
+/* The screen's base rule stretches every select to 100%, which is right for
+   a stacked form field and wrong for a filter bar -- each control took a
+   full row of its own. These size to their content instead. */
+.bulk-links-filters > select {
+  width: auto;
+  flex: 0 0 auto;
+  min-width: 132px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+  color: var(--ink-700);
+}
+.bulk-links-filters > label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-400);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.bulk-links-filters > label input {
+  width: auto;
+  height: 36px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+  color: var(--ink-700);
+}
+
+.bulk-links-history .col-toggle { width: 34px; }
+.bulk-links-history .col-actions { width: 86px; text-align: right; }
+.bulk-links-history tbody tr.is-open { background: var(--brand-50); }
+.bulk-links-history tbody td { vertical-align: top; }
+.bulk-links-sub { display: block; margin-top: 2px; color: var(--ink-400); font-size: 10.5px; }
+.bulk-links-history td.is-bad { color: var(--red); font-weight: 700; }
+
+.bulk-links-toggle,
+.bulk-links-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--ink-500);
+  cursor: pointer;
+}
+.bulk-links-toggle { border-color: transparent; background: transparent; }
+.bulk-links-icon:hover { border-color: var(--brand-200); background: var(--brand-50); color: var(--brand-700); }
+.bulk-links-icon:disabled { opacity: .5; cursor: default; }
+.bulk-links-icon.is-danger:hover { border-color: var(--red); background: var(--red-bg); color: var(--red); }
+.bulk-links-history .col-actions { white-space: nowrap; }
+.bulk-links-history .col-actions button + button { margin-left: 5px; }
+
+/* The expanded rows of one upload. A nested table rather than a grid of
+   spans, so its columns line up with each other however long a name is. */
+.bulk-links-detail-row-wrap > td { padding: 0 !important; background: var(--surface-2); }
+.bulk-links-table-wrap.is-inner { max-height: 300px; margin: 8px; border-radius: 7px; background: #fff; }
+.bulk-links-rows { font-size: 11.5px; }
+.bulk-links-rows thead th { background: #fff; }
+
+.bulk-links-empty { padding: 26px 12px; text-align: center; color: var(--ink-400); font-size: 12px; }
+
+.bulk-links-status.is-sent { background: var(--brand-50); color: var(--brand-700); }
+.bulk-links-status.is-failed { background: var(--red-bg); color: var(--red); }
+
+/* The upload form, now behind a button. Wider than the default dialog
+   because it carries a preview table. */
+.metadata-dialog.bulk-links-dialog { width: min(880px, calc(100vw - 28px)); }
+.bulk-links-dialog-body { display: grid; gap: 14px; padding: 16px 20px 20px; }
+.bulk-links-dialog-body .bulk-links-card { margin: 0; }
 
 @media (max-width: 720px) {
   .bulk-links { padding: 12px; }
-  .bulk-links-detail-row { grid-template-columns: 1fr 1fr; }
+  .bulk-links-head-actions { width: 100%; }
+  .bulk-links-primary { flex: 1; justify-content: center; }
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CornerDownRight, GripVertical, Layers3, ListPlus, Pencil, Plus, Search, Settings2, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CornerDownRight, GripVertical, Layers3, ListPlus, Pencil, Plus, Search, Settings2, Trash2, X , Link2 } from 'lucide-react';
 import { api } from './api';
+import ConfigLinkRules from './components/ConfigLinkRules.jsx';
 
 /**
  * Master data for a business unit that does not use the school profile.
@@ -19,6 +20,9 @@ const blankSection = {
   childLabel: '', childPlaceholder: '', sectionType: 'list', isActive: true,
   // '' means top level; otherwise the id of the section this one sits under.
   parentSectionId: '',
+  // '' means every pipeline in the unit, which is what a section was before
+  // pipelines could differ.
+  pipelineId: '',
 };
 const blankValue = { code: '', displayName: '', position: 0, isActive: true };
 
@@ -56,7 +60,7 @@ function useUnitApi(businessUnitId) {
   );
 }
 
-function SectionManager({ sections, call, onOpen, onMessage, onChanged }) {
+function SectionManager({ sections, pipelines = [], call, onOpen, onMessage, onChanged }) {
   const [form, setForm] = useState(blankSection);
   const [editing, setEditing] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -147,6 +151,8 @@ function SectionManager({ sections, call, onOpen, onMessage, onChanged }) {
           isActive: form.isActive,
           // '' is a top-level section; the API stores NULL for it.
           parentSectionId: form.parentSectionId === '' ? null : Number(form.parentSectionId),
+          // Same convention: '' means the section serves every pipeline.
+          pipelineId: form.pipelineId === '' ? null : Number(form.pipelineId),
         }),
       });
       onMessage?.({ type: 'success', text: editing ? 'Section updated' : 'Section added' });
@@ -285,6 +291,20 @@ function SectionManager({ sections, call, onOpen, onMessage, onChanged }) {
             </label>
           )}
 
+          {pipelines.length > 1 && (
+            <label>
+              Used by
+              <select value={form.pipelineId}
+                onChange={event => setForm({ ...form, pipelineId: event.target.value })}>
+                <option value="">Every lead pipeline</option>
+                {pipelines.map(pipeline => (
+                  <option key={pipeline.id} value={pipeline.id}>{pipeline.displayName}</option>
+                ))}
+              </select>
+              <small>A franchise lead and an admissions lead rarely need the same configuration.</small>
+            </label>
+          )}
+
           {editing && form.parentSectionId !== '' && blockedParents.size > 1 && (
             <p className="config-hint">
               Sections under this one are not listed: moving a section beneath its own child would
@@ -382,6 +402,9 @@ function SectionManager({ sections, call, onOpen, onMessage, onChanged }) {
                     {countOf(section)}
                     {' · '}{section.isActive ? 'Active' : 'Inactive'}
                     {section.parentSectionId ? ` · under ${sections.find(item => item.id === section.parentSectionId)?.displayName || 'another section'}` : ''}
+                    {section.pipelineId
+                      ? ` · ${pipelines.find(pipeline => Number(pipeline.id) === Number(section.pipelineId))?.displayName || 'one pipeline'} only`
+                      : ''}
                   </small>
                 </div>
                 <div className="config-record-actions">
@@ -403,6 +426,7 @@ function SectionManager({ sections, call, onOpen, onMessage, onChanged }) {
                       sectionType: section.sectionType,
                       isActive: section.isActive,
                       parentSectionId: section.parentSectionId ?? '',
+                      pipelineId: section.pipelineId ?? '',
                     });
                   }}><Pencil size={14} /> Edit</button>
                   <button type="button" title="Delete section" onClick={() => remove(section)}><Trash2 size={14} /></button>
@@ -732,6 +756,11 @@ function SectionValuesEditor({ section, call, onMessage, onChanged }) {
 
 export default function BusinessConfigurationPage({ businessUnitId, onMessage, embedded = false }) {
   const [sections, setSections] = useState([]);
+  const [pipelines, setPipelines] = useState([]);
+  const [branches, setBranches] = useState([]);
+  /* '' means every pipeline. Sections with no pipeline of their own always
+     show, so narrowing hides only what belongs to a different pipeline. */
+  const [pipelineFilter, setPipelineFilter] = useState('');
   const [activeId, setActiveId] = useState('manage');
   const [loading, setLoading] = useState(true);
   const call = useUnitApi(businessUnitId);
@@ -739,20 +768,51 @@ export default function BusinessConfigurationPage({ businessUnitId, onMessage, e
 
   const load = useCallback(async () => {
     try {
-      const result = await call('/business-config/sections');
+      const query = pipelineFilter ? `?pipelineId=${pipelineFilter}` : '';
+      const result = await call(`/business-config/sections${query}`);
       setSections(result.data || []);
     } catch (error) {
       notify.current?.({ type: 'error', text: error.message });
     } finally {
       setLoading(false);
     }
-  }, [call, notify]);
+  }, [call, notify, pipelineFilter]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Branches and pipelines are the two things a link can key on that are not
+  // config sections, so they are loaded once for the whole screen.
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      call('/leads/pipelines').catch(() => ({ data: [] })),
+      call('/branches').catch(() => ({ data: [] })),
+    ]).then(([pipelineResult, branchResult]) => {
+      if (cancelled) return;
+      setPipelines(pipelineResult.data || []);
+      setBranches((branchResult.data || []).map(branch => ({
+        id: branch.id, displayName: branch.name || branch.branch_name,
+      })));
+    });
+    return () => { cancelled = true; };
+  }, [call]);
 
   const active = sections.find(section => String(section.id) === String(activeId));
 
   const content = <>
+    {pipelines.length > 1 && (
+      <div className="config-pipeline-filter">
+        <span>Lead pipeline</span>
+        <select value={pipelineFilter} onChange={event => { setPipelineFilter(event.target.value); setActiveId('manage'); }}>
+          <option value="">All pipelines</option>
+          {pipelines.map(pipeline => (
+            <option key={pipeline.id} value={pipeline.id}>{pipeline.displayName}</option>
+          ))}
+        </select>
+        <small>Shows this pipeline's configuration plus anything shared across the unit.</small>
+      </div>
+    )}
+
     <div className="config-tabs academic-config-tabs" role="tablist" aria-label="Business configuration sections">
       {sections.map(section => (
         <button
@@ -770,6 +830,16 @@ export default function BusinessConfigurationPage({ businessUnitId, onMessage, e
       <button
         type="button"
         role="tab"
+        aria-selected={activeId === 'links'}
+        className={activeId === 'links' ? 'active' : ''}
+        onClick={() => setActiveId('links')}
+      >
+        <Link2 size={15} />
+        Linked configuration
+      </button>
+      <button
+        type="button"
+        role="tab"
         aria-selected={activeId === 'manage'}
         className={activeId === 'manage' ? 'active' : ''}
         onClick={() => setActiveId('manage')}
@@ -781,10 +851,15 @@ export default function BusinessConfigurationPage({ businessUnitId, onMessage, e
 
     <div className="academic-tab-content" role="tabpanel">
       {loading && <div className="loading"><span /></div>}
-      {!loading && (activeId === 'manage' || !active) && (
-        <SectionManager sections={sections} call={call} onOpen={setActiveId} onMessage={onMessage} onChanged={load} />
+      {!loading && activeId === 'links' && (
+        <ConfigLinkRules sections={sections} pipelines={pipelines} branches={branches}
+          call={call} onMessage={onMessage} onChanged={load} />
       )}
-      {!loading && active && activeId !== 'manage' && (
+      {!loading && activeId !== 'links' && (activeId === 'manage' || !active) && (
+        <SectionManager sections={sections} pipelines={pipelines} call={call} onOpen={setActiveId}
+          onMessage={onMessage} onChanged={load} />
+      )}
+      {!loading && active && activeId !== 'manage' && activeId !== 'links' && (
         <SectionValuesEditor key={active.id} section={active} call={call} onMessage={onMessage} onChanged={load} />
       )}
     </div>

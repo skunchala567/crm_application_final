@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS crm_marketing_campaigns (
     REFERENCES app_users(id) ON DELETE RESTRICT,
   CONSTRAINT fk_crm_marketing_campaign_integration FOREIGN KEY (integration_id)
     REFERENCES crm_integrations(id) ON DELETE RESTRICT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_marketing_campaign_touches (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS crm_marketing_campaign_touches (
     REFERENCES crm_marketing_campaigns(id) ON DELETE CASCADE,
   CONSTRAINT fk_crm_marketing_touch_template FOREIGN KEY (template_id)
     REFERENCES crm_whatsapp_templates(id) ON DELETE RESTRICT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_marketing_campaign_recipients (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS crm_marketing_campaign_recipients (
     REFERENCES crm_marketing_campaigns(id) ON DELETE CASCADE,
   CONSTRAINT fk_crm_marketing_recipient_lead FOREIGN KEY (lead_id)
     REFERENCES crm_leads(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_marketing_campaign_deliveries (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -89,4 +89,4 @@ CREATE TABLE IF NOT EXISTS crm_marketing_campaign_deliveries (
     REFERENCES crm_marketing_campaign_recipients(id) ON DELETE CASCADE,
   CONSTRAINT fk_crm_marketing_delivery_touch FOREIGN KEY (touch_id)
     REFERENCES crm_marketing_campaign_touches(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

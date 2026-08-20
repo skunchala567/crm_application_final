@@ -35,4 +35,4 @@ CREATE TABLE IF NOT EXISTS crm_bulk_operation_files (
   PRIMARY KEY (operation_id),
   CONSTRAINT fk_bulk_file_operation FOREIGN KEY (operation_id)
     REFERENCES crm_bulk_operations(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

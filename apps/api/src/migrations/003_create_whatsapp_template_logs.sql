@@ -42,4 +42,4 @@ CREATE TABLE crm_whatsapp_template_logs (
   KEY idx_action_created (action, created_at),
   KEY idx_status_created (status, created_at),
   KEY idx_integration_synced (integration_id, last_synced_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

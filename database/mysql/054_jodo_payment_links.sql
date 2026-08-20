@@ -37,4 +37,4 @@ CREATE TABLE IF NOT EXISTS crm_jodo_payment_links (
   CONSTRAINT fk_jodo_link_branch FOREIGN KEY (branch_id) REFERENCES branches(id),
   CONSTRAINT fk_jodo_link_lead FOREIGN KEY (lead_id) REFERENCES crm_leads(id) ON DELETE SET NULL,
   CONSTRAINT fk_jodo_link_user FOREIGN KEY (created_by_user_id) REFERENCES app_users(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

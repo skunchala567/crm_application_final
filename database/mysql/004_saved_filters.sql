@@ -14,4 +14,4 @@ CREATE TABLE IF NOT EXISTS crm_saved_filters (
     KEY ix_crm_saved_filters_unit_user_type (business_unit_id, user_id, filter_type),
     CONSTRAINT chk_crm_saved_filters_type CHECK (filter_type IN ('filter','funnel')),
     CONSTRAINT fk_crm_saved_filters_user FOREIGN KEY (user_id) REFERENCES app_users(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

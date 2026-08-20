@@ -817,6 +817,13 @@ export default function LeadsPage() {
       ...rawMeta,
       stages,
       substages: rawMeta.substages.filter(item => stageIds.has(String(item.stageId))),
+      /* Branches narrowed the same way stages are. A branch carries no
+         pipelines until somebody restricts it in Branches & payments, and an
+         empty list means every pipeline -- so the default is that nothing is
+         hidden, and only a branch explicitly tied elsewhere drops out. */
+      branches: rawMeta.branches.filter(branch =>
+        !branch.pipelineIds?.length
+        || branch.pipelineIds.some(id => String(id) === String(activePipeline.id))),
     };
   }, [rawMeta, activePipeline]);
 

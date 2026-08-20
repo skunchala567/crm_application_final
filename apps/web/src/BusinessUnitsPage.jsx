@@ -10,6 +10,7 @@ import LeadConfiguration from './LeadConfiguration.jsx';
 import ScrollableTabStrip from './components/ScrollableTabStrip.jsx';
 import './MetadataPlatform.css';
 import BranchWhatsAppSettings, { saveBranchWhatsApp } from './components/BranchWhatsAppSettings.jsx';
+import BranchPipelineSettings, { saveBranchPipelines } from './components/BranchPipelineSettings.jsx';
 
 const emptyUnit={name:'',brandTitle:'',brandSubtitle:'',brandLogo:'',helpUrl:'',helpTitle:'',helpSubtitle:'',industryType:'General',description:'',color:'#0b7a4f',deletionPassword:''};
 
@@ -203,7 +204,6 @@ export default function BusinessUnitsPage({onMessage}){
   // otherwise show an empty panel.
   useEffect(()=>{if(tab==='enquiry')setTab('overview');},[tab]);
   useEffect(()=>{if(selected&&selected.compatibilityMode!=='legacy_school'&&tab==='academic')setTab('overview');},[selected?.id,selected?.compatibilityMode,tab]);
-  useEffect(()=>{if(selected&&selected.compatibilityMode==='legacy_school'&&tab==='configuration')setTab('overview');},[selected?.id,selected?.compatibilityMode,tab]);
   useEffect(()=>{
     if(!unitPickerOpen)return undefined;
     const close=event=>{if(!unitPickerRef.current?.contains(event.target))setUnitPickerOpen(false);};
@@ -255,6 +255,7 @@ export default function BusinessUnitsPage({onMessage}){
       if(branchForm.smartfloDidId&&branchForm.smartfloIvrId)await api(`/smartflo/branches/${branchId}/route-ivr`,{method:'PUT',body:'{}'});
       /* After the branch, because a new one has no id until it exists. */
       await saveBranchWhatsApp(branchId,selectedId,branchForm.whatsapp);
+      await saveBranchPipelines(branchId,branchForm.pipelines);
       await loadConfig(selectedId);setDialog(null);setEditingId(null);setBranchForm(emptyBranchForm);notify('success',result.message);
     }catch(error){notify('error',error.message);}finally{setSaving(false);}
   };
@@ -412,7 +413,7 @@ export default function BusinessUnitsPage({onMessage}){
                 page header's height has to be accounted for rather than the
                 title's as well -- its height changes with the description. */}
             <ScrollableTabStrip as="nav" className="metadata-tabs" label="configuration tabs">
-              {[['overview',Layers3,'Overview'],['branches',CreditCard,'Branches & payments'],['fields',Settings2,'Lead fields'],['pipeline',GitBranch,'Lead pipeline'],['sources',Waypoints,'Source configuration'],...(selected.compatibilityMode==='legacy_school'?[['academic',CalendarRange,'Academic configuration']]:[['configuration',CalendarRange,'Configuration']]),['operations',Workflow,'Tracker'],['database',Database,'Database tables']].map(([id,Icon,label])=><button key={id} className={tab===id?'active':''} onClick={()=>changeTab(id)}><Icon size={16}/>{label}</button>)}
+              {[['overview',Layers3,'Overview'],['branches',CreditCard,'Branches & payments'],['fields',Settings2,'Lead fields'],['pipeline',GitBranch,'Lead pipeline'],['sources',Waypoints,'Source configuration'],...(selected.compatibilityMode==='legacy_school'?[['academic',CalendarRange,'Academic configuration'],['configuration',Layers3,'Configuration']]:[['configuration',CalendarRange,'Configuration']]),['operations',Workflow,'Tracker'],['database',Database,'Database tables']].map(([id,Icon,label])=><button key={id} className={tab===id?'active':''} onClick={()=>changeTab(id)}><Icon size={16}/>{label}</button>)}
             </ScrollableTabStrip>
             </div>
             {tab==='overview'&&<Overview config={config} selected={selected} onSaveDuplicateRule={saveDuplicateRule} saving={saving}/>}
@@ -462,7 +463,7 @@ export default function BusinessUnitsPage({onMessage}){
             })()}
             {tab==='sources'&&<section className="business-unit-source"><LeadConfiguration key={selectedId} embedded businessUnitId={selectedId} useBusinessUnitSources={selected.compatibilityMode==='metadata'} onMessage={message=>message&&notify(message.type,message.text)}/></section>}
             {tab==='academic'&&selected.compatibilityMode==='legacy_school'&&<section className="business-unit-academic"><AcademicConfigurationPage embedded onMessage={message=>message&&notify(message.type,message.text)}/></section>}
-            {tab==='configuration'&&selected.compatibilityMode!=='legacy_school'&&<section className="business-unit-academic"><BusinessConfigurationPage key={selectedId} embedded businessUnitId={selectedId} onMessage={message=>message&&notify(message.type,message.text)}/></section>}
+            {tab==='configuration'&&<section className="business-unit-academic"><BusinessConfigurationPage key={selectedId} embedded businessUnitId={selectedId} onMessage={message=>message&&notify(message.type,message.text)}/></section>}
             {tab==='operations'&&<MetadataList title="Tracker statuses" description="Configure and order the progress statuses for MOM action items. New action items always start in the first status." action="Add status" onAdd={()=>{setEditingId(null);setStageForm({displayName:'',stageType:'open',color:'#0b7a4f'});setDialog('operation-stage')}} onEdit={row=>{const stage=config.operationStages.find(item=>item.id===row.id);setEditingId(stage.id);setStageForm({displayName:stage.displayName,stageType:stage.stageType,color:stage.color,isActive:stage.isActive});setDialog('operation-stage')}} onMove={moveOperationStage} onDelete={row=>removeConfiguredItem('operation-stages',row,'Tracker status')} rows={config.operationStages.map((stage,index)=>({id:stage.id,title:stage.displayName,subtitle:stage.stageType.replaceAll('_',' '),badges:[index===0?'Default starting status':`Order ${index+1}`],color:stage.color,canMoveUp:index>0,canMoveDown:index<config.operationStages.length-1}))}/>}
             {tab==='database'&&<BusinessUnitDatabaseTables selected={selected}/>}
           </>}
@@ -600,6 +601,15 @@ function BranchPaymentForm({form,setForm,callingOptions,saving,onCancel,onSubmit
         <label className="check-option"><input type="checkbox" checked={form.smartfloOutboundEnabled!==false} onChange={e=>patch({smartfloOutboundEnabled:e.target.checked})}/>Outbound calls</label>
       </div>
       <small>DIDs and departments load from Tata Smartflo. Lead calls use this branch mapping before the account fallback.</small>
+    </fieldset>
+
+    <fieldset>
+      <legend>Pipeline visibility</legend>
+      <BranchPipelineSettings
+        branchId={branchId}
+        value={form.pipelines}
+        onChange={update=>setForm(prev=>({...prev,pipelines:typeof update==='function'?update(prev.pipelines):update}))}
+      />
     </fieldset>
 
     <fieldset>

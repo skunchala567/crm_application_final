@@ -478,6 +478,19 @@
    A row per connected account, checked into service for this branch. The
    default carries a badge rather than a second control, because it is simply
    whichever row sits first. */
+/* Pipeline visibility: a short row of pipelines, so it reads as a filter
+   rather than the account list below it. */
+.branch-pipeline-options{display:flex;flex-wrap:wrap;gap:7px}
+.branch-pipeline-option{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:7px 11px;
+  border:1px solid var(--line);border-radius:999px;background:var(--surface-50);
+  font-size:11px;font-weight:600;color:var(--ink-700);cursor:pointer;
+}
+.branch-pipeline-option.is-on{border-color:var(--brand-400);background:var(--brand-50);color:var(--brand-700)}
+.branch-pipeline-option input[type=checkbox]{margin:0;flex:0 0 auto;width:14px;height:14px;min-width:0;padding:0}
+.branch-pipeline-option>svg{flex:0 0 auto;color:currentColor}
+
 .branch-whatsapp-accounts{display:grid;gap:7px}
 .branch-whatsapp-account{
   display:flex;align-items:center;gap:9px;padding:9px 11px;
@@ -513,6 +526,70 @@
   color:var(--warn-700,#92400e);
 }
 .branch-config-form .config-hint.warning svg{flex:0 0 auto;margin-top:1px}
+
+/* Linked configuration. The forms are the admission class screen's own
+   parts -- .config-add, .config-list, the shared multi-select -- so only the
+   pieces that screen does not have are defined here. */
+.config-pipeline-filter{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  margin-bottom:12px;padding:10px 12px;
+  border:1px solid var(--line);border-radius:9px;background:var(--surface-50);
+}
+.config-pipeline-filter>span{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-400)}
+.config-pipeline-filter select{
+  min-width:170px;padding:6px 9px;border:1px solid var(--line);border-radius:7px;
+  background:#fff;font-size:12px;font-weight:600;
+}
+.config-pipeline-filter small{color:var(--ink-400);font-size:10px;font-weight:500}
+
+/* .config-add stacks its labels, which is right for a field and wrong for a
+   checkbox and its wording. */
+.academic-tab-content .config-add label.config-inline-check{
+  display:flex;align-items:center;gap:9px;
+  font-size:12px;font-weight:600;color:var(--ink-700);
+}
+.academic-tab-content .config-add label.config-inline-check input{
+  width:15px;height:15px;flex:0 0 auto;padding:0;accent-color:var(--brand-400);
+}
+
+/* What the link will read as, before it is saved. */
+.config-sentence{
+  margin:0;padding:9px 11px;border-radius:8px;
+  background:var(--brand-50);color:var(--brand-700);
+  font-size:11px;line-height:1.55;
+}
+.config-sentence strong{font-weight:800}
+
+/* A heading that survives embedding.
+   .academic-tab-content>.panel>.panel-title is display:none inside a business
+   unit tab, so anything that must stay reachable -- notably the way back from
+   a link's combinations -- belongs here instead. */
+.config-subhead{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:14px;
+  padding:16px 20px 0;
+}
+.config-subhead>div{display:grid;gap:3px;min-width:0}
+.config-subhead strong{font:700 14px 'Plus Jakarta Sans';color:var(--ink-800)}
+.config-subhead span{color:var(--ink-500);font-size:11.5px;line-height:1.55;max-width:78ch}
+.config-back{
+  flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;
+  height:32px;padding:0 12px;border:1px solid var(--line);border-radius:8px;
+  background:#fff;color:var(--ink-600);font-size:11px;font-weight:700;cursor:pointer;
+}
+.config-back:hover{border-color:var(--brand-200);background:var(--accent-softer)}
+
+.academic-tab-content .panel-title{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.academic-tab-content .panel-title h2{margin:0;font:700 15px 'Plus Jakarta Sans';color:var(--ink-800)}
+.academic-tab-content .panel-title p{margin:3px 0 0;color:var(--ink-500);font-size:11.5px;line-height:1.55;max-width:70ch}
+.academic-tab-content .panel-title button{
+  flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;
+  height:32px;padding:0 12px;border:1px solid var(--line);border-radius:8px;
+  background:#fff;color:var(--ink-600);font-size:11px;font-weight:700;cursor:pointer;
+}
+
+@media(max-width:720px){
+  .config-pipeline-filter{align-items:flex-start;flex-direction:column;gap:6px}
+}
 
 @media(max-width:720px){
   .branch-field-grid{grid-template-columns:1fr}

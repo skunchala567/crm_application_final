@@ -446,3 +446,96 @@ table th{background:var(--surface-3)}.avatar.muted{background:var(--accent-soft)
   background: var(--brand-600, #2563eb);
   color: #fff;
 }
+
+/* =====================================================================
+   Shared date range picker (components/DateRangePicker.jsx).
+
+   Built on the .followup-range-popover / .range-calendar-* classes the
+   dashboard, report builder and lead filters already use, so it looks like
+   the pickers those screens draw. Only the trigger, the two-month width and
+   the year/month selects are new. Widths are explicit because host screens
+   style bare input and select elements, and an inherited width:100% would
+   stack the calendar controls.
+   ===================================================================== */
+.date-range-picker{position:relative;flex:0 0 auto}
+.date-range-trigger{
+  display:inline-flex;align-items:center;gap:9px;
+  height:36px;min-width:0;padding:0 11px;
+  border:1px solid var(--line);border-radius:8px;background:#fff;
+  color:var(--ink-600);cursor:pointer;text-align:left;
+}
+.date-range-trigger:hover{border-color:var(--brand-200);background:var(--accent-softer)}
+.date-range-trigger.active{border-color:var(--brand-400);background:var(--brand-50)}
+.date-range-trigger>span{display:grid;gap:1px;min-width:0}
+.date-range-trigger small{
+  color:var(--ink-400);font-size:9px;font-weight:800;
+  text-transform:uppercase;letter-spacing:.06em;
+}
+.date-range-trigger strong{
+  font-size:11.5px;font-weight:700;color:var(--ink-800);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.date-range-trigger>svg{flex:0 0 auto;color:var(--ink-400)}
+
+.followup-range-popover.date-range-popover{
+  width:min(640px,calc(100vw - 24px));right:0;padding:14px;
+  max-height:calc(100vh - 140px);overflow:auto;
+}
+.date-range-popover .range-calendar-panel{
+  display:grid;grid-template-columns:132px minmax(0,1fr);gap:14px;
+}
+.date-range-popover .range-calendar-panel aside{display:grid;gap:4px;align-content:start}
+.date-range-popover .range-calendar-panel aside strong{
+  padding:0 0 6px;color:var(--ink-500);font-size:10px;font-weight:800;
+  text-transform:uppercase;letter-spacing:.05em;
+}
+.date-range-popover .range-calendar-panel aside button{
+  width:100%;height:30px;padding:0 10px;min-width:0;
+  border:1px solid transparent;border-radius:7px;background:transparent;
+  color:var(--ink-700);font-size:11px;font-weight:600;text-align:left;cursor:pointer;
+}
+.date-range-popover .range-calendar-panel aside button:hover{
+  border-color:var(--brand-200);background:var(--brand-50);color:var(--brand-700);
+}
+.date-range-popover .range-calendar-months{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.date-range-popover .range-calendar-month{min-width:0}
+.date-range-popover .range-calendar-month header{
+  display:grid;grid-template-columns:26px minmax(0,1fr) 26px;align-items:center;gap:4px;
+  margin-bottom:8px;border:0;background:transparent;
+}
+.date-range-popover .range-calendar-month header>button{
+  width:26px;height:26px;min-width:0;padding:0;display:grid;place-items:center;
+  border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--ink-500);cursor:pointer;
+}
+.date-range-popover .range-month-selects{display:flex;gap:6px;min-width:0;justify-content:center}
+.date-range-popover .range-month-selects select{
+  width:auto;flex:0 0 auto;height:30px;padding:0 4px 0 7px;
+  border:1px solid var(--line);border-radius:7px;background:#fff;
+  font-size:11px;font-weight:700;color:var(--ink-800);cursor:pointer;
+}
+.date-range-popover .range-month-selects select:first-child{min-width:70px}
+.date-range-popover .range-month-selects select:last-child{min-width:104px}
+.date-range-popover .range-weekdays{
+  display:grid;grid-template-columns:repeat(7,1fr);
+  color:var(--ink-400);font-size:9.5px;font-weight:800;text-align:center;
+}
+.date-range-popover .range-days{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-top:4px}
+.date-range-popover .range-days span{height:30px}
+.date-range-popover .range-days button{
+  height:30px;min-width:0;padding:0;
+  border:1px solid transparent;border-radius:999px;background:transparent;
+  color:var(--ink-700);font-size:11px;font-weight:600;cursor:pointer;
+}
+.date-range-popover .range-days button:hover{background:var(--surface-3)}
+.date-range-popover .range-days button.is-today{border-color:var(--ink-200)}
+.date-range-popover .range-days button.in-range{background:var(--brand-50);border-radius:0;color:var(--brand-700)}
+.date-range-popover .range-days button.selected{background:var(--brand-600);color:#fff;font-weight:800}
+
+@media(max-width:760px){
+  .followup-range-popover.date-range-popover{left:12px;right:12px;width:auto}
+  .date-range-popover .range-calendar-panel{grid-template-columns:1fr}
+  .date-range-popover .range-calendar-panel aside{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+  .date-range-popover .range-calendar-panel aside strong{grid-column:1/-1}
+  .date-range-popover .range-calendar-months{grid-template-columns:1fr}
+  .date-range-popover .range-calendar-month:nth-child(2){display:none}
+}

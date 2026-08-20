@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS crm_lead_pipelines (
   PRIMARY KEY (id),
   UNIQUE KEY uq_pipeline_key (business_unit_id, pipeline_key),
   KEY ix_pipeline_unit (business_unit_id, is_active, position)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
 -- 2. Stages belong to a pipeline.

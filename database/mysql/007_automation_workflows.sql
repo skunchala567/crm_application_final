@@ -14,4 +14,4 @@ CREATE TABLE IF NOT EXISTS crm_automation_workflows (
   KEY ix_crm_automation_status (is_active, start_at),
   KEY ix_crm_automation_creator (created_by),
   CONSTRAINT fk_crm_automation_creator FOREIGN KEY (created_by) REFERENCES app_users(id) ON DELETE RESTRICT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

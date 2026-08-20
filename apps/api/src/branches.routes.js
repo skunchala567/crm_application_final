@@ -38,6 +38,74 @@ export function createBranchesRoutes(pool, authenticate, requireCrmAccess) {
    * The non-secret settings -- base URL and collector code -- are still
    * returned, because those are edited as text rather than replaced wholesale.
    */
+  /**
+   * Which pipelines each branch appears in.
+   *
+   * Returned as a flat list of pairs rather than one row per branch, so a
+   * branch with no restriction simply has no pairs -- and "no rows means
+   * every pipeline" stays a property of the data instead of something each
+   * caller has to remember to reconstruct.
+   */
+  router.get('/pipelines', wrap(async (req, res) => {
+    const [rows] = await pool.query(
+      'SELECT branch_id AS branchId, pipeline_id AS pipelineId FROM crm_branch_pipelines');
+    res.json({
+      data: rows.map(row => ({ branchId: Number(row.branchId), pipelineId: Number(row.pipelineId) })),
+    });
+  }));
+
+  /**
+   * Replace one branch's pipelines.
+   *
+   * Only the branch named is touched, so two administrators editing
+   * different branches cannot overwrite each other. An empty list clears the
+   * restriction and returns the branch to every pipeline, which is the only
+   * way back and so must not be mistaken for "hide it everywhere".
+   */
+  router.put('/:id/pipelines', wrap(async (req, res) => {
+    const branchId = Number(req.params.id);
+    if (!canAccessBranch(req.user, branchId)) {
+      return res.status(403).json({ message: 'That branch is not one of yours' });
+    }
+    const isAdmin = req.user.roles?.some(role => ['CRM_ADMIN', 'SUPER_ADMIN'].includes(String(role).toUpperCase()));
+    if (!isAdmin) return res.status(403).json({ message: 'Only a CRM administrator can change branch visibility' });
+
+    const wanted = [...new Set((Array.isArray(req.body?.pipelineIds) ? req.body.pipelineIds : [])
+      .map(Number).filter(id => Number.isInteger(id) && id > 0))];
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      // Checked against the unit, so a branch cannot be pinned to a pipeline
+      // belonging to a business unit the caller is not working in.
+      if (wanted.length) {
+        const [valid] = await connection.query(
+          `SELECT id FROM crm_lead_pipelines WHERE business_unit_id=? AND id IN (${wanted.map(() => '?').join(',')})`,
+          [Number(req.businessUnit.id), ...wanted]);
+        if (valid.length !== wanted.length) {
+          await connection.rollback();
+          return res.status(400).json({ message: 'One of those pipelines is not part of this business unit' });
+        }
+      }
+      await connection.execute('DELETE FROM crm_branch_pipelines WHERE branch_id=?', [branchId]);
+      for (const pipelineId of wanted) {
+        await connection.execute(
+          'INSERT INTO crm_branch_pipelines (branch_id, pipeline_id, created_by_user_id) VALUES (?,?,?)',
+          [branchId, pipelineId, Number(req.user.id) || null]);
+      }
+      await connection.commit();
+      res.json({
+        data: { branchId, pipelineIds: wanted },
+        message: wanted.length
+          ? `Branch shown in ${wanted.length} pipeline${wanted.length === 1 ? '' : 's'}`
+          : 'Branch shown in every pipeline',
+      });
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally { connection.release(); }
+  }));
+
   router.get('/:id/jodo-config', wrap(async (req, res) => {
     if (!canAccessBranch(req.user, req.params.id)) {
       return res.status(404).json({ message: 'Branch not found' });

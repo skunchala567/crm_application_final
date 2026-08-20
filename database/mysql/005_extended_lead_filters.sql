@@ -5,26 +5,26 @@ CREATE TABLE IF NOT EXISTS crm_lead_channels (
  category ENUM('Primary','Secondary') NOT NULL DEFAULT 'Primary', is_active BOOLEAN NOT NULL DEFAULT TRUE,
  created_at_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), updated_at_utc DATETIME(6) NULL ON UPDATE CURRENT_TIMESTAMP(6),
  PRIMARY KEY(id), UNIQUE KEY uq_crm_channel_code(channel_code)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE IF NOT EXISTS crm_lead_media (
  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, medium_code VARCHAR(50) NOT NULL, display_name VARCHAR(100) NOT NULL, is_active BOOLEAN NOT NULL DEFAULT TRUE,
  PRIMARY KEY(id), UNIQUE KEY uq_crm_medium_code(medium_code)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE IF NOT EXISTS crm_campaigns (
  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, campaign_code VARCHAR(80) NOT NULL, display_name VARCHAR(150) NOT NULL,
  category VARCHAR(80) NOT NULL DEFAULT 'General', is_active BOOLEAN NOT NULL DEFAULT TRUE,
  PRIMARY KEY(id), UNIQUE KEY uq_crm_campaign_code(campaign_code)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE IF NOT EXISTS crm_admission_types (
  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, type_code VARCHAR(50) NOT NULL, display_name VARCHAR(100) NOT NULL, is_active BOOLEAN NOT NULL DEFAULT TRUE,
  PRIMARY KEY(id), UNIQUE KEY uq_crm_admission_type_code(type_code)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE IF NOT EXISTS crm_lead_substages (
  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, stage_id BIGINT UNSIGNED NOT NULL, substage_code VARCHAR(60) NOT NULL, display_name VARCHAR(100) NOT NULL,
  position SMALLINT UNSIGNED NOT NULL DEFAULT 1, is_active BOOLEAN NOT NULL DEFAULT TRUE,
  PRIMARY KEY(id), UNIQUE KEY uq_crm_substage_code(substage_code), KEY ix_crm_substage_stage(stage_id),
  CONSTRAINT fk_crm_substage_stage FOREIGN KEY(stage_id) REFERENCES crm_lead_stages(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO crm_lead_channels(channel_code,display_name,category) VALUES
 ('website','Website','Primary'),('walk_in','Walk-in','Primary'),('phone','Phone enquiry','Primary'),

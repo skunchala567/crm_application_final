@@ -4,12 +4,12 @@ CREATE TABLE IF NOT EXISTS crm_campaign_categories (
  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, category_code VARCHAR(80) NOT NULL, display_name VARCHAR(100) NOT NULL,
  is_active BOOLEAN NOT NULL DEFAULT TRUE, created_at_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
  updated_at_utc DATETIME(6) NULL ON UPDATE CURRENT_TIMESTAMP(6), PRIMARY KEY(id), UNIQUE KEY uq_crm_campaign_category_code(category_code)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE IF NOT EXISTS crm_channel_categories (
  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, category_code VARCHAR(80) NOT NULL, display_name VARCHAR(100) NOT NULL,
  is_active BOOLEAN NOT NULL DEFAULT TRUE, created_at_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
  updated_at_utc DATETIME(6) NULL ON UPDATE CURRENT_TIMESTAMP(6), PRIMARY KEY(id), UNIQUE KEY uq_crm_channel_category_code(category_code)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 ALTER TABLE crm_lead_channels MODIFY COLUMN category VARCHAR(100) NOT NULL DEFAULT 'Primary';
 
 INSERT INTO crm_campaign_categories(category_code,display_name)

@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS crm_lead_stages (
     PRIMARY KEY (id),
     UNIQUE KEY uq_crm_lead_stages_name (name),
     UNIQUE KEY uq_crm_lead_stages_position (position)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_lead_sources (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS crm_lead_sources (
     updated_at_utc DATETIME(6) NULL ON UPDATE CURRENT_TIMESTAMP(6),
     PRIMARY KEY (id),
     UNIQUE KEY uq_crm_lead_sources_name (name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_leads (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS crm_leads (
     CONSTRAINT fk_crm_leads_owner FOREIGN KEY (owner_employee_id) REFERENCES employees(id),
     CONSTRAINT fk_crm_leads_created_user FOREIGN KEY (created_by_user_id) REFERENCES app_users(id),
     CONSTRAINT fk_crm_leads_updated_user FOREIGN KEY (updated_by_user_id) REFERENCES app_users(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_followups (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS crm_followups (
     CONSTRAINT fk_crm_followups_lead FOREIGN KEY (lead_id) REFERENCES crm_leads(id) ON DELETE CASCADE,
     CONSTRAINT fk_crm_followups_employee FOREIGN KEY (assigned_employee_id) REFERENCES employees(id),
     CONSTRAINT fk_crm_followups_user FOREIGN KEY (created_by_user_id) REFERENCES app_users(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_lead_activities (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS crm_lead_activities (
     KEY ix_crm_activities_lead_time (lead_id, occurred_at_utc),
     CONSTRAINT fk_crm_activities_lead FOREIGN KEY (lead_id) REFERENCES crm_leads(id) ON DELETE CASCADE,
     CONSTRAINT fk_crm_activities_user FOREIGN KEY (actor_user_id) REFERENCES app_users(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO crm_lead_stages (name, display_name, position, color_code) VALUES
 ('new', 'New', 1, '#5B63D3'), ('contacted', 'Contacted', 2, '#6D8BE8'),

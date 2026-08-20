@@ -22,4 +22,4 @@ CREATE TABLE IF NOT EXISTS crm_automation_executions (
     REFERENCES crm_automation_workflows(id) ON DELETE CASCADE,
   CONSTRAINT fk_crm_automation_execution_lead FOREIGN KEY (lead_id)
     REFERENCES crm_leads(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

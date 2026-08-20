@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Pencil, X, Search, ChevronDown } from 'lucide-react';
+import { Plus, Pencil, X, Search } from 'lucide-react';
 import { api } from './api';
+import ConfigMultiSelect from './components/ConfigMultiSelect.jsx';
 
 const emptyForm = { academicYear: '', branchIds: [], curriculumIds: [], admissionTypeIds: [], classIds: [] };
 
@@ -98,10 +99,10 @@ export default function AdmissionClassConfiguration({ onMessage }) {
       <form className={`config-add ${editing ? 'editing' : ''}`} onSubmit={handleSave}>
         <div className="config-form-title"><h3>{editing ? 'Edit' : 'Add'} admission class configuration</h3>{editing && <button type="button" title="Cancel editing" onClick={cancelEdit}><X size={15} /></button>}</div>
         <label>Academic Year *<select required value={formData.academicYear} onChange={event => setFormData({ ...formData, academicYear: event.target.value })}><option value="">Select academic year</option>{masterData.academicYears.map(year => <option key={year.id} value={year.academicYear}>{year.displayName || year.academicYear}</option>)}</select></label>
-        <AcademicMultiSelect label="Branch *" name="branchIds" placeholder="Select branches" options={masterData.branches.map(item => ({ id: item.id, label: item.name }))} selected={formData.branchIds} disabled={Boolean(editing)} openPicker={openPicker} setOpenPicker={setOpenPicker} search={pickerSearch.branchIds || ''} setSearch={value => setPickerSearch(current => ({ ...current, branchIds: value }))} onChange={values => setFormData({ ...formData, branchIds: values })} />
-        <AcademicMultiSelect label="Curriculum *" name="curriculumIds" placeholder="Select curricula" options={masterData.curricula.filter(item => item.isActive !== 0 && item.isActive !== false).map(item => ({ id: item.id, label: item.displayName }))} selected={formData.curriculumIds} disabled={Boolean(editing)} openPicker={openPicker} setOpenPicker={setOpenPicker} search={pickerSearch.curriculumIds || ''} setSearch={value => setPickerSearch(current => ({ ...current, curriculumIds: value }))} onChange={values => setFormData({ ...formData, curriculumIds: values })} />
-        <AcademicMultiSelect label="Admission Type *" name="admissionTypeIds" placeholder="Select admission types" options={masterData.admissionTypes.filter(item => item.isActive !== 0 && item.isActive !== false).map(item => ({ id: item.id, label: item.displayName }))} selected={formData.admissionTypeIds} disabled={Boolean(editing)} openPicker={openPicker} setOpenPicker={setOpenPicker} search={pickerSearch.admissionTypeIds || ''} setSearch={value => setPickerSearch(current => ({ ...current, admissionTypeIds: value }))} onChange={values => setFormData({ ...formData, admissionTypeIds: values })} />
-        <AcademicMultiSelect label="Classes *" name="classIds" placeholder="Select classes" options={masterData.classes.map(item => ({ id: item.id, label: item.displayName }))} selected={formData.classIds} openPicker={openPicker} setOpenPicker={setOpenPicker} search={pickerSearch.classIds || ''} setSearch={value => setPickerSearch(current => ({ ...current, classIds: value }))} onChange={values => setFormData({ ...formData, classIds: values })} />
+        <ConfigMultiSelect label="Branch *" name="branchIds" placeholder="Select branches" options={masterData.branches.map(item => ({ id: item.id, label: item.name }))} selected={formData.branchIds} disabled={Boolean(editing)} openPicker={openPicker} setOpenPicker={setOpenPicker} search={pickerSearch.branchIds || ''} setSearch={value => setPickerSearch(current => ({ ...current, branchIds: value }))} onChange={values => setFormData({ ...formData, branchIds: values })} />
+        <ConfigMultiSelect label="Curriculum *" name="curriculumIds" placeholder="Select curricula" options={masterData.curricula.filter(item => item.isActive !== 0 && item.isActive !== false).map(item => ({ id: item.id, label: item.displayName }))} selected={formData.curriculumIds} disabled={Boolean(editing)} openPicker={openPicker} setOpenPicker={setOpenPicker} search={pickerSearch.curriculumIds || ''} setSearch={value => setPickerSearch(current => ({ ...current, curriculumIds: value }))} onChange={values => setFormData({ ...formData, curriculumIds: values })} />
+        <ConfigMultiSelect label="Admission Type *" name="admissionTypeIds" placeholder="Select admission types" options={masterData.admissionTypes.filter(item => item.isActive !== 0 && item.isActive !== false).map(item => ({ id: item.id, label: item.displayName }))} selected={formData.admissionTypeIds} disabled={Boolean(editing)} openPicker={openPicker} setOpenPicker={setOpenPicker} search={pickerSearch.admissionTypeIds || ''} setSearch={value => setPickerSearch(current => ({ ...current, admissionTypeIds: value }))} onChange={values => setFormData({ ...formData, admissionTypeIds: values })} />
+        <ConfigMultiSelect label="Classes *" name="classIds" placeholder="Select classes" options={masterData.classes.map(item => ({ id: item.id, label: item.displayName }))} selected={formData.classIds} openPicker={openPicker} setOpenPicker={setOpenPicker} search={pickerSearch.classIds || ''} setSearch={value => setPickerSearch(current => ({ ...current, classIds: value }))} onChange={values => setFormData({ ...formData, classIds: values })} />
         {editing && <p className="bulk-edit-note">Bulk branch/curriculum/admission type selection is available while creating. Edit updates this selected combination only.</p>}
         <div className="config-form-actions"><button className="primary" disabled={loading}>{editing ? <Pencil size={15} /> : <Plus size={16} />}{loading ? 'Saving...' : editing ? 'Save changes' : 'Add configuration'}</button>{editing && <button type="button" className="secondary" onClick={cancelEdit}>Cancel</button>}</div>
       </form>
@@ -111,33 +112,4 @@ export default function AdmissionClassConfiguration({ onMessage }) {
       </div>
     </div>
   </section>;
-}
-
-function AcademicMultiSelect({ label, name, placeholder, options, selected, onChange, openPicker, setOpenPicker, search, setSearch, disabled = false }) {
-  const rootRef = useRef(null);
-  const selectedSet = new Set(selected.map(String));
-  const filtered = options.filter(option => option.label.toLowerCase().includes(search.toLowerCase()));
-  const selectedLabels = selected.map(id => options.find(option => String(option.id) === String(id))?.label).filter(Boolean);
-  const toggle = id => onChange(selectedSet.has(String(id)) ? selected.filter(value => String(value) !== String(id)) : [...selected, String(id)]);
-  useEffect(() => {
-    if (openPicker !== name) return undefined;
-    const closeOnOutside = event => {
-      if (rootRef.current && !rootRef.current.contains(event.target)) setOpenPicker('');
-    };
-    const closeOnEscape = event => {
-      if (event.key === 'Escape') setOpenPicker('');
-    };
-    document.addEventListener('mousedown', closeOnOutside, true);
-    document.addEventListener('touchstart', closeOnOutside, true);
-    document.addEventListener('keydown', closeOnEscape, true);
-    return () => {
-      document.removeEventListener('mousedown', closeOnOutside, true);
-      document.removeEventListener('touchstart', closeOnOutside, true);
-      document.removeEventListener('keydown', closeOnEscape, true);
-    };
-  }, [openPicker, name, setOpenPicker]);
-  return <div className="label academic-multi-select" ref={rootRef}><span>{label}</span><div className="multi-select-wrapper">
-    <button type="button" className="multi-select-trigger" disabled={disabled} onClick={() => !disabled && setOpenPicker(openPicker === name ? '' : name)}><div className="selected-items">{selectedLabels.length ? selectedLabels.slice(0, 6).map(item => <span key={item} className="badge">{item}</span>) : <span className="placeholder">{placeholder}</span>}{selectedLabels.length > 6 && <span className="badge">+{selectedLabels.length - 6}</span>}</div><ChevronDown size={14} /></button>
-    {openPicker === name && <div className="multi-select-dropdown"><div className="search-box"><Search size={14} /><input autoFocus placeholder={`Search ${placeholder.toLowerCase()}...`} value={search} onChange={event => setSearch(event.target.value)} /></div><div className="actions"><button type="button" onClick={() => onChange(options.map(option => String(option.id)))}>Select all</button><button type="button" onClick={() => onChange([])}>Clear all</button></div><div className="options">{filtered.map(option => <label key={option.id} className="checkbox-item"><input type="checkbox" checked={selectedSet.has(String(option.id))} onChange={() => toggle(option.id)} /><span>{option.label}</span></label>)}{!filtered.length && <p>No options found</p>}</div></div>}
-  </div></div>;
 }

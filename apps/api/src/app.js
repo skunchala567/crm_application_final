@@ -2142,6 +2142,20 @@ app.get('/api/leads/meta', authenticate, requireCrmAccess, async (req, res) => {
        lead form pointed at a sub-stage id lands its leads in that pipeline. */
     const [substages] = await pool.execute(`SELECT ss.id, ss.stage_id AS stageId, s.pipeline_id AS pipelineId, ss.substage_code AS code, ss.display_name AS displayName FROM crm_lead_substages ss JOIN crm_lead_stages s ON s.id=ss.stage_id WHERE s.business_unit_id=? AND ss.is_active = TRUE ORDER BY s.position, ss.position`, [Number(req.businessUnit.id)]);
     const [branches] = await pool.execute(`SELECT b.id, b.branch_name AS name, b.short_name AS shortName FROM branches b WHERE b.is_active = TRUE AND ${scope.sql} ORDER BY b.branch_name`, scope.params);
+    /* Which pipelines each branch is shown in. Attached rather than filtered
+       here: this one payload feeds every screen, and several of them -- the
+       branch picker in settings, assignment rules -- need all branches
+       whatever pipeline is on screen. A branch with no rows is unrestricted,
+       so it carries an empty list and every caller shows it. */
+    const [branchPipelines] = await pool.query(
+        'SELECT branch_id AS branchId, pipeline_id AS pipelineId FROM crm_branch_pipelines');
+    const pipelinesByBranch = new Map();
+    for (const row of branchPipelines) {
+        const key = Number(row.branchId);
+        if (!pipelinesByBranch.has(key)) pipelinesByBranch.set(key, []);
+        pipelinesByBranch.get(key).push(Number(row.pipelineId));
+    }
+    for (const branch of branches) branch.pipelineIds = pipelinesByBranch.get(Number(branch.id)) || [];
     const [academicYears] = await pool.query(`SELECT id, academic_year AS academicYear, display_name AS displayName FROM crm_academic_years WHERE is_active = TRUE ORDER BY academic_year DESC`);
     const [leadFields] = await pool.execute(
         `SELECT id,field_key AS fieldKey,display_name AS displayName,field_type AS fieldType,placeholder,
