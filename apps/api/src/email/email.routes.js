@@ -16,7 +16,7 @@ export function createEmailRoutes(pool, authenticate, requireCrmAccess, uploadRo
   router.use(authenticate, requireCrmAccess);
 
   router.get('/configuration', wrap(async (req, res) => {
-    const row = await service.integration(service.org(req));
+    const row = await service.integration(service.org(req), false, null, req.businessUnit?.id || null);
     res.json({ data: service.publicConfig(row) });
   }));
   router.put('/configuration', wrap(async (req, res) => {

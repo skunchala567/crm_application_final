@@ -256,7 +256,10 @@ function Shell({ user, onLogout }) {
      * than a growing list that duplicates the grid. Their routes still
      * resolve, so links and the tiles' navigation keep working.
      */
-    { label: 'Integrations', path: '/settings/integrations', permission: 'integrations.hub.view' },
+    /* No Integrations entry of its own: accounts belong to a business unit,
+       so they are configured on that unit's Integrations tab, reached from
+       Business Units. /settings/integrations still resolves -- it redirects
+       there -- so existing links and the provider screens keep working. */
   ].filter((item) => can(item.permission));
 
   /*
@@ -372,7 +375,8 @@ function Shell({ user, onLogout }) {
             <Route path="/settings/academic-config" element={<Navigate to="/settings/business-units?tab=academic" replace />} />
             <Route path="/settings/academic-years" element={<Navigate to="/settings/business-units?tab=academic" replace />} />
             <Route path="/settings/admission-classes" element={<Navigate to="/settings/business-units?tab=academic&section=classes" replace />} />
-            <Route path="/settings/integrations" element={<RequirePermission do="integrations.hub.view"><SettingsPageModern /></RequirePermission>} />
+            {/* Moved onto the business unit that owns the accounts. */}
+            <Route path="/settings/integrations" element={<Navigate to="/settings/business-units?tab=integrations" replace />} />
             <Route path="/settings/google-sheets" element={<RequirePermission do="integrations.google_sheets.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/meta-lead-ads" element={<RequirePermission do="integrations.meta_lead_ads.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/templates" element={<Navigate to="/templates" replace />} />

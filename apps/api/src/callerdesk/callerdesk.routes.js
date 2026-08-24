@@ -3,6 +3,7 @@ import { Router } from 'express';
 import axios from 'axios';
 import { decryptToken, encryptToken, getMasterKey } from '../integration-hub/crypto-utils.js';
 import { branchScopeSql, canAccessBranch } from '../rbac/branch-scope.js';
+import { requestUnitId, unitScopeFilter, unitPreferenceOrder } from '../integration-scope.js';
 
 const BASE_URL = 'https://app.callerdesk.io/api';
 const clean = value => String(value ?? '').trim();
@@ -29,10 +30,19 @@ async function callerDeskRequest(endpoint, credentials, params = {}, method = 'P
   }
 }
 
-async function loadConfig(pool, organizationId, required = true) {
+/*
+ * The CallerDesk account this business unit works with.
+ *
+ * Takes the request, because an account belongs to a unit: the message this
+ * has always shown -- "Configure CallerDesk for this business unit first" --
+ * was only true once the account was actually looked up per unit.
+ */
+async function loadConfig(pool, req, required = true) {
+  const organizationId = Number(req.user?.organizationId || 1), unitId = requestUnitId(req);
+  const unit = unitScopeFilter(unitId);
   const [[row]] = await pool.execute(`SELECT * FROM crm_integrations WHERE organization_id=? AND deleted_at IS NULL
-    AND (LOWER(provider)='callerdesk' OR LOWER(type)='callerdesk')
-    ORDER BY id DESC LIMIT 1`, [organizationId]);
+    AND (LOWER(provider)='callerdesk' OR LOWER(type)='callerdesk')${unit.sql}
+    ORDER BY ${unitPreferenceOrder(unitId)}id DESC LIMIT 1`, [organizationId, ...unit.params]);
   if (!row && required) throw Object.assign(new Error('Configure CallerDesk for this business unit first'), { status: 400 });
   if (!row) return null;
   if (required && !['ACTIVE','CONNECTED'].includes(String(row.status).toUpperCase())) throw Object.assign(new Error('CallerDesk integration is inactive'), { status: 400 });
@@ -51,7 +61,7 @@ export function createCallerDeskRoutes(pool, authenticate, requireCrmAccess, req
   const router = Router();
 
   router.get('/config', authenticate, requireCrmAccess, asyncRoute(async (req, res) => {
-    const config = await loadConfig(pool, Number(req.user.organizationId || 1), false);
+    const config = await loadConfig(pool, req, false);
     const [[mapping]] = await pool.execute(`SELECT id FROM app_users WHERE id=? AND callerdesk_enabled=1 AND NULLIF(callerdesk_member_id,'') IS NOT NULL AND NULLIF(callerdesk_member_number,'') IS NOT NULL LIMIT 1`,[req.user.id]);
     res.json({ data: config ? {
       id: Number(config.id), accountName: config.name, defaultDeskphone: config.defaultDeskphone || '',
@@ -64,7 +74,7 @@ export function createCallerDeskRoutes(pool, authenticate, requireCrmAccess, req
   router.put('/config', authenticate, requireCrmAccess, requireUserAdmin, asyncRoute(async (req, res) => {
     const authcode = clean(req.body.authcode || req.body.apiKey);
     const organizationId = Number(req.user.organizationId || 1);
-    const existing = await loadConfig(pool, organizationId, false);
+    const existing = await loadConfig(pool, req, false);
     if (!authcode && !existing) return res.status(400).json({ message: 'CallerDesk authcode is required' });
     const stored = { apiKeyEncrypted: authcode ? encryptToken(authcode,getMasterKey()) : existing.apiKeyEncrypted,
       apiSecretEncrypted: clean(req.body.apiSecret) ? encryptToken(clean(req.body.apiSecret),getMasterKey()) : existing?.apiSecretEncrypted || null,
@@ -73,13 +83,13 @@ export function createCallerDeskRoutes(pool, authenticate, requireCrmAccess, req
       webhookSecret: existing?.webhookSecret || crypto.randomBytes(24).toString('hex') };
     if(existing) await pool.execute(`UPDATE crm_integrations SET name=?,config=?,status=?,updated_by=? WHERE id=?`,
       [clean(req.body.accountName)||'CallerDesk',JSON.stringify(stored),req.body.isActive===false?'INACTIVE':'ACTIVE',req.user.id,existing.id]);
-    else await pool.execute(`INSERT INTO crm_integrations(organization_id,name,type,provider,config,status,created_by)
-      VALUES(?,?,'SMS','callerdesk',?,?,?)`,[organizationId,clean(req.body.accountName)||'CallerDesk',JSON.stringify(stored),req.body.isActive===false?'INACTIVE':'ACTIVE',req.user.id]);
+    else await pool.execute(`INSERT INTO crm_integrations(organization_id,business_unit_id,name,type,provider,config,status,created_by)
+      VALUES(?,?,?,'SMS','callerdesk',?,?,?)`,[organizationId,requestUnitId(req),clean(req.body.accountName)||'CallerDesk',JSON.stringify(stored),req.body.isActive===false?'INACTIVE':'ACTIVE',req.user.id]);
     res.json({ success: true, message: 'CallerDesk configuration saved' });
   }));
 
   router.post('/test', authenticate, requireCrmAccess, requireUserAdmin, asyncRoute(async (req, res) => {
-    const config = await loadConfig(pool, Number(req.user.organizationId || 1));
+    const config = await loadConfig(pool, req);
     const result = await callerDeskRequest('profile_billing_v2', config);
     res.json({ success: true, data: unwrap(result) });
   }));
@@ -90,12 +100,12 @@ export function createCallerDeskRoutes(pool, authenticate, requireCrmAccess, req
     notifications: ['get_notification_setting_v2', 'POST'], routing: ['getroutingdetail_V2', 'POST'],
   };
   Object.entries(proxies).forEach(([path, [endpoint, method]]) => router.get(`/${path}`, authenticate, requireCrmAccess, asyncRoute(async (req, res) => {
-    const config = await loadConfig(pool, Number(req.user.organizationId || 1));
+    const config = await loadConfig(pool, req);
     res.json({ data: unwrap(await callerDeskRequest(endpoint, config, req.query, method)) });
   })));
 
   router.get('/reports', authenticate, requireCrmAccess, asyncRoute(async (req, res) => {
-    const config = await loadConfig(pool, Number(req.user.organizationId || 1));
+    const config = await loadConfig(pool, req);
     res.json({ data: unwrap(await callerDeskRequest('call_list_v2', config, {
       start_date: req.query.from || '', end_date: req.query.to || '', current_page: req.query.page || 1,
       per_page: Math.min(Number(req.query.perPage) || 50, 200), deskphone: req.query.deskphone || '',
@@ -104,7 +114,7 @@ export function createCallerDeskRoutes(pool, authenticate, requireCrmAccess, req
   }));
 
   router.get('/agents', authenticate, requireCrmAccess, asyncRoute(async (req, res) => {
-    await loadConfig(pool, Number(req.user.organizationId || 1));
+    await loadConfig(pool, req);
     const [rows] = await pool.execute(`SELECT u.id,u.id userId,u.employee_id employeeId,u.callerdesk_member_id memberId,
       COALESCE(u.callerdesk_member_name,e.employee_name,u.email) memberName,u.callerdesk_member_number memberNumber,
       u.callerdesk_call_group callGroup,u.callerdesk_enabled isActive FROM app_users u LEFT JOIN employees e ON e.id=u.employee_id
@@ -113,7 +123,7 @@ export function createCallerDeskRoutes(pool, authenticate, requireCrmAccess, req
   }));
 
   router.post('/agents', authenticate, requireCrmAccess, requireUserAdmin, asyncRoute(async (req, res) => {
-    await loadConfig(pool, Number(req.user.organizationId || 1));
+    await loadConfig(pool, req);
     if (!clean(req.body.memberName) || !digits(req.body.memberNumber)) return res.status(400).json({ message: 'Member name and a valid number are required' });
     const userId=Number(req.body.userId);
     if(!Number.isInteger(userId)||userId<1)return res.status(400).json({message:'Select a CRM user'});
@@ -124,7 +134,7 @@ export function createCallerDeskRoutes(pool, authenticate, requireCrmAccess, req
   }));
 
   router.get('/branch-dids', authenticate, requireCrmAccess, asyncRoute(async (req,res) => {
-    await loadConfig(pool,Number(req.user.organizationId || 1));
+    await loadConfig(pool, req);
     // A telephony number is branch configuration like any other.
     const scope=branchScopeSql(req.user,'b.id');
     const [rows] = await pool.execute(`SELECT b.id branchId,b.branch_name branchName,b.callerdesk_did_id didId,b.callerdesk_did_number didNumber,
@@ -134,7 +144,7 @@ export function createCallerDeskRoutes(pool, authenticate, requireCrmAccess, req
   }));
 
   router.put('/branch-dids/:branchId', authenticate, requireCrmAccess, requireUserAdmin, asyncRoute(async (req,res) => {
-    await loadConfig(pool,Number(req.user.organizationId || 1));
+    await loadConfig(pool, req);
     if(!canAccessBranch(req.user,req.params.branchId))return res.status(404).json({message:'Branch not found in this business unit'});
     const [[branch]] = await pool.execute('SELECT id FROM branches WHERE id=? AND is_active=1 LIMIT 1',[req.params.branchId]);
     if(!branch)return res.status(404).json({message:'Branch not found in this business unit'});
@@ -146,7 +156,7 @@ export function createCallerDeskRoutes(pool, authenticate, requireCrmAccess, req
   }));
 
   router.post('/leads/:leadId/contact', authenticate, requireCrmAccess, asyncRoute(async (req, res) => {
-    const config = await loadConfig(pool, Number(req.user.organizationId || 1));
+    const config = await loadConfig(pool, req);
     const [[lead]] = await pool.execute('SELECT id,student_name,phone,email,city FROM crm_leads WHERE id=? AND business_unit_id=? AND deleted_at_utc IS NULL', [req.params.leadId, req.businessUnit.id]);
     if (!lead) return res.status(404).json({ message: 'Lead not found' });
     const result = await callerDeskRequest('savecontact_v2', config, { contact_num: digits(lead.phone), contact_name: lead.student_name, email: lead.email || '', address: lead.city || '' });
@@ -154,7 +164,7 @@ export function createCallerDeskRoutes(pool, authenticate, requireCrmAccess, req
   }));
 
   router.post('/leads/:leadId/call', authenticate, requireCrmAccess, asyncRoute(async (req, res) => {
-    const config = await loadConfig(pool, Number(req.user.organizationId || 1));
+    const config = await loadConfig(pool, req);
     const [[lead]] = await pool.execute('SELECT id,student_name,phone,branch_id FROM crm_leads WHERE id=? AND business_unit_id=? AND deleted_at_utc IS NULL', [req.params.leadId, req.businessUnit.id]);
     if (!lead) return res.status(404).json({ message: 'Lead not found' });
     const agentUserId=Number(req.body.agentUserId||req.user.id);
@@ -199,7 +209,7 @@ export function createCallerDeskRoutes(pool, authenticate, requireCrmAccess, req
   }));
 
   router.post('/campaigns', authenticate, requireCrmAccess, asyncRoute(async (req, res) => {
-    const config = await loadConfig(pool, Number(req.user.organizationId || 1));
+    const config = await loadConfig(pool, req);
     const leadIds = [...new Set((req.body.leadIds || []).map(Number).filter(Number.isInteger))];
     if (!clean(req.body.name) || !leadIds.length) return res.status(400).json({ message: 'Campaign name and at least one lead are required' });
     const mode = ['manual','preview','progressive'].includes(req.body.mode) ? req.body.mode : 'preview';

@@ -92,6 +92,7 @@ export const REGISTRY = [
       { screen: 'sms', label: 'SMS', actions: ['create'] },
       { screen: 'email', label: 'Email', actions: ['create'] },
       { screen: 'export', label: 'Export', actions: ['export'] },
+      { screen: 'delete', label: 'Delete leads', actions: ['delete'] },
     ],
   },
   {

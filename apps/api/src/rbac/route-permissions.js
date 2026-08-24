@@ -57,6 +57,10 @@ export const ROUTE_RULES = [
    * Bulk Actions did not actually stop a bulk change.
    */
   { method: '*', test: /^\/api\/leads\/actions\/bulk-(refer|assign|reassign)/, key: 'bulk_actions.refer.assign' },
+  /* Deleting many leads is its own permission, not the change-stage one the
+     generic bulk rule below would hand it. Ordered before that rule, because
+     the first match wins. */
+  { method: '*', test: /^\/api\/leads\/actions\/bulk-delete/, key: 'bulk_actions.delete.delete' },
   { method: '*', test: /^\/api\/leads\/actions\/bulk-/, key: 'bulk_actions.change_stage.edit' },
   { method: 'POST', test: /^\/api\/leads\/(bulk|import)/, key: 'bulk_actions.upload.import' },
   { method: 'POST', test: /^\/api\/leads\/[^/]+\/(assign|refer|reassign)/, key: 'leads.list.assign' },

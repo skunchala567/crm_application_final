@@ -53,6 +53,7 @@ const brandLogo = value => {
 const isAdmin = user => (user.roles || []).some(role => ['CRM_ADMIN','SUPER_ADMIN'].includes(String(role).toUpperCase()));
 
 import { LEAD_FIELD_CATALOGUE, CATALOGUE_BY_KEY, SOURCE_LABELS, CONFIG_FIELD_PREFIX } from './lead-field-catalogue.js';
+import { unitScopeFilter } from './integration-scope.js';
 import { notifyTrackerTask } from './tracker-notifications.js';
 import { DUPLICATE_FIELDS, normalizeDuplicateRule, describeRule } from './lead-duplicate-rule.js';
 
@@ -1630,9 +1631,13 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
       `SELECT is_enabled AS isEnabled, integration_id AS integrationId,
               action_item_template AS actionItemTemplate, approval_template AS approvalTemplate
          FROM crm_tracker_notification_settings WHERE business_unit_id=?`,[unitId]);
+    /* This unit's WhatsApp accounts, not the organisation's: the tracker
+       notifies from the account the unit itself configured. */
+    const accountUnit=unitScopeFilter(unitId);
     const [accounts]=await pool.execute(
       `SELECT id, name FROM crm_integrations
-        WHERE deleted_at IS NULL AND LOWER(COALESCE(provider,''))='smartping' ORDER BY name`);
+        WHERE deleted_at IS NULL AND LOWER(COALESCE(provider,''))='smartping'${accountUnit.sql} ORDER BY name`,
+      accountUnit.params);
     const [templates]=await pool.execute(
       `SELECT id, integration_id AS integrationId, template_name AS templateName
          FROM crm_whatsapp_templates WHERE status='APPROVED' ORDER BY template_name`);

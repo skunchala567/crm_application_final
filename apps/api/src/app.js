@@ -42,6 +42,7 @@ import { bootstrapRbac } from './rbac/rbac-bootstrap.js';
 import { notifyEmployee } from './notification-service.js';
 import { resolveAssignmentRuleOwner } from './assignment-rules/engine.js';
 import { findDuplicateLead, loadDuplicateRule, normalizeDuplicateRule, describeRule, DUPLICATE_FIELDS } from './lead-duplicate-rule.js';
+import { unitScopeFilter } from './integration-scope.js';
 import zlib from 'node:zlib';
 
 const app = express();
@@ -319,6 +320,7 @@ const whatsappMediaRules = {
 app.post(
     '/api/whatsapp/media-upload',
     authenticate,
+    attachBusinessUnit,
     express.raw({ type: () => true, limit: '20mb' }),
     async (req, res, next) => {
         try {
@@ -327,12 +329,15 @@ app.post(
             if (!Number.isInteger(integrationId) || integrationId < 1) {
                 return res.status(400).json({ message: 'Select a WhatsApp account before uploading' });
             }
+            /* Scoped to the unit uploading: an id from another unit's account
+               must not lend its WhatsApp credentials to this upload. */
+            const uploadUnit = unitScopeFilter(req.businessUnit?.id || null);
             const [integrationRows] = await pool.query(
                 `SELECT id, provider, config, media_public_base_url
          FROM crm_integrations
-         WHERE id = ? AND deleted_at IS NULL
+         WHERE id = ? AND deleted_at IS NULL${uploadUnit.sql}
          LIMIT 1`,
-                [integrationId]
+                [integrationId, ...uploadUnit.params]
             );
             const integration = integrationRows[0];
             if (!integration || String(integration.provider).toLowerCase() !== 'smartping') {
@@ -397,6 +402,19 @@ async function requireCrmAccess(req, res, next) {
     if (!req.user.roles?.some((role) => crmRoles.has(role))) return res.status(403).json({ success: false, error: 'Your account does not have Admissions CRM access', details: `Required roles: ${Array.from(crmRoles).join(', ')}. Your roles: ${req.user.roles?.join(', ') || 'none'}` });
     const [rows] = await pool.execute(`SELECT COALESCE((SELECT is_active FROM crm_user_access_status WHERE user_id=?),1) AS crmActive`, [Number(req.user.id)]);
     if (!Boolean(rows[0]?.crmActive)) return res.status(403).json({ success: false, error: 'Your CRM access is inactive', details: 'Contact a CRM administrator to reactivate your access' });
+    return attachBusinessUnit(req, res, next);
+}
+
+/*
+ * Which business unit this request is working in.
+ *
+ * Split out of requireCrmAccess so routes that authenticate without the CRM
+ * role check -- the WhatsApp template and media endpoints -- still know their
+ * unit. They have to: integration accounts belong to a unit now, and a route
+ * that cannot name its unit can only fall back to the organisation-wide
+ * behaviour this replaced.
+ */
+async function attachBusinessUnit(req, res, next) {
     const requestedUnitId = Number(req.headers['x-business-unit-id']);
     /*
      * Only an unrestricted administrator may work in any unit.
@@ -3167,9 +3185,75 @@ app.get('/api/leads/referral-options/all', authenticate, requireCrmAccess, async
 
 app.delete('/api/leads/:id', authenticate, requireCrmAccess, requireLeadDelete, async (req, res) => {
     const scope = leadScopedWhere(req.user);
-    const [result] = await pool.execute(`UPDATE crm_leads l SET deleted_at_utc = CURRENT_TIMESTAMP(6), updated_by_user_id = ? WHERE l.id = ? AND l.deleted_at_utc IS NULL AND ${scope.sql}`, [Number(req.user.id), Number(req.params.id), ...scope.params]);
+    /* deleted_by_user_id as well as updated_by_user_id: the second is
+       overwritten by whatever touches the row next, so on its own it cannot
+       answer who deleted the lead. */
+    const [result] = await pool.execute(`UPDATE crm_leads l SET deleted_at_utc = CURRENT_TIMESTAMP(6), deleted_by_user_id = ?, updated_by_user_id = ? WHERE l.id = ? AND l.deleted_at_utc IS NULL AND ${scope.sql}`, [Number(req.user.id), Number(req.user.id), Number(req.params.id), ...scope.params]);
     if (!result.affectedRows) return res.status(404).json({ message: 'Lead not found' });
+    await pool.execute(
+        `INSERT INTO crm_lead_activities (lead_id,activity_type,summary,actor_user_id) VALUES (?,'deleted','Lead deleted',?)`,
+        [Number(req.params.id), Number(req.user.id)],
+    );
     res.json({ message: 'Lead removed successfully' });
+});
+
+/*
+ * Delete many leads at once.
+ *
+ * A soft delete, like the single-lead route: deleted_at_utc is stamped and
+ * every read already filters on it, so the rows leave the screen and stay in
+ * the database with who removed them and when. Nothing is erased, and a
+ * mistake is undone by clearing those two columns.
+ *
+ * DELETE rather than a POST action on purpose -- the business unit's deletion
+ * password is enforced for DELETE, so a bulk removal is challenged exactly as
+ * removing one lead is. An activity row per lead keeps the trail on the lead
+ * itself, where the history tab reads it.
+ *
+ * Scoped like every other lead route: a counsellor can only delete what they
+ * can already see, and ids outside that scope are reported as not deleted
+ * rather than silently ignored.
+ */
+app.delete('/api/leads/actions/bulk-delete', authenticate, requireCrmAccess, requireLeadDelete, async (req, res) => {
+    const leadIds = [...new Set((Array.isArray(req.body?.leadIds) ? req.body.leadIds : [])
+        .map(Number).filter(id => Number.isInteger(id) && id > 0))];
+    if (!leadIds.length) return res.status(400).json({ message: 'Select at least one lead to delete' });
+    if (leadIds.length > 500) return res.status(400).json({ message: 'Delete at most 500 leads at a time' });
+
+    const scope = leadScopedWhere(req.user);
+    const placeholders = leadIds.map(() => '?').join(',');
+    const [deletable] = await pool.execute(
+        `SELECT l.id FROM crm_leads l
+          WHERE l.id IN (${placeholders}) AND l.deleted_at_utc IS NULL AND ${scope.sql}`,
+        [...leadIds, ...scope.params],
+    );
+    const ids = deletable.map(row => Number(row.id));
+    if (!ids.length) return res.status(404).json({ message: 'None of the selected leads are available to delete' });
+
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+        const idPlaceholders = ids.map(() => '?').join(',');
+        await connection.execute(
+            `UPDATE crm_leads SET deleted_at_utc=CURRENT_TIMESTAMP(6), deleted_by_user_id=?, updated_by_user_id=?
+              WHERE id IN (${idPlaceholders})`,
+            [Number(req.user.id), Number(req.user.id), ...ids],
+        );
+        await connection.query(
+            `INSERT INTO crm_lead_activities (lead_id,activity_type,summary,actor_user_id) VALUES ${ids.map(() => '(?,?,?,?)').join(',')}`,
+            ids.flatMap(id => [id, 'deleted', 'Lead deleted in a bulk action', Number(req.user.id)]),
+        );
+        await connection.commit();
+    } catch (error) {
+        await connection.rollback();
+        throw error;
+    } finally { connection.release(); }
+
+    const skipped = leadIds.length - ids.length;
+    res.json({
+        message: `${ids.length} lead${ids.length === 1 ? '' : 's'} deleted${skipped ? `; ${skipped} could not be deleted` : ''}`,
+        data: { deleted: ids.length, skipped },
+    });
 });
 
 const assignableCrmRoles = ['CRM_ADMIN', 'ADMISSION_MANAGER', 'COUNSELLOR', 'CRM_VIEWER'];
@@ -3982,10 +4066,14 @@ app.post('/api/marketing-campaigns', authenticate, requireCrmAccess, requireLead
     const scheduleDates = campaignScheduleDates({ ...req.body, ruleType, communicationCount });
     const touches = Array.isArray(req.body.touches) ? req.body.touches.slice(0, communicationCount) : [];
     if (touches.length !== communicationCount) return res.status(400).json({ message: `Select ${communicationCount} approved WhatsApp templates` });
+    /* The unit's own account, and the organisation it belongs to -- this used
+       to pass the user's id as the organization id, which matched only for
+       whichever user happened to share an id with the organisation. */
+    const campaignUnit = unitScopeFilter(req.businessUnit?.id || null);
     const [[integration]] = await pool.execute(
         `SELECT id FROM crm_integrations WHERE id=? AND organization_id=? AND deleted_at IS NULL
-       AND UPPER(type)='SMARTPING' LIMIT 1`,
-        [integrationId, Number(req.user.id)],
+       AND UPPER(type)='SMARTPING'${campaignUnit.sql} LIMIT 1`,
+        [integrationId, Number(req.user.organizationId || 1), ...campaignUnit.params],
     );
     if (!integration) return res.status(400).json({ message: 'Selected WhatsApp account is unavailable' });
     const canonicalTouches = [];
@@ -6279,7 +6367,7 @@ app.use('/api/meta', createMetaRemarketingRoutes(pool, authenticate, requireCrmA
 app.use('/api/meta', createMetaRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin, console));
 
 // ============= WhatsApp Template Routes =============
-app.use('/api/whatsapp', createWhatsAppTemplateRoutes(pool, authenticate, console));
+app.use('/api/whatsapp', createWhatsAppTemplateRoutes(pool, authenticate, console, attachBusinessUnit));
 
 // ============= Webhook Routes (for AiSensy updates) =============
 const whatsappWebhookRoutes = createWebhookRoutes(pool, console);

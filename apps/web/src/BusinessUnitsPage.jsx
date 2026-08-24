@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, Building2, CalendarRange, Check, ChevronDown, ChevronRight, Copy, CreditCard, Database, ExternalLink, GitBranch, Layers3, Pencil, Plus, Search, Settings2, Trash2, Waypoints, Workflow, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Building2, CalendarRange, Check, ChevronDown, ChevronRight, Copy, CreditCard, Database, ExternalLink, GitBranch, Layers3, Pencil, Plug, Plus, Search, Settings2, Trash2, Waypoints, Workflow, X } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from './api';
 import { useBusinessUnit } from './BusinessUnitContext.jsx';
@@ -7,6 +7,7 @@ import { applyBrandTheme, DEFAULT_BRAND_COLOR } from './brand-theme.js';
 import AcademicConfigurationPage from './AcademicConfigurationPage.jsx';
 import BusinessConfigurationPage from './BusinessConfigurationPage.jsx';
 import LeadConfiguration from './LeadConfiguration.jsx';
+import IntegrationHubPage from './pages/IntegrationHubPage.jsx';
 import ScrollableTabStrip from './components/ScrollableTabStrip.jsx';
 import './MetadataPlatform.css';
 import BranchWhatsAppSettings, { saveBranchWhatsApp } from './components/BranchWhatsAppSettings.jsx';
@@ -117,7 +118,7 @@ export default function BusinessUnitsPage({onMessage}){
   // next follow-up and the rest that the default unit was seeded with.
   const [fieldCatalogue,setFieldCatalogue]=useState([]);
   const requestedTab=searchParams.get('tab');
-  const [tab,setTab]=useState(['academic','sources'].includes(requestedTab)?requestedTab:'overview');
+  const [tab,setTab]=useState(['academic','sources','integrations'].includes(requestedTab)?requestedTab:'overview');
   const [pipelineTab,setPipelineTab]=useState('stages');
   /* Which pipeline the Stages and Sub-stages lists are showing. A unit can
      run several; without this the lists were every pipeline's stages at
@@ -217,7 +218,7 @@ export default function BusinessUnitsPage({onMessage}){
   const changeTab=id=>{
     setTab(id);
     const next=new URLSearchParams(searchParams);
-    if(['academic','sources'].includes(id))next.set('tab',id);else{next.delete('tab');next.delete('section');}
+    if(['academic','sources','integrations'].includes(id))next.set('tab',id);else{next.delete('tab');next.delete('section');}
     setSearchParams(next,{replace:true});
   };
 
@@ -413,7 +414,7 @@ export default function BusinessUnitsPage({onMessage}){
                 page header's height has to be accounted for rather than the
                 title's as well -- its height changes with the description. */}
             <ScrollableTabStrip as="nav" className="metadata-tabs" label="configuration tabs">
-              {[['overview',Layers3,'Overview'],['branches',CreditCard,'Branches & payments'],['fields',Settings2,'Lead fields'],['pipeline',GitBranch,'Lead pipeline'],['sources',Waypoints,'Source configuration'],...(selected.compatibilityMode==='legacy_school'?[['academic',CalendarRange,'Academic configuration'],['configuration',Layers3,'Configuration']]:[['configuration',CalendarRange,'Configuration']]),['operations',Workflow,'Tracker'],['database',Database,'Database tables']].map(([id,Icon,label])=><button key={id} className={tab===id?'active':''} onClick={()=>changeTab(id)}><Icon size={16}/>{label}</button>)}
+              {[['overview',Layers3,'Overview'],['branches',CreditCard,'Branches & payments'],['fields',Settings2,'Lead fields'],['pipeline',GitBranch,'Lead pipeline'],['sources',Waypoints,'Source configuration'],...(selected.compatibilityMode==='legacy_school'?[['academic',CalendarRange,'Academic configuration'],['configuration',Layers3,'Configuration']]:[['configuration',CalendarRange,'Configuration']]),['integrations',Plug,'Integrations'],['operations',Workflow,'Tracker'],['database',Database,'Database tables']].map(([id,Icon,label])=><button key={id} className={tab===id?'active':''} onClick={()=>changeTab(id)}><Icon size={16}/>{label}</button>)}
             </ScrollableTabStrip>
             </div>
             {tab==='overview'&&<Overview config={config} selected={selected} onSaveDuplicateRule={saveDuplicateRule} saving={saving}/>}
@@ -465,6 +466,29 @@ export default function BusinessUnitsPage({onMessage}){
             {tab==='academic'&&selected.compatibilityMode==='legacy_school'&&<section className="business-unit-academic"><AcademicConfigurationPage embedded onMessage={message=>message&&notify(message.type,message.text)}/></section>}
             {tab==='configuration'&&<section className="business-unit-academic"><BusinessConfigurationPage key={selectedId} embedded businessUnitId={selectedId} onMessage={message=>message&&notify(message.type,message.text)}/></section>}
             {tab==='operations'&&<MetadataList title="Tracker statuses" description="Configure and order the progress statuses for MOM action items. New action items always start in the first status." action="Add status" onAdd={()=>{setEditingId(null);setStageForm({displayName:'',stageType:'open',color:'#0b7a4f'});setDialog('operation-stage')}} onEdit={row=>{const stage=config.operationStages.find(item=>item.id===row.id);setEditingId(stage.id);setStageForm({displayName:stage.displayName,stageType:stage.stageType,color:stage.color,isActive:stage.isActive});setDialog('operation-stage')}} onMove={moveOperationStage} onDelete={row=>removeConfiguredItem('operation-stages',row,'Tracker status')} rows={config.operationStages.map((stage,index)=>({id:stage.id,title:stage.displayName,subtitle:stage.stageType.replaceAll('_',' '),badges:[index===0?'Default starting status':`Order ${index+1}`],color:stage.color,canMoveUp:index>0,canMoveDown:index<config.operationStages.length-1}))}/>}
+            {/*
+              * Integration accounts belong to a business unit, so this is
+              * where they are configured -- beside that unit's branches,
+              * fields and pipeline rather than in a settings screen that said
+              * nothing about which unit it was changing.
+              *
+              * The API scopes accounts by the *active* unit (the
+              * X-Business-Unit-Id header), which is not always the unit picked
+              * on this screen. Rather than quietly configure the wrong one,
+              * a mismatch offers the switch: everything below then refers to
+              * one unit, and the tab is in the URL so it survives the remount.
+              */}
+            {tab==='integrations'&&(selectedId===context.selectedId
+              ? <section className="business-unit-integrations"><IntegrationHubPage embedded/></section>
+              : <section className="business-unit-integrations unit-switch-required">
+                  <div>
+                    <strong>Working in {context.units.find(unit=>unit.id===context.selectedId)?.displayName||'another business unit'}</strong>
+                    <p>Integration accounts belong to one business unit. Switch to {selected.displayName} to see and change its accounts.</p>
+                  </div>
+                  <button type="button" className="primary" onClick={()=>context.selectUnit(selectedId)}>
+                    <Plug size={16}/> Switch to {selected.displayName}
+                  </button>
+                </section>)}
             {tab==='database'&&<BusinessUnitDatabaseTables selected={selected}/>}
           </>}
         </section>

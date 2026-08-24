@@ -12,7 +12,11 @@ import IntegrationGrid from './components/IntegrationGrid';
 import ActionToolbar from './components/ActionToolbar';
 import './IntegrationHub.css';
 
-export default function IntegrationHubPage() {
+/*
+ * `embedded` is set when this renders inside a business unit's Integrations
+ * tab, which already provides the page frame and heading.
+ */
+export default function IntegrationHubPage({ embedded = false }) {
   const [searchParams] = useSearchParams();
   const [integrations, setIntegrations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -23,6 +27,7 @@ export default function IntegrationHubPage() {
   const [filter, setFilter] = useState('');
   // null = the tiles; otherwise the type whose integrations are open.
   const [openTypeId, setOpenTypeId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -42,6 +47,31 @@ export default function IntegrationHubPage() {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  /**
+   * Delete one account.
+   *
+   * A soft delete on the server: the row is kept, so the calls, messages and
+   * campaigns that point at it still resolve, but nothing can send through it
+   * again and it leaves every picker. The business unit's deletion password is
+   * asked for by the API -- api() answers the challenge with the shared
+   * dialog -- so this cannot happen on a stray click.
+   */
+  const handleDelete = async (integration) => {
+    const name = integration.integration_name || integration.provider_name || 'this account';
+    if (!window.confirm(`Delete ${name}? It stops sending or syncing immediately. Existing history is kept, and it can be added again later.`)) return;
+    setDeletingId(integration.id);
+    try {
+      await api.delete(`/hub/integrations/${integration.id}`);
+      setError(null);
+      await fetchIntegrations();
+    } catch (err) {
+      // Includes a cancelled password prompt, which is a refusal, not a crash.
+      setError(err.message);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -158,14 +188,14 @@ export default function IntegrationHubPage() {
 
   if (loading) {
     return (
-      <main className="integration-main settings-integration-page">
+      <main className={`integration-main ${embedded ? 'embedded-integration-page' : 'settings-integration-page'}`}>
         <div className="loading-state">Loading integrations...</div>
       </main>
     );
   }
 
   return (
-    <main className="integration-main settings-integration-page">
+    <main className={`integration-main ${embedded ? 'embedded-integration-page' : 'settings-integration-page'}`}>
       {/* Title lives in the Settings section header; only the action is here. */}
       <div className="flex items-center justify-between gap-4 mb-6">
         {openType ? (
@@ -309,6 +339,8 @@ export default function IntegrationHubPage() {
           integrations={filteredIntegrations}
           onSync={handleSync}
           onSettings={(integration) => openIntegrationSettings(integration)}
+          onDelete={handleDelete}
+          deletingId={deletingId}
           loading={loading}
         />
       )}

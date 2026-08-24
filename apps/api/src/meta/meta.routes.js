@@ -9,6 +9,7 @@ import {
   loadMetaConfig, saveMetaConfig, redactMetaConfig, META_PROVIDER, markMetaIntegrationState,
 } from './meta-config.js';
 import { importMetaLead, decryptPageToken, mapFieldData } from './meta-lead.service.js';
+import { requestUnitId } from '../integration-scope.js';
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -33,10 +34,37 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
 
   const publicBase = () => (process.env.API_PUBLIC_URL || process.env.PUBLIC_API_BASE_URL || '').replace(/\/+$/, '');
 
+  /*
+   * The Meta accounts this unit's screens may look at.
+   *
+   * Pages, forms and Facebook accounts all hang off an integration row, and a
+   * row belongs to a business unit -- so a unit sees the Pages connected under
+   * its own account (or a shared one) and nothing else. An empty list means
+   * the unit has no Meta account: its screens show nothing rather than the
+   * Pages of the unit next door.
+   *
+   * null means no unit on the request, and nothing is narrowed.
+   */
+  const unitIntegrationIds = async (req) => {
+    const unitId = requestUnitId(req);
+    if (!unitId) return null;
+    const [rows] = await pool.execute(
+      `SELECT id FROM crm_integrations
+        WHERE LOWER(COALESCE(provider,'')) = ? AND deleted_at IS NULL
+          AND (business_unit_id = ? OR business_unit_id IS NULL)`,
+      [META_PROVIDER, unitId],
+    );
+    return rows.map((row) => Number(row.id));
+  };
+  /** `AND <column> IN (...)` for that list, or nothing when unfiltered. */
+  const integrationFilter = (ids, column) => (ids === null
+    ? { sql: '', params: [] }
+    : { sql: ` AND ${column} IN (${ids.map(() => '?').join(',') || 'NULL'})`, params: ids });
+
   // ---------------- Config ----------------
 
-  router.get('/config', wrap(async (_req, res) => {
-    const config = await loadMetaConfig(pool, { useCache: false });
+  router.get('/config', wrap(async (req, res) => {
+    const config = await loadMetaConfig(pool, { useCache: false, unitId: requestUnitId(req) });
     const base = publicBase();
     res.json({
       success: true,
@@ -54,18 +82,27 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
     const saved = await saveMetaConfig(pool, req.body || {}, {
       organizationId: Number(req.user?.organizationId || 1),
       userId: Number(req.user?.id) || null,
+      /* Saved against the unit whose Integrations screen is open, so a second
+         unit configuring Meta gets its own account rather than overwriting
+         the first unit's credentials. */
+      unitId: requestUnitId(req),
     });
     res.json({ success: true, data: redactMetaConfig(saved) });
   }));
 
   /** Validate the system user token against Meta and report scopes/expiry. */
-  router.post('/config/test', requireUserAdmin, wrap(async (_req, res) => {
-    const config = await loadMetaConfig(pool, { useCache: false });
+  router.post('/config/test', requireUserAdmin, wrap(async (req, res) => {
+    const config = await loadMetaConfig(pool, { useCache: false, unitId: requestUnitId(req) });
     requireConfigured(config, ['appId', 'appSecret', 'systemUserToken']);
     const info = await debugToken(config.systemUserToken, config.appId, config.appSecret, { logger });
     /* Meta has just given a verdict on the token, so the Integrations tile
        should stop reporting whatever it was left at when the row was made. */
-    await markMetaIntegrationState(pool, { connected: Boolean(info?.is_valid), logger });
+    await markMetaIntegrationState(pool, {
+      connected: Boolean(info?.is_valid),
+      // The account just tested, not whichever unit's account is newest.
+      integrationId: config.integrationId,
+      logger,
+    });
     res.json({
       success: true,
       data: {
@@ -152,13 +189,16 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
 
   // ---------------- Pages ----------------
 
-  router.get('/pages', wrap(async (_req, res) => {
+  router.get('/pages', wrap(async (req, res) => {
+    const filter = integrationFilter(await unitIntegrationIds(req), 'integration_id');
     const [rows] = await pool.execute(
       `SELECT id, page_id, page_name, meta_account_id, meta_account_name,
               is_subscribed, subscribed_at_utc, subscribe_error,
               business_unit_id, branch_id, is_active, updated_at_utc
          FROM crm_meta_pages
+        WHERE 1=1${filter.sql}
         ORDER BY meta_account_name IS NULL, meta_account_name ASC, page_name ASC`,
+      filter.params,
     );
     res.json({ success: true, data: rows });
   }));
@@ -183,7 +223,7 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
    * token is used for this call and discarded.
    */
   router.post('/pages/discover', requireUserAdmin, wrap(async (req, res) => {
-    const config = await loadMetaConfig(pool, { useCache: false });
+    const config = await loadMetaConfig(pool, { useCache: false, unitId: requestUnitId(req) });
     const suppliedToken = typeof req.body?.userToken === 'string' ? req.body.userToken.trim() : '';
     if (!suppliedToken) requireConfigured(config, ['systemUserToken']);
     else if (!config) throw Object.assign(new Error('Meta integration is not configured'), { status: 400 });
@@ -222,7 +262,7 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
   }));
 
   router.post('/pages/sync', requireUserAdmin, wrap(async (req, res) => {
-    const config = await loadMetaConfig(pool, { useCache: false });
+    const config = await loadMetaConfig(pool, { useCache: false, unitId: requestUnitId(req) });
 
     // A token in the body discovers Pages from THAT Facebook account; without
     // one we fall back to the stored system user token as before. The supplied
@@ -318,7 +358,8 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
   }));
 
   /** Facebook accounts Pages have been connected through, with page counts. */
-  router.get('/accounts', wrap(async (_req, res) => {
+  router.get('/accounts', wrap(async (req, res) => {
+    const filter = integrationFilter(await unitIntegrationIds(req), 'integration_id');
     const [rows] = await pool.execute(
       `SELECT meta_account_id   AS accountId,
               meta_account_name AS accountName,
@@ -327,8 +368,10 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
               SUM(subscribe_error IS NOT NULL)           AS errorCount,
               MAX(updated_at_utc)                        AS lastSyncedAt
          FROM crm_meta_pages
+        WHERE 1=1${filter.sql}
         GROUP BY meta_account_id, meta_account_name
         ORDER BY meta_account_name IS NULL, meta_account_name ASC`,
+      filter.params,
     );
     res.json({ success: true, data: rows });
   }));
@@ -442,9 +485,15 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
 
   router.get('/forms', wrap(async (req, res) => {
     const pageId = req.query.pageId ? String(req.query.pageId) : null;
-    const [rows] = pageId
-      ? await pool.execute(`SELECT * FROM crm_meta_forms WHERE page_id=? ORDER BY form_name ASC`, [pageId])
-      : await pool.execute(`SELECT * FROM crm_meta_forms ORDER BY form_name ASC`);
+    /* Through the Page, because a form's account is its Page's account. */
+    const filter = integrationFilter(await unitIntegrationIds(req), 'p.integration_id');
+    const [rows] = await pool.execute(
+      `SELECT f.* FROM crm_meta_forms f
+         JOIN crm_meta_pages p ON p.page_id = f.page_id
+        WHERE ${pageId ? 'f.page_id=?' : '1=1'}${filter.sql}
+        ORDER BY f.form_name ASC`,
+      [...(pageId ? [pageId] : []), ...filter.params],
+    );
     res.json({
       success: true,
       data: rows.map((row) => ({
@@ -540,7 +589,7 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
    * dev, or before the app is live). Safe to re-run: the ledger dedupes.
    */
   router.post('/forms/:formId/backfill', requireUserAdmin, wrap(async (req, res) => {
-    const config = await loadMetaConfig(pool, { useCache: false });
+    const config = await loadMetaConfig(pool, { useCache: false, unitId: requestUnitId(req) });
     requireConfigured(config, []);
 
     const formId = String(req.params.formId);
@@ -785,7 +834,7 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
     // Re-open the claim so importMetaLead can settle it, then let it run the
     // usual validation and mapping -- approval changes who decides, not how.
     await pool.execute("UPDATE crm_meta_lead_imports SET status='failed' WHERE leadgen_id=?", [leadgenId]);
-    const config = await loadMetaConfig(pool, { useCache: false });
+    const config = await loadMetaConfig(pool, { useCache: false, unitId: requestUnitId(req) });
     const payload = typeof row.raw_payload === 'string' ? JSON.parse(row.raw_payload || 'null') : row.raw_payload;
     const result = await importMetaLead(pool, {
       leadgenId, formId: row.form_id, pageId: row.page_id, adId: row.ad_id,
@@ -867,7 +916,7 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
       return res.status(409).json({ message: `Only failed imports can be retried (status: ${row.status})` });
     }
 
-    const config = await loadMetaConfig(pool, { useCache: false });
+    const config = await loadMetaConfig(pool, { useCache: false, unitId: requestUnitId(req) });
     const result = await importMetaLead(pool, {
       leadgenId,
       formId: row.form_id,

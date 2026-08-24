@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
 import { importMetaLead } from './meta-lead.service.js';
-import { loadMetaConfig } from './meta-config.js';
+import { listMetaConfigs } from './meta-config.js';
 
 /**
  * Meta Lead Ads webhook receiver.
@@ -12,6 +12,13 @@ import { loadMetaConfig } from './meta-config.js';
  *
  * Requires req.rawBody, populated by the express.json({ verify }) hook in
  * server.js. Signing over a re-serialised body would not match Meta's bytes.
+ *
+ * One URL serves every business unit's Meta account, because Meta gives an app
+ * one callback and the delivery says nothing about business units. The
+ * signature is what identifies the account: the delivery is verified against
+ * each configured app secret, and the one that matches is the account -- and
+ * therefore the unit -- the lead belongs to. Nothing in the body is trusted
+ * before that, so a forged payload cannot name an account.
  */
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -48,14 +55,16 @@ export function createMetaWebhookRoutes(pool, logger = console) {
     const token = req.query['hub.verify_token'];
     const challenge = req.query['hub.challenge'];
 
-    const config = await loadMetaConfig(pool);
-    const expectedToken = config?.verifyToken;
+    /* Any account's verify token will do: each unit subscribes its own app,
+       and this one URL has to answer the handshake for all of them. */
+    const configs = await listMetaConfigs(pool);
+    const expected = configs.map((item) => item.verifyToken).filter(Boolean);
 
-    if (!expectedToken) {
+    if (!expected.length) {
       logger.warn?.('[Meta] Webhook verification attempted with no verify token configured');
       return res.status(503).send('Meta integration is not configured');
     }
-    if (mode !== 'subscribe' || String(token) !== String(expectedToken)) {
+    if (mode !== 'subscribe' || !expected.some((value) => String(token) === String(value))) {
       logger.warn?.('[Meta] Webhook verification rejected', { mode });
       return res.sendStatus(403);
     }
@@ -71,20 +80,26 @@ export function createMetaWebhookRoutes(pool, logger = console) {
    * UNIQUE leadgen_id makes importMetaLead idempotent.
    */
   router.post('/webhook', wrap(async (req, res) => {
-    const config = await loadMetaConfig(pool);
-    if (!config?.appSecret) {
+    const configs = (await listMetaConfigs(pool)).filter((item) => item.appSecret);
+    if (!configs.length) {
       logger.error?.('[Meta] Webhook received but no app secret is configured');
       return res.status(503).json({ message: 'Meta integration is not configured' });
     }
 
     const signature = req.get('x-hub-signature-256');
-    if (!verifyMetaSignature(req.rawBody, signature, config.appSecret)) {
+    const verified = configs.filter((item) => verifyMetaSignature(req.rawBody, signature, item.appSecret));
+    if (!verified.length) {
       logger.warn?.('[Meta] Rejected webhook with invalid signature', {
         hasRawBody: Boolean(req.rawBody),
         hasSignature: Boolean(signature),
+        accountsTried: configs.length,
       });
       return res.status(401).json({ message: 'Invalid signature' });
     }
+    /* Provisional: correct already when one account signed it, and refined per
+       delivery below when several share one Facebook app -- then the Page the
+       lead came from is what separates them. */
+    const config = verified[0];
 
     const body = req.body || {};
     if (body.object !== 'page') {
@@ -113,15 +128,35 @@ export function createMetaWebhookRoutes(pool, logger = console) {
 
     if (!jobs.length) return;
 
+    /*
+     * Which account a Page belongs to, when more than one verified the
+     * signature -- two units running the same Facebook app share its secret,
+     * so the secret alone cannot separate them. The Page is connected under
+     * exactly one account, and that is the account whose credentials and unit
+     * the lead should be imported with.
+     *
+     * Only consulted for a Page one of the verified accounts owns: a Page
+     * belonging to some other account is left with the provisional choice
+     * rather than reaching outside the accounts that signed the delivery.
+     */
+    const accountForPage = async (pageId) => {
+      if (verified.length === 1 || !pageId) return config;
+      const [[page]] = await pool.execute('SELECT integration_id AS integrationId FROM crm_meta_pages WHERE page_id=? LIMIT 1', [pageId]);
+      const owner = verified.find((item) => Number(item.integrationId) === Number(page?.integrationId));
+      return owner || config;
+    };
+
     // Sequential on purpose: bursts from one campaign usually share a branch,
     // and the per-phone advisory lock would just serialise them anyway.
     for (const job of jobs) {
       try {
-        const result = await importMetaLead(pool, { ...job, intakeSource: 'webhook', config, logger });
+        const account = await accountForPage(job.pageId);
+        const result = await importMetaLead(pool, { ...job, intakeSource: 'webhook', config: account, logger });
         logger.info?.('[Meta] Webhook lead processed', {
           leadgenId: job.leadgenId,
           status: result.status,
           leadId: result.leadId ?? null,
+          integrationId: account?.integrationId ?? null,
         });
       } catch (error) {
         // importMetaLead already records failures in the ledger; this only

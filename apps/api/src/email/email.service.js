@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { decryptToken, encryptToken, getMasterKey } from '../integration-hub/crypto-utils.js';
 import { assertTemplateVisible } from '../template-visibility.js';
+import { requestUnitId, unitScopeFilter, unitPreferenceOrder } from '../integration-scope.js';
 
 export const EMAIL_CATEGORIES = ['Lead','Follow-up','Application','Admission','Payment','General','Other'];
 export const MERGE_FIELDS = [
@@ -33,17 +34,21 @@ export class EmailService {
   org(req) { return Number(req.user?.organizationId || 1); }
 
   /**
-   * One email account. Without an id this is the organisation's newest, which
-   * is what a single-account setup has always meant.
+   * One email account. Without an id this is the newest account of the
+   * business unit being worked in, which is what a single-account setup has
+   * always meant -- except that it is now that unit's account rather than
+   * whichever the organisation configured last.
    */
-  async integration(organizationId, includeSecret = false, integrationId = null) {
+  async integration(organizationId, includeSecret = false, integrationId = null, unitId = null) {
+    const unit = unitScopeFilter(unitId);
     const [[row]] = integrationId
       ? await this.pool.execute(
-          `SELECT * FROM crm_integrations WHERE id=? AND organization_id=? AND provider='smtp' AND deleted_at IS NULL LIMIT 1`,
-          [Number(integrationId), organizationId])
+          `SELECT * FROM crm_integrations WHERE id=? AND organization_id=? AND provider='smtp' AND deleted_at IS NULL${unit.sql} LIMIT 1`,
+          [Number(integrationId), organizationId, ...unit.params])
       : await this.pool.execute(
-          `SELECT * FROM crm_integrations WHERE organization_id=? AND provider='smtp' AND deleted_at IS NULL ORDER BY id DESC LIMIT 1`,
-          [organizationId]);
+          `SELECT * FROM crm_integrations WHERE organization_id=? AND provider='smtp' AND deleted_at IS NULL${unit.sql}
+            ORDER BY ${unitPreferenceOrder(unitId)}id DESC LIMIT 1`,
+          [organizationId, ...unit.params]);
     if (!row) return null;
     const config = json(row.config, {});
     if (includeSecret && config.passwordEncrypted) config.password = decryptToken(config.passwordEncrypted, getMasterKey());
@@ -65,20 +70,22 @@ export class EmailService {
     const branchIds = Array.isArray(req.user?.branchIds)
       ? req.user.branchIds.map(Number).filter(Number.isFinite) : [];
     const unrestricted = !branchIds.length;
+    /* Branch scoping narrows within a unit; it never reaches across one. */
+    const unit = unitScopeFilter(requestUnitId(req), 'i');
     const [rows] = unrestricted
       ? await this.pool.execute(
           `SELECT i.id, i.name, i.status, i.config FROM crm_integrations i
-            WHERE i.organization_id=? AND i.provider='smtp' AND i.deleted_at IS NULL ORDER BY i.name, i.id`,
-          [organizationId])
+            WHERE i.organization_id=? AND i.provider='smtp' AND i.deleted_at IS NULL${unit.sql} ORDER BY i.name, i.id`,
+          [organizationId, ...unit.params])
       : await this.pool.query(
           `SELECT DISTINCT i.id, i.name, i.status, i.config, MAX(bea.is_default) AS isDefault
              FROM crm_integrations i
              JOIN crm_branch_email_accounts bea ON bea.integration_id = i.id
-            WHERE i.organization_id=? AND i.provider='smtp' AND i.deleted_at IS NULL
+            WHERE i.organization_id=? AND i.provider='smtp' AND i.deleted_at IS NULL${unit.sql}
               AND bea.branch_id IN (${branchIds.map(() => '?').join(',')})
             GROUP BY i.id, i.name, i.status, i.config
             ORDER BY isDefault DESC, i.name, i.id`,
-          [organizationId, ...branchIds]);
+          [organizationId, ...unit.params, ...branchIds]);
     return rows.map(row => {
       const config = json(row.config, {});
       return {
@@ -144,7 +151,7 @@ export class EmailService {
 
   async saveConfig(req, input) {
     const organizationId = this.org(req);
-    const existing = await this.integration(organizationId);
+    const existing = await this.integration(organizationId, false, null, requestUnitId(req));
     this.validateConfig(input, Boolean(existing?.config?.passwordEncrypted));
     const passwordEncrypted = clean(input.smtpPassword, 2000)
       ? encryptToken(clean(input.smtpPassword, 2000), getMasterKey()) : existing.config.passwordEncrypted;
@@ -161,9 +168,9 @@ export class EmailService {
       return this.publicConfig({ ...existing, status: config.enabled ? 'CONNECTED' : 'INACTIVE', config });
     }
     const [result] = await this.pool.execute(
-      `INSERT INTO crm_integrations(organization_id,name,type,provider,config,status,created_by,created_at,updated_at)
-       VALUES(?,'SMTP Email','EMAIL','smtp',?,?,?,NOW(),NOW())`,
-      [organizationId, JSON.stringify(config), config.enabled ? 'CONNECTED' : 'INACTIVE', req.user.id]
+      `INSERT INTO crm_integrations(organization_id,business_unit_id,name,type,provider,config,status,created_by,created_at,updated_at)
+       VALUES(?,?,'SMTP Email','EMAIL','smtp',?,?,?,NOW(),NOW())`,
+      [organizationId, requestUnitId(req), JSON.stringify(config), config.enabled ? 'CONNECTED' : 'INACTIVE', req.user.id]
     );
     await this.seedTemplates(organizationId, req.user.id);
     return this.publicConfig({ id: result.insertId, status: config.enabled ? 'CONNECTED' : 'INACTIVE', config });
@@ -180,7 +187,7 @@ export class EmailService {
   }
 
   async testConnection(req) {
-    const integration = await this.integration(this.org(req), true);
+    const integration = await this.integration(this.org(req), true, null, requestUnitId(req));
     if (!integration) throw Object.assign(new Error('Save SMTP configuration first'), { status: 400 });
     this.validateConfig(integration.config, Boolean(integration.config.password));
     await this.transport(integration.config).verify();
@@ -275,7 +282,7 @@ export class EmailService {
         throw Object.assign(new Error('You cannot send from that email account'), { status: 403 });
       }
     }
-    const integration = await this.integration(organizationId, true, integrationId);
+    const integration = await this.integration(organizationId, true, integrationId, requestUnitId(req));
     if (!integration || !integration.config.enabled) throw Object.assign(new Error('Email is not configured or enabled'), { status: 400 });
     const to = this.parseAddresses(input.to, 'recipient', true), cc = this.parseAddresses(input.cc, 'CC'), bcc = this.parseAddresses(input.bcc, 'BCC');
     if (!clean(input.subject, 500)) throw Object.assign(new Error('Email subject is required'), { status: 400 });

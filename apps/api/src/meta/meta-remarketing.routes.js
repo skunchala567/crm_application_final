@@ -67,18 +67,23 @@ export function createMetaRemarketingRoutes(pool, authenticate, requireCrmAccess
 
   // ---------------- Ad accounts ----------------
 
-  router.get('/ad-accounts', canView, wrap(async (_req, res) => {
+  /* The unit's own ad accounts; rows synced before they were stamped with a
+     unit stay visible to everyone rather than disappearing. */
+  router.get('/ad-accounts', canView, wrap(async (req, res) => {
     const [rows] = await pool.execute(
       `SELECT ad_account_id AS adAccountId, account_id AS accountId, name, currency,
               account_status AS accountStatus, business_name AS businessName, last_synced_at_utc AS lastSyncedAt
-         FROM crm_meta_ad_accounts WHERE is_active=TRUE ORDER BY name`,
+         FROM crm_meta_ad_accounts
+        WHERE is_active=TRUE AND (business_unit_id = ? OR business_unit_id IS NULL)
+        ORDER BY name`,
+      [req.businessUnit?.id || null],
     );
     res.json({ success: true, data: rows });
   }));
 
   /** Discover ad accounts from the connected Meta account and store them. */
   router.post('/ad-accounts/sync', requireUserAdmin, metaGuard(async (req, res) => {
-    const token = await requireMarketingToken(pool);
+    const token = await requireMarketingToken(pool, req.businessUnit?.id || null);
     const accounts = await listAdAccounts(token, { logger });
     for (const account of accounts) {
       await pool.execute(
@@ -278,7 +283,7 @@ export function createMetaRemarketingRoutes(pool, authenticate, requireCrmAccess
 
     if (deleteMeta && audience.meta_audience_id) {
       try {
-        await removeMetaAudience(pool, audience.meta_audience_id, { logger });
+        await removeMetaAudience(pool, audience.meta_audience_id, { logger, unitId: audience.business_unit_id });
         metaDeleted = true;
       } catch (error) {
         // The CRM row still goes: an audience Meta no longer recognises must

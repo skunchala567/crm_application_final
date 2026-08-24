@@ -133,6 +133,8 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
         status,
         type,
         provider,
+        // The hub shows the accounts of the unit being worked in.
+        businessUnitId: req.businessUnit?.id || null,
         page: parseInt(page),
         limit: parseInt(limit)
       });
@@ -153,7 +155,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
       const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.id);
 
-      const integration = await service.getIntegration(integrationId, organizationId);
+      const integration = await service.getIntegration(integrationId, organizationId, req.businessUnit?.id || null);
       if (!integration) {
         return res.status(404).json({ success: false, message: 'Integration not found' });
       }
@@ -170,7 +172,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
       const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.id);
 
-      const integration = await service.getIntegration(integrationId, organizationId);
+      const integration = await service.getIntegration(integrationId, organizationId, req.businessUnit?.id || null);
       if (!integration) {
         return res.status(404).json({ success: false, message: 'Integration not found' });
       }
@@ -208,7 +210,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
 
       const integration = await service.createIntegration(
         organizationId,
-        { integrationName, integrationType, providerName, config },
+        { integrationName, integrationType, providerName, config, businessUnitId: req.businessUnit?.id || null },
         req.user?.id || null
       );
 
@@ -235,7 +237,8 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
         integrationId,
         organizationId,
         updateData,
-        req.user?.id || null
+        req.user?.id || null,
+        req.businessUnit?.id || null
       );
 
       res.json({ success: true, data: updated });
@@ -244,15 +247,28 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
     }
   });
 
-  // Delete/Disconnect integration
+  /*
+   * Delete one integration account.
+   *
+   * A soft delete of the account belonging to the unit being worked in. Two
+   * things guard it: only a CRM administrator may ask, and because this is a
+   * DELETE the business unit's deletion password is challenged by the same
+   * middleware that protects deleting a lead or a branch -- so an account
+   * cannot be removed by a stray click.
+   */
   router.delete('/integrations/:id', async (req, res, next) => {
     try {
+      const admin = req.user?.roles?.some((role) => ['CRM_ADMIN', 'SUPER_ADMIN'].includes(String(role).toUpperCase()));
+      if (!admin) return res.status(403).json({ success: false, message: 'Only CRM administrators can delete an integration account' });
       const organizationId = req.user?.organizationId || 1;
       const integrationId = parseInt(req.params.id);
+      if (!Number.isInteger(integrationId) || integrationId < 1) {
+        return res.status(400).json({ success: false, message: 'Unknown integration account' });
+      }
 
-      await service.deleteIntegration(integrationId, organizationId, req.user.id);
+      await service.deleteIntegration(integrationId, organizationId, req.user.id, req.businessUnit?.id || null);
 
-      res.json({ success: true, message: 'Integration disconnected' });
+      res.json({ success: true, message: 'Integration account deleted' });
     } catch (error) {
       next(error);
     }
@@ -285,7 +301,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
       const { callbackUrl } = req.body;
 
       // Get integration to check provider type
-      const integration = await service.getIntegration(integrationId, organizationId);
+      const integration = await service.getIntegration(integrationId, organizationId, req.businessUnit?.id || null);
       if (!integration) {
         return res.status(404).json({ success: false, message: 'Integration not found' });
       }
@@ -554,7 +570,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
       const integrationId = parseInt(req.params.integrationId);
 
       // Check if integration exists and is authorized
-      const integration = await service.getIntegration(integrationId, organizationId);
+      const integration = await service.getIntegration(integrationId, organizationId, req.businessUnit?.id || null);
       if (!integration) {
         return res.status(404).json({
           success: false,
@@ -600,7 +616,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
       }
 
       // Check if integration is authorized
-      const integration = await service.getIntegration(integrationId, organizationId);
+      const integration = await service.getIntegration(integrationId, organizationId, req.businessUnit?.id || null);
       if (!integration) {
         return res.status(404).json({
           success: false,
@@ -705,7 +721,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
       const sheetId = req.params.sheetId;
 
       // Check if integration is authorized
-      const integration = await service.getIntegration(integrationId, organizationId);
+      const integration = await service.getIntegration(integrationId, organizationId, req.businessUnit?.id || null);
       if (!integration) {
         return res.status(404).json({
           success: false,
@@ -1165,7 +1181,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
         });
       }
 
-      const integration = await service.getIntegration(integrationId, organizationId);
+      const integration = await service.getIntegration(integrationId, organizationId, req.businessUnit?.id || null);
       const redirectUrl = integration?.config?.redirectUrl;
       if (!redirectUrl) {
         return res.status(400).json({

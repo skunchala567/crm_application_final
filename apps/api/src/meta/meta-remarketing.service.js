@@ -237,10 +237,14 @@ function parseJson(value) {
  * leads perfectly and fail every call here -- so this says which permission
  * is missing instead of letting Meta answer with a bare "(#100)".
  */
-export async function requireMarketingToken(pool) {
-  const config = await loadMetaConfig(pool, { useCache: false });
+export async function requireMarketingToken(pool, unitId = null) {
+  /* The account belongs to a business unit, so an audience is pushed with the
+     token of the unit that owns it -- not whichever unit connected Meta last.
+     Audiences carry their unit, so a scheduled sync resolves it the same way
+     a person pressing Sync does. */
+  const config = await loadMetaConfig(pool, { useCache: false, unitId });
   if (!config?.systemUserToken) {
-    throw Object.assign(new Error('Connect the Meta integration first: no system user token is stored.'), { status: 400 });
+    throw Object.assign(new Error('Connect the Meta integration for this business unit first: no system user token is stored.'), { status: 400 });
   }
   return config.systemUserToken;
 }
@@ -252,7 +256,7 @@ export const marketingPermissionHint =
   + 'assign the ad account to that system user, then save it under Connect to Meta.';
 
 export async function createMetaAudience(pool, audience, { logger = console } = {}) {
-  const token = await requireMarketingToken(pool);
+  const token = await requireMarketingToken(pool, audience.business_unit_id);
   const body = await createCustomAudience(audience.ad_account_id, token, {
     name: audience.meta_audience_name || audience.name,
     description: audience.description,
@@ -260,13 +264,13 @@ export async function createMetaAudience(pool, audience, { logger = console } = 
   return String(body?.id || '');
 }
 
-export async function readMetaAudience(pool, metaAudienceId, { logger = console } = {}) {
-  const token = await requireMarketingToken(pool);
+export async function readMetaAudience(pool, metaAudienceId, { logger = console, unitId = null } = {}) {
+  const token = await requireMarketingToken(pool, unitId);
   return getCustomAudience(metaAudienceId, token, { logger });
 }
 
-export async function removeMetaAudience(pool, metaAudienceId, { logger = console } = {}) {
-  const token = await requireMarketingToken(pool);
+export async function removeMetaAudience(pool, metaAudienceId, { logger = console, unitId = null } = {}) {
+  const token = await requireMarketingToken(pool, unitId);
   return deleteCustomAudience(metaAudienceId, token, { logger });
 }
 
@@ -277,8 +281,8 @@ export async function removeMetaAudience(pool, metaAudienceId, { logger = consol
  * -- half an audience uploaded is not a success, and it is not a total
  * failure either.
  */
-export async function pushAudienceMembers(pool, metaAudienceId, leads, { remove = false, logger = console } = {}) {
-  const token = await requireMarketingToken(pool);
+export async function pushAudienceMembers(pool, metaAudienceId, leads, { remove = false, logger = console, unitId = null } = {}) {
+  const token = await requireMarketingToken(pool, unitId);
   const { payload, skipped } = buildAudiencePayload(leads);
   const results = { sent: 0, skipped: skipped.length, skippedIds: skipped, batches: [], failed: 0, lastResponse: null };
   if (!payload.data.length) return results;
@@ -389,7 +393,7 @@ export async function syncAudience(pool, audienceId, {
         `SELECT id, student_name, parent_name, email, phone, normalized_phone, city, state, country, postal_code
            FROM crm_leads WHERE id IN (?)`, [toRemoveIds],
       );
-      const result = await pushAudienceMembers(pool, metaAudienceId, removeLeads, { remove: true, logger });
+      const result = await pushAudienceMembers(pool, metaAudienceId, removeLeads, { remove: true, logger, unitId: audience.business_unit_id });
       removed = result.sent;
       await pool.query(
         `UPDATE crm_remarketing_audience_members SET status='removed', last_synced_at_utc=CURRENT_TIMESTAMP(6)
@@ -403,7 +407,7 @@ export async function syncAudience(pool, audienceId, {
     let skipped = 0;
     let response = null;
     if (toAdd.length) {
-      const result = await pushAudienceMembers(pool, metaAudienceId, toAdd, { remove: false, logger });
+      const result = await pushAudienceMembers(pool, metaAudienceId, toAdd, { remove: false, logger, unitId: audience.business_unit_id });
       added = result.sent;
       failed = result.failed;
       skipped = result.skipped;

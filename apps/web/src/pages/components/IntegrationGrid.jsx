@@ -1,4 +1,4 @@
-import { ArrowRight, PhoneCall, Plug, RefreshCw, Radio } from 'lucide-react';
+import { ArrowRight, PhoneCall, Plug, RefreshCw, Radio, Trash2 } from 'lucide-react';
 
 /**
  * Integration tiles.
@@ -76,7 +76,7 @@ function formatStamp(value) {
   });
 }
 
-export default function IntegrationGrid({ integrations, onSync, onSettings, loading }) {
+export default function IntegrationGrid({ integrations, onSync, onSettings, onDelete, deletingId = null, loading }) {
   if (loading) {
     return (
       <div className="grid gap-5 [grid-template-columns:repeat(auto-fill,minmax(310px,1fr))]">
@@ -152,6 +152,22 @@ export default function IntegrationGrid({ integrations, onSync, onSettings, load
               >
                 <RefreshCw size={15} />
               </button>
+              {onDelete && (
+                /* Destructive, so it reads as destructive and sits away from
+                   Manage. The API asks for the business unit's deletion
+                   password before anything is removed. */
+                <button
+                  onClick={() => onDelete(integration)}
+                  disabled={deletingId === integration.id}
+                  className="grid place-items-center w-9 h-9 flex-none rounded-[10px] border border-border text-secondary-500
+                             hover:bg-danger-bg hover:text-danger hover:border-danger active:scale-95 transition-all
+                             disabled:opacity-50 disabled:pointer-events-none"
+                  title="Delete this account"
+                  aria-label={`Delete ${integration.integration_name}`}
+                >
+                  <Trash2 size={15} />
+                </button>
+              )}
               <button
                 onClick={() => onSettings(integration)}
                 className="ml-auto inline-flex items-center gap-1.5 px-3.5 h-9 rounded-[10px] bg-primary-600 text-white

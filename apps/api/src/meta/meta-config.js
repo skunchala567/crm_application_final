@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { encryptToken, decryptToken, getMasterKey } from '../integration-hub/crypto-utils.js';
+import { unitScopeFilter, unitPreferenceOrder } from '../integration-scope.js';
 
 /**
  * Config storage for the Meta Lead Ads integration.
@@ -19,11 +20,17 @@ const SECRET_KEYS = ['appSecret', 'systemUserToken', 'verifyToken'];
 
 // Webhook bursts hit this on every delivery; a short TTL keeps it off the DB
 // without making a settings change feel stale.
+//
+// Keyed by business unit, because the account is: one cache for everybody
+// would hand whichever unit asked second the credentials of the unit that
+// asked first. The key for "no unit" -- webhooks and the poller -- is its own
+// entry rather than a shared one.
 const CACHE_TTL_MS = 30000;
-let cache = { value: null, expiresAt: 0 };
+let cache = new Map();
+const cacheKey = unitId => String(unitId || 'any');
 
 export function invalidateMetaConfigCache() {
-  cache = { value: null, expiresAt: 0 };
+  cache = new Map();
 }
 
 function parseJson(value, fallback = {}) {
@@ -32,13 +39,22 @@ function parseJson(value, fallback = {}) {
   try { return JSON.parse(value); } catch { return fallback; }
 }
 
-/** Fetch the raw integration row, newest first if somehow duplicated. */
-export async function getMetaIntegrationRow(pool) {
+/**
+ * Fetch the raw integration row, newest first if somehow duplicated.
+ *
+ * With a business unit, its own account -- or one deliberately shared with
+ * every unit -- and nothing else. Without one, the newest account of any unit:
+ * Meta's webhook and the poller arrive with no unit to work from, and the app
+ * secret that verifies a delivery has to be found before the payload can say
+ * which unit it belongs to.
+ */
+export async function getMetaIntegrationRow(pool, unitId = null) {
+  const unit = unitScopeFilter(unitId);
   const [[row]] = await pool.execute(
     `SELECT * FROM crm_integrations
-      WHERE LOWER(COALESCE(provider,'')) = ? AND deleted_at IS NULL
-      ORDER BY id DESC LIMIT 1`,
-    [META_PROVIDER],
+      WHERE LOWER(COALESCE(provider,'')) = ? AND deleted_at IS NULL${unit.sql}
+      ORDER BY ${unitPreferenceOrder(unitId)}id DESC LIMIT 1`,
+    [META_PROVIDER, ...unit.params],
   );
   return row || null;
 }
@@ -47,21 +63,25 @@ export async function getMetaIntegrationRow(pool) {
  * Load and decrypt the config.
  * @returns {Promise<Object|null>} null when the integration is not set up
  */
-export async function loadMetaConfig(pool, { useCache = true } = {}) {
-  if (useCache && cache.value && cache.expiresAt > Date.now()) return cache.value;
-
-  const row = await getMetaIntegrationRow(pool);
+/**
+ * One row's usable config: secrets decrypted, environment values filling any
+ * gap. Shared by the single-account load and the all-accounts listing, so a
+ * webhook that has to try every account reads them exactly as a screen does.
+ *
+ * `row` may be null, which describes a .env-only setup -- credentials in the
+ * environment and nothing saved yet.
+ */
+function hydrateConfig(row) {
   const stored = row ? parseJson(row.config, {}) : {};
-
-  // No row yet is still usable if the credentials are in the environment --
-  // otherwise a .env-only setup could never answer Meta's first webhook.
-  if (!row && !process.env.META_APP_SECRET && !process.env.META_SYSTEM_USER_TOKEN) {
-    return null;
-  }
-
   const config = row
-    ? { ...stored, integrationId: Number(row.id), status: row.status }
-    : { ...stored, integrationId: null, status: 'ENV_ONLY' };
+    ? {
+      ...stored,
+      integrationId: Number(row.id),
+      businessUnitId: row.business_unit_id == null ? null : Number(row.business_unit_id),
+      status: row.status,
+      name: row.name || 'Meta Lead Ads',
+    }
+    : { ...stored, integrationId: null, businessUnitId: null, status: 'ENV_ONLY', name: 'Meta Lead Ads' };
 
   let masterKey = null;
   try {
@@ -92,9 +112,63 @@ export async function loadMetaConfig(pool, { useCache = true } = {}) {
   config.appSecret = config.appSecret || process.env.META_APP_SECRET || null;
   config.systemUserToken = config.systemUserToken || process.env.META_SYSTEM_USER_TOKEN || null;
   config.verifyToken = config.verifyToken || process.env.META_VERIFY_TOKEN || null;
-
-  cache = { value: config, expiresAt: Date.now() + CACHE_TTL_MS };
   return config;
+}
+
+export async function loadMetaConfig(pool, { useCache = true, unitId = null } = {}) {
+  const key = cacheKey(unitId);
+  const cached = cache.get(key);
+  if (useCache && cached && cached.expiresAt > Date.now()) return cached.value;
+
+  const row = await getMetaIntegrationRow(pool, unitId);
+
+  // No row yet is still usable if the credentials are in the environment --
+  // otherwise a .env-only setup could never answer Meta's first webhook.
+  if (!row && !process.env.META_APP_SECRET && !process.env.META_SYSTEM_USER_TOKEN) {
+    return null;
+  }
+
+  const config = hydrateConfig(row);
+  cache.set(key, { value: config, expiresAt: Date.now() + CACHE_TTL_MS });
+  return config;
+}
+
+/**
+ * Every Meta account, newest first.
+ *
+ * For the paths that cannot name a business unit before they have looked at
+ * the account: the webhook has to find the account whose app secret signed a
+ * delivery, and the poller has to work every account's forms rather than the
+ * one belonging to whichever unit saved last. Each entry carries its
+ * integrationId and businessUnitId, so the caller knows which unit it is
+ * acting for.
+ *
+ * A .env-only setup yields the single environment account, matching what
+ * loadMetaConfig has always returned for it.
+ */
+export async function listMetaConfigs(pool) {
+  const [rows] = await pool.execute(
+    `SELECT * FROM crm_integrations
+      WHERE LOWER(COALESCE(provider,'')) = ? AND deleted_at IS NULL
+      ORDER BY id DESC`,
+    [META_PROVIDER],
+  );
+  if (!rows.length) {
+    if (!process.env.META_APP_SECRET && !process.env.META_SYSTEM_USER_TOKEN) return [];
+    return [hydrateConfig(null)];
+  }
+  return rows.map(hydrateConfig);
+}
+
+/** One named account, whichever unit it belongs to. */
+export async function loadMetaConfigForIntegration(pool, integrationId) {
+  const id = Number(integrationId);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  const [[row]] = await pool.execute(
+    `SELECT * FROM crm_integrations WHERE id=? AND LOWER(COALESCE(provider,'')) = ? AND deleted_at IS NULL LIMIT 1`,
+    [id, META_PROVIDER],
+  );
+  return row ? hydrateConfig(row) : null;
 }
 
 /**
@@ -103,8 +177,8 @@ export async function loadMetaConfig(pool, { useCache = true } = {}) {
  * Secrets are only rewritten when a new value is supplied, so the UI can
  * round-trip a redacted config without wiping credentials.
  */
-export async function saveMetaConfig(pool, updates = {}, { organizationId = 1, userId = null } = {}) {
-  const row = await getMetaIntegrationRow(pool);
+export async function saveMetaConfig(pool, updates = {}, { organizationId = 1, userId = null, unitId = null } = {}) {
+  const row = await getMetaIntegrationRow(pool, unitId);
   const existing = row ? parseJson(row.config, {}) : {};
   const masterKey = getMasterKey();
 
@@ -146,14 +220,14 @@ export async function saveMetaConfig(pool, updates = {}, { organizationId = 1, u
   } else {
     await pool.execute(
       `INSERT INTO crm_integrations
-         (organization_id, name, type, provider, config, status, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-      [organizationId, 'Meta Lead Ads', META_TYPE, META_PROVIDER, configJson, userId],
+         (organization_id, business_unit_id, name, type, provider, config, status, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      [organizationId, unitId, 'Meta Lead Ads', META_TYPE, META_PROVIDER, configJson, userId],
     );
   }
 
   invalidateMetaConfigCache();
-  return loadMetaConfig(pool, { useCache: false });
+  return loadMetaConfig(pool, { useCache: false, unitId });
 }
 
 /*
@@ -168,9 +242,15 @@ export async function saveMetaConfig(pool, updates = {}, { organizationId = 1, u
  * Only ever called with a fact: a token Meta has just accepted or rejected,
  * or a poll cycle that has just completed.
  */
-export async function markMetaIntegrationState(pool, { connected, synced = false, logger = console } = {}) {
+export async function markMetaIntegrationState(pool, { connected, synced = false, integrationId = null, unitId = null, logger = console } = {}) {
   try {
-    const row = await getMetaIntegrationRow(pool);
+    /* Whichever account the fact is about: a poll cycle reports the account
+       whose forms it just read, and a token test the account of the unit that
+       pressed the button. Without either it falls back to the newest, which
+       is what this did when there could only be one. */
+    const row = integrationId
+      ? (await pool.execute(`SELECT id FROM crm_integrations WHERE id=? AND deleted_at IS NULL LIMIT 1`, [Number(integrationId)]))[0][0]
+      : await getMetaIntegrationRow(pool, unitId);
     if (!row) return;
     const status = connected ? 'CONNECTED' : 'ERROR';
     await pool.execute(

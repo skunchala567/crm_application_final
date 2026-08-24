@@ -77,6 +77,20 @@ npm run check                # API syntax + web build
   append a source rather than overwriting.
 - **Activity trail** — `crm_lead_activities` records every automated and manual
   action, and is the only durable record of some automation outcomes.
+- **Integration account** (`crm_integrations`) carries `business_unit_id`: an
+  account belongs to the unit it was added from, and every account lookup for a
+  screen is scoped to the unit on the request (`integration-scope.js`). NULL
+  means shared with every unit -- legacy rows and deliberate sharing only.
+  Lookups by integration id (stored call/message rows) stay unscoped, because
+  the id already names one account. Meta is multi-account: the webhook picks
+  the account whose app secret signed the delivery (page ownership breaks a tie
+  when units share one Facebook app), and the poller works each page's own
+  account -- `listMetaConfigs` in `meta/meta-config.js`.
+- **Soft deletes** — a deleted lead keeps its row: `crm_leads.deleted_at_utc`
+  plus `deleted_by_user_id` (who) and a `deleted` activity row. Integration
+  accounts the same way: `crm_integrations.deleted_at`/`deleted_by`, which is
+  what every provider lookup filters on. Nothing in the product hard-deletes
+  either.
 - **Leads-table columns** — `crm_lead_column_preferences` holds one ordered
   list of column ids per user per pipeline (`user_id`, `pipeline_id`), so each
   pipeline's Leads screen is arranged separately and the arrangement follows

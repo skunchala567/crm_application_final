@@ -1906,6 +1906,30 @@ export default function LeadsPage() {
     }catch(error){setMessage({type:"error",text:error.message})}finally{setSaving(false)}
   }
 
+  /*
+   * Delete every selected lead.
+   *
+   * A soft delete: the rows leave the screen and stay in the database, with
+   * who deleted them and when, so a mistake is recoverable and reporting on
+   * past enquiries is not rewritten. Sent as a DELETE, which is what makes the
+   * business unit's deletion password apply -- the same challenge as removing
+   * one lead.
+   */
+  async function removeSelectedLeads() {
+    setOpenActionId(null);
+    const count = selectedIds.length;
+    if (!count) return;
+    if (!window.confirm(`Delete ${count} selected lead${count === 1 ? '' : 's'}? They are removed from this screen and kept in the database for reference, recorded against your name.`)) return;
+    try {
+      const result = await api('/leads/actions/bulk-delete', { method: 'DELETE', body: JSON.stringify({ leadIds: selectedIds }) });
+      setSelectedIds([]);
+      setMessage({ type: 'success', text: result.message });
+      await loadLeads();
+    } catch (error) {
+      setMessage({ type: 'error', text: error.message });
+    }
+  }
+
   async function remove(lead) {
     if (
       !window.confirm(
@@ -2038,6 +2062,12 @@ export default function LeadsPage() {
       permissions: ["bulk_actions.toolbar.view", "bulk_actions.export.export"],
       title: "Export visible leads",
       onSelect: () => setDownloadDialogOpen(true) },
+    /* Last in the menu, and its own permission: deleting leads is not the
+       same authority as changing their stage. */
+    { key: "delete", label: "Delete", icon: Trash2,
+      permissions: ["bulk_actions.toolbar.view", "bulk_actions.delete.delete"],
+      title: `Delete ${selectedIds.length || "selected"} leads`,
+      disabled: !selectedIds.length, onSelect: removeSelectedLeads },
   ].filter((action) => action.permissions.every((key) => can(key))));
 
   /*

@@ -1,3 +1,4 @@
+import { unitScopeFilter, unitPreferenceOrder } from '../integration-scope.js';
 // =====================================================
 // Integration Hub Repositories
 // Data access layer for integration operations
@@ -83,6 +84,16 @@ export class IntegrationRepository {
     await this.ensureWhatsAppPricingSchema();
     const whereConditions = ['organization_id = ?'];
     const params = [organizationId];
+
+    /* An account belongs to a business unit, so the hub lists the accounts of
+       the unit being worked in -- plus any deliberately shared with every
+       unit. Without a unit the caller is a background job, and the old
+       organisation-wide list stands. */
+    const unit = unitScopeFilter(filters.businessUnitId);
+    if (unit.sql) {
+      whereConditions.push(unit.sql.replace(/^ AND /, ''));
+      params.push(...unit.params);
+    }
 
     if (filters.status) {
       whereConditions.push('status = ?');
@@ -194,13 +205,14 @@ export class IntegrationRepository {
     });
   }
 
-  async getById(integrationId, organizationId) {
+  async getById(integrationId, organizationId, businessUnitId = null) {
     await this.ensureWhatsAppPricingSchema();
+    const unit = unitScopeFilter(businessUnitId);
     const [rows] = await this.pool.execute(`
       SELECT * FROM crm_integrations
-      WHERE id = ? AND organization_id = ?
+      WHERE id = ? AND organization_id = ?${unit.sql}
       LIMIT 1
-    `, [integrationId, organizationId]);
+    `, [integrationId, organizationId, ...unit.params]);
 
     if (!rows.length) return null;
 
@@ -290,7 +302,7 @@ export class IntegrationRepository {
   async create(integrationData) {
     await this.ensureWhatsAppPricingSchema();
     const {
-      organizationId, integrationName, integrationType, providerName,
+      organizationId, businessUnitId, integrationName, integrationType, providerName,
       config, createdById, status = 'pending_auth'
     } = integrationData;
 
@@ -339,14 +351,15 @@ export class IntegrationRepository {
     // Migration 005 will add new columns (integration_type, provider_name, integration_name)
     const [result] = await this.pool.execute(`
       INSERT INTO crm_integrations
-        (organization_id, name, type, provider, config, project_id, project_api_password,
+        (organization_id, business_unit_id, name, type, provider, config, project_id, project_api_password,
          aisensy_base_url, aisensy_api_key, media_public_base_url,
          whatsapp_utility_message_price, whatsapp_marketing_message_price,
          google_client_id, google_client_secret, google_redirect_uri,
          status, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `, [
       organizationId,
+      businessUnitId || null,
       integrationName,
       mappedType,  // Map new type to old ENUM value
       providerName,
@@ -474,12 +487,26 @@ export class IntegrationRepository {
     return;
   }
 
-  async delete(integrationId, organizationId) {
+  /**
+   * Soft-delete one account.
+   *
+   * This used to set status='inactive' and nothing else, which does not
+   * remove anything: every provider lookup filters on deleted_at, not on
+   * status, so a "disconnected" account went on answering calls and stayed in
+   * every picker. deleted_at is what the rest of the code already reads, so
+   * that is what is stamped -- with who did it, and only within the unit that
+   * owns the account.
+   *
+   * The row stays: credentials are encrypted in it, and the call, message and
+   * campaign history that points at this id has to keep resolving.
+   */
+  async delete(integrationId, organizationId, { userId = null, businessUnitId = null } = {}) {
+    const unit = unitScopeFilter(businessUnitId);
     const [result] = await this.pool.execute(`
       UPDATE crm_integrations
-      SET status = 'inactive', updated_at = CURRENT_TIMESTAMP
-      WHERE id = ? AND organization_id = ?
-    `, [integrationId, organizationId]);
+      SET deleted_at = CURRENT_TIMESTAMP, deleted_by = ?, status = 'DISCONNECTED', updated_by = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND organization_id = ? AND deleted_at IS NULL${unit.sql}
+    `, [userId, userId, integrationId, organizationId, ...unit.params]);
 
     return result.affectedRows > 0;
   }

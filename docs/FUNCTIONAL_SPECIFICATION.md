@@ -38,7 +38,7 @@ signed-in user's assignments, permissions, and data scope.
 | 10 | User Management | `/settings/users` | `settings.users.view` |
 | 11 | Business Units | `/settings/business-units` | `settings.business_units.view` |
 | 12 | Payments | `/settings/payments` | Per-tab payment permission |
-| 13 | Integrations | `/settings/integrations` | `integrations.hub.view` |
+| 13 | Integrations | Business Units → Integrations tab | `settings.business_units.view` |
 | 14 | Message Templates | `/settings/templates` | Per-channel template permission |
 | 15 | Google Sheets | `/settings/google-sheets` | `integrations.google_sheets.view` |
 | 16 | Meta Lead Ads | `/settings/meta-lead-ads` | `integrations.meta_lead_ads.view` |
@@ -181,9 +181,18 @@ The lightning menu on the Leads screen supports:
 - Bulk SMS
 - Bulk Email
 - Export
+- Delete
 
 Each option has its own permission and is disabled when a required selection is
 missing.
+
+**Bulk delete** removes the selected leads from every screen while keeping the
+rows in the database: `deleted_at_utc`, `deleted_by_user_id`, and an activity
+entry on each lead record who deleted it and when, so past enquiries stay
+available for reference and reporting. It needs `bulk_actions.delete.delete`
+in addition to a lead-deleting role, is limited to 500 leads per action and to
+leads the user can already see, and — being a DELETE — is challenged for the
+business unit's deletion password where one is configured.
 
 **Key endpoints:** `/api/leads`, `/api/leads/meta`, `/api/leads/pipelines`,
 `/api/leads/column-preferences`, `/api/leads/:id/sources`, `/api/saved-filters`,
@@ -506,6 +515,48 @@ integration activity.
 | SMS | SmartPing SMS |
 | Email | SMTP mail server |
 
+### Where integrations live
+
+- Integrations are configured on the **Integrations tab of the business unit
+  that owns the accounts**, beside that unit's branches, fields, and pipeline.
+- `/settings/integrations` redirects there, so existing links and the provider
+  screens' navigation keep working.
+- The tab shows the accounts of the unit selected on that screen. Because the
+  API scopes accounts by the *active* business unit, selecting a different unit
+  on the Business Units screen offers a switch rather than silently configuring
+  the active one.
+
+### Deleting an account
+
+- Each account card offers **Delete**, which needs a CRM Admin or Super Admin
+  role and is challenged for the business unit's deletion password where one is
+  configured.
+- The delete is a soft delete: `deleted_at` and `deleted_by` are stamped, the
+  account stops answering every lookup and leaves every picker, and the row is
+  kept so the call, message, and campaign history pointing at it still
+  resolves. The same service can be added again afterwards.
+- Previously this action only set the status to inactive, which removed nothing
+  — provider lookups filter on `deleted_at`, so a "disconnected" account went
+  on sending.
+
+### Account ownership
+
+- **An integration account belongs to the business unit it was added from.**
+  Adding a Tata Smartflo, CallerDesk, WhatsApp, Meta, SMTP, or Google Sheets
+  account while working in one unit does not make it available to another.
+- Each unit configures its own accounts and sees only those: account pickers,
+  the hub listing, branch mappings, and provider settings screens are all
+  narrowed to the active unit.
+- A newly created business unit therefore starts with no integration accounts,
+  regardless of what other units have configured.
+- Accounts that existed before this rule belong to the default business unit.
+- An account with no unit recorded stays available to every unit. Nothing
+  creates one, but the value remains valid for an account deliberately shared,
+  and a unit's own account always takes precedence over a shared one.
+- Webhook deliveries, scheduled syncs, and stored call/message records resolve
+  their account by the identifier already on the record rather than by the
+  signed-in user's unit.
+
 ### Common behaviour
 
 - Add and configure one or more integrations.
@@ -602,6 +653,28 @@ Receive Facebook and Instagram lead-form submissions.
 - Configure destination branch, source, and other defaults.
 - Receive leads through webhook and retain import records.
 - Show connection and recent-import information.
+
+### Per business unit
+
+- Each business unit connects its own Meta account, and the screens show only
+  the pages, forms, Facebook accounts, and ad accounts belonging to it.
+- Meta gives an app a single callback URL, so one webhook endpoint serves every
+  unit. The delivery's `X-Hub-Signature-256` is checked against each configured
+  app secret; the account whose secret matches is the account — and the unit —
+  the lead is imported for. Nothing in the payload is trusted before that.
+- If two units run the same Facebook app, and so share its app secret, the page
+  the lead came from decides between them: a page is connected under exactly one
+  account.
+- The webhook handshake is accepted for any unit's verify token.
+- Scheduled polling covers every unit's forms, each read with the credentials of
+  the account its page was connected through. A form whose account is missing,
+  disabled, or has no token waits rather than being read with another unit's
+  credentials. "Last sync" is recorded per account, only for accounts that
+  actually read their own forms.
+- A lead's business unit comes from its form, then its page, then the
+  integration's configured default, then the account's own unit.
+- Remarketing audiences push with the token of the account belonging to the
+  audience's own unit.
 
 **Key endpoints:** `/api/meta/*` and Meta webhook routes.
 

@@ -64,9 +64,13 @@ export class IntegrationHubService {
     }
   }
 
-  async getIntegration(integrationId, organizationId) {
+  /* businessUnitId narrows to the unit asking, so an id belonging to another
+     unit's account reads as "not found" rather than handing over credentials
+     the caller's unit never configured. Omitted by background callers, which
+     have no unit to be held to. */
+  async getIntegration(integrationId, organizationId, businessUnitId = null) {
     try {
-      return await this.configs.getById(integrationId, organizationId);
+      return await this.configs.getById(integrationId, organizationId, businessUnitId);
     } catch (error) {
       this.logger.error('Error getting integration', error);
       throw error;
@@ -95,6 +99,9 @@ export class IntegrationHubService {
 
       const config = await this.configs.create({
         organizationId: organizationId,
+        /* Stamped with the unit the account was added from, so the next unit
+           starts with no accounts rather than inheriting these credentials. */
+        businessUnitId: integrationData.businessUnitId || null,
         integrationName: integrationData.integrationName,
         integrationType: integrationData.integrationType,
         providerName: integrationData.providerName,
@@ -117,9 +124,9 @@ export class IntegrationHubService {
     }
   }
 
-  async updateIntegration(integrationId, organizationId, updateData, userId) {
+  async updateIntegration(integrationId, organizationId, updateData, userId, businessUnitId = null) {
     try {
-      const oldConfig = await this.configs.getById(integrationId, organizationId);
+      const oldConfig = await this.configs.getById(integrationId, organizationId, businessUnitId);
       if (!oldConfig) throw new Error('Integration not found');
 
       // Use provided values or keep existing ones
@@ -158,17 +165,18 @@ export class IntegrationHubService {
     }
   }
 
-  async deleteIntegration(integrationId, organizationId, userId) {
+  async deleteIntegration(integrationId, organizationId, userId, businessUnitId = null) {
     try {
-      const config = await this.configs.getById(integrationId, organizationId);
+      const config = await this.configs.getById(integrationId, organizationId, businessUnitId);
       if (!config) throw new Error('Integration not found');
 
-      await this.configs.delete(integrationId, organizationId);
+      const removed = await this.configs.delete(integrationId, organizationId, { userId, businessUnitId });
+      if (!removed) throw Object.assign(new Error('Integration not found'), { status: 404 });
 
       // Audit log
       await this.audit.log(integrationId, {
         action: 'disconnected',
-        notes: 'Integration disabled',
+        notes: `Account deleted${config.integration_name ? `: ${config.integration_name}` : ''}`,
         createdById: userId
       });
 

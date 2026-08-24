@@ -7,6 +7,7 @@
  *
  *   node apps/api/scripts/export/export-mariadb.js
  *   node apps/api/scripts/export/export-mariadb.js --schema-only
+ *   node apps/api/scripts/export/export-mariadb.js --crm-only
  *   node apps/api/scripts/export/export-mariadb.js --include-attendance
  *   node apps/api/scripts/export/export-mariadb.js --out path/to/file.sql
  *
@@ -76,6 +77,7 @@ const opt = (name, fallback) => {
 
 const SCHEMA_ONLY = flag('schema-only');
 const INCLUDE_ATTENDANCE = flag('include-attendance');
+const CRM_ONLY = flag('crm-only');
 const OUT_FILE = path.resolve(
   REPO_ROOT,
   opt('out', 'database/exports/MARIADB_1011_FULL_EXPORT.sql')
@@ -347,6 +349,13 @@ async function main() {
     charset: 'utf8mb4',
   });
 
+  // Keep schema introspection and every paged table read on one point-in-time
+  // view. Background webhook/import workers may update CRM rows while a dump
+  // is running; without a consistent snapshot, later pages can describe a
+  // different database state from earlier pages.
+  await conn.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+  await conn.query('START TRANSACTION WITH CONSISTENT SNAPSHOT');
+
   const [[info]] = await conn.query('SELECT VERSION() AS version, DATABASE() AS db');
   const objects = await readObjects(conn);
   const columnsByTable = await readColumns(conn);
@@ -361,8 +370,10 @@ async function main() {
 
   const { ordered: managedOrder, brokenEdges } = topoSort(managed, foreignKeys);
   const { ordered: attendanceOrder } = topoSort(attendance, foreignKeys);
+  const attendanceSchemaOrder = CRM_ONLY ? [] : attendanceOrder;
+  const selectedViews = CRM_ONLY ? views.filter((name) => name.startsWith('crm_')) : views;
 
-  const dataTables = INCLUDE_ATTENDANCE ? [...managedOrder, ...attendanceOrder] : managedOrder;
+  const dataTables = INCLUDE_ATTENDANCE && !CRM_ONLY ? [...managedOrder, ...attendanceOrder] : managedOrder;
 
   fs.mkdirSync(path.dirname(OUT_FILE), { recursive: true });
   const out = fs.createWriteStream(OUT_FILE, { encoding: 'utf8' });
@@ -377,9 +388,9 @@ async function main() {
   write(`--   Source database : ${info.db}\n`);
   write(`--   Target server   : MariaDB 10.11 (utf8mb4 / ${TARGET_COLLATION})\n`);
   write(`--   Managed tables  : ${managedOrder.length} (dropped and recreated, data included)\n`);
-  write(`--   Untouched tables: ${attendanceOrder.length} attendance-only (CREATE IF NOT EXISTS`);
+  write(`--   Untouched tables: ${attendanceSchemaOrder.length} attendance-only (CREATE IF NOT EXISTS`);
   write(INCLUDE_ATTENDANCE ? ', data included)\n' : ', no data)\n');
-  write(`--   Views           : ${views.length}\n`);
+  write(`--   Views           : ${selectedViews.length}\n`);
   write(`--   Mode            : ${SCHEMA_ONLY ? 'SCHEMA ONLY' : 'SCHEMA + DATA'}\n`);
   write('--\n');
   write('-- MariaDB conversions applied to the MySQL 8 DDL:\n');
@@ -442,11 +453,11 @@ async function main() {
 
   // --- Section 3: attendance-only DDL --------------------------------------
   write(rule);
-  write(`-- SECTION 3 - ATTENDANCE-ONLY TABLES (${attendanceOrder.length})\n`);
+  write(`-- SECTION 3 - ATTENDANCE-ONLY TABLES (${attendanceSchemaOrder.length})\n`);
   write(rule);
   write('-- Owned by the Attendance system. Never dropped; created only when the\n');
   write('-- target database does not already have them.\n\n');
-  for (const t of attendanceOrder) {
+  for (const t of attendanceSchemaOrder) {
     const [[row]] = await conn.query(`SHOW CREATE TABLE \`${t}\``);
     write(`-- ${'-'.repeat(60)}\n-- ${t}\n-- ${'-'.repeat(60)}\n`);
     write(translateTableDdl(row['Create Table'], { ifNotExists: true }) + ';\n\n');
@@ -477,12 +488,12 @@ async function main() {
   }
 
   // --- Section 5: views -----------------------------------------------------
-  if (views.length) {
+  if (selectedViews.length) {
     write(rule);
-    write(`-- SECTION 5 - VIEWS (${views.length})\n`);
+    write(`-- SECTION 5 - VIEWS (${selectedViews.length})\n`);
     write(rule);
     write('\n');
-    for (const v of views) {
+    for (const v of selectedViews) {
       const [[row]] = await conn.query(`SHOW CREATE VIEW \`${v}\``);
       write(translateViewDdl(row['Create View']) + ';\n\n');
     }
@@ -499,14 +510,15 @@ async function main() {
   write('SET SQL_MODE = @OLD_SQL_MODE;\n');
 
   await new Promise((resolve) => out.end(resolve));
+  await conn.commit();
   await conn.end();
 
   const totalRows = rowCounts.reduce((a, b) => a + b.rows, 0);
   const sizeMb = (fs.statSync(OUT_FILE).size / 1024 / 1024).toFixed(2);
   console.log(`\nWrote ${OUT_FILE}`);
   console.log(`  tables dropped/created : ${managedOrder.length}`);
-  console.log(`  tables create-if-absent: ${attendanceOrder.length}`);
-  console.log(`  views                  : ${views.length}`);
+  console.log(`  tables create-if-absent: ${attendanceSchemaOrder.length}`);
+  console.log(`  views                  : ${selectedViews.length}`);
   console.log(`  rows                   : ${totalRows}`);
   console.log(`  size                   : ${sizeMb} MB`);
 }

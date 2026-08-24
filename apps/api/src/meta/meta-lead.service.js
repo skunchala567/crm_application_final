@@ -163,7 +163,11 @@ export async function resolveRouting(pool, { form, page, config, overrides = nul
   /* Whoever approves a waiting lead may say where it goes. That choice is
      made about this one lead with the answers in front of them, so it beats
      the form's mapping, the Page's, and the integration defaults. */
-  const businessUnitId = Number(firstDefined(overrides?.businessUnitId, form?.business_unit_id, page?.business_unit_id, config?.defaultBusinessUnitId, 1));
+  /* The account's own unit sits between the integration's configured default
+     and the hard fallback of 1: an account belongs to a business unit, so a
+     lead that arrived through it belongs to that unit unless the form, the
+     Page, or an approver says otherwise. */
+  const businessUnitId = Number(firstDefined(overrides?.businessUnitId, form?.business_unit_id, page?.business_unit_id, config?.defaultBusinessUnitId, config?.businessUnitId, 1));
   const branchId = Number(firstDefined(overrides?.branchId, form?.branch_id, page?.branch_id, config?.defaultBranchId, 0)) || null;
 
   let sourceId = Number(firstDefined(form?.source_id, config?.defaultSourceId, 0)) || null;

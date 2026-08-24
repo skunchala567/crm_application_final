@@ -7,7 +7,12 @@ This CRM integration follows Tata Smartflo's API reference at:
 
 ## Setup
 
-1. Run `database/mysql/051_callerdesk_calling.sql` if it has not already been applied, followed by `database/mysql/052_smartflo_telephony.sql` and `database/mysql/053_smartflo_ivr_mapping.sql`.
+The account belongs to the business unit it is added from
+(`crm_integrations.business_unit_id`). Select the unit first: another unit does
+not inherit these credentials and configures its own account, and calls, DIDs
+and agent mappings follow the account of the unit being worked in.
+
+1. Run `database/mysql/051_callerdesk_calling.sql` if it has not already been applied, followed by `database/mysql/052_smartflo_telephony.sql`, `database/mysql/053_smartflo_ivr_mapping.sql`, and `database/mysql/107_integration_business_unit.sql`.
 2. Open **Settings → Integrations**, add **Tata Cloud Telephony / Tata Smartflo**, and open its settings.
 3. Enter either the Smartflo login email and password or an API access token from **API Connect → API Tokens**. Do not paste a key from **Click to Call Support API Tokens**: Tata documents that as a separate `api_key` for a predefined calling configuration, not an API authentication token, and it cannot fetch users, DIDs, or departments.
 4. Test the connection. The CRM then loads DIDs from `/v1/my_number`, departments from `/v1/departments`, and users/agents from `/v1/users`.

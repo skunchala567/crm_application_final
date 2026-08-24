@@ -20,22 +20,36 @@
  *     second lead.
  */
 import { listFormLeads } from './meta-client.js';
-import { loadMetaConfig, markMetaIntegrationState } from './meta-config.js';
+import { listMetaConfigs, markMetaIntegrationState } from './meta-config.js';
 import { importMetaLead, decryptPageToken } from './meta-lead.service.js';
 
 /** One pass over every enabled form. */
 export async function pollMetaForms(pool, logger = console) {
-  const config = await loadMetaConfig(pool, { useCache: false });
-  // Nothing configured, or no token to read leads with: stay silent rather
-  // than logging an error every interval.
-  if (!config?.systemUserToken) return { skipped: 'not configured' };
+  /*
+   * Every account, not one.
+   *
+   * A Meta account belongs to a business unit, so a unit that connected its
+   * own Facebook app has its own account -- and a cycle that loaded a single
+   * config would work one unit's forms with another unit's credentials, or
+   * skip them entirely when the unit that saved last had no token.
+   *
+   * Nothing configured, or no token anywhere to read leads with: stay silent
+   * rather than logging an error every interval.
+   */
+  const configs = (await listMetaConfigs(pool)).filter((item) => item.systemUserToken);
+  if (!configs.length) return { skipped: 'not configured' };
+  const configByIntegration = new Map(configs.map((item) => [Number(item.integrationId), item]));
 
   /* The form's effective destination decides whether its leads wait.
      A form that names both a business unit and a branch -- its own, or the
      Page's -- has everything an import needs, so there is nothing for a
-     person to decide and the lead goes straight in. */
+     person to decide and the lead goes straight in.
+
+     integration_id says which account connected the Page, and so which
+     account's config imports its leads. */
   const [forms] = await pool.execute(
     `SELECT f.form_id AS formId, f.page_id AS pageId, f.last_backfill_time AS watermark,
+            p.integration_id AS integrationId,
             COALESCE(f.business_unit_id, p.business_unit_id) AS businessUnitId,
             COALESCE(f.branch_id, p.branch_id) AS branchId
      FROM crm_meta_forms f
@@ -44,10 +58,32 @@ export async function pollMetaForms(pool, logger = console) {
   );
   if (!forms.length) return { forms: 0 };
 
-  const totals = { forms: forms.length, fetched: 0, pending: 0, imported: 0, duplicate: 0, failed: 0, skipped: 0 };
+  const totals = { forms: forms.length, fetched: 0, pending: 0, imported: 0, duplicate: 0, failed: 0, skipped: 0, unconfigured: 0 };
+  // Which accounts actually completed work this cycle, for the state below.
+  const polled = new Set();
 
   for (const form of forms) {
     const routed = Boolean(form.businessUnitId) && Boolean(form.branchId);
+    /*
+     * With one account there is nothing to choose between and nothing to
+     * cross: every form is polled with it, exactly as before, including Pages
+     * connected before accounts belonged to units and .env-only setups whose
+     * Page rows point at an integration id that no longer exists.
+     *
+     * With several, the Page's own account is the only correct one, and a
+     * Page whose account is missing waits rather than being read with
+     * another unit's credentials.
+     */
+    const config = configs.length === 1
+      ? configs[0]
+      : configByIntegration.get(Number(form.integrationId)) || (form.integrationId == null ? configs[0] : null);
+    if (!config) {
+      /* The account this Page was connected through is gone, disabled, or has
+         no token. Its forms are left alone rather than read with somebody
+         else's credentials. */
+      totals.unconfigured += 1;
+      continue;
+    }
     try {
       const [[page]] = await pool.execute('SELECT * FROM crm_meta_pages WHERE page_id=? LIMIT 1', [form.pageId]);
       const token = decryptPageToken(page);
@@ -94,6 +130,7 @@ export async function pollMetaForms(pool, logger = console) {
           [watermark, form.formId],
         );
       }
+      if (config.integrationId) polled.add(Number(config.integrationId));
     } catch (error) {
       // One bad form must not stop the others.
       logger.error?.('[Meta] Poll failed for form', { formId: form.formId, message: error.message });
@@ -104,8 +141,13 @@ export async function pollMetaForms(pool, logger = console) {
     logger.info?.('[Meta] Poll cycle', totals);
   }
   /* A completed cycle is proof the connection works, and it is the only
-     thing that can honestly fill in "Last sync" on the Integrations tile. */
-  await markMetaIntegrationState(pool, { connected: true, synced: true, logger });
+     thing that can honestly fill in "Last sync" on the Integrations tile --
+     for each account that actually read its own forms. An account whose forms
+     all failed, or that has none, is left as it was rather than being marked
+     connected on somebody else's cycle. */
+  for (const integrationId of polled) {
+    await markMetaIntegrationState(pool, { connected: true, synced: true, integrationId, logger });
+  }
   return totals;
 }
 

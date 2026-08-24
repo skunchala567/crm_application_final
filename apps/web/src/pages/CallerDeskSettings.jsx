@@ -34,7 +34,7 @@ export default function CallerDeskSettings({ onMessage }) {
     <header className="page-action-row"><button className="secondary" onClick={()=>load().catch(e=>setError(e.message))}><RefreshCw size={16}/> Refresh</button></header>
     {error&&<div className="callerdesk-error">{error}</div>}
     <section className="callerdesk-guide"><strong>Configuration guide</strong><span><b>1</b> Save API credentials</span><span><b>2</b> Test connection</span><span><b>3</b> Configure branch DIDs in Business Units</span><span><b>4</b> Map members in User Management</span></section>
-    <section className="callerdesk-card"><div className="section-title"><PhoneCall/><div><h2>Account setup</h2><p>The authcode is encrypted and never returned to the browser.</p></div>{config.configured&&<span className="connected"><CheckCircle2/> Connected</span>}</div>
+    <section className="callerdesk-card"><div className="section-title"><PhoneCall/><div><h2>Account setup</h2><p>The authcode is encrypted and never returned to the browser. This account belongs to the business unit selected above — another unit configures its own.</p></div>{config.configured&&<span className="connected"><CheckCircle2/> Connected</span>}</div>
       <form className="callerdesk-grid" onSubmit={save}>
         <label>Account name <small>Friendly name used inside CRM</small><input value={config.accountName||''} onChange={e=>setConfig({...config,accountName:e.target.value})}/></label>
         <label>API key / authcode <small>API & Integration → API Key</small><input type="password" placeholder={config.configured?'Leave blank to keep current API key':'Paste CallerDesk API key'} value={config.apiKey||''} onChange={e=>setConfig({...config,apiKey:e.target.value})}/></label>

@@ -3,6 +3,7 @@ import axios from 'axios';
 import crypto from 'node:crypto';
 import { decryptToken,encryptToken,getMasterKey } from '../integration-hub/crypto-utils.js';
 import { canAccessBranch } from '../rbac/branch-scope.js';
+import { requestUnitId, unitScopeFilter, unitPreferenceOrder } from '../integration-scope.js';
 
 const BASE='https://api-smartflo.tatateleservices.com';
 const tokens=new Map();
@@ -35,8 +36,21 @@ function enqueue(configId,task){
   return current;
 }
 
-async function integration(pool,organizationId,required=true){
-  const [[row]]=await pool.execute(`SELECT * FROM crm_integrations WHERE organization_id=? AND deleted_at IS NULL AND LOWER(provider)='smartflo' ORDER BY id DESC LIMIT 1`,[organizationId]);
+/*
+ * The Smartflo account this business unit works with.
+ *
+ * Takes the request rather than an organization id: an account belongs to a
+ * business unit, so the unit on the request is half the question. A unit with
+ * no Smartflo account of its own has none -- it does not inherit the one the
+ * unit next door configured -- unless that account was deliberately shared.
+ */
+async function integration(pool,req,required=true){
+  const organizationId=Number(req.user?.organizationId||1),unitId=requestUnitId(req);
+  const unit=unitScopeFilter(unitId);
+  const [[row]]=await pool.execute(
+    `SELECT * FROM crm_integrations WHERE organization_id=? AND deleted_at IS NULL AND LOWER(provider)='smartflo'${unit.sql}
+      ORDER BY ${unitPreferenceOrder(unitId)}id DESC LIMIT 1`,
+    [organizationId,...unit.params]);
   if(!row&&required)throw Object.assign(new Error('Configure Smartflo in Integrations first'),{status:400});
   if(!row)return null;
   if(required&&!['ACTIVE','CONNECTED'].includes(String(row.status).toUpperCase()))throw Object.assign(new Error('Smartflo integration is inactive'),{status:400});
@@ -101,8 +115,8 @@ async function initiateSmartfloCall(config,{agentNumber,customerNumber,callerId,
 
 export function createSmartfloRoutes(pool,authenticate,requireCrmAccess,requireUserAdmin){
   const router=Router(),org=req=>Number(req.user.organizationId||1);
-  router.get('/config',authenticate,requireCrmAccess,wrap(async(req,res)=>{const item=await integration(pool,org(req),false);const [[mapping]]=await pool.execute(`SELECT id FROM app_users WHERE id=? AND smartflo_enabled=1 AND NULLIF(smartflo_agent_id,'') IS NOT NULL LIMIT 1`,[req.user.id]);res.json({data:item?{id:Number(item.id),configured:true,accountName:item.name,email:item.email,hasPassword:Boolean(item.password),hasPermanentToken:Boolean(item.permanentToken),callingMode:item.callingMode||'AGENT_FIRST',hasSupportApiKey:Boolean(item.supportApiKey),defaultDid:item.defaultDid||'',defaultDepartmentId:item.defaultDepartmentId||'',callTimeout:Number(item.callTimeout)||300,customerRingTimeout:Number(item.customerRingTimeout)||30,recordCalls:item.recordCalls!==false,webhookPath:`/api/smartflo/webhook/${item.id}?secret=${item.webhookSecret}`,isActive:['ACTIVE','CONNECTED'].includes(String(item.status).toUpperCase()),userAssigned:Boolean(mapping)}:{configured:false,callingMode:'AGENT_FIRST',callTimeout:300,customerRingTimeout:30,recordCalls:true,userAssigned:false}});}));
-  router.put('/config',authenticate,requireCrmAccess,requireUserAdmin,wrap(async(req,res)=>{const existing=await integration(pool,org(req),false),email=clean(req.body.email),password=clean(req.body.password),permanentToken=clean(req.body.permanentToken),supportApiKey=clean(req.body.supportApiKey),callingMode=clean(req.body.callingMode)||'AGENT_FIRST';if(!existing&&!permanentToken&&(!email||!password))return res.status(400).json({message:'Enter a Smartflo login email and password, or a permanent access token'});
+  router.get('/config',authenticate,requireCrmAccess,wrap(async(req,res)=>{const item=await integration(pool,req,false);const [[mapping]]=await pool.execute(`SELECT id FROM app_users WHERE id=? AND smartflo_enabled=1 AND NULLIF(smartflo_agent_id,'') IS NOT NULL LIMIT 1`,[req.user.id]);res.json({data:item?{id:Number(item.id),configured:true,accountName:item.name,email:item.email,hasPassword:Boolean(item.password),hasPermanentToken:Boolean(item.permanentToken),callingMode:item.callingMode||'AGENT_FIRST',hasSupportApiKey:Boolean(item.supportApiKey),defaultDid:item.defaultDid||'',defaultDepartmentId:item.defaultDepartmentId||'',callTimeout:Number(item.callTimeout)||300,customerRingTimeout:Number(item.customerRingTimeout)||30,recordCalls:item.recordCalls!==false,webhookPath:`/api/smartflo/webhook/${item.id}?secret=${item.webhookSecret}`,isActive:['ACTIVE','CONNECTED'].includes(String(item.status).toUpperCase()),userAssigned:Boolean(mapping)}:{configured:false,callingMode:'AGENT_FIRST',callTimeout:300,customerRingTimeout:30,recordCalls:true,userAssigned:false}});}));
+  router.put('/config',authenticate,requireCrmAccess,requireUserAdmin,wrap(async(req,res)=>{const existing=await integration(pool,req,false),email=clean(req.body.email),password=clean(req.body.password),permanentToken=clean(req.body.permanentToken),supportApiKey=clean(req.body.supportApiKey),callingMode=clean(req.body.callingMode)||'AGENT_FIRST';if(!existing&&!permanentToken&&(!email||!password))return res.status(400).json({message:'Enter a Smartflo login email and password, or a permanent access token'});
     if(!CALLING_MODES.has(callingMode))return res.status(400).json({message:'Select a valid Smartflo calling mode'});
     const hasEffectiveSupportApiKey=Boolean(supportApiKey||(!req.body.clearSupportApiKey&&(existing?.supportApiKey||existing?.supportApiKeyEncrypted)));
     if(callingMode==='CUSTOMER_FIRST'&&!hasEffectiveSupportApiKey)return res.status(400).json({message:'Click-to-Call Support API key is required for Customer First mode'});
@@ -146,18 +160,18 @@ export function createSmartfloRoutes(pool,authenticate,requireCrmAccess,requireU
       if(failed.length)validationWarning=` Token saved, but Tata denied: ${failed.map(item=>item.name).join(', ')}. Those features will remain unavailable until Tata enables them.`;
     }
     if(existing)await pool.execute('UPDATE crm_integrations SET name=?,config=?,status=?,updated_by=? WHERE id=?',[clean(req.body.accountName)||'Tata Smartflo',JSON.stringify(cfg),req.body.isActive===false?'INACTIVE':'ACTIVE',req.user.id,existing.id]);
-    else await pool.execute(`INSERT INTO crm_integrations(organization_id,name,type,provider,config,status,created_by) VALUES(?,?,'SMS','smartflo',?,?,?)`,[org(req),clean(req.body.accountName)||'Tata Smartflo',JSON.stringify(cfg),req.body.isActive===false?'INACTIVE':'ACTIVE',req.user.id]);res.json({success:true,message:`Smartflo configuration saved.${validationWarning}`});}));
-  router.post('/test',authenticate,requireCrmAccess,requireUserAdmin,wrap(async(req,res)=>{const cfg=await integration(pool,org(req));await token(cfg,true);await Promise.all([request(cfg,'GET','/v1/my_number'),request(cfg,'GET','/v1/ivrs'),request(cfg,'GET','/v1/users')]);res.json({success:true,message:'Smartflo connection and required DID, IVR and user permissions are working'});}));
-  for(const [name,path] of Object.entries({users:'/v1/users',numbers:'/v1/my_number',departments:'/v1/departments',ivrs:'/v1/ivrs',live:'/v1/live_calls'}))router.get(`/${name}`,authenticate,requireCrmAccess,wrap(async(req,res)=>{res.json({data:await request(await integration(pool,org(req)),'GET',path,{params:req.query})});}));
-  router.get('/capabilities',authenticate,requireCrmAccess,requireUserAdmin,wrap(async(req,res)=>{const cfg=await integration(pool,org(req));const checks=await Promise.all(Object.entries({numbers:'/v1/my_number',ivrs:'/v1/ivrs',departments:'/v1/departments',users:'/v1/users',liveCalls:'/v1/live_calls'}).map(async([name,path])=>{try{await request(cfg,'GET',path);return[name,{available:true}];}catch(error){return[name,{available:false,message:error.message}];}}));res.json({data:Object.fromEntries(checks)});}));
-  router.post('/ivrs',authenticate,requireCrmAccess,requireUserAdmin,wrap(async(req,res)=>{const result=await request(await integration(pool,org(req)),'POST','/v1/ivr',{data:req.body});res.status(201).json({success:true,data:result});}));
-  router.put('/ivrs/:id',authenticate,requireCrmAccess,requireUserAdmin,wrap(async(req,res)=>{res.json({success:true,data:await request(await integration(pool,org(req)),'PUT',`/v1/ivr/${encodeURIComponent(req.params.id)}`,{data:req.body})});}));
-  router.delete('/ivrs/:id',authenticate,requireCrmAccess,requireUserAdmin,wrap(async(req,res)=>{res.json({success:true,data:await request(await integration(pool,org(req)),'DELETE',`/v1/ivr/${encodeURIComponent(req.params.id)}`)});}));
-  router.put('/branches/:branchId/route-ivr',authenticate,requireCrmAccess,requireUserAdmin,wrap(async(req,res)=>{if(!canAccessBranch(req.user,req.params.branchId))return res.status(404).json({message:'Branch not found'});const cfg=await integration(pool,org(req));const [[branch]]=await pool.execute(`SELECT id,branch_name,smartflo_did_id,smartflo_did_number,smartflo_ivr_id,smartflo_ivr_name FROM branches WHERE id=? AND is_active=1 LIMIT 1`,[req.params.branchId]);if(!branch)return res.status(404).json({message:'Branch not found'});if(!branch.smartflo_did_id||!branch.smartflo_ivr_id)return res.status(400).json({message:'Select both a Smartflo DID and IVR for this branch'});
+    else await pool.execute(`INSERT INTO crm_integrations(organization_id,business_unit_id,name,type,provider,config,status,created_by) VALUES(?,?,?,'SMS','smartflo',?,?,?)`,[org(req),requestUnitId(req),clean(req.body.accountName)||'Tata Smartflo',JSON.stringify(cfg),req.body.isActive===false?'INACTIVE':'ACTIVE',req.user.id]);res.json({success:true,message:`Smartflo configuration saved.${validationWarning}`});}));
+  router.post('/test',authenticate,requireCrmAccess,requireUserAdmin,wrap(async(req,res)=>{const cfg=await integration(pool,req);await token(cfg,true);await Promise.all([request(cfg,'GET','/v1/my_number'),request(cfg,'GET','/v1/ivrs'),request(cfg,'GET','/v1/users')]);res.json({success:true,message:'Smartflo connection and required DID, IVR and user permissions are working'});}));
+  for(const [name,path] of Object.entries({users:'/v1/users',numbers:'/v1/my_number',departments:'/v1/departments',ivrs:'/v1/ivrs',live:'/v1/live_calls'}))router.get(`/${name}`,authenticate,requireCrmAccess,wrap(async(req,res)=>{res.json({data:await request(await integration(pool,req),'GET',path,{params:req.query})});}));
+  router.get('/capabilities',authenticate,requireCrmAccess,requireUserAdmin,wrap(async(req,res)=>{const cfg=await integration(pool,req);const checks=await Promise.all(Object.entries({numbers:'/v1/my_number',ivrs:'/v1/ivrs',departments:'/v1/departments',users:'/v1/users',liveCalls:'/v1/live_calls'}).map(async([name,path])=>{try{await request(cfg,'GET',path);return[name,{available:true}];}catch(error){return[name,{available:false,message:error.message}];}}));res.json({data:Object.fromEntries(checks)});}));
+  router.post('/ivrs',authenticate,requireCrmAccess,requireUserAdmin,wrap(async(req,res)=>{const result=await request(await integration(pool,req),'POST','/v1/ivr',{data:req.body});res.status(201).json({success:true,data:result});}));
+  router.put('/ivrs/:id',authenticate,requireCrmAccess,requireUserAdmin,wrap(async(req,res)=>{res.json({success:true,data:await request(await integration(pool,req),'PUT',`/v1/ivr/${encodeURIComponent(req.params.id)}`,{data:req.body})});}));
+  router.delete('/ivrs/:id',authenticate,requireCrmAccess,requireUserAdmin,wrap(async(req,res)=>{res.json({success:true,data:await request(await integration(pool,req),'DELETE',`/v1/ivr/${encodeURIComponent(req.params.id)}`)});}));
+  router.put('/branches/:branchId/route-ivr',authenticate,requireCrmAccess,requireUserAdmin,wrap(async(req,res)=>{if(!canAccessBranch(req.user,req.params.branchId))return res.status(404).json({message:'Branch not found'});const cfg=await integration(pool,req);const [[branch]]=await pool.execute(`SELECT id,branch_name,smartflo_did_id,smartflo_did_number,smartflo_ivr_id,smartflo_ivr_name FROM branches WHERE id=? AND is_active=1 LIMIT 1`,[req.params.branchId]);if(!branch)return res.status(404).json({message:'Branch not found'});if(!branch.smartflo_did_id||!branch.smartflo_ivr_id)return res.status(400).json({message:'Select both a Smartflo DID and IVR for this branch'});
     const result=await request(cfg,'PUT',`/v1/my_number/${encodeURIComponent(branch.smartflo_did_id)}`,{data:{name:branch.branch_name,description:`CRM branch ${branch.branch_name}`,destination:`ivr||${branch.smartflo_ivr_id}`}});res.json({success:true,message:`${branch.smartflo_did_number} is routed to ${branch.smartflo_ivr_name||'the selected IVR'}`,data:result});}));
-  router.get('/reports',authenticate,requireCrmAccess,wrap(async(req,res)=>{res.json({data:await request(await integration(pool,org(req)),'GET','/v1/call/records',{params:{from_date:req.query.from,to_date:req.query.to,page:req.query.page||1,limit:Math.min(Number(req.query.limit)||50,200),did_numbers:req.query.did||undefined,agents:req.query.agent||undefined,direction:req.query.direction||undefined}})});}));
+  router.get('/reports',authenticate,requireCrmAccess,wrap(async(req,res)=>{res.json({data:await request(await integration(pool,req),'GET','/v1/call/records',{params:{from_date:req.query.from,to_date:req.query.to,page:req.query.page||1,limit:Math.min(Number(req.query.limit)||50,200),did_numbers:req.query.did||undefined,agents:req.query.agent||undefined,direction:req.query.direction||undefined}})});}));
   router.post('/leads/:leadId/sync',authenticate,requireCrmAccess,wrap(async(req,res)=>{
-    const cfg=await integration(pool,org(req),false);
+    const cfg=await integration(pool,req,false);
     if(!cfg||!['ACTIVE','CONNECTED'].includes(String(cfg.status).toUpperCase()))return res.json({success:true,data:{synced:0}});
     const [[lead]]=await pool.execute('SELECT id,phone,business_unit_id FROM crm_leads WHERE id=? AND business_unit_id=? AND deleted_at_utc IS NULL',[req.params.leadId,req.businessUnit.id]);
     if(!lead)return res.status(404).json({message:'Lead not found'});
@@ -182,7 +196,7 @@ export function createSmartfloRoutes(pool,authenticate,requireCrmAccess,requireU
     res.json({success:true,data:{synced}});
   }));
   router.get('/calls/:callActivityId/status',authenticate,requireCrmAccess,wrap(async(req,res)=>{
-    const cfg=await integration(pool,org(req));
+    const cfg=await integration(pool,req);
     let [[call]]=await pool.execute('SELECT * FROM crm_call_activities WHERE id=? AND integration_id=? AND business_unit_id=? LIMIT 1',[req.params.callActivityId,cfg.id,req.businessUnit.id]);
     if(!call)return res.status(404).json({message:'Call activity not found'});
     const liveResponse=await request(cfg,'GET','/v1/live_calls',{params:{agent_number:call.agent_number}});
@@ -215,7 +229,7 @@ export function createSmartfloRoutes(pool,authenticate,requireCrmAccess,requireU
     res.json({data:{...data,isLive:Boolean(live),isTerminal:terminal,live:live?{callId:clean(live.call_id),state:clean(live.state),queueState:clean(live.queue_state),callTime:clean(live.call_time),agentName:clean(live.agent_name)}:null}});
   }));
   router.post('/calls/:callActivityId/hangup',authenticate,requireCrmAccess,wrap(async(req,res)=>{
-    const cfg=await integration(pool,org(req));const [[call]]=await pool.execute('SELECT id,callerdesk_sid,agent_number,destination_number,raw_payload FROM crm_call_activities WHERE id=? AND integration_id=? AND business_unit_id=? LIMIT 1',[req.params.callActivityId,cfg.id,req.businessUnit.id]);if(!call)return res.status(404).json({message:'Call activity not found'});
+    const cfg=await integration(pool,req);const [[call]]=await pool.execute('SELECT id,callerdesk_sid,agent_number,destination_number,raw_payload FROM crm_call_activities WHERE id=? AND integration_id=? AND business_unit_id=? LIMIT 1',[req.params.callActivityId,cfg.id,req.businessUnit.id]);if(!call)return res.status(404).json({message:'Call activity not found'});
     // Some Smartflo accounts return a click-to-call ref_id which is accepted
     // for correlation but rejected by the Hangup API. Resolve the active
     // conversation and use its call_id, which Tata documents as the direct
@@ -236,7 +250,7 @@ export function createSmartfloRoutes(pool,authenticate,requireCrmAccess,requireU
     if(provider?.success===false)return res.status(409).json({message:clean(provider.message)||'Smartflo could not hang up this call'});
     await pool.execute(`UPDATE crm_call_activities SET status='hangup requested' WHERE id=?`,[call.id]);res.json({success:true,data:provider});
   }));
-  router.post('/leads/:leadId/call',authenticate,requireCrmAccess,wrap(async(req,res)=>{const cfg=await integration(pool,org(req));const [[lead]]=await pool.execute('SELECT id,student_name,phone,branch_id FROM crm_leads WHERE id=? AND business_unit_id=? AND deleted_at_utc IS NULL',[req.params.leadId,req.businessUnit.id]);if(!lead)return res.status(404).json({message:'Lead not found'});
+  router.post('/leads/:leadId/call',authenticate,requireCrmAccess,wrap(async(req,res)=>{const cfg=await integration(pool,req);const [[lead]]=await pool.execute('SELECT id,student_name,phone,branch_id FROM crm_leads WHERE id=? AND business_unit_id=? AND deleted_at_utc IS NULL',[req.params.leadId,req.businessUnit.id]);if(!lead)return res.status(404).json({message:'Lead not found'});
     const agentUserId=Number(req.body.agentUserId||req.user.id);const [[agent]]=await pool.execute('SELECT smartflo_agent_id,smartflo_agent_number FROM app_users WHERE id=? AND smartflo_enabled=1',[agentUserId]);if(!agent)return res.status(400).json({message:'Smartflo calling is not assigned to this user in User Management'});
     const [[branch]]=await pool.execute('SELECT smartflo_did_number FROM branches WHERE id=? AND smartflo_outbound_enabled=1',[lead.branch_id]);const callerId=clean(req.body.callerId)||branch?.smartflo_did_number||cfg.defaultDid;if(!callerId)return res.status(400).json({message:'Configure a Smartflo DID for this branch'});
     const agentNumber=agent?clean(agent.smartflo_agent_id)||digits(agent.smartflo_agent_number):'';
@@ -270,7 +284,7 @@ export function createSmartfloRoutes(pool,authenticate,requireCrmAccess,requireU
     }
   }));
   router.post('/test-call',authenticate,requireCrmAccess,requireUserAdmin,wrap(async(req,res)=>{
-    const cfg=await integration(pool,org(req)),customerNumber=digits(req.body.customerNumber);if(customerNumber.length<10||customerNumber.length>13)return res.status(400).json({message:'Enter a valid 10 to 13 digit test customer number'});
+    const cfg=await integration(pool,req),customerNumber=digits(req.body.customerNumber);if(customerNumber.length<10||customerNumber.length>13)return res.status(400).json({message:'Enter a valid 10 to 13 digit test customer number'});
     if(!cfg.defaultDid)return res.status(400).json({message:'Select a Default DID before placing a test call'});
     const [[agent]]=await pool.execute('SELECT smartflo_agent_id,smartflo_agent_number FROM app_users WHERE id=? AND smartflo_enabled=1',[req.user.id]);if(!agent)return res.status(400).json({message:'Smartflo calling is not assigned to this user in User Management'});const agentNumber=clean(agent.smartflo_agent_id)||digits(agent.smartflo_agent_number);
     const customIdentifier={crm_test_call:'1',crm_call_key:crypto.randomUUID().replace(/-/g,'')};let callActivityId=null,loggedRequest=null;
