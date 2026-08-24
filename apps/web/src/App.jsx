@@ -52,9 +52,16 @@ const menu = [
    * Settings keeps only what is genuinely shared: Business Units itself, and
    * Integrations, which connects one account for the whole system.
    */
-  ["Payments", "/payments", CreditCard, "Operations", "payments.collections.view"],
+  ["Payments", "/payments", CreditCard, "Operations", ["payments.collections.view", "payments.forms.view", "payments.links.view", "payments.links.create", "payments.enquiry_forms.view"]],
   ["User Management", "/user-management", UserCog, "Operations", "settings.users.view"],
-  ["Templates", "/templates", MessageSquare, "Operations", "whatsapp.templates.view"],
+  ["Templates", "/templates", MessageSquare, "Operations", ["whatsapp.templates.view", "sms.templates.view", "email.templates.view"]],
+];
+
+const SETTINGS_SCREEN_PERMISSIONS = [
+  'settings.users.view','settings.access_control.view','settings.business_units.view','settings.branches.view',
+  'payments.collections.view','payments.forms.view','payments.links.view','payments.links.create','payments.enquiry_forms.view',
+  'integrations.hub.view','integrations.google_sheets.view','integrations.meta_lead_ads.view','integrations.callerdesk.view','integrations.smartflo.view',
+  'whatsapp.templates.view','sms.templates.view','email.configuration.view','email.templates.view',
 ];
 
 function loadStoredUser() {
@@ -289,7 +296,7 @@ function Shell({ user, onLogout }) {
    * for the rest -- opening those switches unit, and their own pipelines
    * appear once they are the active one.
    */
-  const visibleMenu = menu.filter(([, , , , permission]) => can(permission));
+  const visibleMenu = menu.filter(([, , , , permission]) => Array.isArray(permission) ? permission.some(key=>can(key)) : can(permission));
   const activeUnitMenu = visibleMenu.flatMap((entry) => {
     if (entry[1] !== '/leads' || leadPipelines.length < 2) return [entry];
     const [, , Icon, section, permission] = entry;
@@ -357,30 +364,31 @@ function Shell({ user, onLogout }) {
             <Route path="/bulk-actions" element={<RequirePermission do="bulk_actions.workspace.view"><BulkActionsPageModern key={activeBusinessUnitId} /></RequirePermission>} />
             <Route path="/reports" element={<RequirePermission do="reports.list.view"><ReportsPage key={activeBusinessUnitId} /></RequirePermission>} />
             <Route path="/saved-reports/new" element={<RequirePermission do="reports.builder.view"><SavedReportCreatePage key={activeBusinessUnitId} /></RequirePermission>} />
-            <Route path="/settings" element={<SettingsPageModern />} />
+            <Route path="/settings" element={<RequirePermission any={SETTINGS_SCREEN_PERMISSIONS}><SettingsPageModern /></RequirePermission>} />
             {/* Moved out of Settings and under each business unit, so they
                 get paths of their own -- the old ones still resolve as
                 redirects, and the breadcrumb and sidebar no longer file them
                 under Settings. */}
             <Route path="/user-management" element={<RequirePermission do="settings.users.view"><SettingsPageModern /></RequirePermission>} />
-            <Route path="/payments" element={<RequirePermission do="payments.collections.view"><SettingsPageModern /></RequirePermission>} />
-            <Route path="/templates" element={<RequirePermission do="whatsapp.templates.view"><SettingsPageModern /></RequirePermission>} />
+            <Route path="/payments" element={<RequirePermission any={["payments.collections.view","payments.forms.view","payments.links.view","payments.links.create","payments.enquiry_forms.view"]}><SettingsPageModern /></RequirePermission>} />
+            <Route path="/templates" element={<RequirePermission any={["whatsapp.templates.view","sms.templates.view","email.templates.view"]}><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/users" element={<Navigate to="/user-management" replace />} />
             <Route path="/settings/business-units" element={<RequirePermission do="settings.business_units.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/branches" element={<RequirePermission do="settings.branches.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/payments" element={<Navigate to="/payments" replace />} />
-            <Route path="/settings/payment-forms" element={<RequirePermission do="payments.collections.view"><SettingsPageModern /></RequirePermission>} />
+            <Route path="/settings/payment-forms" element={<RequirePermission do="payments.forms.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/payment-collections" element={<RequirePermission do="payments.collections.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/lead-config" element={<Navigate to="/settings/business-units?tab=sources" replace />} />
             <Route path="/settings/academic-config" element={<Navigate to="/settings/business-units?tab=academic" replace />} />
             <Route path="/settings/academic-years" element={<Navigate to="/settings/business-units?tab=academic" replace />} />
             <Route path="/settings/admission-classes" element={<Navigate to="/settings/business-units?tab=academic&section=classes" replace />} />
             {/* Moved onto the business unit that owns the accounts. */}
-            <Route path="/settings/integrations" element={<Navigate to="/settings/business-units?tab=integrations" replace />} />
+            <Route path="/settings/integrations" element={<RequirePermission do="integrations.hub.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/google-sheets" element={<RequirePermission do="integrations.google_sheets.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/meta-lead-ads" element={<RequirePermission do="integrations.meta_lead_ads.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/templates" element={<Navigate to="/templates" replace />} />
             <Route path="/settings/whatsapp-templates" element={<RequirePermission do="whatsapp.templates.view"><SettingsPageModern /></RequirePermission>} />
+            <Route path="/settings/sms-templates" element={<RequirePermission do="sms.templates.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/email-configuration" element={<RequirePermission do="email.configuration.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/email-templates" element={<RequirePermission do="email.templates.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/callerdesk" element={<RequirePermission do="integrations.callerdesk.view"><SettingsPageModern /></RequirePermission>} />
@@ -656,6 +664,7 @@ function DashboardActivityPreview({ trends }) {
 
 function ReportsPage() {
   const { selectedUnit } = useBusinessUnit();
+  const { can } = usePermissions();
   const location = useLocation();
   const [data, setData] = useState(null);
   const [reportLeads, setReportLeads] = useState([]);
@@ -687,10 +696,10 @@ function ReportsPage() {
     <main className={`page report-page ${builderActive ? "builder-active" : ""}`}>
       {!builderActive && <div className="report-page-tabs" role="tablist" aria-label="Reports workspace">
         <button type="button" className={reportsTab === "library" ? "active" : ""} onClick={() => setReportsTab("library")}>Reports library</button>
-        <button type="button" className={reportsTab === "dashboard" ? "active" : ""} onClick={() => setReportsTab("dashboard")}>Dashboard layout</button>
+        {can('dashboard.layout.view')&&<button type="button" className={reportsTab === "dashboard" ? "active" : ""} onClick={() => setReportsTab("dashboard")}>Dashboard layout</button>}
       </div>}
-      {reportsTab === "dashboard" && !builderActive
-        ? <DashboardOverviewCanvas data={data} leads={reportLeads} cards={cards} editable />
+      {reportsTab === "dashboard" && can('dashboard.layout.view') && !builderActive
+        ? <DashboardOverviewCanvas data={data} leads={reportLeads} cards={cards} editable={can('dashboard.layout.edit')} />
         : <ReportBuilder data={data} leads={reportLeads} leadFields={reportMeta?.leadFields || []} onModeChange={setBuilderActive} createNewSignal={location.state?.createNewReportAt} returnTo={location.state?.returnTo} />}
     </main>
   );

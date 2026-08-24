@@ -3,6 +3,7 @@ import { Mail, MessageCircle, MessageSquare } from 'lucide-react';
 import WhatsAppTemplatesSettings from '../WhatsAppTemplatesSettings.jsx';
 import SmsTemplatesSettings from './SmsTemplatesSettings.jsx';
 import EmailTemplatesSettings from './EmailTemplatesSettings.jsx';
+import { usePermissions } from '../PermissionContext.jsx';
 
 /**
  * Every message template in one place.
@@ -15,20 +16,23 @@ import EmailTemplatesSettings from './EmailTemplatesSettings.jsx';
  * behind one door with a tab each.
  */
 const CHANNELS = [
-  { id: 'whatsapp', label: 'WhatsApp', Icon: MessageCircle, Component: WhatsAppTemplatesSettings },
-  { id: 'sms', label: 'SMS', Icon: MessageSquare, Component: SmsTemplatesSettings },
-  { id: 'email', label: 'Email', Icon: Mail, Component: EmailTemplatesSettings },
+  { id: 'whatsapp', label: 'WhatsApp', Icon: MessageCircle, Component: WhatsAppTemplatesSettings, permission: 'whatsapp.templates.view' },
+  { id: 'sms', label: 'SMS', Icon: MessageSquare, Component: SmsTemplatesSettings, permission: 'sms.templates.view' },
+  { id: 'email', label: 'Email', Icon: Mail, Component: EmailTemplatesSettings, permission: 'email.templates.view' },
 ];
 
 export default function MessageTemplatesSettings(props) {
+  const { can } = usePermissions();
+  const channels = CHANNELS.filter(item=>can(item.permission));
   const [channel, setChannel] = useState('whatsapp');
-  const active = CHANNELS.find(item => item.id === channel) || CHANNELS[0];
+  const active = channels.find(item => item.id === channel) || channels[0];
+  if(!active)return <div className="empty"><strong>No template access</strong><p>Ask an administrator for access to a message-template channel.</p></div>;
   const Active = active.Component;
 
   return (
     <section className="academic-config-panel embedded">
       <div className="config-tabs academic-config-tabs" role="tablist" aria-label="Message template channels">
-        {CHANNELS.map(({ id, label, Icon }) => (
+        {channels.map(({ id, label, Icon }) => (
           <button
             key={id}
             type="button"

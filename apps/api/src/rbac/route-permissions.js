@@ -228,6 +228,8 @@ export const ROUTE_RULES = [
   { method: 'DELETE', test: /^\/api\/platform\/business-units\/[^/]+\/enquiry-forms/, key: 'payments.enquiry_forms.delete' },
   { method: '*', test: /^\/api\/platform\/business-units\/[^/]+\/enquiry-forms/, key: 'payments.enquiry_forms.edit' },
   { method: 'GET', test: /^\/api\/platform\/business-units/, key: 'settings.business_units.view' },
+  { method: 'POST', test: /^\/api\/platform\/business-units/, key: 'settings.business_units.create' },
+  { method: 'DELETE', test: /^\/api\/platform\/business-units/, key: 'settings.business_units.delete' },
   { method: '*', test: /^\/api\/platform\/business-units/, key: 'settings.business_units.edit' },
   { method: 'GET', test: /^\/api\/platform\/(academic|classes|admission)/, key: 'settings.academic_config.view' },
   { method: '*', test: /^\/api\/platform\/(academic|classes|admission)/, key: 'settings.academic_config.edit' },

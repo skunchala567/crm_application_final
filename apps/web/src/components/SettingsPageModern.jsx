@@ -16,6 +16,8 @@ import EmailConfigurationSettings from '../pages/EmailConfigurationSettings.jsx'
 import EmailTemplatesSettings from '../pages/EmailTemplatesSettings.jsx';
 import MessageTemplatesSettings from '../pages/MessageTemplatesSettings.jsx';
 import PageContainer from './PageContainer';
+import { RequirePermission } from './Can.jsx';
+import { usePermissions } from '../PermissionContext.jsx';
 
 /*
  * Screens that left Settings but still render through this component.
@@ -37,6 +39,7 @@ const settingsTabs = [
     label: 'User Management',
     icon: Users,
     component: UserManagementPage,
+    permissions: ['settings.users.view','settings.access_control.view'],
   },
   {
     id: 'business-units',
@@ -44,6 +47,7 @@ const settingsTabs = [
     label: 'Business Units',
     icon: Building2,
     component: BusinessUnitsPage,
+    permissions: ['settings.business_units.view'],
   },
   {
     id: 'branches',
@@ -51,6 +55,7 @@ const settingsTabs = [
     label: 'Branch Settings',
     icon: MapPin,
     component: BranchSettingsPage,
+    permissions: ['settings.branches.view'],
   },
   {
     id: 'payments',
@@ -58,6 +63,7 @@ const settingsTabs = [
     label: 'Payments',
     icon: CreditCard,
     component: PaymentsSettings,
+    permissions: ['payments.collections.view','payments.forms.view','payments.links.view','payments.links.create','payments.enquiry_forms.view'],
   },
   /* The old paths still resolve so existing links keep working; the sidebar
      lists only the combined Payments entry. */
@@ -67,6 +73,7 @@ const settingsTabs = [
     label: 'Payment Forms',
     icon: Zap,
     component: PaymentsSettings,
+    permissions: ['payments.forms.view'],
   },
   {
     id: 'payment-collections',
@@ -74,6 +81,7 @@ const settingsTabs = [
     label: 'Payment Collections',
     icon: CreditCard,
     component: PaymentsSettings,
+    permissions: ['payments.collections.view'],
   },
   {
     id: 'integrations',
@@ -81,6 +89,7 @@ const settingsTabs = [
     label: 'Integrations',
     icon: Settings,
     component: IntegrationHubPage,
+    permissions: ['integrations.hub.view'],
   },
   {
     id: 'google-sheets',
@@ -88,6 +97,7 @@ const settingsTabs = [
     label: 'Google Sheets',
     icon: Settings,
     component: GoogleSheetsSettings,
+    permissions: ['integrations.google_sheets.view'],
   },
   {
     id: 'meta-lead-ads',
@@ -95,6 +105,7 @@ const settingsTabs = [
     label: 'Meta Lead Ads',
     icon: Facebook,
     component: MetaLeadAdsSettings,
+    permissions: ['integrations.meta_lead_ads.view'],
   },
   {
     id: 'message-templates',
@@ -102,6 +113,7 @@ const settingsTabs = [
     label: 'Templates',
     icon: MessageCircle,
     component: MessageTemplatesSettings,
+    permissions: ['whatsapp.templates.view','sms.templates.view','email.templates.view'],
   },
   /*
    * The old per-channel routes still resolve, so existing links and the
@@ -114,6 +126,7 @@ const settingsTabs = [
     label: 'WhatsApp',
     icon: MessageCircle,
     component: WhatsAppTemplatesSettings,
+    permissions: ['whatsapp.templates.view'],
   },
   {
     id: 'email-templates',
@@ -121,6 +134,7 @@ const settingsTabs = [
     label: 'Email Templates',
     icon: Mail,
     component: EmailTemplatesSettings,
+    permissions: ['email.templates.view'],
   },
   {
     id: 'email-configuration',
@@ -128,6 +142,7 @@ const settingsTabs = [
     label: 'Email Configuration',
     icon: Server,
     component: EmailConfigurationSettings,
+    permissions: ['email.configuration.view'],
   },
   {
     id: 'callerdesk',
@@ -135,6 +150,7 @@ const settingsTabs = [
     label: 'Calling',
     icon: PhoneCall,
     component: CallerDeskSettings,
+    permissions: ['integrations.callerdesk.view'],
   },
   {
     id: 'smartflo',
@@ -142,6 +158,7 @@ const settingsTabs = [
     label: 'Smartflo',
     icon: PhoneCall,
     component: SmartfloSettings,
+    permissions: ['integrations.smartflo.view'],
   },
 ];
 
@@ -154,10 +171,14 @@ const getActiveTabFromPath = (pathname) => {
 
 export default function SettingsPageModern() {
   const location = useLocation();
+  const { can } = usePermissions();
   const [message, setMessage] = useState(null);
 
-  const activeTabId = getActiveTabFromPath(location.pathname);
-  const activeTabConfig = settingsTabs.find((tab) => tab.id === activeTabId);
+  const requestedTabId = getActiveTabFromPath(location.pathname);
+  const requestedTab = settingsTabs.find((tab) => tab.id === requestedTabId);
+  const activeTabConfig = location.pathname==='/settings'
+    ? settingsTabs.find(tab=>tab.permissions?.some(key=>can(key)))
+    : requestedTab;
   const ActiveComponent = activeTabConfig?.component;
 
   return (
@@ -175,7 +196,7 @@ export default function SettingsPageModern() {
           PageContainer's own `md:py-9` is a media-query variant and wins
           over an unprefixed class whatever the merge order. */}
       <PageContainer variant="full">
-        {ActiveComponent && <ActiveComponent onMessage={setMessage} />}
+        {ActiveComponent && <RequirePermission any={activeTabConfig.permissions}><ActiveComponent onMessage={setMessage} /></RequirePermission>}
       </PageContainer>
     </div>
   );
