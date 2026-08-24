@@ -1149,15 +1149,46 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     const [[pipeline]]=await pool.execute(`SELECT * FROM crm_lead_pipelines WHERE id=? AND business_unit_id=?`,[id,unitId]);
     if(!pipeline)return res.status(404).json({message:'Lead pipeline not found'});
     if(pipeline.is_default)return res.status(400).json({message:'The default pipeline cannot be deleted. Make another one the default first.'});
-    // Refuse rather than silently stranding leads or stages.
-    const [[counts]]=await pool.execute(
-      `SELECT (SELECT COUNT(*) FROM crm_leads l JOIN crm_lead_stages st ON st.id=l.stage_id
-                WHERE st.pipeline_id=? AND l.deleted_at_utc IS NULL) AS leads,
-              (SELECT COUNT(*) FROM crm_lead_stages WHERE pipeline_id=?) AS stages`,[id,id]);
-    if(Number(counts.leads)>0)return res.status(409).json({message:`Cannot delete this pipeline because ${counts.leads} lead${Number(counts.leads)===1?' is':'s are'} on it`});
-    if(Number(counts.stages)>0)return res.status(409).json({message:`Cannot delete this pipeline because it still has ${counts.stages} stage${Number(counts.stages)===1?'':'s'}. Delete them first.`});
-    await pool.execute(`DELETE FROM crm_lead_pipelines WHERE id=? AND business_unit_id=?`,[id,unitId]);
-    res.json({message:'Lead pipeline deleted'});
+    // Stages and sub-stages are owned by their pipeline. An empty pipeline can
+    // therefore remove that configuration as one operation; only lead records
+    // (including archived ones, which still retain foreign keys) must block it.
+    const connection=await pool.getConnection();
+    try{
+      await connection.beginTransaction();
+      const [[locked]]=await connection.execute(
+        `SELECT id FROM crm_lead_pipelines WHERE id=? AND business_unit_id=? FOR UPDATE`,[id,unitId],
+      );
+      if(!locked){await connection.rollback();return res.status(404).json({message:'Lead pipeline not found'});}
+      const [assignedLeads]=await connection.execute(
+        `SELECT l.id,l.deleted_at_utc AS deletedAt
+           FROM crm_leads l JOIN crm_lead_stages st ON st.id=l.stage_id
+          WHERE st.pipeline_id=? FOR UPDATE`,[id],
+      );
+      if(assignedLeads.length>0){
+        const active=assignedLeads.filter(lead=>!lead.deletedAt).length;
+        const archived=assignedLeads.length-active;
+        const detail=active>0
+          ? `${active} active lead${active===1?' is':'s are'} assigned to it`
+          : `${archived} archived lead record${archived===1?' still references':'s still reference'} it`;
+        await connection.rollback();
+        return res.status(409).json({message:`Cannot delete this pipeline because ${detail}`});
+      }
+      await connection.execute(
+        `DELETE ss FROM crm_lead_substages ss
+          JOIN crm_lead_stages st ON st.id=ss.stage_id
+         WHERE st.pipeline_id=? AND st.business_unit_id=?`,[id,unitId],
+      );
+      const [stageResult]=await connection.execute(
+        `DELETE FROM crm_lead_stages WHERE pipeline_id=? AND business_unit_id=?`,[id,unitId],
+      );
+      await connection.execute(`DELETE FROM crm_lead_pipelines WHERE id=? AND business_unit_id=?`,[id,unitId]);
+      await connection.commit();
+      res.json({message:`Lead pipeline deleted with ${Number(stageResult.affectedRows||0)} unused stage${Number(stageResult.affectedRows||0)===1?'':'s'}`});
+    }catch(error){
+      await connection.rollback();
+      if(error.code==='ER_ROW_IS_REFERENCED_2')return res.status(409).json({message:'This pipeline is referenced by historical CRM records and cannot be deleted'});
+      throw error;
+    }finally{connection.release();}
   });
 
   router.post('/business-units/:id/pipeline-stages', requireUserAdmin, async (req,res)=>{

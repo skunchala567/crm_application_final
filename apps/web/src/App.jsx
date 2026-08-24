@@ -545,7 +545,7 @@ function DashboardOverviewCanvas({ data, leads = [], cards, editable = false }) 
   const reportColumnsFor = report => reportColumnDrafts[report.id] ?? report.cardColumns ?? 2;
   const addReportWidget = report => {
     const id = `report:${report.id}`;
-    stageLayout(layout.some(item => item.id === id) ? layout.map(item => item.id === id ? { ...item, visible: true } : item) : [{ id, size: "half", visible: true }, ...layout]);
+    stageLayout(layout.some(item => item.id === id) ? layout.map(item => item.id === id ? { ...item, visible: true } : item) : [{ id, size: "half", height: "auto", fitToHeight: false, visible: true }, ...layout]);
   };
   const available = DASHBOARD_WIDGETS.filter(widget => !layout.some(item => item.id === widget.id && item.visible !== false));
   const visibleSavedReports = savedReports.filter(report => canViewSavedReport(report));
@@ -584,7 +584,7 @@ function DashboardOverviewCanvas({ data, leads = [], cards, editable = false }) 
         const definition = report ? { title: report.title || "Saved report" } : DASHBOARD_WIDGETS.find(widget => widget.id === item.id);
         if (!definition) return null;
         const moveTargets = Object.fromEntries(["left", "right", "up", "down"].map(direction => [direction, dashboardMoveTarget(visibleLayout, item.id, direction)]));
-        return <article key={item.id} className={`dashboard-widget size-${item.size} height-${item.height || "auto"} ${item.visible === false ? "hidden-widget" : ""}`}>
+        return <article key={item.id} className={`dashboard-widget size-${item.size} height-${item.height || "auto"} ${item.fitToHeight && item.height !== "auto" ? "fit-to-height" : ""} ${item.visible === false ? "hidden-widget" : ""}`}>
           {editable && <div className="dashboard-widget-actions">
             <strong>{definition.title}</strong>
             <button type="button" title="Move left" aria-label={`Move ${definition.title} left`} onClick={() => move(item.id, "left")} disabled={!moveTargets.left}>←</button>
@@ -594,6 +594,7 @@ function DashboardOverviewCanvas({ data, leads = [], cards, editable = false }) 
             {report?.type === "cards" && <label className="dashboard-report-columns"><span>Cards/row</span><select value={reportColumnsFor(report)} onChange={event => stageReportColumns(report.id, Number(event.target.value))} aria-label={`Cards per row for ${definition.title}`}><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>}
             <label className="dashboard-widget-size"><span className="sr-only">Width for {definition.title}</span><select value={item.size} onChange={event => patchWidget(item.id, { size: event.target.value })} aria-label={`Width for ${definition.title}`}><option value="quarter">¼</option><option value="half">½</option><option value="three-quarter">¾</option><option value="full">Full</option></select></label>
             <label className="dashboard-widget-height"><span>Height</span><select value={item.height || "auto"} onChange={event => patchWidget(item.id, { height: event.target.value })} aria-label={`Height for ${definition.title}`}>{DASHBOARD_HEIGHT_LABELS.map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label>
+            <label className={`dashboard-widget-fit ${item.height === "auto" ? "disabled" : ""}`} title={item.height === "auto" ? "Select a fixed height first" : "Scale the report to the selected height"}><input type="checkbox" checked={item.fitToHeight === true} disabled={item.height === "auto"} onChange={event => patchWidget(item.id, { fitToHeight: event.target.checked })}/><span>Fit report</span></label>
             {String(item.id).startsWith("report:") && <button onClick={() => patchWidget(item.id, { visible: false })}>Remove</button>}
           </div>}
           <DashboardWidgetContent id={item.id} data={data} leads={leads} cards={cards} report={report ? { ...report, cardColumns: reportColumnsFor(report) } : null} />

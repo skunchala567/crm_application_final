@@ -18,13 +18,52 @@
 .dashboard-widget-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 18px;
+  gap: 12px;
   align-items: start;
 }
+
+@media (min-width: 1280px) {
+  .dashboard-widget-grid { gap: 16px; }
+}
+
+/*
+ * How much room a card gives its contents, read by the Card components.
+ *
+ * Set here rather than passed by each widget: a dozen widgets on one screen
+ * cannot each afford the 24px a card uses on a page of two or three, and the
+ * number belongs with the rest of the dashboard's sizing. Nothing outside this
+ * container is affected -- the components fall back to their own 24px.
+ */
+.dashboard-compact {
+  --card-pad: 0.75rem;
+  --card-title: 0.95rem;
+  --card-desc: 0.7rem;
+}
+
+@media (min-width: 1280px) {
+  .dashboard-compact {
+    --card-pad: 1rem;
+    --card-title: 1.05rem;
+    --card-desc: 0.75rem;
+  }
+}
+
 
 .dashboard-widget {
   min-width: 0;
 }
+
+.dashboard-widget > * { width: 100%; min-width: 0; }
+
+/* The live dashboard and the layout editor use the same frame contract. Grid
+   rows stretch auto-height neighbours equally; named heights remain exact and
+   never grow because a report happens to contain more data. */
+.dashboard-runtime-grid { align-items: stretch; }
+.dashboard-runtime-widget { width: 100%; min-width: 0; box-sizing: border-box; }
+.dashboard-runtime-widget.height-auto { align-self: stretch; }
+.dashboard-runtime-widget.height-auto > * { width: 100%; height: 100%; min-width: 0; }
+.dashboard-runtime-widget.has-fixed-height { align-self: start; }
+.dashboard-runtime-widget.has-fixed-height > * { width: 100%; height: 100%; min-width: 0; min-height: 0; }
 
 .dashboard-widget.size-quarter { grid-column: span 1; }
 .dashboard-widget.size-half { grid-column: span 2; }
@@ -47,14 +86,25 @@
    and drag the row, which is the thing setting a height is meant to stop. The
    content scrolls inside instead. 'auto' adds no rule at all, so a layout that
    has never been given a height renders exactly as it always did. */
-.dashboard-widget.height-short { height: 260px; }
-.dashboard-widget.height-medium { height: 380px; }
-.dashboard-widget.height-tall { height: 520px; }
-.dashboard-widget.height-x-tall { height: 680px; }
+.dashboard-widget.height-short { height: 190px; }
+.dashboard-widget.height-medium { height: 260px; }
+.dashboard-widget.height-tall { height: 330px; }
+.dashboard-widget.height-x-tall { height: 420px; }
+
+/* The large-screen step, matching WIDGET_HEIGHT's xl: values. */
+@media (min-width: 1280px) {
+  .dashboard-widget.height-short { height: 240px; }
+  .dashboard-widget.height-medium { height: 330px; }
+  .dashboard-widget.height-tall { height: 440px; }
+  .dashboard-widget.height-x-tall { height: 560px; }
+}
 
 .dashboard-widget:not(.height-auto) { overflow: hidden; }
 .dashboard-widget:not(.height-auto) > .panel,
 .dashboard-widget:not(.height-auto) > .stats-grid { overflow: auto; }
+
+.dashboard-widget.fit-to-height:not(.height-auto) > .panel,
+.dashboard-widget.fit-to-height:not(.height-auto) > .stats-grid { overflow: hidden; }
 
 .dashboard-widget-height {
   display: flex;
@@ -78,8 +128,57 @@
   font-weight: 800;
 }
 
-.dashboard-heading{position:relative;width:100%;padding-right:390px}
-.dashboard-toolbar{width:auto;margin:0;display:flex;align-items:center;justify-content:flex-end;gap:8px;position:absolute;z-index:20;right:0;bottom:-27px}
+.dashboard-widget-fit {
+  height: 27px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--ink-200);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--brand-600);
+  font-size: 9px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.dashboard-widget-fit input { width: 12px; height: 12px; margin: 0; accent-color: var(--brand-600); }
+.dashboard-widget-fit:has(input:checked) { border-color: var(--brand-500); background: var(--brand-50); }
+.dashboard-widget-fit.disabled { opacity: .45; cursor: not-allowed; }
+
+/* Fixed-height reports normally scroll. Fit mode instead gives the visual the
+   remaining card area and lets responsive charts shrink into it. Tables keep
+   their own scrolling surface so labels and values are never scaled down. */
+.dashboard-fit-to-height > *,
+.dashboard-widget.fit-to-height > * { width: 100%; height: 100%; min-width: 0; min-height: 0; }
+.dashboard-fit-to-height .dashboard-activity-chart svg,
+.dashboard-widget.fit-to-height .dashboard-activity-chart svg { height: 100%; min-height: 0; }
+.dashboard-fit-to-height .dashboard-report-widget,
+.dashboard-widget.fit-to-height .dashboard-report-widget { display: flex; min-height: 0; flex-direction: column; }
+.dashboard-fit-to-height .dashboard-report-widget > :last-child,
+.dashboard-widget.fit-to-height .dashboard-report-widget > :last-child { min-height: 0; flex: 1; }
+.dashboard-fit-to-height .dashboard-report-visual,
+.dashboard-widget.fit-to-height .dashboard-report-visual { display: flex; overflow: hidden; flex-direction: column; }
+.dashboard-fit-to-height .dashboard-report-visual > *,
+.dashboard-widget.fit-to-height .dashboard-report-visual > * { min-height: 0; flex: 1; }
+.dashboard-fit-to-height .column-chart,
+.dashboard-widget.fit-to-height .column-chart,
+.dashboard-fit-to-height .pie-report,
+.dashboard-widget.fit-to-height .pie-report,
+.dashboard-fit-to-height .true-funnel-report,
+.dashboard-widget.fit-to-height .true-funnel-report { height: 100%; min-height: 0; box-sizing: border-box; }
+.dashboard-fit-to-height .line-report,
+.dashboard-widget.fit-to-height .line-report { display: flex; height: 100%; min-height: 0; box-sizing: border-box; }
+.dashboard-fit-to-height .line-report svg,
+.dashboard-widget.fit-to-height .line-report svg { height: 100%; min-height: 0; }
+.dashboard-fit-to-height .report-table-wrap,
+.dashboard-widget.fit-to-height .report-table-wrap { max-height: 100%; overflow: auto; }
+
+.dashboard-heading{position:relative;width:100%;display:flex;align-items:center;justify-content:space-between;gap:18px}
+.dashboard-heading>div:first-child{min-width:0}
+.dashboard-toolbar{width:auto;margin:0;display:flex;align-items:center;justify-content:flex-end;gap:8px;position:relative;z-index:20;flex:none}
 .dashboard-tabs{flex:none;align-self:flex-end}
 /* Pill shape and states come from the shared tab block in design-system.css. */
 .dashboard-heading .dashboard-tabs{display:flex;margin:0;padding:0;border:0;background:transparent}
@@ -92,7 +191,8 @@
 .dashboard-date-filter>button{height:38px;min-width:0;padding:0 9px;display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--primary);text-align:left}.dashboard-date-filter>button.active{background:var(--primary-soft);border-color:var(--primary)}.dashboard-date-filter>button>span{display:grid;min-width:0;flex:1;gap:1px}.dashboard-date-filter>button small{color:var(--muted);font-size:8px}.dashboard-date-filter>button strong{max-width:145px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);font-size:9px}
 .dashboard-date-popover{position:absolute;z-index:60;top:calc(100% + 7px);right:0}
 @media(max-width:760px){.dashboard-multi-filter>div{top:calc(100% + 5px);left:0;right:0;width:auto;max-height:190px}}
-@media(max-width:700px){.dashboard-heading{padding-right:0;padding-bottom:38px}.dashboard-toolbar{right:0;bottom:-8px}.dashboard-tabs{align-self:flex-start}.dashboard-filter-panel{position:fixed;top:88px;left:10px;right:10px;width:auto;align-items:stretch;flex-direction:column}.dashboard-global-branch select,.dashboard-date-filter>button{width:100%}.dashboard-date-popover{position:fixed;top:90px;left:10px;right:10px;width:auto}}
+@media(max-width:1000px){.dashboard-heading{align-items:flex-start;flex-direction:column;gap:8px}.dashboard-toolbar{width:100%;justify-content:space-between}.dashboard-tabs{align-self:flex-start}}
+@media(max-width:700px){.dashboard-filter-panel{position:fixed;top:88px;left:10px;right:10px;width:auto;align-items:stretch;flex-direction:column}.dashboard-global-branch select,.dashboard-date-filter>button{width:100%}.dashboard-date-popover{position:fixed;top:90px;left:10px;right:10px;width:auto}}
 
 .dashboard-stats-widget {
   margin-bottom: 0;
@@ -387,7 +487,7 @@
 .dashboard-branch-filter{display:grid;gap:4px;min-width:190px;color:var(--muted);font-size:9px;font-weight:700}
 .dashboard-branch-filter select{height:38px;padding:0 30px 0 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);font-size:11px}
 .curriculum-report-controls{display:flex;align-items:flex-end;gap:9px}
-.curriculum-stage-widget:not(.fullscreen)>.curriculum-stage-header{position:relative;display:block;min-height:105px}.curriculum-stage-widget:not(.fullscreen)>.curriculum-stage-header>div:first-child{max-width:100%}.curriculum-stage-widget:not(.fullscreen)>.curriculum-stage-header .curriculum-report-controls.compact{position:absolute;right:14px;bottom:12px;z-index:5;align-items:center;gap:6px}.curriculum-report-controls.compact .dashboard-column-picker summary{width:38px;min-width:38px;padding:0;justify-content:center}.curriculum-report-controls.compact .dashboard-column-picker summary>span,.curriculum-report-controls.compact .dashboard-column-picker summary>b{display:none}.curriculum-report-controls.compact .dashboard-column-picker>div{right:0}.curriculum-stage-widget:not(.fullscreen) .curriculum-stage-title{max-width:100%;line-height:1.18}.curriculum-stage-widget:not(.fullscreen) .curriculum-stage-description{padding-right:125px}
+.curriculum-stage-widget:not(.fullscreen){display:flex;min-width:0;min-height:0;overflow:hidden;flex-direction:column}.curriculum-stage-widget:not(.fullscreen)>.curriculum-stage-header{position:relative;display:block;min-height:105px;flex:none}.curriculum-stage-widget:not(.fullscreen)>.curriculum-stage-header>div:first-child{max-width:100%}.curriculum-stage-widget:not(.fullscreen)>.curriculum-stage-header .curriculum-report-controls.compact{position:absolute;right:14px;bottom:12px;z-index:5;align-items:center;gap:6px}.curriculum-report-controls.compact .dashboard-column-picker summary{width:38px;min-width:38px;padding:0;justify-content:center}.curriculum-report-controls.compact .dashboard-column-picker summary>span,.curriculum-report-controls.compact .dashboard-column-picker summary>b{display:none}.curriculum-report-controls.compact .dashboard-column-picker>div{right:0}.curriculum-stage-widget:not(.fullscreen) .curriculum-stage-title{max-width:100%;line-height:1.18}.curriculum-stage-widget:not(.fullscreen) .curriculum-stage-description{padding-right:125px}
 .dashboard-report-maximize{width:38px;height:38px;min-width:38px;padding:0;display:grid;place-items:center;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--primary)}.dashboard-report-maximize:hover{background:var(--primary-soft);border-color:var(--primary)}
 .curriculum-stage-widget.fullscreen{position:fixed;z-index:150;inset:12px;height:auto!important;display:flex;flex-direction:column;border-radius:13px;box-shadow:0 24px 70px color-mix(in srgb, var(--ink-900) 27.1%, transparent)}.curriculum-stage-widget.fullscreen:before{content:"";position:fixed;z-index:-1;inset:-12px;background:color-mix(in srgb, var(--ink-900) 36.1%, transparent)}.curriculum-stage-widget.fullscreen>.curriculum-stage-content{min-height:0;flex:1;display:flex;flex-direction:column}.curriculum-stage-widget.fullscreen .curriculum-stage-table-wrap{min-height:0;flex:1}.curriculum-stage-widget.fullscreen .curriculum-stage-table{min-width:100%}
 .dashboard-column-picker{position:relative}
@@ -396,16 +496,16 @@
 .dashboard-column-picker>div{position:absolute;z-index:30;top:calc(100% + 6px);right:0;width:230px;max-height:310px;padding:9px;overflow:auto;border:1px solid var(--line);border-radius:9px;background:#fff;box-shadow:0 12px 28px color-mix(in srgb, var(--ink-900) 14.1%, transparent)}
 .dashboard-column-picker>div>strong{display:block;padding:4px 5px 8px;color:var(--muted);font-size:9px;text-transform:uppercase}
 .dashboard-column-picker label{display:flex;align-items:center;gap:8px;padding:7px 6px;border-radius:6px;color:var(--ink);font-size:10px;cursor:pointer}.dashboard-column-picker label:hover{background:var(--primary-soft)}.dashboard-column-picker input{width:15px;height:15px;margin:0;accent-color:var(--primary)}
-.curriculum-stage-content{min-width:0}
+.curriculum-stage-content{display:flex;min-width:0;min-height:0;overflow:hidden;flex:1;flex-direction:column}
 /* Columns size to their own widest cell: `table-layout:auto` + `nowrap` cells
    means the browser measures the content and never breaks a label mid-word.
    Auto layout won't squeeze a column below its content, so a wide table simply
    overflows and the wrap scrolls horizontally. */
-.curriculum-stage-table-wrap{max-width:100%;overflow:auto;border:1px solid var(--line);border-radius:9px}
+.curriculum-stage-table-wrap{width:100%;max-width:100%;min-width:0;min-height:0;overflow:auto;flex:1;border:1px solid var(--line);border-radius:9px;scrollbar-gutter:stable}
 /* In card mode the wrap needs a height cap to become the scroll container;
    without one the page scrolls instead and the sticky header would pin to the
    viewport and slide under the app top bar. Fullscreen already caps it via flex. */
-.curriculum-stage-widget:not(.fullscreen) .curriculum-stage-table-wrap{max-height:420px}
+.curriculum-stage-widget:not(.fullscreen) .curriculum-stage-table-wrap{max-height:none}
 .curriculum-stage-table{width:100%;table-layout:auto}
 .curriculum-stage-table th,.curriculum-stage-table td{height:32px;padding:5px 9px;border-right:1px solid var(--line-2);white-space:nowrap;vertical-align:middle}
 .curriculum-stage-table .curriculum-row-field{text-align:left}
@@ -440,13 +540,25 @@
 
 @media(max-width:700px){.curriculum-stage-widget .card-header{align-items:stretch;flex-direction:column}.curriculum-report-controls{align-items:stretch;flex-direction:column}.dashboard-branch-filter{width:100%}.dashboard-column-picker summary{width:100%}.dashboard-column-picker>div{left:0;right:auto;width:min(280px,90vw)}}
 
+/* Two across rather than one very tall column, matching the Dashboard's own
+   sm: breakpoint; one column only once there is genuinely no room. */
+@media (max-width: 640px) {
+  .dashboard-widget-grid { grid-template-columns: 1fr; }
+  .dashboard-widget { grid-column: 1 / -1; }
+}
+
 @media (max-width: 1050px) {
   .dashboard-widget-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .dashboard-widget {
+  .dashboard-widget.size-three-quarter,
+  .dashboard-widget.size-full {
     grid-column: 1 / -1;
+  }
+
+  .dashboard-widget.size-half {
+    grid-column: span 2;
   }
 
   .dashboard-designer-toolbar {

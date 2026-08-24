@@ -34,31 +34,34 @@ export function StatCard({
         className
       )}
     >
-      <CardContent className={compact ? 'h-full p-5' : 'p-6'}>
+      {/* Compact is the dashboard's card: sizes step up at xl so a large screen
+          keeps the presence it had, while a laptop fits four across without a
+          card taller than the chart beneath it. Colours are untouched. */}
+      <CardContent className={compact ? 'h-full p-3 xl:p-4' : 'p-6'}>
         {compact ? (
-          <div className="flex h-full w-full flex-col items-start gap-3 text-left">
-            <div className="flex items-center gap-3">
+          <div className="flex h-full w-full flex-col items-start gap-1.5 xl:gap-2 text-left">
+            <div className="flex items-center gap-2 xl:gap-2.5">
               {Icon && (
                 <div
                   className={cn(
-                    'flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl',
+                    'flex h-8 w-8 xl:h-9 xl:w-9 flex-shrink-0 items-center justify-center rounded-lg',
                     'transition-transform duration-300 ease-[cubic-bezier(.16,1,.3,1)] group-hover:scale-110 group-hover:-rotate-[4deg]',
                     colorClass
                   )}
                 >
-                  <Icon size={20} className="flex-shrink-0" />
+                  <Icon size={15} className="flex-shrink-0" />
                 </div>
               )}
-              <p className="m-0 text-3xl font-extrabold text-foreground font-display tracking-tight tabular-nums">
+              <p className="m-0 text-lg xl:text-2xl font-extrabold text-foreground font-display tracking-tight tabular-nums">
                 {typeof value === 'number' ? value.toLocaleString() : value}
               </p>
             </div>
-            <p className="m-0 min-h-4 text-[11px] font-semibold leading-4 text-secondary-500 uppercase tracking-wider">
+            <p className="m-0 text-[9.5px] xl:text-[10.5px] font-semibold leading-3 text-secondary-500 uppercase tracking-wider">
               {label}
             </p>
             {trend && (
               <p className={cn(
-                'm-0 inline-flex max-w-full items-center rounded-full px-2 py-[3px] text-[10px] font-bold leading-4 whitespace-normal',
+                'm-0 inline-flex max-w-full items-center rounded-full px-1.5 py-[2px] text-[9px] font-bold leading-3 whitespace-normal',
                 isNegative ? 'bg-danger-bg text-danger' : 'bg-primary-50 text-primary-700'
               )}>
                 {trend}

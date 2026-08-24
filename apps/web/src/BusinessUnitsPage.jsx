@@ -110,6 +110,9 @@ export default function BusinessUnitsPage({onMessage}){
   const context=useBusinessUnit();
   const [searchParams,setSearchParams]=useSearchParams();
   const [selectedId,setSelectedId]=useState(context.selectedId);
+  // A committed switch from the shared sidebar must move this configuration
+  // workspace as well; otherwise the shell and this page can show two units.
+  useEffect(()=>{if(context.selectedId)setSelectedId(context.selectedId);},[context.selectedId]);
   const [config,setConfig]=useState(null);
   // The configuration sections this unit defines, so a select field can take
   // its options from one instead of a list retyped into the dialog.
@@ -286,7 +289,7 @@ export default function BusinessUnitsPage({onMessage}){
     }catch(error){notify('error',error.message);}finally{setSaving(false);}
   };
   const removePipeline=async pipeline=>{
-    if(!window.confirm(`Delete the pipeline "${pipeline.displayName}"?\n\nOnly possible when it has no stages and no leads.`))return;
+    if(!window.confirm(`Delete the pipeline "${pipeline.displayName}" and all of its stages and sub-stages?\n\nThis is only possible when no lead records are assigned to it.`))return;
     try{
       const result=await api(`/platform/business-units/${selectedId}/lead-pipelines/${pipeline.id}`,{method:'DELETE'});
       setActivePipelineId(null);notify('success',result.message);await loadConfig(selectedId);
@@ -386,6 +389,7 @@ export default function BusinessUnitsPage({onMessage}){
               </section>
             </div>}
           </div>
+          <button type="button" className="secondary business-unit-switch-action" disabled={!selectedId||Number(selectedId)===Number(context.selectedId)} onClick={()=>context.selectUnit(selectedId)}>Switch business unit</button>
           <button className="primary" onClick={()=>{setEditingId(null);setUnitForm(emptyUnit);setDialog('unit')}}><Plus size={17}/> Add business unit</button>
         </div>
       </header>

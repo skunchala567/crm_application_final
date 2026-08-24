@@ -611,3 +611,4 @@
 .colour-field-row{display:flex;align-items:center;gap:8px}
 .colour-field-row input[type=color]{width:46px;min-width:46px;flex:none;padding:3px;height:38px;cursor:pointer}
 .colour-field-row input[type=text]{flex:1;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:lowercase;letter-spacing:.04em}
+.business-unit-switch-action{height:48px;white-space:nowrap}.business-unit-switch-action:disabled{opacity:.45;cursor:not-allowed}

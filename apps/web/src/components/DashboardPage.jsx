@@ -260,7 +260,7 @@ export function DashboardPage({ user }) {
       >
       {/* Page Header */}
       <div className="bg-white border-b border-border sticky top-0 z-10">
-        <PageContainer className="py-2">
+        <PageContainer className="px-4 md:px-5 xl:px-6 py-2 md:py-2">
           <div className="dashboard-heading">
             <div>
               <p className="text-[10px] text-secondary-600 uppercase tracking-wide font-semibold mb-0.5">
@@ -270,7 +270,7 @@ export function DashboardPage({ user }) {
                   day: 'numeric',
                 })}
               </p>
-              <h1 className="text-xl font-bold text-foreground font-display mb-0.5">
+              <h1 className="text-base xl:text-lg font-bold text-foreground font-display mb-0.5">
                 Good {getGreeting()}, {user.name.split(' ')[0]}
               </h1>
               <p className="text-xs text-secondary-600">
@@ -291,11 +291,13 @@ export function DashboardPage({ user }) {
       </div>
 
       {/* Main Content */}
-      <PageContainer className="flex-1 py-5">
+      {/* dashboard-compact sets --card-pad, so every card inside is tighter
+          without each widget passing a padding of its own. */}
+      <PageContainer className="dashboard-compact flex-1 px-4 md:px-5 xl:px-6 py-3 md:py-3 xl:py-4">
           <TabsContent value="overview">
             {/* Widgets, their order, width and visibility come from the
                 Reports > Dashboard layout editor. */}
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <div className="dashboard-runtime-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 xl:gap-4 items-stretch">
               {visibleLayout.map((item) => {
                 const content = renderDashboardWidget(item, {
                   data: filteredDashboardData,
@@ -308,10 +310,11 @@ export function DashboardPage({ user }) {
                   <div
                     key={item.id}
                     className={cn(
-                      'min-w-0 h-full',
+                      'dashboard-runtime-widget min-w-0',
+                      widgetHeight(item) ? 'has-fixed-height' : 'height-auto',
                       // A chosen height replaces the floor rather than fighting it.
                       widgetHeight(item) || widgetMinHeight(item.id),
-                      widgetHeight(item) && 'overflow-auto',
+                      widgetHeight(item) && (item.fitToHeight ? 'overflow-hidden dashboard-fit-to-height' : 'overflow-auto'),
                       COLUMN_SPAN[item.size] || COLUMN_SPAN.half,
                     )}
                   >
@@ -395,11 +398,13 @@ function DashboardDateFilter({ field, from, to, onFieldChange, onChange, onOpen 
 }
 
 /** Tailwind needs literal class names, so widget widths map explicitly. */
+/* Two columns from the small breakpoint up: a quarter-width widget stacked
+   full-width on a laptop was the single biggest reason the page ran so long. */
 const COLUMN_SPAN = {
-  quarter: 'lg:col-span-1',
-  half: 'lg:col-span-2',
-  'three-quarter': 'lg:col-span-3',
-  full: 'lg:col-span-4',
+  quarter: 'sm:col-span-1 lg:col-span-1',
+  half: 'sm:col-span-2 lg:col-span-2',
+  'three-quarter': 'sm:col-span-2 lg:col-span-3',
+  full: 'sm:col-span-2 lg:col-span-4',
 };
 
 /**
@@ -409,14 +414,14 @@ const COLUMN_SPAN = {
  */
 const WIDGET_MIN_HEIGHT = {
   stats: '',
-  activity: 'min-h-[420px]',
-  funnel: 'min-h-[420px]',
-  'curriculum-stage': 'min-h-[420px]',
-  report: 'min-h-[420px]',
+  activity: 'min-h-[300px] xl:min-h-[380px]',
+  funnel: 'min-h-[300px] xl:min-h-[380px]',
+  'curriculum-stage': 'min-h-[300px] xl:min-h-[380px]',
+  report: 'min-h-[300px] xl:min-h-[380px]',
 };
 
 const widgetMinHeight = (id) =>
-  WIDGET_MIN_HEIGHT[String(id || '').startsWith('report:') ? 'report' : String(id || '')] ?? 'min-h-[420px]';
+  WIDGET_MIN_HEIGHT[String(id || '').startsWith('report:') ? 'report' : String(id || '')] ?? 'min-h-[300px] xl:min-h-[380px]';
 
 /**
  * A height chosen in the layout editor, as a fixed height rather than a floor.
@@ -429,11 +434,23 @@ const widgetMinHeight = (id) =>
  * 'auto' keeps the old behaviour exactly, which is what every saved layout
  * has until somebody changes it.
  */
+/*
+ * Heights, in two steps: what fits a laptop, and what a large screen can
+ * afford. The single fixed height was chosen on a big monitor -- a "tall"
+ * widget at 520px plus the header filled a 768px-high screen on its own, so a
+ * dashboard of six widgets meant six screens of scrolling.
+ *
+ * Content scrolls inside a widget either way, so a shorter widget shows less
+ * at once but never hides anything.
+ *
+ * These must match .dashboard-widget in DashboardCanvas.css, which sizes the
+ * layout editor's preview -- a preview of a different size is worth nothing.
+ */
 const WIDGET_HEIGHT = {
-  short: 'h-[260px]',
-  medium: 'h-[380px]',
-  tall: 'h-[520px]',
-  'x-tall': 'h-[680px]',
+  short: 'h-[190px] xl:h-[240px]',
+  medium: 'h-[260px] xl:h-[330px]',
+  tall: 'h-[330px] xl:h-[440px]',
+  'x-tall': 'h-[420px] xl:h-[560px]',
 };
 
 const widgetHeight = (item) => WIDGET_HEIGHT[item?.height] || '';
@@ -441,8 +458,8 @@ const widgetHeight = (item) => WIDGET_HEIGHT[item?.height] || '';
 const STAT_COLUMNS = {
   quarter: 'grid-cols-1',
   half: 'grid-cols-1 sm:grid-cols-2',
-  'three-quarter': 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3',
-  full: 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4',
+  'three-quarter': 'grid-cols-2 xl:grid-cols-3',
+  full: 'grid-cols-2 md:grid-cols-4',
 };
 
 function renderDashboardWidget(item, { data, statCards, leads, savedReports }) {
@@ -578,7 +595,7 @@ export function CurriculumClassStageWidget({ leads = [], stages = [] }) {
 
 function SavedReportWidget({ report, leads }) {
   return (
-    <Card className="h-full">
+    <Card className="h-full dashboard-report-widget">
       <CardHeader>
         <CardDescription className="uppercase tracking-wide text-xs font-semibold">
           Saved report
@@ -586,7 +603,7 @@ function SavedReportWidget({ report, leads }) {
         <CardTitle>{report.title || 'Untitled report'}</CardTitle>
         {report.description && <CardDescription>{report.description}</CardDescription>}
       </CardHeader>
-      <CardContent>
+      <CardContent className="dashboard-report-visual">
         <ReportVisual report={report} data={buildLiveReportData(report, leads)} compact />
       </CardContent>
     </Card>
@@ -595,9 +612,9 @@ function SavedReportWidget({ report, leads }) {
 
 function StatsWidget({ statCards, size }) {
   return (
-    <div className={cn('grid gap-6 h-full', STAT_COLUMNS[size] || STAT_COLUMNS.full)}>
+    <div className={cn('grid gap-3 xl:gap-4 h-full', STAT_COLUMNS[size] || STAT_COLUMNS.full)}>
       {statCards.map((card) => (
-        <StatCard key={card.label} {...card} compact className="h-full min-h-[156px]" />
+        <StatCard key={card.label} {...card} compact className="h-full min-h-[96px] xl:min-h-[112px]" />
       ))}
     </div>
   );
@@ -610,12 +627,34 @@ const ACTIVITY_SERIES = {
 
 function DailyActivityWidget({ data }) {
   const [seriesKey, setSeriesKey] = useState('crmHours');
+  const chartRef = useRef(null);
+  const [chartSize, setChartSize] = useState({ width: 680, height: 360 });
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || typeof ResizeObserver === 'undefined') return undefined;
+    const measure = () => {
+      const next = {
+        width: Math.max(1, Math.round(chart.clientWidth)),
+        height: Math.max(1, Math.round(chart.clientHeight)),
+      };
+      setChartSize(current => current.width === next.width && current.height === next.height ? current : next);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(chart);
+    return () => observer.disconnect();
+  }, []);
   const series = ACTIVITY_SERIES[seriesKey];
   const values = data.map(item => Math.max(0, Number(item[seriesKey]) || 0));
   const maximum = Math.max(...values, 1);
-  const width = 680;
-  const height = 360;
-  const margin = { top: 42, right: 24, bottom: 48, left: 34 };
+  const width = chartSize.width;
+  const height = chartSize.height;
+  const margin = {
+    top: Math.min(42, Math.max(22, height * 0.13)),
+    right: Math.min(24, Math.max(12, width * 0.025)),
+    bottom: Math.min(48, Math.max(30, height * 0.16)),
+    left: Math.min(34, Math.max(18, width * 0.035)),
+  };
   const plotWidth = width - margin.left - margin.right;
   const plotHeight = height - margin.top - margin.bottom;
   const points = values.map((value, index) => ({
@@ -643,7 +682,7 @@ function DailyActivityWidget({ data }) {
       <div className="dashboard-activity-tabs chart-tabs" role="tablist" aria-label="Select activity report">
         {Object.entries(ACTIVITY_SERIES).map(([key, option]) => <button type="button" role="tab" aria-selected={seriesKey === key} className={seriesKey === key ? 'active' : ''} key={key} onClick={() => setSeriesKey(key)}>{option.label}</button>)}
       </div>
-      <div className="dashboard-activity-chart" aria-label={`${series.label} by day`}>
+      <div ref={chartRef} className="dashboard-activity-chart" aria-label={`${series.label} by day`}>
         <svg viewBox={`0 0 ${width} ${height}`} role="img">
           {[0, 0.5, 1].map(ratio => <line key={ratio} x1={margin.left} x2={width - margin.right} y1={margin.top + plotHeight * ratio} y2={margin.top + plotHeight * ratio} className="activity-grid-line" />)}
           {points.length > 0 && <><polyline points={pointString} fill="none" style={{ stroke: series.color }} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />{points.map((point, index) => <g key={point.day || index}><circle cx={point.x} cy={point.y} r="4" fill="#fff" style={{ stroke: series.color }} strokeWidth="3"><title>{`${point.day}: ${displayValue(point.value)}`}</title></circle><text x={point.x} y={Math.max(13, point.y - 10)} textAnchor="middle" className="activity-value-label">{displayValue(point.value)}</text>{(index % labelStep === 0 || index === points.length - 1) && <text x={point.x} y={height - 14} textAnchor="middle" className="activity-day-label">{displayDay(point.day)}</text>}</g>)}</>}

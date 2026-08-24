@@ -55,6 +55,9 @@ export function normalizeDashboardLayout(layout) {
       // Layouts saved before heights existed have none, and 'auto' is exactly
       // how they were rendering.
       height: validHeights.has(item.height) ? item.height : 'auto',
+      // When enabled, report visuals reflow into the selected fixed height
+      // instead of keeping their natural minimum height and scrolling.
+      fitToHeight: item.fitToHeight === true,
       // Product widgets are permanent dashboard defaults. Visibility is only
       // configurable for user-added saved reports.
       visible: known.has(item.id) ? true : item.visible !== false,
@@ -63,13 +66,13 @@ export function normalizeDashboardLayout(layout) {
   // Widgets added to the product after a layout was saved default to visible.
   const existing = new Set(cleaned.map((item) => item.id));
   DASHBOARD_WIDGETS.forEach((widget) => {
-    if (!existing.has(widget.id)) cleaned.push({ id: widget.id, size: widget.size, height: 'auto', visible: true });
+    if (!existing.has(widget.id)) cleaned.push({ id: widget.id, size: widget.size, height: 'auto', fitToHeight: false, visible: true });
   });
   return cleaned;
 }
 
 export function defaultDashboardLayout() {
-  return DASHBOARD_WIDGETS.map((widget) => ({ id: widget.id, size: widget.size, height: 'auto', visible: true }));
+  return DASHBOARD_WIDGETS.map((widget) => ({ id: widget.id, size: widget.size, height: 'auto', fitToHeight: false, visible: true }));
 }
 
 export function readDashboardLayout(unitId) {
@@ -100,6 +103,7 @@ export function isSameDashboardLayout(a, b) {
       && item.id === other.id
       && item.size === other.size
       && (item.height || 'auto') === (other.height || 'auto')
+      && (item.fitToHeight === true) === (other.fitToHeight === true)
       && (item.visible !== false) === (other.visible !== false);
   });
 }

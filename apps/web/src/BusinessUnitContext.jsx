@@ -55,20 +55,23 @@ export function useBusinessUnit(){
 
 export function BusinessUnitSelector({ compact=false }){
   const {units,selectedId,selectUnit,loading}=useBusinessUnit();
-  const selected=units.find(unit=>unit.id===selectedId);
+  const [draftId,setDraftId]=useState(selectedId||'');
+  useEffect(()=>{setDraftId(selectedId||'');},[selectedId]);
+  const selected=units.find(unit=>unit.id===Number(draftId))||units.find(unit=>unit.id===selectedId);
   // Nothing to choose between: a picker offering one option, or none, is a
   // control that cannot do anything. Hidden rather than disabled so the
   // sidebar does not carry a dead row.
   if(!loading && units.length<=1) return null;
   const Icon=selected?.compatibilityMode==='legacy_school'?GraduationCap:Building2;
-  return (
-    <label className={`business-unit-selector ${compact?'compact':''}`} title="Active business unit">
+  const changed=Number(draftId)!==Number(selectedId);
+  return <div className={`sidebar-business-unit-switcher ${compact?'compact':''}`}>
+    <label className="sidebar-business-unit-select" title="Choose business unit">
       <Icon size={17}/>
-      <span>{loading?'Loading…':selected?.name||'Business unit'}</span>
-      <select value={selectedId||''} onChange={event=>selectUnit(event.target.value)} aria-label="Select business unit">
+      <select value={draftId} onChange={event=>setDraftId(event.target.value)} aria-label="Choose business unit">
         {units.map(unit=><option key={unit.id} value={unit.id}>{unit.name}</option>)}
       </select>
       <ChevronDown size={14}/>
     </label>
-  );
+    <button type="button" className="sidebar-business-unit-apply" disabled={!changed||loading} onClick={()=>selectUnit(draftId)} title={changed?'Switch to selected business unit':'Current business unit'}>{compact?'✓':'Switch'}</button>
+  </div>;
 }
