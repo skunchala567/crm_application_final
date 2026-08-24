@@ -1180,7 +1180,11 @@ app.get('/api/public/enquiry-forms/:formKey', async (req, res) => {
     const fieldsByKey = new Map(fields.map(field => [field.fieldKey, field]));
     const paymentConfig = resolvePaymentContext(form, await branchPaymentConfig(resolvedTracking.branchId));
     const paymentVisible = publicPaymentVisible(paymentConfig);
-    const storedLeadDefaults=parseJsonValue(unitDefaultsRow?.manualLeadDefaults, {});
+    /* No manual-lead defaults here: a public form is filled in by the enquirer,
+       not by a counsellor working from the unit's defaults. This line was the
+       other half of the pair below in /api/leads/meta -- it read an
+       `unitDefaultsRow` this route never queried, so every public form load
+       threw a ReferenceError before it could answer. */
     res.json({
         form: {
             key: form.formKey, name: form.displayName, description: form.description, businessUnitName: form.businessUnitName,
@@ -2210,6 +2214,11 @@ app.get('/api/leads/meta', authenticate, requireCrmAccess, async (req, res) => {
         `SELECT manual_lead_defaults_json AS manualLeadDefaults FROM crm_business_units WHERE id=?`,
         [Number(req.businessUnit.id)],
     );
+    /* Parsed here, in the route that answers with it. The response below read
+       a `storedLeadDefaults` that only existed inside the public enquiry-form
+       route, so every call to this endpoint threw a ReferenceError and the
+       Leads screen got no metadata at all. */
+    const storedLeadDefaults = parseJsonValue(unitDefaultsRow?.manualLeadDefaults, {});
     /* Stages carry the pipeline they belong to: a unit can run several, and
        two of them may both contain a stage called "New". Every stage picker
        narrows to one pipeline, so the id has to travel with the stage. */
