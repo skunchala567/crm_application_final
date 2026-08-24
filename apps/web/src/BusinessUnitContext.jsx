@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { Building2, ChevronDown, GraduationCap } from 'lucide-react';
+import { ArrowRightLeft, Building2, ChevronDown, GraduationCap } from 'lucide-react';
 import { api } from './api';
 import { applyBrandTheme, DEFAULT_BRAND_COLOR } from './brand-theme.js';
 
@@ -72,6 +72,16 @@ export function BusinessUnitSelector({ compact=false }){
       </select>
       <ChevronDown size={14}/>
     </label>
-    <button type="button" className="sidebar-business-unit-apply" disabled={!changed||loading} onClick={()=>selectUnit(draftId)} title={changed?'Switch to selected business unit':'Current business unit'}>{compact?'✓':'Switch'}</button>
+    <button
+      type="button"
+      className="sidebar-business-unit-apply"
+      disabled={!changed||loading}
+      onClick={()=>selectUnit(draftId)}
+      title={changed?'Switch to selected business unit':'Current business unit'}
+      aria-label={changed?'Switch to selected business unit':'Current business unit'}
+    >
+      <ArrowRightLeft size={15} aria-hidden="true" />
+      {!compact&&<span>Switch</span>}
+    </button>
   </div>;
 }
