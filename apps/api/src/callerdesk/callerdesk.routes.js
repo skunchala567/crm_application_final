@@ -52,12 +52,13 @@ export function createCallerDeskRoutes(pool, authenticate, requireCrmAccess, req
 
   router.get('/config', authenticate, requireCrmAccess, asyncRoute(async (req, res) => {
     const config = await loadConfig(pool, Number(req.user.organizationId || 1), false);
+    const [[mapping]] = await pool.execute(`SELECT id FROM app_users WHERE id=? AND callerdesk_enabled=1 AND NULLIF(callerdesk_member_id,'') IS NOT NULL AND NULLIF(callerdesk_member_number,'') IS NOT NULL LIMIT 1`,[req.user.id]);
     res.json({ data: config ? {
       id: Number(config.id), accountName: config.name, defaultDeskphone: config.defaultDeskphone || '',
       defaultGroupName: config.defaultGroupName || '', recordCalls: config.recordCalls !== false, isActive: ['ACTIVE','CONNECTED'].includes(String(config.status).toUpperCase()), configured: true,
       hasApiSecret: Boolean(config.apiSecret), hasIntegrationKey: Boolean(config.integrationKey),
-      webhookPath: `/api/callerdesk/webhook/${config.id}?secret=${config.webhookSecret}`,
-    } : { configured: false } });
+      webhookPath: `/api/callerdesk/webhook/${config.id}?secret=${config.webhookSecret}`, userAssigned:Boolean(mapping),
+    } : { configured: false, userAssigned:false } });
   }));
 
   router.put('/config', authenticate, requireCrmAccess, requireUserAdmin, asyncRoute(async (req, res) => {

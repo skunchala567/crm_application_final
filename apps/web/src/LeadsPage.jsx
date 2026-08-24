@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
-import { Bookmark, BookmarkCheck, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Download, Filter, History, Megaphone, NotebookPen, MessageCircle, Mail, MoreVertical, PanelRightClose, PanelRightOpen, PhoneCall, Pencil, Plus, RotateCcw, Search, Trash2, Upload, UserRoundPlus, X, GitBranch, MessageSquare} from "lucide-react";
+import { Bookmark, BookmarkCheck, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Clock3, Columns3, Download, Filter, GripVertical, History, Megaphone, NotebookPen, MessageCircle, Mail, MoreVertical, PanelRightClose, PanelRightOpen, PhoneCall, Pencil, Plus, RotateCcw, Search, Trash2, Upload, UserRoundPlus, X, GitBranch, MessageSquare} from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { api } from "./api";
@@ -118,11 +118,12 @@ function SearchSuggestion({
   placeholder = "Search or select…",
   className = "",
 }) {
-  const listId = `suggest-${label.toLowerCase().replaceAll(" ", "-")}`;
   const selected = options.find(
     (option) => String(option.id) === String(value),
   );
   const [query, setQuery] = useState(selected?.label || "");
+  const [open, setOpen] = useState(false);
+  const filteredOptions = options.filter(option => option.label.toLowerCase().includes(query.trim().toLowerCase()));
   useEffect(() => {
     setQuery(selected?.label || "");
   }, [value, selected?.label]);
@@ -141,11 +142,11 @@ function SearchSuggestion({
         <Search size={15} />
         <input
           required={required}
-          list={listId}
           value={query}
           placeholder={placeholder}
           onChange={(event) => {
             update(event.target.value);
+            setOpen(true);
             const exactMatch = options.some(option => option.label.toLowerCase() === event.target.value.trim().toLowerCase());
             event.target.setCustomValidity(event.target.value && !exactMatch ? `Select a configured ${label.toLowerCase()} from the list` : "");
           }}
@@ -156,14 +157,14 @@ function SearchSuggestion({
               onChange("");
               event.target.setCustomValidity("");
             }
+            setOpen(false);
           }}
+          onFocus={() => setOpen(true)}
           autoComplete="off"
         />
-        <datalist id={listId}>
-          {options.map((option) => (
-            <option key={option.id} value={option.label} />
-          ))}
-        </datalist>
+        {open&&<div className="suggestion-menu" role="listbox">
+          {filteredOptions.length?filteredOptions.map(option=><button key={option.id} type="button" role="option" aria-selected={String(option.id)===String(value)} onMouseDown={event=>{event.preventDefault();setQuery(option.label);onChange(option.id);setOpen(false);}}>{option.label}</button>):<p>No matching options</p>}
+        </div>}
       </div>
     </label>
   );
@@ -474,11 +475,11 @@ function FunnelStrip({
           className="create-funnel add-lead-header"
           onClick={onAddLead}
           title="Add lead (Ctrl/Command + Q)"
-          aria-keyshortcuts="Control+Q Meta+Q"
+          aria-keyshortcuts="Control+M Meta+M"
         >
           <Plus size={17} />
           Add lead
-          <span className="add-lead-shortcut" aria-hidden="true"><kbd>Ctrl/⌘</kbd><kbd>Q</kbd></span>
+          <span className="add-lead-shortcut" aria-hidden="true"><kbd>Ctrl/⌘</kbd><kbd>M</kbd></span>
         </button>
 
         {/* Parked leads: a switch rather than another filter chip, because it
@@ -593,6 +594,52 @@ function splitReferralKey(key) {
 /** The active business unit, as the api layer reads it. */
 const savedFunnelKey = () => `crm_saved_funnel_${localStorage.getItem("crm_business_unit_id") || "default"}`;
 
+/*
+ * Which columns the leads table shows, and in what order.
+ *
+ * The arrangement belongs to the person, on the pipeline they arranged it on:
+ * a unit's pipelines can be different businesses -- Leads, Franchise, Eco
+ * Bharath -- so the columns that suit one are the wrong ones for the next, and
+ * the configured lead fields behind them differ per unit as well. It is stored
+ * on the account (crm_lead_column_preferences); what is kept here is a cache,
+ * so the right columns are painted before that request lands.
+ *
+ * A pipeline nobody has arranged -- a new business unit, a pipeline created
+ * this morning -- has neither, and gets the default columns below.
+ */
+const leadColumnsKey = pipelineId => `crm_lead_columns_${localStorage.getItem("crm_business_unit_id") || "default"}_${pipelineId || "default"}`;
+const DEFAULT_LEAD_COLUMN_IDS = ["core:student","core:academic","core:source","core:stage","core:payment","core:studentId","core:owner","core:nextFollowup","core:recentModified"];
+/* null, not the defaults: the caller has to tell "nothing arranged here yet"
+   from "arranged, and it happens to match the defaults". */
+function readStoredLeadColumns(pipelineId) {
+  try {
+    const stored = JSON.parse(localStorage.getItem(leadColumnsKey(pipelineId)) || "null");
+    return Array.isArray(stored) && stored.length ? stored : null;
+  } catch { return null; }
+}
+function writeStoredLeadColumns(pipelineId, ids) {
+  try { localStorage.setItem(leadColumnsKey(pipelineId), JSON.stringify(ids)); } catch { /* private mode */ }
+}
+const isDefaultLeadColumns = ids => ids.length === DEFAULT_LEAD_COLUMN_IDS.length
+  && ids.every((id, index) => id === DEFAULT_LEAD_COLUMN_IDS[index]);
+
+/* The export getters return strings, numbers, dates already formatted, and
+   whatever a custom field happened to store -- all of which has to survive
+   being put in a cell. */
+function leadCellText(value) {
+  if (value === null || value === undefined || value === "") return "\u2014";
+  if (Array.isArray(value)) return value.join(", ") || "\u2014";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+/* Catalogue fields that say exactly what a built-in column already says, so
+   the picker does not offer the same value twice under two names. Fields that
+   are only a *part* of a composite column -- branch, class, curriculum, the
+   payment amount -- stay, because showing one alone is a real choice. */
+const LEAD_COLUMN_DUPLICATE_FIELD_IDS = new Set(["studentName","primaryPhone","stage","owner","source","nextFollowup","paymentDone","studentIdGenerated"]);
+
 function sourcesForChannel(sources = [], sourceLinks = [], channelId) {
   if (!channelId) return [];
   return sources.filter((source) => sourceLinks.some(
@@ -613,9 +660,11 @@ function sourcesForChannel(sources = [], sourceLinks = [], channelId) {
  */
 function matchesReferredFilter(lead, mode, myEmployeeId) {
   if (!mode) return true;
-  // Without an employee record there is no "me" to compare against, so the
-  // filter cannot mean anything -- show everything rather than nothing.
-  if (!myEmployeeId) return true;
+  /* Without an employee record there is no "me" to compare against. Nothing
+     can have been referred by such a user -- referrals are stamped with an
+     employee id -- so "yes" is honestly empty, while the other modes show
+     everything rather than nothing. */
+  if (!myEmployeeId) return mode !== "yes";
 
   const referredByMe = String(lead.referredByEmployeeId || "") === String(myEmployeeId);
   const ownedByMe = String(lead.ownerEmployeeId || "") === String(myEmployeeId);
@@ -697,7 +746,9 @@ function buildLeadExportGroups(meta) {
     { id:"academicYear", label:"Academic year", group:"Academic details", get:lead=>lead.academicYear },
     { id:"class", label:"Class", group:"Academic details", defaultSelected:true, get:lead=>lead.applyingClass },
     { id:"curriculum", label:"Curriculum", group:"Academic details", defaultSelected:true, get:lead=>lead.curriculum },
-    { id:"admissionType", label:"Admission type", group:"Academic details", get:lead=>lead.admissionType },
+    /* The lead list carries the id, not the name -- resolved here, like the
+       sub-stage and channel above, so the column is not permanently blank. */
+    { id:"admissionType", label:"Admission type", group:"Academic details", get:lead=>meta.admissionTypes.find(item=>String(item.id)===String(lead.admissionTypeId))?.displayName || lead.admissionType || "" },
     { id:"stage", label:"Stage", group:"Lead journey details", defaultSelected:true, get:lead=>lead.stage },
     { id:"substage", label:"Sub-stage", group:"Lead journey details", get:lead=>meta.substages.find(item=>String(item.id)===String(lead.substageId))?.displayName || "" },
     { id:"source", label:"Source", group:"Source details", get:lead=>leadSources(lead)[0]?.name || lead.source || "" },
@@ -748,7 +799,7 @@ export default function LeadsPage() {
    * unit's default pipeline, so a unit with one pipeline is unchanged.
    */
   const routePipelineId = Number(useParams().pipelineId) || null;
-  const { can, roles } = usePermissions();
+  const { can, roles, ready: permissionsReady } = usePermissions();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const [leads, setLeads] = useState([]);
@@ -794,6 +845,13 @@ export default function LeadsPage() {
     return()=>{cancelled=true;};
   },[drawerTab,drawer?.id,leadAudiences]);
   const [secondarySource,setSecondarySource]=useState({academicYear:"",sourceId:"",channelId:"",campaignId:""});
+  /* Set while a re-enquiry is being recorded: the counsellor asked to mark
+     the lead as one and is now picking the source it came back through. The
+     mark is written by that source's save, not before it. */
+  const [reEnquiryPending,setReEnquiryPending]=useState(false);
+  /* Closing the drawer, or moving to another lead, abandons the re-enquiry:
+     nothing was written, so the next lead must not inherit the intent. */
+  useEffect(()=>{setReEnquiryPending(false);},[drawer?.id]);
 
   /* The pipeline actually in force: the one named in the route, or the
      unit's default when the plain /leads route is open. */
@@ -867,8 +925,11 @@ export default function LeadsPage() {
     };
   }, [openActionId]);
   const [referLead,setReferLead]=useState(null);
+  const [callProviderChoice,setCallProviderChoice]=useState(null);
   const [followupModal,setFollowupModal]=useState(null);
-  const [followupForm,setFollowupForm]=useState({stageId:"",substageId:"",comment:"",comments:[],nextFollowupAt:"",followupType:"",referralBranchId:"",referralEmployeeId:""});
+  const [activeCall,setActiveCall]=useState(null);
+  const [callTimerNow,setCallTimerNow]=useState(Date.now());
+  const [followupForm,setFollowupForm]=useState({stageId:"",substageId:"",comment:"",comments:[],nextFollowupAt:"",followupType:"",referralBranchId:"",referralEmployeeId:"",callActivityId:null,callDisposition:""});
   const [referBranchId,setReferBranchId]=useState("");
   const [referEmployeeId,setReferEmployeeId]=useState("");
   const [referralOptions,setReferralOptions]=useState({branches:[],employees:[],pipelines:[]});
@@ -890,12 +951,29 @@ export default function LeadsPage() {
     catch { return null; }
   }, []);
   /*
-   * "Is referred" is a counsellor's view of their own desk: what is with me,
-   * versus what I have passed on. A manager or admin works across everyone's
-   * leads, so defaulting them to "only mine" would hide most of the pipeline
-   * for a filter they never asked for. Applied and offered to counsellors only.
+   * "Referred by me" answers what I passed on and no longer hold, and anyone
+   * who can refer a lead can ask it -- it used to be shown to counsellors
+   * alone, so for everybody else the filter simply was not there.
+   *
+   * What stays counsellor-only is the *default*. Their screen has always
+   * opened on their own desk; a manager or admin works across everyone's
+   * leads, so opening them on "only mine" would hide most of the pipeline for
+   * a filter they never asked for.
    */
   const isCounsellor = roles.some((role) => role.normalizedName === "COUNSELLOR");
+  const defaultAdvancedFilters = useMemo(
+    () => ({ ...emptyAdvancedFilters, isReferred: isCounsellor ? "no" : "" }),
+    [isCounsellor],
+  );
+  /* Roles arrive after the first render, so the counsellor default is applied
+     once they are known -- and only while nobody has touched the filter. */
+  const referredDefaultApplied = useRef(false);
+  useEffect(() => {
+    if (!permissionsReady || referredDefaultApplied.current) return;
+    referredDefaultApplied.current = true;
+    if (!isCounsellor) return;
+    setAdvancedFilters(current => (current.isReferred ? current : { ...current, isReferred: "no" }));
+  }, [permissionsReady, isCounsellor]);
   // The picker edits whichever pair of filter fields the chosen date type owns.
   const [dateFilterFromKey, dateFilterToKey] =
     DATE_TYPE_FILTER_FIELDS[followupDateType] || DATE_TYPE_FILTER_FIELDS.nextFollowup;
@@ -933,6 +1011,45 @@ export default function LeadsPage() {
   const [marketingLeadIds, setMarketingLeadIds] = useState(null);
   const [whatsAppConversations, setWhatsAppConversations] = useState([]);
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
+  const [columnDialogOpen, setColumnDialogOpen] = useState(false);
+  /* The header being dragged, and the header the cursor is over: the second
+     is what draws the drop marker. */
+  const [draggedColumnId, setDraggedColumnId] = useState(null);
+  const [dropColumnId, setDropColumnId] = useState(null);
+  const [visibleColumnIds, setVisibleColumnIds] = useState(() => readStoredLeadColumns(routePipelineId) || DEFAULT_LEAD_COLUMN_IDS);
+  /*
+   * Load the arrangement for the screen being opened.
+   *
+   * Runs again on every pipeline this route reaches and on a business-unit
+   * switch, because both change which screen -- and which catalogue of lead
+   * fields -- is on show. The cached copy is painted first so the columns do
+   * not visibly rearrange, and the account's copy replaces it when it lands.
+   *
+   * An account with nothing stored but a browser that has something is
+   * somebody who arranged their columns before this moved off the browser:
+   * their arrangement is sent up rather than discarded.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const cached = readStoredLeadColumns(routePipelineId);
+      setVisibleColumnIds(cached || DEFAULT_LEAD_COLUMN_IDS);
+      try {
+        const { data } = await api(`/leads/column-preferences${routePipelineId ? `?pipelineId=${routePipelineId}` : ""}`);
+        if (cancelled) return;
+        const stored = Array.isArray(data?.columns) ? data.columns : [];
+        if (stored.length) {
+          setVisibleColumnIds(stored);
+          writeStoredLeadColumns(routePipelineId, stored);
+        } else if (cached && !isDefaultLeadColumns(cached)) {
+          saveLeadColumns(cached);
+        }
+      } catch { /* the cached arrangement stands until the next load */ }
+    };
+    load();
+    window.addEventListener("crm:business-unit-changed", load);
+    return () => { cancelled = true; window.removeEventListener("crm:business-unit-changed", load); };
+  }, [routePipelineId]);
   const studentNameInputRef = useRef(null);
   const stageTabsRef = useRef(null);
   const [stageTabScroll, setStageTabScroll] = useState({ left: false, right: false, overflow: false });
@@ -965,21 +1082,151 @@ export default function LeadsPage() {
     tabs.scrollBy({ left: direction * Math.max(220, tabs.clientWidth * .55), behavior: "smooth" });
   }
 
+  /*
+   * Which calling integrations this user may dial through.
+   *
+   * Both config endpoints used to be fetched on every click, so the
+   * confirmation only appeared after two round trips -- the button looked
+   * dead for as long as the slower one took. The answer is the same for the
+   * whole session, so it is fetched once on mount and every click reads the
+   * cached promise.
+   */
+  const callProvidersRef=useRef(null);
+  function loadCallProviders({refresh=false}={}){
+    if(refresh||!callProvidersRef.current){
+      callProvidersRef.current=Promise.allSettled([api('/callerdesk/config'),api('/smartflo/config')])
+        .then(([callerdeskResult,smartfloResult])=>{
+          const providers=[];
+          if(callerdeskResult.status==='fulfilled'&&callerdeskResult.value.data?.configured&&callerdeskResult.value.data?.isActive!==false&&callerdeskResult.value.data?.userAssigned)providers.push({key:'callerdesk',label:'CallerDesk'});
+          if(smartfloResult.status==='fulfilled'&&smartfloResult.value.data?.configured&&smartfloResult.value.data?.isActive!==false&&smartfloResult.value.data?.userAssigned)providers.push({key:'smartflo',label:'Tata Smartflo',callingMode:smartfloResult.value.data?.callingMode||'AGENT_FIRST'});
+          return providers;
+        })
+        .catch(error=>{callProvidersRef.current=null;throw error;});
+    }
+    return callProvidersRef.current;
+  }
+
+  useEffect(()=>{loadCallProviders().catch(()=>{});},[]);
+
   async function callLead(lead){
     setOpenActionId(null);
     try{
-      const [callerdeskResult,smartfloResult]=await Promise.allSettled([api('/callerdesk/config'),api('/smartflo/config')]);
-      const providers=[];
-      if(callerdeskResult.status==='fulfilled'&&callerdeskResult.value.data?.configured&&callerdeskResult.value.data?.isActive!==false)providers.push('callerdesk');
-      if(smartfloResult.status==='fulfilled'&&smartfloResult.value.data?.configured&&smartfloResult.value.data?.isActive!==false)providers.push('smartflo');
-      if(!providers.length)throw new Error('Configure CallerDesk or Tata Smartflo in Integrations before making calls');
-      const provider=providers.length===1?providers[0]:(window.confirm('Use Tata Smartflo for this call? Select Cancel to use CallerDesk.')?'smartflo':'callerdesk');
-      const label=provider==='smartflo'?'Tata Smartflo':'CallerDesk';
-      if(!window.confirm(`Start a ${label} call to ${lead.studentName} (${lead.phone})? Your mapped phone will ring first.`))return;
-      await api.post(`/${provider}/leads/${lead.id}/call`,provider==='callerdesk'?{mode:'member'}:{});
-      setMessage({type:'success',text:`${label} is calling ${lead.studentName}. Answer your phone to connect.`});
-    }catch(error){setMessage({type:'error',text:error.message});}
+      let providers=await loadCallProviders();
+      /* An empty cache may just predate an administrator mapping the user, so
+         it is worth one live retry before telling them there is no route. */
+      if(!providers.length)providers=await loadCallProviders({refresh:true});
+      if(!providers.length)throw new Error('No calling integration is assigned to your user. Ask an administrator to map CallerDesk or Tata Smartflo in User Management.');
+      if(providers.length>1){setCallProviderChoice({lead,providers});return;}
+      await startLeadCall(lead,providers[0]);
+    }catch(error){await openFailedCallFollowup(lead,error);}
   }
+
+  async function openFailedCallFollowup(lead,error,selectedProvider=null){
+    const endedAt=Date.now();
+    const message=error?.message||'The call could not be started.';
+    const callContext={
+      isCallAttempt:true,leadId:lead.id,leadName:lead.studentName,
+      provider:selectedProvider?.label||'Call',providerKey:selectedProvider?.key||null,
+      callingMode:selectedProvider?.callingMode||null,callActivityId:null,
+      startedAt:endedAt,endedAt,status:{status:'Failed',isLive:false,isTerminal:true},statusError:message,
+    };
+    setActiveCall(callContext);
+    // No toast: the panel inside the dialog states the same failure, and two
+    // copies of one message is one too many.
+    await openFollowup(lead,callContext);
+  }
+
+  /*
+   * Open the dialog, then dial.
+   *
+   * The provider request used to be awaited before anything appeared, so a
+   * slow or retrying provider left the button looking dead -- Smartflo alone
+   * can spend three attempts at a 25-second timeout before it answers. The
+   * counsellor is going to sit on this screen either way, so it opens first
+   * and the panel inside it reports the outcome when it arrives.
+   */
+  async function startLeadCall(lead,selectedProvider){
+    setCallProviderChoice(null);
+    const provider=selectedProvider.key,label=selectedProvider.label;
+    const smartfloMode=selectedProvider.callingMode||'AGENT_FIRST';
+    const flowDescription=provider!=='smartflo'?'Your mapped phone will ring first.':smartfloMode==='CUSTOMER_FIRST'?'The customer will ring first, followed by the destination configured for the Support API key.':'Your mapped Smartflo agent will ring first.';
+    if(!window.confirm(`Start a ${label} call to ${lead.studentName} (${lead.phone})? ${flowDescription}`))return;
+
+    const startedAt=Date.now();
+    const pending={isCallAttempt:true,leadId:lead.id,leadName:lead.studentName,provider:label,providerKey:provider,
+      callingMode:selectedProvider.callingMode||null,callingModeLabel:null,callActivityId:null,startedAt,
+      status:{status:'Connecting…',isLive:false,isTerminal:false}};
+    setActiveCall(pending);
+    /*
+     * The shell first, synchronously.
+     *
+     * openFollowup fetches the lead and the referral options before it renders
+     * anything, which is another second of a dead-looking button. The dialog
+     * is put on screen now and those details fill in behind it.
+     *
+     * Still awaited before dialling: openFollowup rewrites callActivityId from
+     * the context it was handed, so letting it land after the provider replied
+     * would wipe the id the disposition has to be saved against.
+     */
+    setOpenActionId(null);
+    setFollowupForm({stageId:"",substageId:"",comment:"",comments:[],nextFollowupAt:"",followupType:"",
+      referralBranchId:"",referralEmployeeId:"",callActivityId:null,callAttempt:true,callDisposition:""});
+    setFollowupModal({id:lead.id,name:lead.studentName,callActivityId:null,callAttempt:true,pipelineId:null});
+    await openFollowup(lead,pending);
+
+    // Only ever update the call this function started: the counsellor may have
+    // closed the dialog or moved to another lead while the provider was busy.
+    const patchCall=changes=>setActiveCall(current=>
+      current&&current.startedAt===startedAt&&String(current.leadId)===String(lead.id)?{...current,...changes}:current);
+
+    try{
+      const result=await api.post(`/${provider}/leads/${lead.id}/call`,provider==='callerdesk'?{mode:'member'}:{});
+      const callActivityId=result.data?.callActivityId||null;
+      patchCall({callingMode:result.data?.callingMode||selectedProvider.callingMode||null,
+        callingModeLabel:result.data?.callingModeLabel||null,callActivityId,
+        statusError:null,status:{status:'Initiated',isLive:false,isTerminal:false}});
+      /* The dialog was opened before the call activity existed, and the
+         disposition is saved against that id -- so it is threaded through now
+         rather than being lost with the context it was opened from. */
+      setFollowupForm(current=>({...current,callActivityId}));
+      setFollowupModal(current=>current&&String(current.id)===String(lead.id)?{...current,callActivityId}:current);
+    }catch(error){
+      patchCall({endedAt:Date.now(),status:{status:'Failed',isLive:false,isTerminal:true},
+        statusError:error?.message||'The call could not be started.'});
+    }
+  }
+
+  useEffect(()=>{
+    if(!activeCall)return undefined;
+    setCallTimerNow(Date.now());
+    if(activeCall.status?.isTerminal)return undefined;
+    const timer=window.setInterval(()=>setCallTimerNow(Date.now()),1000);
+    return ()=>window.clearInterval(timer);
+  },[activeCall?.startedAt,activeCall?.status?.isTerminal]);
+
+  useEffect(()=>{
+    if(activeCall?.providerKey!=='smartflo'||!activeCall.callActivityId||activeCall.status?.isTerminal)return undefined;
+    let cancelled=false;
+    const refresh=async()=>{
+      try{
+        const result=await api(`/smartflo/calls/${activeCall.callActivityId}/status`);
+        if(cancelled)return;
+        setActiveCall(current=>current?.callActivityId===activeCall.callActivityId?{...current,status:result.data,endedAt:result.data?.isTerminal?Date.now():current.endedAt}:current);
+      }catch(error){
+        if(!cancelled)setActiveCall(current=>{
+          if(current?.callActivityId!==activeCall.callActivityId)return current;
+          const providerInactive=/account is not active|account.*inactive|call is not active|already ended/i.test(error.message);
+          return {...current,statusError:error.message,status:providerInactive?{...current.status,status:'Not active',isLive:false,isTerminal:true}:current.status,endedAt:providerInactive?Date.now():current.endedAt};
+        });
+      }
+    };
+    const first=window.setTimeout(refresh,1500);
+    const timer=window.setInterval(refresh,5000);
+    return ()=>{cancelled=true;window.clearTimeout(first);window.clearInterval(timer);};
+  },[activeCall?.providerKey,activeCall?.callActivityId,activeCall?.status?.isTerminal]);
+
+  const activeCallElapsed=activeCall?Math.max(0,Math.floor(((activeCall.endedAt||callTimerNow)-activeCall.startedAt)/1000)):0;
+  const activeCallTime=activeCall?`${String(Math.floor(activeCallElapsed/60)).padStart(2,'0')}:${String(activeCallElapsed%60).padStart(2,'0')}`:'00:00';
 
   async function loadFunnels() {
     try {
@@ -1071,7 +1318,7 @@ export default function LeadsPage() {
 
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'q') {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'm') {
         event.preventDefault();
         openCreate();
       }
@@ -1222,7 +1469,7 @@ export default function LeadsPage() {
           (!advancedFilters.touchStatus.length || advancedFilters.touchStatus.includes(String(lead.touchStatus))) &&
           (!advancedFilters.leadEntryPath.length || advancedFilters.leadEntryPath.includes(String(lead.leadEntryPath))) &&
           (!advancedFilters.pendingFollowupsOnly || Boolean(lead.pendingFollowupTillToday)) &&
-          (!isCounsellor || matchesReferredFilter(lead, advancedFilters.isReferred, currentEmployeeId)) &&
+          matchesReferredFilter(lead, advancedFilters.isReferred, currentEmployeeId) &&
           (!advancedFilters.isParent.length || advancedFilters.isParent.some(value => value === "yes" ? Boolean(lead.isParent) : !lead.isParent)) &&
           (!advancedFilters.lookingForAdmission.length || advancedFilters.lookingForAdmission.some(value => value === "yes" ? Boolean(lead.lookingForAdmission) : !lead.lookingForAdmission)) &&
           (!advancedFilters.whatsappResponse.length || advancedFilters.whatsappResponse.includes(String(lead.whatsappResponse))) &&
@@ -1311,6 +1558,10 @@ export default function LeadsPage() {
       add(dates, `${label} from`, from);
       add(dates, `${label} to`, to);
     });
+    /* Shown like any other applied filter: it hides leads, so leaving it out
+       of this panel made a short list look like a missing one. */
+    add(ranges, "Referred by me", advancedFilters.isReferred === "yes" ? "Referred away by me"
+      : advancedFilters.isReferred === "no" ? "With me, not referred away" : "");
     add(ranges, "Minimum lead score", advancedFilters.scoreMin);
     add(ranges, "Maximum lead score", advancedFilters.scoreMax);
     return [
@@ -1357,13 +1608,13 @@ export default function LeadsPage() {
     setSearch("");
     setStageFilter("");
     setBranchFilter([]);
-    setAdvancedFilters(emptyAdvancedFilters);
+    setAdvancedFilters(defaultAdvancedFilters);
     setFollowupDateType("nextFollowup");
     setMessage({ type: "success", text: "Filters cleared — showing all accessible branches" });
   }
 
   function applyFunnel(funnel) {
-    applyAdvancedFilters({ ...emptyAdvancedFilters, ...funnel.filters });
+    applyAdvancedFilters({ ...defaultAdvancedFilters, ...funnel.filters });
     setMessage({ type: "success", text: `View "${funnel.name}" applied` });
   }
 
@@ -1518,7 +1769,7 @@ export default function LeadsPage() {
     setLeadAudiences(null);
   }
 
-  async function openLead(id, mode) {
+  async function openLead(id, mode, options={}) {
     try {
       const { data } = await api(`/leads/${id}`);
       setForm({
@@ -1537,14 +1788,21 @@ export default function LeadsPage() {
         leadScore: data.leadScore ?? 0,
         nextFollowupAt: toLocalInput(data.nextFollowupAt),
       });
-      setSecondarySource({academicYear:data.academicYear||"",sourceId:"",channelId:"",campaignId:""});
+      const reEnquiryDefaults=options.reEnquiry?(meta.reEnquiryDefaults||{}):{};
+      setSecondarySource({
+        academicYear:data.academicYear||"",
+        channelId:meta.channels.some(item=>String(item.id)===String(reEnquiryDefaults.channelId))?reEnquiryDefaults.channelId:"",
+        sourceId:meta.sources.some(item=>String(item.id)===String(reEnquiryDefaults.sourceId))?reEnquiryDefaults.sourceId:"",
+        campaignId:meta.campaigns.some(item=>String(item.id)===String(reEnquiryDefaults.campaignId))?reEnquiryDefaults.campaignId:"",
+      });
+      setReEnquiryPending(Boolean(options.reEnquiry));
       setDrawer({
         mode,
         id,
         title: mode === "view" ? data.studentName : `Edit ${data.studentName}`,
         activities: data.activities || [],
       });
-      setDrawerTab("student");
+      setDrawerTab(options.tab||"student");
     setLeadAudiences(null);
     } catch (error) {
       setMessage({ type: "error", text: error.message });
@@ -1565,7 +1823,7 @@ export default function LeadsPage() {
     }
   }
 
-  async function openFollowup(lead) {
+  async function openFollowup(lead,callContext=null) {
     setOpenActionId(null);
     try {
       const [{ data },options] = await Promise.all([api(`/leads/${lead.id}`),api('/leads/referral-options/all')]);
@@ -1574,8 +1832,10 @@ export default function LeadsPage() {
       const selfOption=options.employees.find(employee=>String(employee.id)===String(options.currentEmployeeId)&&String(employee.branchId)===defaultBranchId);
       const currentOwnerOption=options.employees.find(employee=>String(employee.id)===String(data.ownerEmployeeId)&&String(employee.branchId)===defaultBranchId);
       const defaultOption=selfOption||currentOwnerOption;
-      setFollowupForm({stageId:String(data.stageId||""),substageId:String(data.substageId||""),comment:"",comments:data.comments||[],nextFollowupAt:toLocalInput(data.nextFollowupAt),followupType:data.followupType||"",referralBranchId:defaultBranchId,referralEmployeeId:defaultOption?String(defaultOption.id):""});
-      setFollowupModal({id:lead.id,name:lead.studentName});
+      const callAttempt=Boolean(callContext?.isCallAttempt);
+      setFollowupForm({stageId:callAttempt?"":String(data.stageId||""),substageId:callAttempt?"":String(data.substageId||""),comment:"",comments:data.comments||[],nextFollowupAt:callAttempt?"":toLocalInput(data.nextFollowupAt),followupType:callAttempt?"":data.followupType||"",referralBranchId:defaultBranchId,referralEmployeeId:defaultOption?String(defaultOption.id):"",callActivityId:callContext?.callActivityId||null,callAttempt,callDisposition:""});
+      const currentStage=meta.stages.find(stage=>String(stage.id)===String(data.stageId));
+      setFollowupModal({id:lead.id,name:lead.studentName,callActivityId:callContext?.callActivityId||null,callAttempt,pipelineId:currentStage?.pipelineId||null});
     } catch (error) { setMessage({type:"error",text:error.message}); }
   }
 
@@ -1598,9 +1858,18 @@ export default function LeadsPage() {
     event.preventDefault(); setSaving(true);
     try {
       const result=await api(`/leads/${followupModal.id}/followup-notes`,{method:"PUT",body:JSON.stringify({...followupForm,stageId:Number(followupForm.stageId),substageId:followupForm.substageId?Number(followupForm.substageId):null,referralBranchId:Number(followupForm.referralBranchId),referralEmployeeId:Number(followupForm.referralEmployeeId),nextFollowupAt:followupForm.nextFollowupAt?`${followupForm.nextFollowupAt}:00`:null})});
+      if(activeCall&&String(activeCall.leadId)===String(followupModal.id))setActiveCall(null);
       setFollowupModal(null); setMessage({type:"success",text:result.message}); await loadLeads();
     } catch(error) { setMessage({type:"error",text:error.message}); }
     finally { setSaving(false); }
+  }
+
+  async function hangupActiveCall(){
+    if(!activeCall?.callActivityId||!window.confirm(`End the Smartflo call with ${activeCall.leadName}?`))return;
+    try{
+      await api(`/smartflo/calls/${activeCall.callActivityId}/hangup`,{method:'POST',body:'{}'});
+      setActiveCall(current=>current?{...current,status:{...current.status,status:'Hangup requested'}}:current);
+    }catch(error){setMessage({type:'error',text:error.message});}
   }
 
   async function save(event) {
@@ -1626,10 +1895,13 @@ export default function LeadsPage() {
   async function addSecondarySource(event){
     event.preventDefault();setSaving(true);
     try{
-      const result=await api(`/leads/${drawer.id}/sources`,{method:"POST",body:JSON.stringify({academicYear:form.academicYear,...secondarySource,sourceId:Number(secondarySource.sourceId),channelId:Number(secondarySource.channelId),campaignId:Number(secondarySource.campaignId)})});
+      const result=await api(`/leads/${drawer.id}/sources`,{method:"POST",body:JSON.stringify({academicYear:form.academicYear,...secondarySource,sourceId:Number(secondarySource.sourceId),channelId:Number(secondarySource.channelId),campaignId:Number(secondarySource.campaignId),markReEnquired:reEnquiryPending})});
       const {data}=await api(`/leads/${drawer.id}`);
-      setForm(current=>({...current,sourceHistory:data.sourceHistory||[]}));
+      /* reEnquiredAt too: the re-enquiry mark is what the pending banner and
+         the Re-enquired tab read, and it was just written by this save. */
+      setForm(current=>({...current,sourceHistory:data.sourceHistory||[],reEnquiredAt:data.reEnquiredAt}));
       setSecondarySource({sourceId:"",channelId:"",campaignId:""});
+      setReEnquiryPending(false);
       setMessage({type:"success",text:result.message});await loadLeads();
     }catch(error){setMessage({type:"error",text:error.message})}finally{setSaving(false)}
   }
@@ -1768,6 +2040,157 @@ export default function LeadsPage() {
       onSelect: () => setDownloadDialogOpen(true) },
   ].filter((action) => action.permissions.every((key) => can(key))));
 
+  /*
+   * Every column the table can show, and the nine it shows by default.
+   *
+   * The built-ins render composite cells -- a student with their avatar and
+   * phone, a source with its extra-source badge and re-enquire button -- so
+   * they are written out rather than derived. Everything after them is the
+   * field catalogue the export already builds: every system field, plus the
+   * lead fields configured for this business unit, each rendered as plain
+   * text through its export getter.
+   */
+  const coreLeadColumns = [
+    { id:"core:student", label:"Student", render:lead => (
+      <div className="student">
+        <button type="button" className={`avatar muted lead-view-avatar ${lead.touchStatus||"unassigned"}`} title={`${lead.studentName}${lead.touchStatus!=="unassigned"?` \u00b7 ${lead.touchStatus}`:""}`} aria-label={`View ${lead.studentName}${lead.touchStatus!=="unassigned"?`, ${lead.touchStatus}`:""}`} onClick={()=>openLead(lead.id,"view")}>
+          {lead.studentName
+            .split(" ")
+            .map((name) => name[0])
+            .slice(0, 2)
+            .join("")}
+        </button>
+        <span>
+          <span className="lead-name-line">
+            <strong className="lead-view-name">{lead.studentName}</strong>
+          </span>
+          <small>{lead.phone}</small>
+        </span>
+      </div>
+    ) },
+    { id:"core:academic", label:"Class", render:lead => <div className="lead-academic"><strong>{[lead.curriculum,lead.applyingClass].filter(Boolean).join(" - ") || "\u2014"}</strong><small>{lead.branch || "\u2014"}</small></div> },
+    { id:"core:source", label:"Source", render:lead => <div className="lead-source">
+      <span className="lead-source-line">
+        <span>{leadSources(lead)[0]?.name || lead.source || "\u2014"}</span>
+        {/* Without this, a lead matched on a secondary source
+            looks like it should not be in the results. */}
+        {secondarySources(lead).length > 0 && (
+          <em className="lead-source-more" title={`Also from: ${secondarySources(lead).map(item=>item.name).join(", ")}`}>
+            +{secondarySources(lead).length}
+          </em>
+        )}
+        <button type="button" className="source-reenquire-button" title={`Re-enquire ${lead.studentName}`} aria-label={`Re-enquire ${lead.studentName} from source details`} onClick={()=>openLead(lead.id,"edit",{tab:"source",reEnquiry:true})}><RotateCcw size={14}/></button>
+      </span>
+      <small>{lead.addedAt?new Date(lead.addedAt).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}):"\u2014"}</small>
+    </div> },
+    { id:"core:stage", label:"Stage", render:lead => (
+      <span className={`stage ${String(lead.stage).toLowerCase().replaceAll(" ", "-")}`}>
+        {lead.stage}
+      </span>
+    ) },
+    /* Yes only once the money is actually collected; an order that was
+       created and never paid is still No. */
+    { id:"core:payment", label:"Payment", render:lead => <>
+      <span className={`lead-flag ${isPaymentCollected(lead) ? "is-yes" : "is-no"}`}>{isPaymentCollected(lead) ? "Yes" : "No"}</span>
+      {isPaymentCollected(lead) && Number(lead.paymentAmount) > 0 && <small className="lead-flag-note">₹{Number(lead.paymentAmount).toLocaleString("en-IN")}</small>}
+    </> },
+    { id:"core:studentId", label:"Student ID", render:lead => <>
+      <span className={`lead-flag ${hasStudentId(lead) ? "is-yes" : "is-no"}`}>{hasStudentId(lead) ? "Yes" : "No"}</span>
+      {hasStudentId(lead) && <small className="lead-flag-note">{lead.studentId}</small>}
+    </> },
+    { id:"core:owner", label:"Owner", render:lead => lead.owner },
+    { id:"core:nextFollowup", label:"Next follow-up", render:lead => lead.nextFollowup
+      ? new Date(lead.nextFollowup).toLocaleString("en-IN", { timeZone:"Asia/Kolkata", dateStyle:"medium", timeStyle:"short" })
+      : "Not scheduled" },
+    { id:"core:recentModified", label:"Recent modified", render:lead => lead.recentModified ? new Date(lead.recentModified).toLocaleString("en-IN", {timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}) : "\u2014" },
+  ];
+  /* Recent comments are fetched per row by the exporter, so that one field
+     has nothing to show here and is left out. */
+  const catalogueLeadColumns = leadExportGroups.flatMap(group => group.fields
+    .filter(field => !field.needsComments && !LEAD_COLUMN_DUPLICATE_FIELD_IDS.has(field.id))
+    .map(field => ({ id:`field:${field.id}`, label:field.label, group:group.name, render:lead => leadCellText(field.get(lead)) })));
+  const leadColumnCatalogue = [...coreLeadColumns, ...catalogueLeadColumns];
+  const leadColumnGroups = [
+    { name:"Leads table", fields:coreLeadColumns.map(({ id, label }) => ({ id, label, defaultSelected:true })) },
+    ...leadExportGroups
+      .map(group => ({ name:group.name, fields:catalogueLeadColumns.filter(column => column.group === group.name).map(({ id, label }) => ({ id, label })) }))
+      .filter(group => group.fields.length),
+  ];
+  /*
+   * The stored list is walked in order, because that order is the column
+   * order the counsellor arranged by dragging the headers -- reading the
+   * catalogue instead would keep snapping the table back to its own order.
+   *
+   * Ids that no longer exist -- a deleted lead field, or a choice made in
+   * another business unit -- drop out here, and a selection left with nothing
+   * in it falls back to the default nine rather than a headless table.
+   */
+  const leadColumnsById = new Map(leadColumnCatalogue.map(column => [column.id, column]));
+  const selectedLeadColumns = visibleColumnIds.map(id => leadColumnsById.get(id)).filter(Boolean);
+  const leadColumns = selectedLeadColumns.length ? selectedLeadColumns : coreLeadColumns;
+
+  function storeLeadColumns(ids) {
+    setVisibleColumnIds(ids);
+    writeStoredLeadColumns(routePipelineId, ids);
+    saveLeadColumns(ids);
+  }
+
+  /*
+   * Put the arrangement on the account.
+   *
+   * The default arrangement is stored as nothing at all: keeping a row that
+   * spells out today's nine columns would freeze them onto the user, so a
+   * later change to what the screen ships with would never reach anyone who
+   * had once pressed Reset.
+   *
+   * Failing to save is worth saying, because the columns are already on
+   * screen and would otherwise come back rearranged on the next device.
+   */
+  async function saveLeadColumns(ids) {
+    try {
+      await api.put("/leads/column-preferences", { pipelineId: routePipelineId || null, columns: isDefaultLeadColumns(ids) ? [] : ids });
+    } catch (error) {
+      setMessage({ type: "error", text: `Columns changed here, but could not be saved to your account: ${error.message}` });
+    }
+  }
+
+  /* Ticking a column in the dialog must not rearrange the ones already
+     placed: the arranged order is kept and anything newly ticked joins the
+     end, where it is easy to find and drag from. */
+  function applyLeadColumns(fields) {
+    const chosen = fields.map(field => field.id);
+    const chosenIds = new Set(chosen);
+    storeLeadColumns([
+      ...leadColumns.map(column => column.id).filter(id => chosenIds.has(id)),
+      ...chosen.filter(id => !leadColumns.some(column => column.id === id)),
+    ]);
+    setColumnDialogOpen(false);
+  }
+
+  /* Dropping a column onto another puts it where that one was: dragging right
+     lands after the target, dragging left lands before it, which is what the
+     gap under the cursor looks like in both directions. */
+  function moveLeadColumn(sourceId, targetId) {
+    if (!sourceId || sourceId === targetId) return;
+    const ids = leadColumns.map(column => column.id);
+    const from = ids.indexOf(sourceId);
+    const to = ids.indexOf(targetId);
+    if (from < 0 || to < 0) return;
+    ids.splice(from, 1);
+    ids.splice(from < to ? ids.indexOf(targetId) + 1 : ids.indexOf(targetId), 0, sourceId);
+    storeLeadColumns(ids);
+  }
+
+  /* The keyboard route to the same thing, for anyone who cannot drag. */
+  function shiftLeadColumn(columnId, direction) {
+    const ids = leadColumns.map(column => column.id);
+    const from = ids.indexOf(columnId);
+    const to = from + direction;
+    if (from < 0 || to < 0 || to >= ids.length) return;
+    ids.splice(to, 0, ...ids.splice(from, 1));
+    storeLeadColumns(ids);
+  }
+
   if (marketingLeadIds) {
     return (
       <MarketingCampaignBuilder
@@ -1815,9 +2238,27 @@ export default function LeadsPage() {
             onDateTypeChange={changeDateFilterType}
             onChange={(rangeFrom,rangeTo)=>setAdvancedFilters(current=>withDateRange(current,followupDateType,rangeFrom,rangeTo))}
           />
+          {/* Which columns the table shows sits with the filters rather than
+              over the table: both decide what the counsellor is looking at,
+              and the table keeps its full height for rows. */}
+          <button type="button" className="secondary columns-picker-trigger" title="Choose which columns this table shows" onClick={() => setColumnDialogOpen(true)}>
+            <Columns3 size={15}/> Columns <b>{leadColumns.length}</b>
+          </button>
         </div>
       </section>
       {downloadDialogOpen && <DownloadFieldsDialog title="Download Data" groups={leadExportGroups} onClose={() => setDownloadDialogOpen(false)} onDownload={exportLeads}/>}
+      {columnDialogOpen && <DownloadFieldsDialog
+        title="Table columns"
+        headerIcon={<Columns3 size={18}/>}
+        actionIcon={<Columns3 size={15}/>}
+        actionLabel="Apply columns"
+        note="Choose the columns shown on the leads screen. Every system field and every lead field configured for this business unit is listed."
+        groups={leadColumnGroups}
+        defaultSelected={DEFAULT_LEAD_COLUMN_IDS}
+        selectedIds={leadColumns.map(column => column.id)}
+        onClose={() => setColumnDialogOpen(false)}
+        onDownload={applyLeadColumns}
+      />}
       {bulkUploadOpen && <BulkUploadModal onClose={() => setBulkUploadOpen(false)}/>}
       {bulkChannel && (
         <BulkMessageSend
@@ -1835,15 +2276,31 @@ export default function LeadsPage() {
               <tr>
                 <th><input type="checkbox" aria-label="Select all visible leads" checked={filtered.length > 0 && filtered.every(lead => selectedIds.includes(lead.id))} onChange={event => setSelectedIds(event.target.checked ? filtered.map(lead => lead.id) : [])}/></th>
                 <th className="park-col"><span className="sr-only">Parked</span></th>
-                <th>Student</th>
-                <th>Class</th>
-                <th>Source</th>
-                <th>Stage</th>
-                <th>Payment</th>
-                <th>Student ID</th>
-                <th>Owner</th>
-                <th>Next follow-up</th>
-                <th>Recent modified</th>
+                {leadColumns.map(column => (
+                  <th
+                    key={column.id}
+                    className={`lead-column-head${draggedColumnId===column.id?" is-dragging":""}${dropColumnId===column.id?" is-drop-target":""}`}
+                    draggable
+                    onDragStart={event => { setDraggedColumnId(column.id); event.dataTransfer.effectAllowed="move"; event.dataTransfer.setData("text/plain", column.id); }}
+                    onDragOver={event => { if (!draggedColumnId || draggedColumnId===column.id) return; event.preventDefault(); event.dataTransfer.dropEffect="move"; setDropColumnId(column.id); }}
+                    onDragLeave={() => setDropColumnId(current => current===column.id ? null : current)}
+                    onDrop={event => { event.preventDefault(); moveLeadColumn(draggedColumnId || event.dataTransfer.getData("text/plain"), column.id); setDraggedColumnId(null); setDropColumnId(null); }}
+                    onDragEnd={() => { setDraggedColumnId(null); setDropColumnId(null); }}
+                  >
+                    <span
+                      className="lead-column-head-inner"
+                      tabIndex={0}
+                      role="button"
+                      title={`${column.label} \u00b7 drag to reorder, or hold Alt and press the left and right arrow keys`}
+                      aria-label={`${column.label} column, position ${leadColumns.indexOf(column)+1} of ${leadColumns.length}. Drag to reorder, or hold Alt and press the left and right arrow keys.`}
+                      onKeyDown={event => {
+                        if (!event.altKey || (event.key!=="ArrowLeft" && event.key!=="ArrowRight")) return;
+                        event.preventDefault();
+                        shiftLeadColumn(column.id, event.key==="ArrowLeft" ? -1 : 1);
+                      }}
+                    ><GripVertical size={11} aria-hidden="true"/>{column.label}</span>
+                  </th>
+                ))}
                 <th>Actions</th>
               </tr>
             </thead>
@@ -1867,65 +2324,7 @@ export default function LeadsPage() {
                       {lead.parkedAt ? <BookmarkCheck size={17} /> : <Bookmark size={17} />}
                     </button>
                   </td>
-                  <td>
-                    <div className="student">
-                      <button type="button" className={`avatar muted lead-view-avatar ${lead.touchStatus||"unassigned"}`} title={`${lead.studentName}${lead.touchStatus!=="unassigned"?` · ${lead.touchStatus}`:""}`} aria-label={`View ${lead.studentName}${lead.touchStatus!=="unassigned"?`, ${lead.touchStatus}`:""}`} onClick={()=>openLead(lead.id,"view")}>
-                        {lead.studentName
-                          .split(" ")
-                          .map((name) => name[0])
-                          .slice(0, 2)
-                          .join("")}
-                      </button>
-                      <span>
-                        <span className="lead-name-line">
-                          <strong className="lead-view-name">{lead.studentName}</strong>
-                        </span>
-                        <small>{lead.phone}</small>
-                      </span>
-                    </div>
-                  </td>
-                  <td><div className="lead-academic"><strong>{[lead.curriculum,lead.applyingClass].filter(Boolean).join(" - ") || "—"}</strong><small>{lead.branch || "—"}</small></div></td>
-                  <td><div className="lead-source">
-                    <span>
-                      {leadSources(lead)[0]?.name || lead.source || "—"}
-                      {/* Without this, a lead matched on a secondary source
-                          looks like it should not be in the results. */}
-                      {secondarySources(lead).length > 0 && (
-                        <em className="lead-source-more" title={`Also from: ${secondarySources(lead).map(item=>item.name).join(", ")}`}>
-                          +{secondarySources(lead).length}
-                        </em>
-                      )}
-                    </span>
-                    <small>{lead.addedAt?new Date(lead.addedAt).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}):"—"}</small>
-                  </div></td>
-                  <td>
-                    <span
-                      className={`stage ${String(lead.stage).toLowerCase().replaceAll(" ", "-")}`}
-                    >
-                      {lead.stage}
-                    </span>
-                  </td>
-                  {/* Yes only once the money is actually collected; an order
-                      that was created and never paid is still No. */}
-                  <td>
-                    <span className={`lead-flag ${isPaymentCollected(lead) ? "is-yes" : "is-no"}`}>{isPaymentCollected(lead) ? "Yes" : "No"}</span>
-                    {isPaymentCollected(lead) && Number(lead.paymentAmount) > 0 && <small className="lead-flag-note">₹{Number(lead.paymentAmount).toLocaleString("en-IN")}</small>}
-                  </td>
-                  <td>
-                    <span className={`lead-flag ${hasStudentId(lead) ? "is-yes" : "is-no"}`}>{hasStudentId(lead) ? "Yes" : "No"}</span>
-                    {hasStudentId(lead) && <small className="lead-flag-note">{lead.studentId}</small>}
-                  </td>
-                  <td>{lead.owner}</td>
-                  <td>
-                    {lead.nextFollowup
-                      ? new Date(lead.nextFollowup).toLocaleString("en-IN", {
-                          timeZone: "Asia/Kolkata",
-                          dateStyle: "medium",
-                          timeStyle: "short",
-                        })
-                      : "Not scheduled"}
-                  </td>
-                  <td>{lead.recentModified ? new Date(lead.recentModified).toLocaleString("en-IN", {timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}) : "—"}</td>
+                  {leadColumns.map(column => <td key={column.id}>{column.render(lead)}</td>)}
                   <td>
                     <div className="row-action-group">
                     <button className="row-followup-trigger" title="Call with connected telephony provider" aria-label={`Call ${lead.studentName}`} onClick={()=>callLead(lead)}><PhoneCall size={17}/></button>
@@ -2054,7 +2453,6 @@ export default function LeadsPage() {
           mode={filterPanel}
           meta={meta}
           initialFilters={{ ...advancedFilters, branchId: branchFilter, stage: stageFilter, dateType: followupDateType }}
-          showReferredFilter={isCounsellor}
           onApply={applyAdvancedFilters}
           onClose={() => setFilterPanel(null)}
           onSaved={({ name, type }) => {
@@ -2067,6 +2465,11 @@ export default function LeadsPage() {
           }}
         />
       )}
+      {callProviderChoice&&<><div className="drawer-backdrop" onClick={()=>setCallProviderChoice(null)}/><section className="refer-dialog" role="dialog" aria-modal="true" aria-labelledby="call-provider-title">
+        <div className="refer-dialog-head"><div><span className="eyebrow">Calling route</span><h2 id="call-provider-title">Select calling integration</h2><p>{callProviderChoice.lead.studentName} · {callProviderChoice.lead.phone}</p></div><button className="icon-btn" onClick={()=>setCallProviderChoice(null)}><X/></button></div>
+        <div className="grid gap-3 p-5">{callProviderChoice.providers.map(provider=><button type="button" key={provider.key} className="secondary !justify-start !p-4 text-left" onClick={()=>startLeadCall(callProviderChoice.lead,provider)}><PhoneCall size={18}/><span><strong className="block">{provider.label}</strong>{provider.key==='smartflo'&&<small className="block text-secondary-500">{provider.callingMode==='CUSTOMER_FIRST'?'Customer First – Click to Call Support':'Agent First – Standard Click to Call'}</small>}</span></button>)}</div>
+        <div className="refer-dialog-actions"><button type="button" className="secondary" onClick={()=>setCallProviderChoice(null)}>Cancel</button></div>
+      </section></>}
       {referLead&&<><div className="drawer-backdrop" onClick={()=>setReferLead(null)}/><section className="refer-dialog" role="dialog" aria-modal="true" aria-labelledby="refer-title">
         <div className="refer-dialog-head"><div><span className="eyebrow">{referLead.bulk?"Bulk lead referral":"Lead referral"}</span><h2 id="refer-title">Refer {referLead.studentName}</h2><p>{referLead.bulk?`${referLead.leadId} will be reassigned.`:`${referLead.leadId} · ${referLead.branch}`}</p></div><button className="icon-btn" onClick={()=>setReferLead(null)}><X/></button></div>
         <form onSubmit={submitReferral}>
@@ -2093,16 +2496,29 @@ export default function LeadsPage() {
         </form>
       </section></>}
       {followupModal&&<><div className="drawer-backdrop" onClick={()=>setFollowupModal(null)}/><section className="followup-notes-dialog" role="dialog" aria-modal="true" aria-labelledby="followup-notes-title">
-        <header><div><span className="eyebrow">Lead activity</span><h2 id="followup-notes-title">Follow-up and notes</h2><p>{followupModal.name}</p></div><button type="button" className="icon-btn" onClick={()=>setFollowupModal(null)}><X/></button></header>
-        <form onSubmit={saveFollowup}><div className="form-grid">
-          <label>Stage *<select required value={followupForm.stageId} onChange={e=>setFollowupForm({...followupForm,stageId:e.target.value,substageId:"",nextFollowupAt:"",followupType:""})}><option value="">Select stage</option>{/* Only this lead's own pipeline: a follow-up moves a lead along its ladder, it does not move it to a different one. */}{meta.stages.filter(stage=>{const current=meta.stages.find(item=>String(item.id)===String(followupForm.stageId));return !current?.pipelineId||stage.pipelineId===current.pipelineId;}).map(stage=><option key={stage.id} value={stage.id}>{stageLabelFor(stage,meta.stages,meta.pipelines)}</option>)}</select></label>
-          <label>Sub-stage *<select required value={followupForm.substageId} onChange={e=>setFollowupForm({...followupForm,substageId:e.target.value})}><option value="">Select sub-stage</option>{meta.substages.filter(item=>!followupForm.stageId||String(item.stageId)===String(followupForm.stageId)).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
+        <header><div><span className="eyebrow">Lead activity</span><h2 id="followup-notes-title">Follow-up and notes</h2><p>{followupModal.name}</p>{activeCall&&String(activeCall.leadId)===String(followupModal.id)&&<p className="mt-1 inline-flex items-center gap-1.5 font-semibold text-emerald-700"><Clock3 size={14}/> {activeCall.status?.isTerminal?'Call duration':'Call timer'} {activeCallTime} <small className="font-normal text-secondary-500">{activeCall.status?.isTerminal?'ended':'since dial request'}</small></p>}</div><div className="followup-header-actions"><button type="submit" form="followup-notes-form" className="primary" disabled={saving}>{saving?"Saving…":"Save follow-up"}</button><button type="button" className="icon-btn" aria-label="Close follow-up and notes" onClick={()=>setFollowupModal(null)}><X/></button></div></header>
+        <form id="followup-notes-form" onSubmit={saveFollowup}><div className="form-grid">
+          {followupModal.callAttempt&&<div className="wide rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <strong>{activeCall?.provider||'Call'} · {activeCall?.callingModeLabel||''}{activeCall?.callingModeLabel?' · ':''}{activeCall?.status?.live?.state||activeCall?.status?.status||'Initiated'}</strong>
+              <div className="flex items-center gap-3"><span className="font-semibold text-emerald-700">{activeCallTime}</span>{activeCall?.providerKey==='smartflo'&&activeCall.callActivityId&&activeCall.status?.isLive&&!activeCall.status?.isTerminal&&<button type="button" className="secondary !px-3 !py-2" onClick={hangupActiveCall}>Hang up</button>}</div>
+            </div>
+            {activeCall?.statusError&&<p className="mt-1 text-sm text-red-700">{activeCall.statusError}</p>}
+            {activeCall?.status?.live&&<p className="mt-1 text-sm text-secondary-600">{[activeCall.status.live.agentName,activeCall.status.live.queueState,activeCall.status.live.callTime].filter(Boolean).join(' · ')}</p>}
+            {activeCall?.status?.hangup?.description&&<p className="mt-1 text-sm text-secondary-700">Hang-up: {activeCall.status.hangup.description}{activeCall.status.hangup.code!=null?` (Q.850 ${activeCall.status.hangup.code}${activeCall.status.hangup.key?` · ${activeCall.status.hangup.key}`:''})`:''}</p>}
+            {activeCall?.status?.recordingUrl&&<a className="mt-2 inline-block text-sm font-semibold text-emerald-700 underline" href={activeCall.status.recordingUrl} target="_blank" rel="noreferrer">Play call recording</a>}
+          </div>}
+          {followupModal.callAttempt&&<label className="wide">New comment *<textarea required rows="4" placeholder="Write a new comment…" value={followupForm.comment} onChange={e=>setFollowupForm({...followupForm,comment:e.target.value})}/></label>}
+          {followupModal.callAttempt&&<SearchSuggestion label="Disposition" required options={meta.substages.filter(item=>{const parent=meta.stages.find(stage=>String(stage.id)===String(item.stageId));return !followupModal.pipelineId||String(parent?.pipelineId)===String(followupModal.pipelineId);}).map(item=>{const parent=meta.stages.find(stage=>String(stage.id)===String(item.stageId));return {id:item.id,label:`${item.displayName}${parent?` — ${parent.displayName}`:''}`};})} value={followupForm.substageId} onChange={substageId=>{const substage=meta.substages.find(item=>String(item.id)===String(substageId));setFollowupForm({...followupForm,substageId:substageId?String(substageId):"",stageId:substage?String(substage.stageId):"",callDisposition:substage?.displayName||"",nextFollowupAt:"",followupType:""});}} placeholder="Search disposition by sub-stage or stage…"/>}
+          {!followupModal.callAttempt&&<><label>Stage *<select required value={followupForm.stageId} onChange={e=>setFollowupForm({...followupForm,stageId:e.target.value,substageId:"",nextFollowupAt:"",followupType:""})}><option value="">Select stage</option>{/* Only this lead's own pipeline: a follow-up moves a lead along its ladder, it does not move it to a different one. */}{meta.stages.filter(stage=>{const current=meta.stages.find(item=>String(item.id)===String(followupForm.stageId));return !current?.pipelineId||stage.pipelineId===current.pipelineId;}).map(stage=><option key={stage.id} value={stage.id}>{stageLabelFor(stage,meta.stages,meta.pipelines)}</option>)}</select></label>
+          <label>Sub-stage *<select required value={followupForm.substageId} onChange={e=>setFollowupForm({...followupForm,substageId:e.target.value})}><option value="">Select sub-stage</option>{meta.substages.filter(item=>!followupForm.stageId||String(item.stageId)===String(followupForm.stageId)).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label></>}
+          {followupModal.callAttempt&&<SearchSuggestion label="Counsellor" required options={referralChoices(referralOptions.employees)} value={referralKey(followupForm.referralBranchId,followupForm.referralEmployeeId)} onChange={(key)=>{const {branchId,employeeId}=splitReferralKey(key);setFollowupForm({...followupForm,referralBranchId:branchId,referralEmployeeId:employeeId});}} placeholder="Search by counsellor or branch…"/>}
           {modalFollowupRequired&&<label>Next follow-up *<input required type="datetime-local" min={minimumFollowupTime} value={followupForm.nextFollowupAt} onChange={e=>setFollowupForm({...followupForm,nextFollowupAt:e.target.value})}/></label>}
           {modalFollowupRequired&&<label>Follow-up type *<select required value={followupForm.followupType} onChange={e=>setFollowupForm({...followupForm,followupType:e.target.value})}><option value="">Select follow-up type</option><option>Call</option><option>WhatsApp</option><option>Email</option><option>Campus Visit</option></select></label>}
-          <SearchSuggestion className="wide" label="Counsellor" required options={referralChoices(referralOptions.employees)} value={referralKey(followupForm.referralBranchId,followupForm.referralEmployeeId)} onChange={(key)=>{const {branchId,employeeId}=splitReferralKey(key);setFollowupForm({...followupForm,referralBranchId:branchId,referralEmployeeId:employeeId});}} placeholder="Search by counsellor or branch…"/>
+          {!followupModal.callAttempt&&<SearchSuggestion className="wide" label="Counsellor" required options={referralChoices(referralOptions.employees)} value={referralKey(followupForm.referralBranchId,followupForm.referralEmployeeId)} onChange={(key)=>{const {branchId,employeeId}=splitReferralKey(key);setFollowupForm({...followupForm,referralBranchId:branchId,referralEmployeeId:employeeId});}} placeholder="Search by counsellor or branch…"/>}
           <div className="wide previous-comments"><span>Previous comments</span><div className="comment-history">{followupForm.comments.length?followupForm.comments.map(item=><article key={item.id}><strong>{item.counsellorName}</strong><i>—</i><time>{item.createdAt?new Date(item.createdAt).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}):"Earlier comment"}</time><i>—</i><p>{item.commentText}</p></article>):<p className="no-comments">No previous comments</p>}</div></div>
-          <label className="wide">New comment *<textarea required rows="4" placeholder="Write a new comment…" value={followupForm.comment} onChange={e=>setFollowupForm({...followupForm,comment:e.target.value})}/></label>
-        </div><footer><button type="button" className="secondary" onClick={()=>setFollowupModal(null)}>Cancel</button><button className="primary" disabled={saving}>{saving?"Saving…":"Save follow-up"}</button></footer></form>
+          {!followupModal.callAttempt&&<label className="wide">New comment *<textarea required rows="4" placeholder="Write a new comment…" value={followupForm.comment} onChange={e=>setFollowupForm({...followupForm,comment:e.target.value})}/></label>}
+        </div></form>
       </section></>}
       {drawer && (
         <>
@@ -2115,9 +2531,14 @@ export default function LeadsPage() {
                 </span>
                 <h2>{drawer.title}</h2>
               </div>
-              <button className="icon-btn" onClick={() => setDrawer(null)}>
-                <X />
-              </button>
+              <div className="lead-header-actions">
+                {drawer.mode === "view"&&<>
+                  <button type="button" className="lead-header-action" title="Record a re-enquiry against a new source" disabled={saving} onClick={()=>{const defaults=meta.reEnquiryDefaults||{};setMessage(null);setReEnquiryPending(true);setSecondarySource({academicYear:form.academicYear||"",channelId:meta.channels.some(item=>String(item.id)===String(defaults.channelId))?defaults.channelId:"",sourceId:meta.sources.some(item=>String(item.id)===String(defaults.sourceId))?defaults.sourceId:"",campaignId:meta.campaigns.some(item=>String(item.id)===String(defaults.campaignId))?defaults.campaignId:""});setDrawerTab("source");setLeadAudiences(null);setDrawer({...drawer,mode:"edit",title:`Edit ${form.studentName}`});}}><RotateCcw size={15}/><span>Re-enquire</span></button>
+                  <button type="button" className="lead-header-action primary-action" onClick={()=>{setDrawerTab("student");setLeadAudiences(null);setDrawer({...drawer,mode:"edit",title:`Edit ${form.studentName}`});}}><Pencil size={15}/><span>Edit lead</span></button>
+                </>}
+                {drawer.mode !== "view"&&<button type="submit" form="lead-drawer-form" className="lead-header-action primary-action" disabled={saving}>{drawer.mode==="create"?<Plus size={15}/>:<Pencil size={15}/>}<span>{saving?"Saving…":drawer.mode==="edit"?"Save changes":"Create lead"}</span></button>}
+                <button type="button" className="lead-header-close" aria-label="Close lead" onClick={()=>setDrawer(null)}><X size={20}/></button>
+              </div>
             </div>
             {drawer.mode !== "create"&&<nav className="lead-detail-tabs" aria-label="Lead detail categories">
               <button type="button" className={drawerTab==="student"?"active":""} onClick={()=>setDrawerTab("student")}>Student &amp; contact</button>
@@ -2126,7 +2547,7 @@ export default function LeadsPage() {
               <button type="button" className={drawerTab==="remarketing"?"active":""} onClick={()=>setDrawerTab("remarketing")}>Remarketing</button>
             </nav>}
             {drawer.mode!=="create"&&['paid','settled','success','completed','captured'].includes(String(form.paymentStatus||'').toLowerCase())&&<div className="mx-5 mt-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800"><strong>Payment collected · ₹{Number(form.paymentAmount||0).toLocaleString('en-IN')}</strong>{form.paymentAt&&<small className="block mt-1">{new Date(form.paymentAt).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})}</small>}</div>}
-            <form onSubmit={save}>
+            <form id="lead-drawer-form" onSubmit={save}>
               <fieldset disabled={drawer.mode === "view"}>
                 {drawer.mode==="create"&&((meta.leadFields||[]).length
                   ? groupLeadFields(meta.leadFields).map(section=><div className="form-section" key={section.title}>
@@ -2295,11 +2716,11 @@ export default function LeadsPage() {
                       </select>
                     </label>
                     <label>Campaign {drawer.mode==="edit"?"*":""}<select required={drawer.mode==="edit"} disabled={drawer.mode==="edit"} title={drawer.mode==="edit"?"Primary source details cannot be edited":undefined} value={form.campaignId || ""} onChange={(e) => setForm({...form,campaignId:e.target.value})}><option value="">Select campaign</option>{meta.campaigns.filter(campaign=>!form.sourceId||!meta.campaignLinks.some(link=>String(link.sourceId)===String(form.sourceId))||meta.campaignLinks.some(link=>String(link.sourceId)===String(form.sourceId)&&String(link.campaignId)===String(campaign.id))).map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
-                    {drawer.mode==="edit"&&<section className="wide secondary-source-entry"><header><strong>Add secondary source</strong><small>The primary source above remains unchanged.</small></header><div className="secondary-source-grid">
+                    {drawer.mode==="edit"&&<section className={`wide secondary-source-entry${reEnquiryPending?" awaiting-re-enquiry":""}`}><header><strong>{reEnquiryPending?"Source of this re-enquiry":"Add secondary source"}</strong><small>{reEnquiryPending?"Select where the lead came back from. The lead is marked as a re-enquiry when this source is added.":"The primary source above remains unchanged."}</small></header><div className="secondary-source-grid">
                       <label>Channel *<select value={secondarySource.channelId} onChange={e=>setSecondarySource({...secondarySource,channelId:e.target.value,sourceId:"",campaignId:""})}><option value="">Select channel</option>{meta.channels.map(item=><option key={item.id} value={item.id}>{item.displayName} · {item.category}</option>)}</select></label>
                       <label>Source *<select value={secondarySource.sourceId} onChange={e=>setSecondarySource({...secondarySource,sourceId:e.target.value,campaignId:""})}><option value="">Select source</option>{sourcesForChannel(meta.sources, meta.sourceLinks, secondarySource.channelId).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
                       <label>Campaign *<select value={secondarySource.campaignId} onChange={e=>setSecondarySource({...secondarySource,campaignId:e.target.value})}><option value="">Select campaign</option>{meta.campaigns.filter(campaign=>!secondarySource.sourceId||!meta.campaignLinks.some(link=>String(link.sourceId)===String(secondarySource.sourceId))||meta.campaignLinks.some(link=>String(link.sourceId)===String(secondarySource.sourceId)&&String(link.campaignId)===String(campaign.id))).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
-                    </div><button type="button" className="primary add-secondary-source" disabled={saving||!secondarySource.sourceId||!secondarySource.channelId||!secondarySource.campaignId} onClick={addSecondarySource}><Plus size={15}/> Add source</button></section>}
+                    </div><button type="button" className="primary add-secondary-source" disabled={saving||!secondarySource.sourceId||!secondarySource.channelId||!secondarySource.campaignId} onClick={addSecondarySource}><Plus size={15}/> {reEnquiryPending?"Add source & mark re-enquired":"Add source"}</button></section>}
                     {/* Only the sources the fields above do not already show.
                         The list used to repeat the primary as its first row,
                         so the same channel, source and campaign appeared
@@ -2455,63 +2876,6 @@ export default function LeadsPage() {
                   </div>
                 </div>}
               </fieldset>
-              <div className="drawer-actions">
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => setDrawer(null)}
-                >
-                  Close
-                </button>
-                {drawer.mode === "view" && (
-                  <>
-                    <button
-                      type="button"
-                      className="secondary"
-                      title="Mark this lead as a re-enquiry"
-                      disabled={saving}
-                      onClick={async () => {
-                        try {
-                          setMessage(null);
-                          await api(`/leads/${drawer.id}/mark-re-enquired`, {method:"PUT",body:JSON.stringify({})});
-                          const {data}=await api(`/leads/${drawer.id}`);
-                          setForm(data);
-                          loadLeads();
-                          setMessage({ type: 'success', text: 'Lead marked as re-enquiry' });
-                        } catch (error) {
-                          setMessage({ type: 'error', text: error.message });
-                        }
-                      }}
-                    >
-                      Mark re-enquired
-                    </button>
-                    <button
-                      type="button"
-                      className="primary"
-                      onClick={() => {
-                        setDrawerTab("student");
-    setLeadAudiences(null);
-                        setDrawer({
-                          ...drawer,
-                          mode: "edit",
-                          title: `Edit ${form.studentName}`,
-                        });
-                      }}
-                    >
-                      <Pencil size={16} /> Edit lead
-                    </button>
-                  </>
-                )}
-                {drawer.mode !== "view" && (
-                  <button className="primary" disabled={saving}>
-                    {saving
-                      ? "Saving…"
-                      : drawer.mode === "edit"
-                        ? "Save changes"
-                        : "Create lead"}
-                  </button>
-                )}
-              </div>
             </form>
           </aside>
         </>

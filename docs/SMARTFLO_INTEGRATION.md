@@ -36,12 +36,19 @@ No new operational table is introduced. Migrations 052 and 053 only extend `bran
 
 - Authentication through `/v1/auth/login`, with cached one-hour tokens, or a permanent token.
 - Click-to-call through `/v1/click_to_call` using the mapped agent and branch DID.
+- Integration-level calling mode selects either agent-first `/v1/click_to_call` or customer-first `/v1/click_to_call_support`. Customer First requires a separate encrypted Click-to-Call Support API key whose Tata-side configuration determines the second-leg destination.
 - Smartflo users/agents, DIDs, departments, live calls, and call-detail records.
 - Existing IVR retrieval and IVR create/update/delete proxy operations.
 - DID-to-IVR routing through `PUT /v1/my_number/{id}`.
 - Webhook ingestion for status, direction, duration, disposition, and recording URL.
+- Live call state, elapsed time, and provider hang-up inside Follow-up & Notes. After the live call ends, the CRM reconciles its CDR, Q.850 hang-up cause, duration, and recording. The provider cause and the counsellor's required CRM disposition are retained separately.
+- Hang-up uses the active conversation's `call_id` from `/v1/live_calls` with the dedicated `/v1/call/hangup` API. `/v1/call/options` is reserved for Tata's documented Monitor, Whisper, Barge, and Transfer operation types and is not used to disconnect calls.
 
 The outbound caller ID resolves in this order: caller ID supplied with the request, branch Smartflo DID, then account default DID. Agent identity is always taken from the CRM user's Smartflo mapping.
+
+Calling mode is selected once under **Settings → Integrations → Smartflo → Calling configuration** and applies to every Smartflo Call button. **Agent First** calls the mapped CRM agent and then the customer. **Customer First** calls the customer and then the destination configured against the saved Support API key. Both modes normalize into `crm_call_activities` and share the same webhooks, live status, CDR reconciliation, recordings, dispositions, and lead history. The settings screen also provides a real Test Call against the currently saved mode.
+
+For agent-first one-click calling, the CRM sends the mapped user's canonical Smartflo Agent ID (or softphone extension) as `agent_number` and the lead phone as `destination_number`. A registered agent mobile is used only when the Users API supplies no Agent ID. The request always sends `async: 1`, a bounded `call_timeout`, and uses only `/v1/click_to_call`; the customer-first `/v1/click_to_call_support` endpoint is not used. Tata documents that the regular endpoint rings the agent first and calls the customer only after the agent answers.
 
 ## Recording capture
 

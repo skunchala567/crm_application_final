@@ -52,7 +52,7 @@ const brandLogo = value => {
 
 const isAdmin = user => (user.roles || []).some(role => ['CRM_ADMIN','SUPER_ADMIN'].includes(String(role).toUpperCase()));
 
-import { LEAD_FIELD_CATALOGUE, CATALOGUE_BY_KEY, SOURCE_LABELS } from './lead-field-catalogue.js';
+import { LEAD_FIELD_CATALOGUE, CATALOGUE_BY_KEY, SOURCE_LABELS, CONFIG_FIELD_PREFIX } from './lead-field-catalogue.js';
 import { notifyTrackerTask } from './tracker-notifications.js';
 import { DUPLICATE_FIELDS, normalizeDuplicateRule, describeRule } from './lead-duplicate-rule.js';
 
@@ -550,6 +550,82 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
 
 
   /**
+   * Every list this unit configures that a lead field could read from.
+   *
+   * The static catalogue covers what the CRM understands everywhere -- the
+   * academic masters, source configuration, the pipeline, branches, people.
+   * What it cannot cover is a unit's own Configuration screen: a training
+   * institute defines Courses and Batches there, a school defines something
+   * else entirely, and those exist only as rows. They are turned into
+   * catalogue entries here so an administrator adds them the same way as any
+   * other standard field, rather than having to know that the route is a
+   * custom field pointed back at a section.
+   *
+   * A hierarchy section offers both of its levels, exactly as the custom-field
+   * dialog does; a section already feeding a lead field is left out.
+   */
+  /*
+   * A field key that is free in this unit.
+   *
+   * Section keys are the administrator's words -- and two sections under
+   * different pipelines may share one -- so the first choice can already be
+   * taken. Numbering keeps the second one addable instead of failing on the
+   * unique key with an error about something the administrator never typed.
+   */
+  async function unusedFieldKey(unitId, base){
+    const slug=String(base).toLowerCase().replace(/[^a-z0-9_]+/g,'_').replace(/^_+|_+$/g,'').slice(0,60)||`${CONFIG_FIELD_PREFIX}field`;
+    const [rows]=await pool.execute(
+      `SELECT field_key AS fieldKey FROM crm_metadata_fields
+        WHERE business_unit_id=? AND module_key='leads' AND field_key LIKE ?`,[unitId,`${slug}%`]);
+    const taken=new Set(rows.map(row=>row.fieldKey));
+    if(!taken.has(slug))return slug;
+    for(let suffix=2;suffix<1000;suffix+=1){
+      const candidate=`${slug}_${suffix}`;
+      if(!taken.has(candidate))return candidate;
+    }
+    // Unreachable in practice; a key rather than an error keeps the add working.
+    return `${slug}_${Date.now()}`;
+  }
+
+  async function configSectionCatalogue(unitId){
+    const [sections]=await pool.execute(
+      `SELECT s.id, s.section_key AS sectionKey, s.display_name AS displayName, s.placeholder,
+              s.section_type AS sectionType, s.child_label AS childLabel,
+              p.display_name AS pipelineName
+         FROM crm_config_sections s
+         LEFT JOIN crm_lead_pipelines p ON p.id=s.pipeline_id
+        WHERE s.business_unit_id=? AND s.is_active=TRUE
+        ORDER BY s.position, s.display_name`,[unitId]);
+    if(!sections.length)return [];
+    const [bound]=await pool.execute(
+      `SELECT options_section_id AS sectionId, options_section_level AS level
+         FROM crm_metadata_fields
+        WHERE business_unit_id=? AND module_key='leads' AND options_section_id IS NOT NULL`,[unitId]);
+    const used=new Set(bound.map(row=>`${row.sectionId}:${row.level||'parent'}`));
+    return sections.flatMap(section=>{
+      const levels=section.sectionType==='hierarchy'
+        ?[['parent',section.displayName],['child',`${section.displayName} \u2192 ${section.childLabel||'sub-values'}`]]
+        :[['parent',section.displayName]];
+      return levels
+        .filter(([level])=>!used.has(`${section.id}:${level}`))
+        .map(([level,label])=>({
+          key:`section:${section.id}:${level}`,
+          label,
+          type:'single_select',
+          source:'config',
+          /* Sections can belong to one pipeline, and the group says so --
+             two pipelines may both configure something called "Batch". */
+          group:section.pipelineName?`Configuration \u00b7 ${section.pipelineName}`:'Configuration',
+          width:170,
+          placeholder:level==='parent'?section.placeholder||null:null,
+          filterControl:'single_select',
+          optionsSectionId:Number(section.id),
+          optionsSectionLevel:level,
+        }));
+    });
+  }
+
+  /**
    * The standard fields this unit could still add.
    *
    * Anything already present is filtered out, so the picker only ever offers
@@ -561,8 +637,7 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
       `SELECT field_key AS fieldKey FROM crm_metadata_fields WHERE business_unit_id=? AND module_key='leads'`,[unitId]);
     const taken=new Set(existing.map(row=>row.fieldKey));
     res.json({
-      data: LEAD_FIELD_CATALOGUE
-        .filter(entry=>!taken.has(entry.key))
+      data: [...LEAD_FIELD_CATALOGUE.filter(entry=>!taken.has(entry.key)), ...await configSectionCatalogue(unitId)]
         .map(entry=>({...entry,sourceLabel:SOURCE_LABELS[entry.source]||entry.source})),
       sourceLabels: SOURCE_LABELS,
     });
@@ -578,7 +653,38 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
    */
   router.post('/business-units/:unitId/field-catalogue', requireUserAdmin, async (req,res)=>{
     const unitId=Number(req.params.unitId);
-    const entry=CATALOGUE_BY_KEY.get(String(req.body.key||''));
+    const requestedKey=String(req.body.key||'');
+    let entry=CATALOGUE_BY_KEY.get(requestedKey);
+    /*
+     * A configuration section is added as a field of this unit's own: the
+     * section supplies the options and the label, and the value is stored in
+     * custom values like any other unit-defined field. is_system stays false
+     * for exactly that reason -- an administrator must be able to re-point or
+     * remove it later, which a system field does not allow.
+     */
+    let optionSource=null;
+    if(!entry&&requestedKey.startsWith('section:')){
+      const [,sectionIdText,levelText]=requestedKey.split(':');
+      const [[section]]=await pool.execute(
+        `SELECT id, section_key AS sectionKey, display_name AS displayName, placeholder,
+                section_type AS sectionType, child_label AS childLabel
+           FROM crm_config_sections WHERE id=? AND business_unit_id=? AND is_active=TRUE`,
+        [Number(sectionIdText)||0,unitId]);
+      if(!section)return res.status(400).json({message:'That configuration section is not part of this business unit'});
+      const level=section.sectionType==='hierarchy'&&levelText==='child'?'child':'parent';
+      optionSource={sectionId:Number(section.id),level};
+      entry={
+        key:await unusedFieldKey(unitId,`${CONFIG_FIELD_PREFIX}${section.sectionKey}${level==='child'?'_child':''}`),
+        label:level==='child'?`${section.displayName} ${section.childLabel||'sub-value'}`:section.displayName,
+        type:'single_select',source:'config',width:170,filterControl:'single_select',
+        placeholder:level==='parent'?section.placeholder:null,
+      };
+      const [[alreadyBound]]=await pool.execute(
+        `SELECT display_name AS displayName FROM crm_metadata_fields
+          WHERE business_unit_id=? AND module_key='leads' AND options_section_id=? AND COALESCE(options_section_level,'parent')=? LIMIT 1`,
+        [unitId,optionSource.sectionId,optionSource.level]);
+      if(alreadyBound)return res.status(409).json({message:`${alreadyBound.displayName} already reads from that configuration section`});
+    }
     if(!entry)return res.status(400).json({message:'Unknown standard field'});
     const [[duplicate]]=await pool.execute(
       `SELECT id FROM crm_metadata_fields WHERE business_unit_id=? AND module_key='leads' AND field_key=?`,[unitId,entry.key]);
@@ -598,10 +704,12 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     const displayName=text(req.body.displayName,150)||entry.label;
     const [result]=await pool.execute(
       `INSERT INTO crm_metadata_fields
-       (business_unit_id,module_key,field_key,display_name,field_type,placeholder,options_json,validation_json,is_system,is_required,is_filterable,filter_control,is_searchable,is_importable,is_import_required,import_header,import_sample_value,show_in_list,position,column_width)
-       VALUES (?,'leads',?,?,?,?,?,?,TRUE,?,?,?,?,?,?,?,?,?,?,?)`,
-      [unitId,entry.key,displayName,entry.type,text(req.body.placeholder,200),
-       JSON.stringify(entry.options||[]),JSON.stringify({...requested,usage,requiredOnLeadForm:Boolean(req.body.isRequired)}),
+       (business_unit_id,module_key,field_key,display_name,field_type,placeholder,options_json,options_section_id,options_section_level,validation_json,is_system,is_required,is_filterable,filter_control,is_searchable,is_importable,is_import_required,import_header,import_sample_value,show_in_list,position,column_width)
+       VALUES (?,'leads',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [unitId,entry.key,displayName,entry.type,text(req.body.placeholder,200)||entry.placeholder||null,
+       JSON.stringify(entry.options||[]),optionSource?.sectionId||null,optionSource?.level||'parent',
+       JSON.stringify({...requested,usage,requiredOnLeadForm:Boolean(req.body.isRequired)}),
+       optionSource?0:1,
        req.body.isRequired?1:0,
        req.body.isFilterable===false?0:1,
        text(req.body.filterControl,40)||entry.filterControl||(['single_select','user'].includes(entry.type)?'single_select':['datetime','date'].includes(entry.type)?'date_range':'contains'),
@@ -797,7 +905,8 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
         pool.query(`SELECT id,category_code code,display_name displayName,is_active isActive FROM crm_channel_categories ORDER BY display_name`),
         pool.query(`SELECT c.id,c.channel_code code,c.display_name displayName,c.category_id parentId,COALESCE(cc.display_name,c.category) parentName,c.is_active isActive FROM crm_lead_channels c LEFT JOIN crm_channel_categories cc ON cc.id=c.category_id ORDER BY parentName,c.display_name`),
       ]);
-      return res.json({sources,campaignCategories,campaigns,channelCategories,channels,manualLeadDefaults:parseJson(unit.manual_lead_defaults_json,{})});
+      const storedDefaults=parseJson(unit.manual_lead_defaults_json,{});
+      return res.json({sources,campaignCategories,campaigns,channelCategories,channels,manualLeadDefaults:storedDefaults,reEnquiryDefaults:storedDefaults.reEnquiry||{}});
     }
     const [[channelCategories],[channels],[sources],[campaignCategories],[campaigns]]=await Promise.all([
       pool.execute(`SELECT id,category_key code,display_name displayName,is_active isActive FROM crm_business_channel_categories WHERE business_unit_id=? ORDER BY display_name`,[unitId]),
@@ -806,7 +915,8 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
       pool.execute(`SELECT id,category_key code,display_name displayName,is_active isActive FROM crm_business_campaign_categories WHERE business_unit_id=? ORDER BY display_name`,[unitId]),
       pool.execute(`SELECT c.id,c.campaign_key code,c.display_name displayName,c.category_id parentId,cc.display_name parentName,c.is_active isActive FROM crm_business_campaigns c JOIN crm_business_campaign_categories cc ON cc.id=c.category_id WHERE c.business_unit_id=? ORDER BY cc.display_name,c.display_name`,[unitId]),
     ]);
-    res.json({sources,campaignCategories,campaigns,channelCategories,channels,manualLeadDefaults:parseJson(unit.manual_lead_defaults_json,{})});
+    const storedDefaults=parseJson(unit.manual_lead_defaults_json,{});
+    res.json({sources,campaignCategories,campaigns,channelCategories,channels,manualLeadDefaults:storedDefaults,reEnquiryDefaults:storedDefaults.reEnquiry||{}});
   });
 
   router.put('/business-units/:id/manual-lead-defaults', requireUserAdmin, async (req,res)=>{
@@ -814,32 +924,34 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
     if(!unit)return res.status(403).json({message:'Business unit management access required'});
     const current=parseJson(unit.manual_lead_defaults_json,{});
     const allowed=['channelId','sourceId','campaignId','stageId','substageId'];
-    const next={...current};
+    const isReEnquiry=req.body?.defaultsType==='reEnquiry';
+    const selected={...(isReEnquiry?current.reEnquiry||{}:current)};
     for(const key of allowed){
-      if(Object.prototype.hasOwnProperty.call(req.body||{},key))next[key]=req.body[key]?Number(req.body[key]):null;
+      if(Object.prototype.hasOwnProperty.call(req.body||{},key))selected[key]=req.body[key]?Number(req.body[key]):null;
     }
+    const next=isReEnquiry?{...current,reEnquiry:selected}:selected;
     const legacy=unit.compatibility_mode==='legacy_school';
     const ensure=async(key,sql,params,message)=>{
-      if(!next[key])return true;
+      if(!selected[key])return true;
       const [[row]]=await pool.execute(sql,params);
       if(!row){res.status(400).json({message});return false;}
       return true;
     };
     if(legacy){
-      if(!await ensure('channelId','SELECT id FROM crm_lead_channels WHERE id=? AND is_active=TRUE',[next.channelId],'Select an active default channel'))return;
-      if(!await ensure('sourceId','SELECT id FROM crm_lead_sources WHERE id=? AND is_active=TRUE AND (? IS NULL OR channel_id=?)',[next.sourceId,next.channelId,next.channelId],'The default source must belong to the selected channel'))return;
-      if(!await ensure('campaignId','SELECT id FROM crm_campaigns WHERE id=? AND is_active=TRUE',[next.campaignId],'Select an active default campaign'))return;
-      if(!await ensure('stageId','SELECT id FROM crm_lead_stages WHERE id=? AND business_unit_id=? AND is_active=TRUE',[next.stageId,unitId],'Select an active default stage'))return;
-      if(!await ensure('substageId','SELECT ss.id FROM crm_lead_substages ss JOIN crm_lead_stages s ON s.id=ss.stage_id WHERE ss.id=? AND s.business_unit_id=? AND ss.is_active=TRUE AND (? IS NULL OR ss.stage_id=?)',[next.substageId,unitId,next.stageId,next.stageId],'The default sub-stage must belong to the selected stage'))return;
+      if(!await ensure('channelId','SELECT id FROM crm_lead_channels WHERE id=? AND is_active=TRUE',[selected.channelId],'Select an active default channel'))return;
+      if(!await ensure('sourceId','SELECT id FROM crm_lead_sources WHERE id=? AND is_active=TRUE AND (? IS NULL OR channel_id=?)',[selected.sourceId,selected.channelId,selected.channelId],'The default source must belong to the selected channel'))return;
+      if(!await ensure('campaignId','SELECT id FROM crm_campaigns WHERE id=? AND is_active=TRUE',[selected.campaignId],'Select an active default campaign'))return;
+      if(!await ensure('stageId','SELECT id FROM crm_lead_stages WHERE id=? AND business_unit_id=? AND is_active=TRUE',[selected.stageId,unitId],'Select an active default stage'))return;
+      if(!await ensure('substageId','SELECT ss.id FROM crm_lead_substages ss JOIN crm_lead_stages s ON s.id=ss.stage_id WHERE ss.id=? AND s.business_unit_id=? AND ss.is_active=TRUE AND (? IS NULL OR ss.stage_id=?)',[selected.substageId,unitId,selected.stageId,selected.stageId],'The default sub-stage must belong to the selected stage'))return;
     }else{
-      if(!await ensure('channelId','SELECT id FROM crm_business_channels WHERE id=? AND business_unit_id=? AND is_active=TRUE',[next.channelId,unitId],'Select an active default channel'))return;
-      if(!await ensure('sourceId','SELECT id FROM crm_business_sources WHERE id=? AND business_unit_id=? AND is_active=TRUE AND (? IS NULL OR channel_id=?)',[next.sourceId,unitId,next.channelId,next.channelId],'The default source must belong to the selected channel'))return;
-      if(!await ensure('campaignId','SELECT id FROM crm_business_campaigns WHERE id=? AND business_unit_id=? AND is_active=TRUE',[next.campaignId,unitId],'Select an active default campaign'))return;
-      if(!await ensure('stageId','SELECT ps.id FROM crm_metadata_pipeline_stages ps JOIN crm_metadata_pipelines p ON p.id=ps.pipeline_id WHERE ps.id=? AND p.business_unit_id=? AND ps.is_active=TRUE',[next.stageId,unitId],'Select an active default stage'))return;
-      if(!await ensure('substageId','SELECT ss.id FROM crm_metadata_pipeline_substages ss JOIN crm_metadata_pipeline_stages ps ON ps.id=ss.stage_id JOIN crm_metadata_pipelines p ON p.id=ps.pipeline_id WHERE ss.id=? AND p.business_unit_id=? AND ss.is_active=TRUE AND (? IS NULL OR ss.stage_id=?)',[next.substageId,unitId,next.stageId,next.stageId],'The default sub-stage must belong to the selected stage'))return;
+      if(!await ensure('channelId','SELECT id FROM crm_business_channels WHERE id=? AND business_unit_id=? AND is_active=TRUE',[selected.channelId,unitId],'Select an active default channel'))return;
+      if(!await ensure('sourceId','SELECT id FROM crm_business_sources WHERE id=? AND business_unit_id=? AND is_active=TRUE AND (? IS NULL OR channel_id=?)',[selected.sourceId,unitId,selected.channelId,selected.channelId],'The default source must belong to the selected channel'))return;
+      if(!await ensure('campaignId','SELECT id FROM crm_business_campaigns WHERE id=? AND business_unit_id=? AND is_active=TRUE',[selected.campaignId,unitId],'Select an active default campaign'))return;
+      if(!await ensure('stageId','SELECT ps.id FROM crm_metadata_pipeline_stages ps JOIN crm_metadata_pipelines p ON p.id=ps.pipeline_id WHERE ps.id=? AND p.business_unit_id=? AND ps.is_active=TRUE',[selected.stageId,unitId],'Select an active default stage'))return;
+      if(!await ensure('substageId','SELECT ss.id FROM crm_metadata_pipeline_substages ss JOIN crm_metadata_pipeline_stages ps ON ps.id=ss.stage_id JOIN crm_metadata_pipelines p ON p.id=ps.pipeline_id WHERE ss.id=? AND p.business_unit_id=? AND ss.is_active=TRUE AND (? IS NULL OR ss.stage_id=?)',[selected.substageId,unitId,selected.stageId,selected.stageId],'The default sub-stage must belong to the selected stage'))return;
     }
     await pool.execute('UPDATE crm_business_units SET manual_lead_defaults_json=?,updated_by_user_id=? WHERE id=?',[JSON.stringify(next),Number(req.user.id),unitId]);
-    res.json({manualLeadDefaults:next,message:'Manual Add Lead defaults saved'});
+    res.json({manualLeadDefaults:next,reEnquiryDefaults:next.reEnquiry||{},message:isReEnquiry?'Re-enquiry defaults saved':'Manual Add Lead defaults saved'});
   });
 
   router.post('/business-units/:id/source-config/:type', requireUserAdmin, async (req,res)=>{
@@ -1206,8 +1318,12 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
         await connection.beginTransaction();
         const [[stage]]=await connection.execute(`SELECT id FROM crm_lead_stages WHERE id=? AND business_unit_id=? FOR UPDATE`,[stageId,unitId]);
         if(!stage){await connection.rollback();return res.status(404).json({message:'Lead stage not found'});}
-        await connection.execute(`DELETE FROM crm_lead_substages WHERE stage_id=?`,[stageId]);
-        await connection.execute(`DELETE FROM crm_lead_stages WHERE id=? AND business_unit_id=?`,[stageId,unitId]);
+        // Keep tombstones for seeded stages/sub-stages. Several historical
+        // migrations are intentionally replayable and may attempt to seed the
+        // same keys again; a physical delete would make an administrator's
+        // deletion indistinguishable from a missing seed row.
+        await connection.execute(`UPDATE crm_lead_substages SET is_active=FALSE WHERE stage_id=?`,[stageId]);
+        await connection.execute(`UPDATE crm_lead_stages SET is_active=FALSE WHERE id=? AND business_unit_id=?`,[stageId,unitId]);
         await connection.commit();
         return res.json({message:'Lead stage and its unused sub-stages deleted'});
       }catch(error){
@@ -1305,7 +1421,9 @@ export function createBusinessPlatformRoutes(pool, authenticate, requireCrmAcces
       );
       if(Number(assigned.count)>0)return res.status(409).json({message:`Cannot delete this sub-stage because ${assigned.count} lead${Number(assigned.count)===1?' is':'s are'} assigned to it`});
       try{
-        const [result]=await pool.execute(`DELETE FROM crm_lead_substages WHERE id=?`,[substageId]);
+        // Soft deletion records the administrator's choice so replayable seed
+        // migrations cannot recreate the sub-stage later.
+        const [result]=await pool.execute(`UPDATE crm_lead_substages ss JOIN crm_lead_stages s ON s.id=ss.stage_id SET ss.is_active=FALSE WHERE ss.id=? AND s.business_unit_id=?`,[substageId,unitId]);
         if(!result.affectedRows)return res.status(404).json({message:'Lead sub-stage not found'});
         return res.json({message:'Lead sub-stage deleted'});
       }catch(error){

@@ -38,7 +38,9 @@ INSERT INTO crm_admission_types(type_code,display_name) VALUES ('new','New admis
 ON DUPLICATE KEY UPDATE display_name=VALUES(display_name),is_active=TRUE;
 INSERT INTO crm_lead_substages(stage_id,substage_code,display_name,position)
 SELECT id,CONCAT(name,'_pending'),CONCAT(display_name,' - Pending'),1 FROM crm_lead_stages
-ON DUPLICATE KEY UPDATE display_name=VALUES(display_name),stage_id=VALUES(stage_id),is_active=TRUE;
+-- A replay may refresh the label, but must never undo an administrator's
+-- decision to deactivate/delete this seeded sub-stage.
+ON DUPLICATE KEY UPDATE display_name=VALUES(display_name),stage_id=VALUES(stage_id);
 
 SET @extended_columns_exist=(SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='crm_leads' AND column_name='channel_id');
 SET @sql=IF(@extended_columns_exist=0,'ALTER TABLE crm_leads

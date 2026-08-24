@@ -109,7 +109,13 @@ pool.on('connection', (connection) => connection.query("SET time_zone = '+05:30'
    query". */
 const DEAD_CONNECTION_CODES = new Set([
     'ECONNRESET', 'EPIPE', 'ETIMEDOUT', 'PROTOCOL_CONNECTION_LOST', 'ECONNREFUSED',
+    'ENETUNREACH', 'EHOSTUNREACH', 'ENETDOWN',
 ]);
+// These errors occur before a packet can reach MySQL, so one retry is safe
+// for writes as well as reads. Socket resets/timeouts remain read-only retries
+// because the server may already have executed a write before the connection
+// failed.
+const PRE_CONNECT_FAILURE_CODES = new Set(['ENETUNREACH', 'EHOSTUNREACH', 'ENETDOWN', 'ECONNREFUSED']);
 // Deliberately no WITH: MySQL 8 allows `WITH ... UPDATE` and `WITH ... DELETE`,
 // so a leading CTE says nothing about whether the statement writes.
 const READ_ONLY_STATEMENT = /^\s*(?:\/\*[\s\S]*?\*\/\s*)?(?:SELECT|SHOW|DESCRIBE|DESC|EXPLAIN)\b/i;
@@ -131,11 +137,12 @@ for (const method of ['execute', 'query']) {
         } catch (error) {
             const sql = typeof args[0] === 'string' ? args[0] : args[0]?.sql;
             if (!DEAD_CONNECTION_CODES.has(error?.code)) throw error;
-            if (!READ_ONLY_STATEMENT.test(sql || '')) {
+            if (!READ_ONLY_STATEMENT.test(sql || '') && !PRE_CONNECT_FAILURE_CODES.has(error?.code)) {
                 console.error(`[mysql] ${error.code} on a write; not retried:`, String(sql || '').slice(0, 120));
                 throw error;
             }
-            console.warn(`[mysql] ${error.code} on a stale connection, retrying read`);
+            console.warn(`[mysql] ${error.code} on a database connection, retrying once`);
+            await new Promise(resolve => setTimeout(resolve, 250));
             return await direct(...args);
         }
     };
@@ -1155,6 +1162,7 @@ app.get('/api/public/enquiry-forms/:formKey', async (req, res) => {
     const fieldsByKey = new Map(fields.map(field => [field.fieldKey, field]));
     const paymentConfig = resolvePaymentContext(form, await branchPaymentConfig(resolvedTracking.branchId));
     const paymentVisible = publicPaymentVisible(paymentConfig);
+    const storedLeadDefaults=parseJsonValue(unitDefaultsRow?.manualLeadDefaults, {});
     res.json({
         form: {
             key: form.formKey, name: form.displayName, description: form.description, businessUnitName: form.businessUnitName,
@@ -2109,6 +2117,75 @@ app.get('/api/leads/pipelines', authenticate, requireCrmAccess, async (req, res)
     res.json({ data: rows });
 });
 
+/*
+ * Which Leads screen the column arrangement belongs to.
+ *
+ * A pipeline id off the query string is trusted only after it is confirmed to
+ * be one of this unit's -- the arrangement is keyed by pipeline, so an id from
+ * another unit would let a person write onto a screen they cannot see. With no
+ * id the request is for the plain /leads route, which shows the unit's default
+ * pipeline, so that is what is resolved here.
+ */
+async function resolveLeadColumnPipeline(businessUnitId, pipelineId) {
+    if (Number(pipelineId) > 0) {
+        const [[pipeline]] = await pool.execute(
+            `SELECT id FROM crm_lead_pipelines WHERE id=? AND business_unit_id=? LIMIT 1`,
+            [Number(pipelineId), Number(businessUnitId)],
+        );
+        return pipeline ? Number(pipeline.id) : null;
+    }
+    const [[fallback]] = await pool.execute(
+        `SELECT id FROM crm_lead_pipelines
+          WHERE business_unit_id=? AND is_active=TRUE
+          ORDER BY is_default DESC, position, id LIMIT 1`,
+        [Number(businessUnitId)],
+    );
+    return fallback ? Number(fallback.id) : null;
+}
+
+/*
+ * The columns this person arranged on this Leads screen.
+ *
+ * An empty list is the honest answer for a screen nobody has arranged --
+ * a new business unit, a pipeline created this morning, a colleague's first
+ * visit -- and the screen falls back to its default columns rather than the
+ * API inventing an arrangement nobody chose.
+ */
+app.get('/api/leads/column-preferences', authenticate, requireCrmAccess, async (req, res) => {
+    const pipelineId = await resolveLeadColumnPipeline(req.businessUnit.id, req.query.pipelineId);
+    if (!pipelineId) return res.json({ data: { pipelineId: null, columns: [] } });
+    const [[row]] = await pool.execute(
+        `SELECT columns_json AS columns FROM crm_lead_column_preferences WHERE user_id=? AND pipeline_id=? LIMIT 1`,
+        [Number(req.user.id), pipelineId],
+    );
+    const columns = row ? parseJsonValue(row.columns, []) : [];
+    res.json({ data: { pipelineId, columns: Array.isArray(columns) ? columns : [] } });
+});
+
+/*
+ * Store one screen's arrangement. Sending an empty list deletes the row, which
+ * is how "reset to the default columns" is recorded -- storing the defaults
+ * instead would freeze today's defaults onto the user for ever.
+ */
+app.put('/api/leads/column-preferences', authenticate, requireCrmAccess, async (req, res) => {
+    const pipelineId = await resolveLeadColumnPipeline(req.businessUnit.id, req.body.pipelineId);
+    if (!pipelineId) return res.status(400).json({ message: 'This business unit has no lead pipeline to arrange columns on' });
+    const columns = [...new Set((Array.isArray(req.body.columns) ? req.body.columns : [])
+        .filter(column => typeof column === 'string')
+        .map(column => column.trim())
+        .filter(column => column && column.length <= 150))].slice(0, 120);
+    if (!columns.length) {
+        await pool.execute(`DELETE FROM crm_lead_column_preferences WHERE user_id=? AND pipeline_id=?`, [Number(req.user.id), pipelineId]);
+        return res.json({ message: 'Columns reset to the default arrangement', data: { pipelineId, columns: [] } });
+    }
+    await pool.execute(
+        `INSERT INTO crm_lead_column_preferences (user_id, pipeline_id, columns_json) VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE columns_json=VALUES(columns_json), updated_at_utc=CURRENT_TIMESTAMP(6)`,
+        [Number(req.user.id), pipelineId, JSON.stringify(columns)],
+    );
+    res.json({ message: 'Columns saved', data: { pipelineId, columns } });
+});
+
 app.get('/api/leads/meta', authenticate, requireCrmAccess, async (req, res) => {
     const scope = scopedWhere(req.user, 'b.id');
     const [[unitDefaultsRow]] = await pool.execute(
@@ -2140,7 +2217,7 @@ app.get('/api/leads/meta', authenticate, requireCrmAccess, async (req, res) => {
     const [admissionTypes] = await pool.query(`SELECT id, type_code AS code, display_name AS displayName FROM crm_admission_types WHERE is_active = TRUE ORDER BY display_name`);
     /* A sub-stage carries the pipeline of the stage it hangs off, so a Meta
        lead form pointed at a sub-stage id lands its leads in that pipeline. */
-    const [substages] = await pool.execute(`SELECT ss.id, ss.stage_id AS stageId, s.pipeline_id AS pipelineId, ss.substage_code AS code, ss.display_name AS displayName FROM crm_lead_substages ss JOIN crm_lead_stages s ON s.id=ss.stage_id WHERE s.business_unit_id=? AND ss.is_active = TRUE ORDER BY s.position, ss.position`, [Number(req.businessUnit.id)]);
+    const [substages] = await pool.execute(`SELECT ss.id, ss.stage_id AS stageId, s.pipeline_id AS pipelineId, ss.substage_code AS code, ss.display_name AS displayName FROM crm_lead_substages ss JOIN crm_lead_stages s ON s.id=ss.stage_id WHERE s.business_unit_id=? AND s.is_active=TRUE AND ss.is_active = TRUE ORDER BY s.position, ss.position`, [Number(req.businessUnit.id)]);
     const [branches] = await pool.execute(`SELECT b.id, b.branch_name AS name, b.short_name AS shortName FROM branches b WHERE b.is_active = TRUE AND ${scope.sql} ORDER BY b.branch_name`, scope.params);
     /* Which pipelines each branch is shown in. Attached rather than filtered
        here: this one payload feeds every screen, and several of them -- the
@@ -2193,7 +2270,8 @@ app.get('/api/leads/meta', authenticate, requireCrmAccess, async (req, res) => {
     );
     res.json({
         stages, pipelines, sources, classes, curricula, channels, campaigns, sourceLinks, campaignLinks, admissionTypes, substages, branches, academicYears, employees,
-        manualLeadDefaults: parseJsonValue(unitDefaultsRow?.manualLeadDefaults, {}),
+        manualLeadDefaults: storedLeadDefaults,
+        reEnquiryDefaults: storedLeadDefaults.reEnquiry||{},
         leadFields: leadFields.map(field => ({
             ...field,
             options: field.fieldKey === 'source'
@@ -2269,7 +2347,7 @@ app.get('/api/leads/:id', authenticate, requireCrmAccess, async (req, res) => {
     const [callActivities] = await pool.execute(
         `SELECT ca.id, ca.direction, ca.status, ca.call_result AS callResult, ca.disposition,
             ca.duration_seconds AS durationSeconds, ca.talk_seconds AS talkSeconds,
-            ca.recording_url AS recordingUrl, ca.notes,
+            ca.recording_url AS recordingUrl, ca.notes, ca.raw_payload AS rawPayload,
             ca.destination_number AS destinationNumber, ca.agent_number AS agentNumber,
             COALESCE(ca.started_at_utc, ca.created_at_utc) AS occurredAt,
             COALESCE(agent_employee.employee_name, agent_email_employee.employee_name, 'CRM user') AS actorName
@@ -2290,6 +2368,13 @@ app.get('/api/leads/:id', authenticate, requireCrmAccess, async (req, res) => {
     };
     for (const call of callActivities) {
         const spoken = callDuration(call.talkSeconds || call.durationSeconds);
+        const rawCall = parseJsonValue(call.rawPayload, {});
+        const callingMode = rawCall.request?.calling_mode || null;
+        const callingApi = rawCall.request?.api_endpoint || null;
+        const providerCall = rawCall.cdr || rawCall.webhook || rawCall;
+        const hangupCode = providerCall.hangup_cause_code ?? providerCall.hangupcause_code ?? providerCall.$hangupcause_code ?? null;
+        const hangupKey = providerCall.hangup_cause_key ?? providerCall.hangupcause_key ?? providerCall.$hangupcause_key ?? null;
+        const hangupDescription = providerCall.hangup_cause_description ?? providerCall.hangupcause_desc ?? providerCall.$hangupcause_desc ?? providerCall.hangup_cause ?? null;
         activities.push({
             // Prefixed so it cannot collide with a crm_lead_activities id, which
             // the front end uses as a React key and an expand/collapse key.
@@ -2310,6 +2395,11 @@ app.get('/api/leads/:id', authenticate, requireCrmAccess, async (req, res) => {
                 disposition: call.disposition || null,
                 duration: spoken,
                 number: call.destinationNumber || null,
+                callingMode: callingMode === 'CUSTOMER_FIRST' ? 'Customer First – Click to Call Support' : callingMode === 'AGENT_FIRST' ? 'Agent First – Standard Click to Call' : null,
+                callingApi,
+                hangupCauseCode: hangupCode,
+                hangupCauseKey: hangupKey,
+                hangupCause: hangupDescription,
             },
         });
     }
@@ -2575,6 +2665,9 @@ app.put('/api/leads/:id/followup-notes', authenticate, requireCrmAccess, require
     const comment = cleanOptional(req.body.comment, 10000);
     const referralBranchId = Number(req.body.referralBranchId);
     const referralEmployeeId = Number(req.body.referralEmployeeId);
+    const callActivityId = Number(req.body.callActivityId) || null;
+    const callAttempt = Boolean(req.body.callAttempt || callActivityId);
+    let callDisposition = cleanOptional(req.body.callDisposition, 80);
     if (!Number.isInteger(stageId) || stageId <= 0) return res.status(400).json({ message: 'Stage is required' });
     if (!Number.isInteger(substageId) || substageId <= 0) return res.status(400).json({ message: 'Sub-stage is required' });
     if (!comment) return res.status(400).json({ message: 'New comment is required' });
@@ -2582,6 +2675,9 @@ app.put('/api/leads/:id/followup-notes', authenticate, requireCrmAccess, require
     if (!Number.isInteger(referralEmployeeId) || referralEmployeeId <= 0) return res.status(400).json({ message: 'Counsellor is required' });
     const [[validSubstage]] = await pool.execute(`SELECT ss.id,ss.display_name AS substageName,s.display_name AS stageName FROM crm_lead_substages ss JOIN crm_lead_stages s ON s.id=ss.stage_id WHERE ss.id=? AND ss.stage_id=? AND ss.is_active=TRUE AND s.is_active=TRUE LIMIT 1`, [substageId, stageId]);
     if (!validSubstage) return res.status(400).json({ message: 'Select a valid sub-stage for the selected stage' });
+    // Call disposition is the selected sub-stage. Derive it server-side so a
+    // client cannot save a label that disagrees with the stage hierarchy.
+    if (callAttempt) callDisposition = validSubstage.substageName;
     const followup = await validateStageFollowup(req.body);
     if (followup.error) return res.status(400).json({ message: followup.error });
     const scope = leadScopedWhere(req.user);
@@ -2630,6 +2726,13 @@ app.put('/api/leads/:id/followup-notes', authenticate, requireCrmAccess, require
                 Number(req.user.id), leadId],
         );
         await connection.execute(`INSERT INTO crm_lead_comments (lead_id,comment_text,created_by_user_id) VALUES (?,?,?)`, [leadId, comment, Number(req.user.id)]);
+        if (callActivityId) {
+            const [callUpdate] = await connection.execute(
+                `UPDATE crm_call_activities SET disposition=?,notes=? WHERE id=? AND lead_id=? AND business_unit_id=?`,
+                [callDisposition, comment, callActivityId, leadId, Number(req.businessUnit.id)],
+            );
+            if (!callUpdate.affectedRows) { await connection.rollback(); return res.status(400).json({ message: 'The call activity is not available for this lead' }); }
+        }
         const [[pending]] = await connection.execute(`SELECT id FROM crm_followups WHERE lead_id=? AND LOWER(status) IN ('p','pending') ORDER BY id DESC LIMIT 1`, [leadId]);
         if (followup.required && pending) {
             await connection.execute(`UPDATE crm_followups SET assigned_employee_id=?,followup_type=?,due_at_utc=? WHERE id=?`, [referralEmployeeId, followup.followupType, followup.nextFollowupAt, pending.id]);
@@ -2649,6 +2752,9 @@ app.put('/api/leads/:id/followup-notes', authenticate, requireCrmAccess, require
                     followupType: followup.followupType || null,
                     stage: validSubstage.stageName,
                     substage: validSubstage.substageName,
+                    callActivityId,
+                    callAttempt,
+                    callDisposition: callDisposition || null,
                 }),
                 Number(req.user.id)],
         );
@@ -2682,10 +2788,23 @@ app.post('/api/leads/:id/sources', authenticate, requireCrmAccess, requireLeadWr
     const values = [leadId, cleanOptional(req.body.academicYear, 20), Number(req.body.sourceId), Number(req.body.channelId), Number(req.body.campaignId)];
     const [[duplicate]] = await pool.execute(`SELECT id FROM crm_lead_source_history WHERE lead_id=? AND academic_year=? AND source_id=? AND channel_id=? AND campaign_id=? LIMIT 1`, values);
     if (duplicate) return res.status(409).json({ message: 'These source details are already recorded for this lead' });
-    await pool.execute(`INSERT INTO crm_lead_source_history(lead_id,academic_year,source_id,channel_id,campaign_id,is_primary,intake_method,created_by_user_id) VALUES(?,?,?,?,?,FALSE,'manual',?)`, [...values, Number(req.user.id)]);
-    await pool.execute(`UPDATE crm_leads SET updated_at_utc=CURRENT_TIMESTAMP(6),updated_by_user_id=? WHERE id=?`, [Number(req.user.id), leadId]);
-    await pool.execute(`INSERT INTO crm_lead_activities(lead_id,activity_type,summary,actor_user_id) VALUES(?,'source_appended','Secondary source appended',?)`, [leadId, Number(req.user.id)]);
-    res.status(201).json({ message: 'Secondary source added successfully' });
+    /* A re-enquiry is a lead coming back through some source, so the mark and
+       the source that earned it are written together -- a lead can never end
+       up flagged as a re-enquiry with nothing to say where it came from. */
+    const markReEnquired = req.body.markReEnquired === true || req.body.markReEnquired === 'true';
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+        await connection.execute(`INSERT INTO crm_lead_source_history(lead_id,academic_year,source_id,channel_id,campaign_id,is_primary,intake_method,created_by_user_id) VALUES(?,?,?,?,?,FALSE,'manual',?)`, [...values, Number(req.user.id)]);
+        await connection.execute(`UPDATE crm_leads SET ${markReEnquired ? 're_enquired_at_utc=CURRENT_TIMESTAMP(6),' : ''}updated_at_utc=CURRENT_TIMESTAMP(6),updated_by_user_id=? WHERE id=?`, [Number(req.user.id), leadId]);
+        await connection.execute(`INSERT INTO crm_lead_activities(lead_id,activity_type,summary,actor_user_id) VALUES(?,'source_appended','Secondary source appended',?)`, [leadId, Number(req.user.id)]);
+        if (markReEnquired) await connection.execute(`INSERT INTO crm_lead_activities(lead_id,activity_type,summary,actor_user_id) VALUES(?,'re_enquired','Lead marked as re-enquiry against a new source',?)`, [leadId, Number(req.user.id)]);
+        await connection.commit();
+    } catch (error) {
+        await connection.rollback();
+        throw error;
+    } finally { connection.release(); }
+    res.status(201).json({ message: markReEnquired ? 'Secondary source added and lead marked as re-enquiry' : 'Secondary source added successfully', reEnquired: markReEnquired });
 });
 
 /**

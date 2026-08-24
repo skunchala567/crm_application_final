@@ -258,6 +258,78 @@
   font-size: 10px;
 }
 
+/* Headers are the handle for arranging columns: grab one and drop it on
+   another. The grip only appears on hover so the header row stays quiet. */
+.leads-page .leads-panel th.lead-column-head {
+  cursor: grab;
+  user-select: none;
+}
+
+.leads-page .leads-panel th.lead-column-head.is-dragging {
+  opacity: .4;
+  cursor: grabbing;
+}
+
+.leads-page .leads-panel th.lead-column-head.is-drop-target {
+  background: var(--brand-50);
+  box-shadow: inset 0 -2px 0 var(--brand-500);
+}
+
+.leads-page .lead-column-head-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 4px;
+  outline: none;
+}
+
+.leads-page .lead-column-head-inner:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+}
+
+.leads-page .lead-column-head-inner svg {
+  color: var(--ink-300);
+  opacity: 0;
+  transition: opacity .12s ease;
+}
+
+.leads-page th.lead-column-head:hover .lead-column-head-inner svg,
+.leads-page .lead-column-head-inner:focus-visible svg {
+  opacity: 1;
+}
+
+/* The column picker rides in the filter row with the dropdowns, so it takes
+   their height and border, and keeps its own width instead of stretching
+   across a grid track when the row becomes a grid. */
+.leads-page .lead-control-row > .columns-picker-trigger {
+  flex: 0 0 auto;
+  justify-self: start;
+  height: 44px;
+  padding: 0 13px;
+  gap: 7px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink-600);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.leads-page .lead-control-row > .columns-picker-trigger:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.leads-page .columns-picker-trigger b {
+  background: var(--brand-50);
+  color: var(--brand-700);
+  border-radius: 9px;
+  padding: 1px 6px;
+  font-size: 10px;
+}
+
 .leads-page .leads-panel > .table-wrap {
   min-height: 0;
   flex: 1 1 auto;

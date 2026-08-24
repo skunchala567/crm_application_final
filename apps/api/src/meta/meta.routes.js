@@ -135,7 +135,7 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
       `SELECT ss.id, ss.stage_id AS stageId, s.pipeline_id AS pipelineId, s.business_unit_id AS businessUnitId,
               ss.display_name AS name, ss.position
          FROM crm_lead_substages ss JOIN crm_lead_stages s ON s.id = ss.stage_id
-        WHERE ss.is_active = TRUE ORDER BY s.pipeline_id, s.position, ss.position`,
+        WHERE s.is_active = TRUE AND ss.is_active = TRUE ORDER BY s.pipeline_id, s.position, ss.position`,
     );
     res.json({
       success: true,

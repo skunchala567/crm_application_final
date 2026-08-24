@@ -264,7 +264,7 @@ export function Header({ user, onLogout, onMenuClick, navCollapsed = false, mobi
 
   return (
     <>
-    <header className="sticky top-0 z-40 flex-none bg-white/[.88] backdrop-blur-[14px] backdrop-saturate-150 border-b border-border">
+    <header className="app-global-header sticky top-0 z-40 flex-none bg-white/[.88] backdrop-blur-[14px] backdrop-saturate-150 border-b border-border">
       <div className="h-[62px] flex items-center gap-2 xl:gap-[18px] px-3 sm:px-4 xl:px-[22px] min-w-0" ref={wrapRef}>
         {/* Drawer opener, mobile only. On desktop the collapse control lives
             inside the sidebar itself, where the panel it acts on is; here it

@@ -2,10 +2,21 @@ import { useMemo, useState } from "react";
 import { Download, Search, X } from "lucide-react";
 import "./DownloadFieldsDialog.css";
 
-export default function DownloadFieldsDialog({ title = "Download Data", groups = [], defaultSelected = [], onClose, onDownload }) {
+/*
+ * Pick fields out of a grouped catalogue.
+ *
+ * Written for the lead export, and now also the picker for which columns the
+ * leads table shows -- the same catalogue answers both questions, so the two
+ * differ only in wording and in what Apply does with the chosen fields.
+ *
+ * `defaultSelected` is what Reset returns to; `selectedIds` is what the
+ * dialog opens on. The export passes neither and gets the fields flagged
+ * defaultSelected, unchanged.
+ */
+export default function DownloadFieldsDialog({ title = "Download Data", groups = [], defaultSelected = [], selectedIds = null, note = "Choose the fields to include in the Excel/CSV download.", actionLabel = "Download", actionIcon = <Download size={15}/>, headerIcon = <Download size={18}/>, onClose, onDownload }) {
   const allFields = useMemo(() => groups.flatMap(group => group.fields), [groups]);
   const defaultIds = useMemo(() => defaultSelected.length ? defaultSelected : allFields.filter(field => field.defaultSelected).map(field => field.id), [allFields, defaultSelected]);
-  const [selected, setSelected] = useState(() => new Set(defaultIds));
+  const [selected, setSelected] = useState(() => new Set(selectedIds || defaultIds));
   const [query, setQuery] = useState("");
   const visibleGroups = groups.map(group => ({
     ...group,
@@ -39,11 +50,11 @@ export default function DownloadFieldsDialog({ title = "Download Data", groups =
   return <div className="download-dialog-backdrop" role="presentation">
     <section className="download-fields-dialog" role="dialog" aria-modal="true" aria-label={title}>
       <header>
-        <div><Download size={18}/><h2>{title}</h2></div>
+        <div>{headerIcon}<h2>{title}</h2></div>
         <button type="button" aria-label="Close" onClick={onClose}><X size={18}/></button>
       </header>
       <div className="download-dialog-search"><Search size={16}/><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search field"/></div>
-      <p className="download-dialog-note">Choose the fields to include in the Excel/CSV download.</p>
+      <p className="download-dialog-note">{note}</p>
       <label className="download-select-all"><input type="checkbox" checked={allVisibleSelected} onChange={toggleVisible}/> <span>{allVisibleSelected ? "Clear visible fields" : "Select all visible fields"}</span><b>{selected.size}</b></label>
       <div className="download-field-groups">
         {visibleGroups.length ? visibleGroups.map(group => <section key={group.name} className="download-field-group">
@@ -56,7 +67,7 @@ export default function DownloadFieldsDialog({ title = "Download Data", groups =
       </div>
       <footer>
         <button type="button" className="download-reset" onClick={reset}>Reset</button>
-        <button type="button" className="download-primary" disabled={!selected.size} onClick={() => onDownload(allFields.filter(field => selected.has(field.id)))}><Download size={15}/> Download</button>
+        <button type="button" className="download-primary" disabled={!selected.size} onClick={() => onDownload(allFields.filter(field => selected.has(field.id)))}>{actionIcon} {actionLabel}</button>
       </footer>
     </section>
   </div>;

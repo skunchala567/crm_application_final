@@ -308,6 +308,16 @@
   transition: background .22s var(--ease), border-color .22s var(--ease), box-shadow .22s var(--ease);
 }
 
+/* Legacy `.workspace header` rules have greater selector specificity than
+   the header's utility z-index and were forcing the whole search stacking
+   context below page controls such as the Business Unit picker. Keep page
+   controls below search results, while dialogs/backdrops (z-index 40+) still
+   remain above the application header. */
+.workspace .app-global-header {
+  z-index: 35;
+  overflow: visible;
+}
+
 .global-search-inline:focus-within {
   background: var(--surface);
   border-color: var(--brand-300);

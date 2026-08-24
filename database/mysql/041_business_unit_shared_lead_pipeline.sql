@@ -48,4 +48,6 @@ SELECT s.id,CONCAT(s.name,'_pending'),CONCAT(s.display_name,' - Pending'),1,s.is
 FROM crm_lead_stages s
 JOIN crm_business_units bu ON bu.id=s.business_unit_id
 WHERE bu.unit_code<>'school_admissions'
-ON DUPLICATE KEY UPDATE stage_id=VALUES(stage_id),display_name=VALUES(display_name),is_active=VALUES(is_active);
+-- Preserve an explicit inactive state on replay. Migrations seed missing
+-- values; they do not override pipeline configuration managed in the UI.
+ON DUPLICATE KEY UPDATE stage_id=VALUES(stage_id),display_name=VALUES(display_name);

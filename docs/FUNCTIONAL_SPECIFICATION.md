@@ -5,7 +5,7 @@ details. This document describes the functionality currently implemented in the
 Admissions CRM, screen by screen.
 
 **Document status:** As built
-**Last updated:** 16 August 2026
+**Last updated:** 22 August 2026
 
 Every authenticated screen operates within the **active business unit**. The
 business-unit switcher remounts the active screen so information from separate
@@ -113,20 +113,52 @@ communicating with admission enquiries.
 
 - Create, view, edit, and delete are controlled independently by permission.
 - The list supports stage tabs, live counts, pagination, selectable rows, and
-  configurable columns.
+  columns each user chooses and arranges (see *Table columns* below).
 - Filters include branch, stage, sub-stage, source, touch status, follow-up
   range, pending follow-ups, payment status, and advanced lead attributes.
+- **Referred by me** (Lead details) shows the leads the signed-in user referred
+  to someone else and no longer owns, or the opposite — leads with them that
+  they have not referred away. Available to every role; counsellors still open
+  the screen on their own desk ("with me"), while other roles default to no
+  opinion so the full pipeline stays visible.
 - Advanced filter combinations can be saved and reused.
 - Global search searches only leads the user may access.
 - Leads can be assigned, referred, or reassigned to permitted employees.
 - Stage and sub-stage changes are recorded in history.
 - Re-enquiry and source history preserve attribution rather than replacing the
-  original source.
+  original source. Marking a lead as a re-enquiry opens its source details in
+  edit mode and records the mark with the secondary source it came back
+  through, so a re-enquiry always carries an attribution.
 - Lead details include student, parent, contact, academic, source, ownership,
   follow-up, activity, notes, documents, and communication information.
 - Individual actions support calling, WhatsApp, Email, follow-up management,
   editing, referral, stage change, and deletion where permitted.
 - A business-unit deletion password can be required before destructive actions.
+
+### Table columns
+
+- A **Columns** control in the filter row lists every column the table can
+  show, grouped and searchable, with a count of those currently shown.
+- The list covers the nine built-in columns (Student, Class, Source, Stage,
+  Payment, Student ID, Owner, Next follow-up, Recent modified), every system
+  field the export offers, and every custom lead field configured for the
+  active business unit. Fields that would repeat a built-in column exactly are
+  not offered twice.
+- Columns are reordered by dragging a header onto another, or by focusing a
+  header and holding Alt with the left and right arrow keys. Selection and
+  order are saved as they change; no separate save step is needed for a drag.
+- Ticking a column keeps the existing arrangement and adds the new column at
+  the end. **Reset** returns to the default nine columns in their original
+  order.
+- The arrangement belongs to the signed-in user **per pipeline**, so the same
+  person can work Leads, Franchise, and any other pipeline with different
+  columns, and their arrangement follows them to another browser or device.
+- A pipeline nobody has arranged — a newly created business unit, or a pipeline
+  added to an existing one — shows the default nine columns until a user
+  arranges it. Column ids that no longer resolve, such as a deleted custom lead
+  field, are ignored on load and need no cleanup.
+- The select-all checkbox, the parked pin, and the Actions column are fixed and
+  are not part of the selection.
 
 ### Payment information on leads
 
@@ -153,7 +185,8 @@ The lightning menu on the Leads screen supports:
 Each option has its own permission and is disabled when a required selection is
 missing.
 
-**Key endpoints:** `/api/leads`, `/api/leads/meta`, `/api/saved-filters`,
+**Key endpoints:** `/api/leads`, `/api/leads/meta`, `/api/leads/pipelines`,
+`/api/leads/column-preferences`, `/api/leads/:id/sources`, `/api/saved-filters`,
 `/api/leads/referral-options/all`, lead activity and bulk-action endpoints.
 
 ---
@@ -338,13 +371,42 @@ and supporting workflows.
 |---|---|
 | Overview | Configuration counts and summary. |
 | Branches & payments | Branch information, calling routes, and branch-specific Jodo credentials. |
-| Lead fields | Field types and required/list/filter/search/import/report behaviour. |
+| Lead fields | Standard and custom fields, with required/list/filter/search/import/report behaviour (see *Lead fields* below). |
 | Lead pipeline | Stages, sub-stages, and transitions. |
 | Source configuration | Channel, source, campaign, and category structure. |
 | Academic configuration | Academic years, curricula, classes, admission types, and valid combinations for legacy-school units. |
 | Configuration | Configurable sections and combinations for non-school business units. |
 | Tracker | Operation workflows and stages used by Tracker. |
 | Database tables | Reference view of relevant unit data structures. |
+
+### Lead fields
+
+**Add field** offers two routes, both of which then configure the same
+behaviour — where the field appears, whether it is mandatory, how it filters
+and imports.
+
+- **Standard field** lists everything this business unit could draw on:
+  - Contact and note fields the lead record already holds — full name, primary
+    and alternate phone, email, secondary contact name, city, remarks.
+  - Assignment and pipeline — branch, owner, stage, sub-stage, next follow-up
+    date, follow-up type, lead score, status.
+  - **Academic configuration** — academic year, admission type, curriculum,
+    class, wired to the same masters the school units use.
+  - **Source configuration** — channel, source, and campaign from the shared
+    masters, plus this unit's own source list.
+  - **Configuration** — one entry for every active section defined on the
+    unit's Configuration tab, so a Course, Batch, or any other section a unit
+    configures can be added as a lead field directly. A section with a child
+    level offers both levels. Sections belonging to a single pipeline are
+    grouped under that pipeline's name.
+- **New custom field** defines a field of any type, optionally taking its
+  options from a configuration section.
+
+- Fields already present on the unit are not offered again, and neither is a
+  configuration section that already feeds a field.
+- A field added from a configuration section reads its options from that
+  section, so adding a value there updates the field everywhere. It can be
+  re-pointed or removed later like any other unit-defined field.
 
 ### Branch-level settings
 

@@ -15,6 +15,7 @@ export default function LeadConfiguration({onMessage,embedded=false,businessUnit
   const [editing,setEditing]=useState(null);
   const [saving,setSaving]=useState(false);
   const [defaults,setDefaults]=useState({channelId:'',sourceId:'',campaignId:''});
+  const [reEnquiryDefaults,setReEnquiryDefaults]=useState({channelId:'',sourceId:'',campaignId:''});
   const [savingDefaults,setSavingDefaults]=useState(false);
 
   const endpoint=useBusinessUnitSources&&businessUnitId?`/platform/business-units/${businessUnitId}/source-config`:'/admin/lead-config';
@@ -31,6 +32,11 @@ export default function LeadConfiguration({onMessage,embedded=false,businessUnit
         channelId:defaultsResult.manualLeadDefaults?.channelId||'',
         sourceId:defaultsResult.manualLeadDefaults?.sourceId||'',
         campaignId:defaultsResult.manualLeadDefaults?.campaignId||'',
+      });
+      setReEnquiryDefaults({
+        channelId:defaultsResult.reEnquiryDefaults?.channelId||'',
+        sourceId:defaultsResult.reEnquiryDefaults?.sourceId||'',
+        campaignId:defaultsResult.reEnquiryDefaults?.campaignId||'',
       });
     }catch(error){onMessage({type:'error',text:error.message});}
   }
@@ -61,18 +67,19 @@ export default function LeadConfiguration({onMessage,embedded=false,businessUnit
       onMessage({type:'success',text:result.message});await load();
     }catch(error){onMessage({type:'error',text:error.message});}
   }
-  async function saveDefaults(event){
+  async function saveDefaults(event,values=defaults,defaultsType='manual'){
     event.preventDefault();
     if(!businessUnitId)return;
     setSavingDefaults(true);
     try{
-      const result=await api(`/platform/business-units/${businessUnitId}/manual-lead-defaults`,{method:'PUT',body:JSON.stringify(defaults)});
+      const result=await api(`/platform/business-units/${businessUnitId}/manual-lead-defaults`,{method:'PUT',body:JSON.stringify({...values,defaultsType})});
       onMessage({type:'success',text:result.message});
       await load();
     }catch(error){onMessage({type:'error',text:error.message});}finally{setSavingDefaults(false);}
   }
 
   const defaultSources=data.sources.filter(item=>!defaults.channelId||String(item.parentId)===String(defaults.channelId));
+  const reEnquirySources=data.sources.filter(item=>!reEnquiryDefaults.channelId||String(item.parentId)===String(reEnquiryDefaults.channelId));
 
   return <section className={`lead-config-panel panel ${embedded?'embedded':''}`}>
     {!embedded&&<div className="lead-config-head"><div><span className="eyebrow">Lead acquisition master data</span><h2>Source configuration</h2><p>Manage channel categories, channels, sources, and campaigns without affecting existing lead history.</p></div><Settings2/></div>}
@@ -82,6 +89,13 @@ export default function LeadConfiguration({onMessage,embedded=false,businessUnit
       <label>Channel<select value={defaults.channelId} onChange={event=>setDefaults(current=>({...current,channelId:event.target.value,sourceId:''}))}><option value="">No default</option>{data.channels.filter(item=>item.isActive).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
       <label>Source<select value={defaults.sourceId} onChange={event=>setDefaults(current=>({...current,sourceId:event.target.value}))}><option value="">No default</option>{defaultSources.filter(item=>item.isActive).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
       <label>Campaign<select value={defaults.campaignId} onChange={event=>setDefaults(current=>({...current,campaignId:event.target.value}))}><option value="">No default</option>{data.campaigns.filter(item=>item.isActive).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
+      <button className="primary" disabled={savingDefaults}>{savingDefaults?'Saving…':'Save defaults'}</button>
+    </form>}
+    {businessUnitId&&<form className="manual-defaults-panel re-enquiry-defaults-panel" onSubmit={event=>saveDefaults(event,reEnquiryDefaults,'reEnquiry')}>
+      <div><strong>Re-enquiry defaults</strong><small>Preselected when Re-enquire is opened and editable before saving.</small></div>
+      <label>Channel<select value={reEnquiryDefaults.channelId} onChange={event=>setReEnquiryDefaults(current=>({...current,channelId:event.target.value,sourceId:''}))}><option value="">No default</option>{data.channels.filter(item=>item.isActive).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
+      <label>Source<select value={reEnquiryDefaults.sourceId} onChange={event=>setReEnquiryDefaults(current=>({...current,sourceId:event.target.value}))}><option value="">No default</option>{reEnquirySources.filter(item=>item.isActive).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
+      <label>Campaign<select value={reEnquiryDefaults.campaignId} onChange={event=>setReEnquiryDefaults(current=>({...current,campaignId:event.target.value}))}><option value="">No default</option>{data.campaigns.filter(item=>item.isActive).map(item=><option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
       <button className="primary" disabled={savingDefaults}>{savingDefaults?'Saving…':'Save defaults'}</button>
     </form>}
     <div className="config-content">

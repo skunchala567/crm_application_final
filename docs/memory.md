@@ -77,6 +77,12 @@ npm run check                # API syntax + web build
   append a source rather than overwriting.
 - **Activity trail** — `crm_lead_activities` records every automated and manual
   action, and is the only durable record of some automation outcomes.
+- **Leads-table columns** — `crm_lead_column_preferences` holds one ordered
+  list of column ids per user per pipeline (`user_id`, `pipeline_id`), so each
+  pipeline's Leads screen is arranged separately and the arrangement follows
+  the user between devices. No row means the default columns, which is what a
+  new business unit or a newly created pipeline starts with; the browser copy
+  in `localStorage` is only a cache for first paint.
 
 ## 6. Authentication and authorization
 

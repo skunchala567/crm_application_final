@@ -5,7 +5,7 @@ import "./FilterWorkspaceCampaign.css";
 
 const multiKeys = ["branchId","stage","substageId","sourceId","channelId","channelCategory","campaignId","campaignCategory","marketingCampaignId","marketingDeliveryStatus","ownerEmployeeId","classId","curriculumId","admissionTypeId","referredByEmployeeId","touchStatus","leadEntryPath","isParent","lookingForAdmission","whatsappResponse","contactAvailability","paymentStatus","studentIdStatus"];
 const dateRangeKeys = ["addedFrom","addedTo","updatedFrom","updatedTo","referredFrom","referredTo","nextFollowupFrom","nextFollowupTo","reEnquiredFrom","reEnquiredTo"];
-export const emptyAdvancedFilters = { ...Object.fromEntries([...multiKeys.map(key => [key,[]]),...["studentName","primaryPhone","alternatePhone","email","parentName","followupFrom","followupTo","scoreMin","scoreMax","isReferred",...dateRangeKeys].map(key => [key,""])]), dateType:"nextFollowup", isReferred:"no", pendingFollowupsOnly:false };
+export const emptyAdvancedFilters = { ...Object.fromEntries([...multiKeys.map(key => [key,[]]),...["studentName","primaryPhone","alternatePhone","email","parentName","followupFrom","followupTo","scoreMin","scoreMax","isReferred",...dateRangeKeys].map(key => [key,""])]), dateType:"nextFollowup", isReferred:"", pendingFollowupsOnly:false };
 const legacyDateMap = { addedAt:["addedFrom","addedTo"], updatedAt:["updatedFrom","updatedTo"], referredAt:["referredFrom","referredTo"], nextFollowup:["nextFollowupFrom","nextFollowupTo"], reEnquiredAt:["reEnquiredFrom","reEnquiredTo"] };
 export function normalizeFilters(filters={}) {
   const normalized = { ...emptyAdvancedFilters, ...filters, pendingFollowupsOnly:filters.pendingFollowupsOnly === true || filters.pendingFollowupsOnly === "true", ...Object.fromEntries(multiKeys.map(key => [key, Array.isArray(filters[key]) ? filters[key].map(String) : filters[key] ? [String(filters[key])] : []])) };
@@ -199,7 +199,10 @@ export default function FilterWorkspace({
   // "Is referred" answers a counsellor's question about their own desk, so it
   // is only offered where it means something. Off by default: a caller that
   // does not know about it should not surface it.
-  showReferredFilter=false,
+  /* Anyone who can refer a lead can ask what they referred, so this is on
+     unless a caller deliberately turns it off. It used to be off by default
+     and only switched on for counsellors, which hid it from everybody else. */
+  showReferredFilter=true,
 }) {
   const [filters, setFilters] = useState(normalizeFilters(initialFilters));
   const [activeSection, setActiveSection] = useState("lead");
@@ -255,6 +258,9 @@ export default function FilterWorkspace({
           <Field label="Sub-stage" searchText={fieldSearch}><select value={filters.substageId} onChange={event => set("substageId",event.target.value)}><option value="">All sub-stages</option>{meta.substages.filter(item => !filters.stage.length || filters.stage.includes(String(meta.stages.find(stage => String(stage.id) === String(item.stageId))?.displayName))).map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></Field>
           <Field label="Lead source" searchText={fieldSearch}><select value={filters.sourceId} onChange={event => set("sourceId",event.target.value)}><option value="">All sources</option>{meta.sources.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></Field>
           <Field label="Counsellor referred to" searchText={fieldSearch}><select value={filters.ownerEmployeeId} onChange={event => set("ownerEmployeeId",event.target.value)}><option value="">All counsellors</option>{employees.map(item => <option key={`${item.id}-${item.branchId}`} value={item.id}>{item.name} · {item.branchName}</option>)}</select></Field>
+          {/* Beside the counsellor a lead was referred to, because that is the
+              same question asked from the other end: what did I hand over. */}
+          {showReferredFilter && <Field label="Referred by me" searchText={fieldSearch}><select value={filters.isReferred ?? ""} onChange={event => set("isReferred",event.target.value)}><option value="">Any · referred or not</option><option value="yes">Referred by me · now with someone else</option><option value="no">With me · not referred away</option></select></Field>}
           <Field label="Campaign category" searchText={fieldSearch}><select value={filters.campaignCategory} onChange={event => {set("campaignCategory",event.target.value);set("campaignId","");}}><option value="">All campaign categories</option>{[...new Set(meta.campaigns.map(item => item.category))].map(item => <option key={item}>{item}</option>)}</select></Field>
           <Field label="Campaign name" searchText={fieldSearch}><select value={filters.campaignId} onChange={event => set("campaignId",event.target.value)}><option value="">All campaigns</option>{meta.campaigns.filter(item => !filters.campaignCategory.length || filters.campaignCategory.includes(item.category)).map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></Field>
           <Field label="Channel category" searchText={fieldSearch}><select value={filters.channelCategory} onChange={event => {set("channelCategory",event.target.value);set("channelId","");}}><option value="">All channel categories</option><option>Primary</option><option>Secondary</option></select></Field>
@@ -285,7 +291,7 @@ export default function FilterWorkspace({
             <DateRangeFilterControl label={label} from={filters[fromKey]} to={filters[toKey]} onChange={(from, to) => setRange(fromKey, toKey, from, to)}/>
           </section>)}
         </div>}
-        {activeSection === "range" && <div className="filter-grid">{showReferredFilter && <Field label="Is referred" searchText={fieldSearch}><select value={filters.isReferred ?? "no"} onChange={event => set("isReferred",event.target.value)}><option value="no">No · with me</option><option value="yes">Yes · referred by me</option><option value="">Any</option></select></Field>}<Field label="Minimum lead score" searchText={fieldSearch}><input type="number" min="0" max="100" value={filters.scoreMin} onChange={event => set("scoreMin",event.target.value)}/></Field><Field label="Maximum lead score" searchText={fieldSearch}><input type="number" min="0" max="100" value={filters.scoreMax} onChange={event => set("scoreMax",event.target.value)}/></Field></div>}
+        {activeSection === "range" && <div className="filter-grid"><Field label="Minimum lead score" searchText={fieldSearch}><input type="number" min="0" max="100" value={filters.scoreMin} onChange={event => set("scoreMin",event.target.value)}/></Field><Field label="Maximum lead score" searchText={fieldSearch}><input type="number" min="0" max="100" value={filters.scoreMax} onChange={event => set("scoreMax",event.target.value)}/></Field></div>}
       </main>
     </div>
     <footer className="filter-workspace-footer"><div className={`filter-name-control ${nameError ? "invalid" : ""}`}><input className="filter-save-name" aria-invalid={Boolean(nameError)} aria-describedby="filter-name-error" value={name} onChange={event => {setName(event.target.value);if(event.target.value.trim())setNameError("");}} placeholder="Name this filter or view"/>{nameError && <span id="filter-name-error">{nameError}</span>}</div><button className="filter-secondary" onClick={() => {setFilters(emptyAdvancedFilters);setName("");setNameError("");setNotice("");}}><RotateCcw/> Reset</button><button className="filter-secondary" disabled={saving} onClick={() => save("filter")}><Save/> Save filter</button><button className="filter-secondary" disabled={saving} onClick={() => save("funnel")}><ListFilter/> Save view</button><button className="filter-apply" onClick={() => onApply(filters)}>Apply filter</button></footer>
