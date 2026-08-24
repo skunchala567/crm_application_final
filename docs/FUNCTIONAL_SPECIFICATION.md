@@ -557,6 +557,22 @@ integration activity.
   their account by the identifier already on the record rather than by the
   signed-in user's unit.
 
+### WhatsApp lead intake
+
+- A lead is created from WhatsApp only when a **contact sends a message** that
+  carries text or media, from a number with no existing lead.
+- A message from a number that already has a lead is attached to that lead; no
+  second lead is created.
+- Outbound messages create nothing. Delivery reports (sent, delivered, read,
+  failed) and campaign or template sends are recognised as outbound and never
+  treated as an enquiry — previously a callback carrying the recipient's number
+  without a `to` field was inferred to be incoming, so a campaign sent to a
+  hundred contacts created a hundred leads.
+- A payload with no message content never creates a lead, whichever direction
+  it is judged to be.
+- Auto-creation, and the unit, branch, stage, source and owner a WhatsApp lead
+  is filed under, are configured per connected account in Lead intake settings.
+
 ### Common behaviour
 
 - Add and configure one or more integrations.

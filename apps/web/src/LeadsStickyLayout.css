@@ -1,7 +1,16 @@
 .leads-page {
   width: 100%;
   max-width: none;
-  height: 100vh;
+  /*
+   * The height of the shell's main area, not of the viewport.
+   *
+   * 100vh measured the whole window while this screen starts below the
+   * topbar, so the page ran past the bottom of its container by exactly the
+   * topbar's height -- and because the page clips its own overflow and the
+   * table scrolls inside it, the row that fell off the end was the pagination.
+   * Nothing scrolled it back into view; it was simply cut off.
+   */
+  height: 100%;
   min-height: 0;
   margin: 0;
   padding: 0;
@@ -328,6 +337,12 @@
   border-radius: 9px;
   padding: 1px 6px;
   font-size: 10px;
+}
+
+/* The table takes the slack; the pagination keeps its own height whatever is
+   left, rather than being squeezed to nothing by a long list. */
+.leads-page .pagination-controls {
+  flex: 0 0 auto;
 }
 
 .leads-page .leads-panel > .table-wrap {

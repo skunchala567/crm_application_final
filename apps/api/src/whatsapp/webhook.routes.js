@@ -184,19 +184,44 @@ export function createWebhookRoutes(pool, logger = console) {
       const normalizedStatus = String(payload.status || 'RECEIVED').toUpperCase();
       const sender = String(payload.sender || payload.sender_type || payload.from_type || '').toUpperCase();
       const incomingSenders = new Set(['CONTACT', 'CUSTOMER', 'USER', 'CLIENT', 'RECEIVER']);
+      // Who we are. Smartping stamps its own sends as AGENT.
+      const outgoingSenders = new Set(['AGENT', 'BUSINESS', 'BRAND', 'SYSTEM', 'BOT', 'API']);
       // topic 'message.sender.user' means the end-user (contact) sent the message.
       const topicIsIncoming = typeof root.topic === 'string' && root.topic.includes('sender.user');
       const hasExplicitInboundPhone = !!(payload.from || payload.phone_number || payload.phoneNumber);
       const hasExplicitTo = !!(payload.to || payload.destination);
-      const direction = String(
-        payload.direction
-        || root.direction
-        || (incomingSenders.has(sender) || root.eventType === 'user-event'
-            || topicIsIncoming
-            || (hasExplicitInboundPhone && !hasExplicitTo)
-          ? 'incoming'
-          : 'outgoing')
-      ).toLowerCase();
+      /*
+       * A delivery report for something we sent.
+       *
+       * These statuses, and a template or campaign name, only ever describe an
+       * outbound message: a contact's message arrives with no status of ours
+       * and no template behind it. Recognising them explicitly is what stops
+       * the inference below reading a callback as a message from the contact.
+       */
+      const deliveryStatuses = new Set(['SENT', 'DELIVERED', 'READ', 'FAILED', 'REJECTED', 'ENQUEUED', 'QUEUED', 'SUBMITTED', 'UNDELIVERED', 'EXPIRED']);
+      const isDeliveryReport = deliveryStatuses.has(normalizedStatus)
+        || Boolean(payload.templateName || payload.template_name || payload.campaign_name || payload.campaignName);
+      /*
+       * Direction, and why the guesswork is fenced in.
+       *
+       * The last resort used to be "carries a phone number and no `to` field,
+       * therefore incoming". Smartping's outbound callbacks report the
+       * recipient in `phone_number` with no `to` alongside it, so every
+       * delivery report for a campaign looked like a message from the contact
+       * -- and each one created a lead. A send to a hundred contacts became a
+       * hundred leads named UNKNOWN.
+       *
+       * The provider's own account of who sent it now wins over that
+       * inference, and a delivery report is never inferred to be incoming.
+       */
+      const explicitDirection = String(payload.direction || root.direction || '').toLowerCase();
+      const inferredIncoming = incomingSenders.has(sender)
+        || root.eventType === 'user-event'
+        || topicIsIncoming
+        || (hasExplicitInboundPhone && !hasExplicitTo && !isDeliveryReport && !outgoingSenders.has(sender));
+      const direction = ['incoming', 'outgoing'].includes(explicitDirection)
+        ? explicitDirection
+        : (inferredIncoming && !outgoingSenders.has(sender) ? 'incoming' : 'outgoing');
 
       // ── Phone number ─────────────────────────────────────────────────────
       // Smartping incoming payloads use 'phone_number'. Outbound status
@@ -301,7 +326,22 @@ export function createWebhookRoutes(pool, logger = console) {
       // setting does, falling back to the default unit as before.
       const conversationUnitId = linkedLead?.businessUnitId || intake.businessUnitId || fallbackUnit?.id || null;
       let leadId = linkedLead?.id || null;
-      if (!leadId && direction === 'incoming' && normalizedMobile && conversationUnitId && Number(intake.autoCreate)) {
+      /*
+       * A lead is only ever born from something a contact actually said.
+       *
+       * Direction alone is not enough of a test: an ambiguous payload with no
+       * message in it is a status callback, not an enquiry, and creating a
+       * lead for it invents a person who never wrote to us. A contact's first
+       * message always carries text or media -- so that, and not the presence
+       * of a phone number, is what qualifies.
+       *
+       * A number that already has a lead is unaffected either way: leadId is
+       * resolved above from the lead's normalized phone, so a reply from a
+       * known contact goes onto the lead it belongs to.
+       */
+      const hasContactMessage = Boolean(text || mediaUrl);
+      if (!leadId && direction === 'incoming' && hasContactMessage && !isDeliveryReport
+        && normalizedMobile && conversationUnitId && Number(intake.autoCreate)) {
         leadId = await createLeadFromWhatsApp(pool, {
           businessUnitId: conversationUnitId,
           integrationId: integration.id,

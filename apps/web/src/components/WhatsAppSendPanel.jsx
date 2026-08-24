@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Download, FileUp, History, Loader, MessageCircle, RefreshCw, Send, X } from 'lucide-react';
 import { api } from '../api';
 import './WhatsAppSendPanel.css';
@@ -6,6 +6,17 @@ import './WhatsAppSendAdvanced.css';
 import { recordDownload } from '../downloadAudit.js';
 
 const cleanPhone = value => String(value || '').replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
+/*
+ * For comparing two numbers, never for sending one.
+ *
+ * A conversation's mobile is stored however the provider delivered it -- bare,
+ * 91-prefixed, sometimes with a 00 international prefix -- while a lead's
+ * phone is whatever was typed. The Leads screen and the Inbox both compare on
+ * the last ten digits; this panel compared on cleanPhone, which only strips a
+ * 91 from an exactly-12-digit number, so anything else failed to match and the
+ * thread behind an unread badge came up empty.
+ */
+const phoneKey = value => String(value || '').replace(/\D/g, '').slice(-10);
 const validPhone = value => /^[6-9]\d{9}$/.test(cleanPhone(value));
 const isImageUrl = value => /\.(avif|gif|jpe?g|png|webp)(?:[?#].*)?$/i.test(String(value || ''));
 const safeMediaUrl = value => {
@@ -37,6 +48,9 @@ export function WhatsAppSendPanel({ open, onClose, initialRecipients = [], initi
   const [conversationMessages, setConversationMessages] = useState([]);
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [uploadingMedia, setUploadingMedia] = useState(false);
+  /* Set once the account is picked by hand, so following a conversation to
+     its own account never overrides a deliberate choice. */
+  const accountChosenByUser = useRef(false);
 
   useEffect(() => {
     if (!open) return;
@@ -55,6 +69,7 @@ export function WhatsAppSendPanel({ open, onClose, initialRecipients = [], initi
     setNotice(null);
     setConversation(null);
     setConversationMessages([]);
+    accountChosenByUser.current = false;
     /*
      * The accounts this user may send from.
      *
@@ -114,10 +129,25 @@ export function WhatsAppSendPanel({ open, onClose, initialRecipients = [], initi
     setLoadingConversation(true);
     try {
       const conversations = await api.get(`/hub/smartping/conversations?search=${encodeURIComponent(activePhone)}&limit=20`);
-      const match = (conversations.data || []).find(item =>
-        cleanPhone(item.mobile) === activePhone
-        && String(item.integration_id) === String(integrationId)
-      );
+      const forThisContact = (conversations.data || []).filter(item => phoneKey(item.mobile) === phoneKey(activePhone));
+      let match = forThisContact.find(item => String(item.integration_id) === String(integrationId));
+      /*
+       * The contact wrote to one of the other WhatsApp numbers.
+       *
+       * The unread badge on the lead row counts every account, but this panel
+       * only ever read the selected one -- which defaults to the first account
+       * alphabetically. A lead whose messages arrived on any other number
+       * therefore showed "No messages yet" with an unread badge beside it.
+       *
+       * The newest thread wins, and the selector follows it: the history shown
+       * is then real, and a reply goes back through the number the contact
+       * actually wrote to rather than introducing a second one.
+       */
+      if (!match && forThisContact.length && !accountChosenByUser.current) {
+        match = [...forThisContact].sort((a, b) =>
+          new Date(b.last_message_time || b.updated_at || 0) - new Date(a.last_message_time || a.updated_at || 0))[0];
+        if (String(match.integration_id) !== String(integrationId)) setIntegrationId(String(match.integration_id));
+      }
       setConversation(match || null);
       if (!match) {
         setConversationMessages([]);
@@ -298,7 +328,7 @@ export function WhatsAppSendPanel({ open, onClose, initialRecipients = [], initi
           </div>)}
         </div>}
         <div className="wa-send-grid">
-          <label><span>WhatsApp account *</span><select value={integrationId} onChange={event => setIntegrationId(event.target.value)}><option value="">Select account</option>{integrations.map(item => <option key={item.id} value={item.id}>{item.name || item.integration_name}{item.branchName ? ` · ${item.branchName}` : ''}</option>)}</select></label>
+          <label><span>WhatsApp account *</span><select value={integrationId} onChange={event => { accountChosenByUser.current = true; setIntegrationId(event.target.value); }}><option value="">Select account</option>{integrations.map(item => <option key={item.id} value={item.id}>{item.name || item.integration_name}{item.branchName ? ` · ${item.branchName}` : ''}</option>)}</select></label>
           <label><span>Approved template *</span><select value={templateId} onChange={event => chooseTemplate(event.target.value)}><option value="">Select template</option>{templates.map(item => <option key={item.id || item.aisensy_template_id} value={item.id || item.aisensy_template_id}>{item.label || item.template_name || item.name}</option>)}</select></label>
         </div>
         {mode === 'single' && <label className="wa-send-field"><span>Mobile number *</span><input type="tel" inputMode="numeric" maxLength="10" pattern="[6-9][0-9]{9}" title="Enter a valid 10-digit Indian mobile number starting with 6-9" value={phone} onChange={event => setPhone(event.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="10-digit mobile number"/></label>}
