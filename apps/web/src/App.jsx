@@ -124,11 +124,12 @@ function Login({ onLogin }) {
     <AuthLayout>
       <form onSubmit={submit} className="space-y-6">
         {/* Logo for mobile */}
-        <div className="md:hidden flex items-center gap-2 mb-8">
-          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 text-white">
-            <Sparkles size={16} />
-          </div>
-          <span className="font-bold text-lg font-display">Orbit</span>
+        <div className="md:hidden mb-8 w-fit overflow-hidden rounded-xl border border-secondary-200 bg-white px-3 py-1.5 shadow-sm">
+          <img
+            src="/brand/vireo-crm-logo.jpeg"
+            alt="VIREO CRM"
+            className="block h-[54px] w-[190px] object-cover object-center"
+          />
         </div>
 
         {/* Form Header */}
