@@ -188,14 +188,14 @@ export default function IntegrationHubPage({ embedded = false }) {
 
   if (loading) {
     return (
-      <main className={`integration-main ${embedded ? 'embedded-integration-page' : 'settings-integration-page'}`}>
+      <main className={`integration-main settings-integration-page${embedded ? ' embedded-integration-page' : ''}`}>
         <div className="loading-state">Loading integrations...</div>
       </main>
     );
   }
 
   return (
-    <main className={`integration-main ${embedded ? 'embedded-integration-page' : 'settings-integration-page'}`}>
+    <main className={`integration-main settings-integration-page${embedded ? ' embedded-integration-page' : ''}`}>
       {/* Title lives in the Settings section header; only the action is here. */}
       <div className="flex items-center justify-between gap-4 mb-6">
         {openType ? (

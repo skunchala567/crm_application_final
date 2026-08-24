@@ -11,6 +11,21 @@
   margin: 0 auto;
 }
 
+/*
+ * Inside a business unit's Integrations tab.
+ *
+ * Everything the hub looks like -- tiles, stat cards, buttons, brand colours --
+ * comes from the .settings-integration-page rules, so the embedded view keeps
+ * that class and only stops behaving like a page of its own: no viewport
+ * height, no second canvas behind the tab panel, and none of the outer page
+ * padding the tab already provides.
+ */
+.settings-integration-page.embedded-integration-page {
+  min-height: 0;
+  padding: 4px 0 8px;
+  background: transparent;
+}
+
 /* CRM theme alignment when Integrations is rendered under Settings */
 .settings-integration-page.integration-main {
   width: 100%;
