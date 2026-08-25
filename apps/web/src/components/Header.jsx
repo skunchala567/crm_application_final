@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, Bell, ChevronDown, Home, KeyRound, LogOut, Mail, Menu, Settings, X, Zap,
+  ArrowLeft, Bell, ChevronDown, Download, Home, KeyRound, LogOut, Mail, Menu, Settings, X, Zap,
 } from 'lucide-react';
 import { api } from '../api';
+import { canInstall, onInstallAvailability, promptInstall } from '../pwa.js';
 import { cn } from '../lib/utils';
 import { useIsDesktop } from '../lib/useMediaQuery';
 import { useBusinessUnit } from '../BusinessUnitContext';
@@ -82,6 +83,14 @@ export function Header({ user, onLogout, onMenuClick, navCollapsed = false, mobi
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [liveNotification, setLiveNotification] = useState(null);
   const [passwordOpen, setPasswordOpen] = useState(false);
+  /* Whether the browser is offering to install the app. The offer arrives once
+     at start-up and is held by pwa.js, so this only mirrors it. */
+  const [installAvailable, setInstallAvailable] = useState(canInstall());
+  useEffect(() => onInstallAvailability(setInstallAvailable), []);
+  const install = async () => {
+    const outcome = await promptInstall();
+    if (outcome !== 'unavailable') setInstallAvailable(canInstall());
+  };
   const wrapRef = useRef(null);
   const alertedNotificationIdsRef = useRef(new Set());
   const notificationAudioRef = useRef(null);
@@ -320,6 +329,20 @@ export function Header({ user, onLogout, onMenuClick, navCollapsed = false, mobi
 
         {/* Action cluster */}
         <div className="flex min-w-0 items-center gap-0.5 sm:gap-1.5 ml-auto xl:ml-0 flex-none">
+          {/* Install the CRM as an app.
+              Only while the browser is actually offering it: already installed,
+              or a browser that does not support installing, and there is
+              nothing here at all. */}
+          {installAvailable && (
+            <button
+              onClick={install}
+              className="grid place-items-center w-[38px] h-[38px] rounded-[11px] text-secondary-500 hover:bg-surface-3 hover:text-primary-600 active:scale-95 transition-all"
+              aria-label="Install MarketFarmer as an app"
+              title="Install as an app"
+            >
+              <Download size={18} />
+            </button>
+          )}
           {/* Lead quick actions. Hidden unless a screen has registered some, so
               the button never opens onto actions with nothing to act on.
 

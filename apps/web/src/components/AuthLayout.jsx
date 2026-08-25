@@ -9,14 +9,7 @@ export function AuthLayout({ children }) {
         <div className="absolute w-[520px] h-[520px] border border-white/15 rounded-full -right-56 -bottom-36 shadow-[0_0_0_80px_rgba(255,255,255,0.05),0_0_0_160px_rgba(255,255,255,0.05)]" />
         <div className="absolute w-[290px] h-[290px] rounded-full -right-16 -top-24 bg-[radial-gradient(circle,rgba(255,255,255,.16),transparent_68%)]" />
 
-        {/* Brand lockup */}
-        <div className="relative z-10 w-fit overflow-hidden rounded-2xl bg-white px-4 py-2 shadow-brand">
-          <img
-            src="/brand/vireo-crm-logo.jpeg"
-            alt="VIREO CRM"
-            className="block h-[72px] w-[250px] object-cover object-center"
-          />
-        </div>
+        <div className="relative z-10" aria-hidden="true" />
 
         {/* Copy */}
         <div className="relative z-10 max-w-2xl">
@@ -35,7 +28,7 @@ export function AuthLayout({ children }) {
             <p className="text-base text-primary-50 mb-2 leading-relaxed italic">
               "We know a CRM isn't just about managing contacts—it's about enabling teams, improving customer experiences, and driving business growth."
             </p>
-            <span className="text-sm text-primary-200">Mukharjee - STA Solutions</span>
+            <span className="text-sm text-primary-200">Srikanth Kunchala - KK Associates</span>
           </div>
         </div>
       </section>
@@ -48,12 +41,12 @@ export function AuthLayout({ children }) {
 
         {/* Footer */}
         <footer className="absolute bottom-6 left-0 right-0 flex items-center justify-center gap-4 text-xs text-secondary-500">
-          <span>© {new Date().getFullYear()} All rights reserved by STA Solutions Private Limited</span>
+          <span>© {new Date().getFullYear()} All rights reserved by KK Associates</span>
           <a
-            href="https://wa.me/919581168844"
+            href="https://wa.me/919966369102"
             target="_blank"
             rel="noreferrer"
-            aria-label="Contact STA Solutions Private Limited on WhatsApp"
+            aria-label="Contact KK Associates on WhatsApp"
             className="fixed bottom-6 right-6 w-11 h-11 flex items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all"
           >
             <MessageCircle size={20} className="fill-current" />

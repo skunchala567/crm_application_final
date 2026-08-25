@@ -6,6 +6,7 @@ import './styles.css';
 import './theme.css';
 import { initTooltips } from './lib/tooltips.js';
 import { applyCachedBrandTheme } from './brand-theme.js';
+import { initPwa } from './pwa.js';
 
 // Every button and filter explains itself on hover, with no delay.
 initTooltips();
@@ -14,6 +15,10 @@ initTooltips();
 // The live colour arrives with /platform/business-units, so without this the
 // app would render in the default palette and visibly flip on every reload.
 applyCachedBrandTheme();
+
+// Service worker and install prompt. Before the app mounts, because the
+// browser fires beforeinstallprompt early and only once.
+initPwa();
 
 const rootElement = document.getElementById('root');
 globalThis.React = React;

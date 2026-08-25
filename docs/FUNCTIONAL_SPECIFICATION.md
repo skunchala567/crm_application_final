@@ -12,6 +12,29 @@ business-unit switcher remounts the active screen so information from separate
 units is not mixed. Branch and record access is further restricted by the
 signed-in user's assignments, permissions, and data scope.
 
+## Installing the app
+
+The CRM is a progressive web app: it can be installed on a desktop or phone and
+run in its own window, without an app store.
+
+- **Desktop (Chrome, Edge):** an **Install** button appears in the topbar, or use
+  the browser's own install icon in the address bar.
+- **Android (Chrome):** the same Install button, or *Add to Home screen*.
+- **iPhone / iPad (Safari):** *Share → Add to Home Screen*. iOS does not offer an
+  install prompt, so the in-app button does not appear there.
+- Installed, it opens on its own icon with no browser chrome, and offers
+  shortcuts to Leads, Tracker and Reports from the icon's context menu.
+- The app shell is cached, so it opens instantly and shows a clear "you are
+  offline" page instead of a blank window when there is no connection. **Lead
+  data is never cached** — every screen loads live from the API, so nothing
+  stale or belonging to another user can be served.
+- Updates install themselves: a new deployment is picked up when the app is next
+  brought to the foreground, and applied on the spot.
+- **Requires HTTPS.** Browsers refuse to install, or run a service worker on, a
+  site served over plain HTTP (localhost excepted).
+
+---
+
 ## Conventions
 
 - **Permission** is the permission key enforced by the frontend and API.

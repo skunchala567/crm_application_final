@@ -52,6 +52,13 @@ database/reference/          schema snapshots
 docs/                        this file, functional spec, integration guides
 ```
 
+- **Installable app (PWA)** — `apps/web/public/manifest.webmanifest`,
+  `public/sw.js` (hand-written, no build plugin) and `src/pwa.js`. The worker
+  caches the shell and hashed `/assets/`; it never touches `/api/`, `/uploads/`
+  or another origin, and only registers in a production build. Needs HTTPS (or
+  localhost) to run at all. The Install button in the topbar appears only while
+  the browser is offering `beforeinstallprompt`.
+
 ## 4. Commands
 
 ```bash

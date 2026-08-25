@@ -1,0 +1,26 @@
+{
+  "name": "MarketFarmer — Admissions CRM",
+  "short_name": "MarketFarmer",
+  "description": "Capture, qualify and follow up admission enquiries, with calling, WhatsApp, payments and reporting in one place.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "theme_color": "#30347d",
+  "background_color": "#ffffff",
+  "categories": ["business", "productivity"],
+  "lang": "en-IN",
+  "dir": "ltr",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Leads", "short_name": "Leads", "url": "/leads", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Tracker", "short_name": "Tracker", "url": "/tracker", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Reports", "short_name": "Reports", "url": "/reports", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

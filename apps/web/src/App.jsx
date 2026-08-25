@@ -123,15 +123,6 @@ function Login({ onLogin }) {
   return (
     <AuthLayout>
       <form onSubmit={submit} className="space-y-6">
-        {/* Logo for mobile */}
-        <div className="md:hidden mb-8 w-fit overflow-hidden rounded-xl border border-secondary-200 bg-white px-3 py-1.5 shadow-sm">
-          <img
-            src="/brand/vireo-crm-logo.jpeg"
-            alt="VIREO CRM"
-            className="block h-[54px] w-[190px] object-cover object-center"
-          />
-        </div>
-
         {/* Form Header */}
         <div>
           <p className="text-sm font-semibold uppercase tracking-wider text-blue-600 mb-2">
