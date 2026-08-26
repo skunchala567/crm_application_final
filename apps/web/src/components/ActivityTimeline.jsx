@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   CalendarClock, ChevronDown, Clock, FileText, Filter, GitBranch, Headphones, IndianRupee,
   Mail, MessageCircle, Phone, RefreshCw, Upload, UserPlus, UserCheck,
@@ -97,6 +97,7 @@ const typeKey = (item) => String(item.activityType || item.type || '').toLowerCa
 export default function ActivityTimeline({ activities = [] }) {
   const [expandedItems, setExpandedItems] = useState({});
   const [typeFilter, setTypeFilter] = useState('all');
+  const filterMenu = useRef(null);
 
   const sorted = useMemo(
     () => [...activities].sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt)),
@@ -150,23 +151,29 @@ export default function ActivityTimeline({ activities = [] }) {
               ? `${sorted.length} ${sorted.length === 1 ? 'entry' : 'entries'}`
               : `${visible.length} of ${sorted.length} entries`}
           </span>
-          <label className="inline-flex items-center gap-2 text-[11.5px] text-secondary-500">
+          <div className="inline-flex items-center gap-2 text-[11.5px] text-secondary-500">
             <Filter size={13} className="text-secondary-400" />
             <span className="sr-only sm:not-sr-only">Show</span>
-            <select
-              aria-label="Filter activity by type"
-              value={typeFilter}
-              onChange={(event) => setTypeFilter(event.target.value)}
-              className="activity-type-filter rounded-lg border border-border bg-white px-2.5 py-1.5 text-[12px] font-semibold text-foreground outline-none focus:border-primary-500"
-            >
-              <option value="all">All activity ({sorted.length})</option>
-              {availableTypes.map((type) => (
-                <option key={type.key} value={type.key}>
-                  {type.label} ({type.count})
-                </option>
-              ))}
-            </select>
-          </label>
+            {/* This timeline is rendered inside a disabled fieldset while a
+                lead is viewed. Native selects inherit that disabled state, so
+                use a non-form popover which remains interactive. */}
+            <details ref={filterMenu} className="relative">
+              <summary aria-label="Filter activity by type" className="list-none cursor-pointer inline-flex min-w-40 items-center justify-between gap-3 rounded-lg border border-border bg-white px-2.5 py-1.5 text-[12px] font-semibold text-foreground outline-none focus:border-primary-500">
+                {typeFilter === 'all' ? `All activity (${sorted.length})` : `${ACTIVITY_TYPES[typeFilter]?.label || 'Other activity'} (${availableTypes.find((type) => type.key === typeFilter)?.count || 0})`}
+                <ChevronDown size={13} />
+              </summary>
+              <div role="listbox" aria-label="Activity types" className="absolute right-0 z-20 mt-1 min-w-full overflow-hidden rounded-lg border border-border bg-white py-1 shadow-lg">
+                {[{ key: 'all', label: 'All activity', count: sorted.length }, ...availableTypes].map((type) => (
+                  <div key={type.key} role="option" aria-selected={typeFilter === type.key} tabIndex={0}
+                    className={`cursor-pointer whitespace-nowrap px-3 py-2 text-[12px] hover:bg-primary-50 ${typeFilter === type.key ? 'bg-primary-50 text-primary-700 font-semibold' : 'text-foreground'}`}
+                    onClick={() => { setTypeFilter(type.key); filterMenu.current?.removeAttribute('open'); }}
+                    onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setTypeFilter(type.key); filterMenu.current?.removeAttribute('open'); } }}>
+                    {type.label} ({type.count})
+                  </div>
+                ))}
+              </div>
+            </details>
+          </div>
         </div>
       )}
 

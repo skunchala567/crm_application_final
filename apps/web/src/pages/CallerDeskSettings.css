@@ -1,6 +1,6 @@
 .callerdesk-settings {
-  padding: 28px;
-  max-width: 1320px;
+  padding: 18px 22px 28px;
+  max-width: 1220px;
   margin: auto;
   color: var(--brand-900);
 }
@@ -107,7 +107,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 22px;
+  margin-bottom: 12px;
 }
 .callerdesk-settings h1 {
   margin: 3px 0 5px;
@@ -120,30 +120,30 @@
 .callerdesk-card {
   background: #fff;
   border: 1px solid var(--ink-200);
-  border-radius: 14px;
-  padding: 22px;
-  margin-bottom: 18px;
+  border-radius: 12px;
+  padding: 18px;
+  margin-bottom: 14px;
 }
 .section-title {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 20px;
+  margin-bottom: 14px;
 }
 .section-title > svg {
-  padding: 9px;
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
+  padding: 7px;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
   background: var(--brand-50);
   color: var(--brand-600);
 }
 .section-title h2 {
-  font-size: 17px;
+  font-size: 16px;
   margin: 0 0 3px;
 }
 .section-title p {
-  font-size: 13px;
+  font-size: 11px;
 }
 .connected {
   margin-left: auto;
@@ -162,13 +162,13 @@
 .callerdesk-guide {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 14px;
   background: var(--brand-50);
   border: 1px solid var(--brand-100);
   border-radius: 12px;
-  padding: 12px 16px;
-  margin-bottom: 18px;
-  font-size: 12px;
+  padding: 9px 13px;
+  margin-bottom: 14px;
+  font-size: 11px;
 }
 .callerdesk-guide span {
   display: flex;
@@ -179,8 +179,8 @@
 .callerdesk-guide b {
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: var(--brand-600);
   color: #fff;
@@ -188,12 +188,12 @@
 .callerdesk-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: 12px 16px;
 }
 .callerdesk-grid label {
   display: grid;
-  gap: 6px;
-  font-size: 13px;
+  gap: 4px;
+  font-size: 12px;
 }
 .callerdesk-grid label small {
   font-weight: 400;
@@ -203,10 +203,10 @@
 .callerdesk-grid select,
 .agent-row input,
 .agent-row select {
-  height: 42px;
+  height: 38px;
   border: 1px solid var(--ink-200);
-  border-radius: 9px;
-  padding: 0 12px;
+  border-radius: 8px;
+  padding: 0 10px;
   background: #fff;
 }
 .agent-row input[readonly] {
@@ -215,6 +215,33 @@
 }
 .wide {
   grid-column: 1/-1;
+}
+.callerdesk-grid label.check-option {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 2px 8px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--ink-100);
+  border-radius: 8px;
+  background: var(--bg);
+  cursor: pointer;
+}
+.callerdesk-grid label.check-option input[type="checkbox"],
+.calling-mode-options input[type="radio"] {
+  width: 15px;
+  height: 15px;
+  min-width: 15px;
+  margin: 0;
+  padding: 0;
+  border-radius: 3px;
+  flex: none;
+  accent-color: var(--brand-600);
+}
+.callerdesk-grid label.check-option small {
+  grid-column: 2;
+  line-height: 1.35;
 }
 .actions {
   display: flex;
@@ -225,8 +252,9 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  border-radius: 9px;
-  padding: 10px 15px;
+  min-height: 36px;
+  border-radius: 8px;
+  padding: 8px 13px;
   border: 1px solid var(--ink-200);
   background: #fff;
 }
