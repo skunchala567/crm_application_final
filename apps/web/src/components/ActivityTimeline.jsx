@@ -266,9 +266,10 @@ export default function ActivityTimeline({ activities = [] }) {
                   <span className="flex items-center gap-1.5 mb-1.5 text-[11px] font-semibold text-secondary-600">
                     <Headphones size={12} /> Call recording
                   </span>
-                  {/* preload="none" so opening a lead with several calls does
-                      not start fetching every audio file at once. */}
-                  <audio controls preload="none" src={recordingUrl} className="w-full h-9">
+                  {/* preload="metadata" so the player shows the recording's
+                      length straight away instead of 0:00 until it is played.
+                      Only the file header is fetched, not the audio itself. */}
+                  <audio controls preload="metadata" src={recordingUrl} className="w-full h-9">
                     Your browser cannot play this recording.
                     <a href={recordingUrl} target="_blank" rel="noopener noreferrer">Download it instead</a>
                   </audio>
