@@ -17,7 +17,7 @@ const SETTINGS_PERMISSIONS = [
   'settings.branches.view', 'payments.collections.view', 'payments.forms.view',
   'payments.enquiry_forms.view', 'settings.lead_config.view',
   'settings.academic_config.view', 'integrations.hub.view', 'whatsapp.templates.view',
-  'integrations.google_sheets.view','integrations.meta_lead_ads.view','integrations.callerdesk.view','integrations.smartflo.view',
+  'integrations.google_sheets.view','integrations.meta_lead_ads.view','integrations.callerdesk.view','integrations.smartflo.view','integrations.bonvoice.view',
   'sms.templates.view','email.configuration.view', 'email.templates.view',
 ];
 
@@ -53,6 +53,7 @@ const SETTINGS_CRUMBS = {
   '/settings/email-templates': 'Email Templates',
   '/settings/callerdesk': 'CallerDesk',
   '/settings/smartflo': 'Smartflo',
+  '/settings/bonvoice': 'BonVoice IVR',
 };
 
 /** Fallback target when there is no in-app history entry to return to. */

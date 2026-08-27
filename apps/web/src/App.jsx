@@ -60,7 +60,7 @@ const menu = [
 const SETTINGS_SCREEN_PERMISSIONS = [
   'settings.users.view','settings.access_control.view','settings.business_units.view','settings.branches.view',
   'payments.collections.view','payments.forms.view','payments.links.view','payments.links.create','payments.enquiry_forms.view',
-  'integrations.hub.view','integrations.google_sheets.view','integrations.meta_lead_ads.view','integrations.callerdesk.view','integrations.smartflo.view',
+  'integrations.hub.view','integrations.google_sheets.view','integrations.meta_lead_ads.view','integrations.callerdesk.view','integrations.smartflo.view','integrations.bonvoice.view',
   'whatsapp.templates.view','sms.templates.view','email.configuration.view','email.templates.view',
 ];
 
@@ -385,6 +385,7 @@ function Shell({ user, onLogout }) {
             <Route path="/settings/email-templates" element={<RequirePermission do="email.templates.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/callerdesk" element={<RequirePermission do="integrations.callerdesk.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/settings/smartflo" element={<RequirePermission do="integrations.smartflo.view"><SettingsPageModern /></RequirePermission>} />
+            <Route path="/settings/bonvoice" element={<RequirePermission do="integrations.bonvoice.view"><SettingsPageModern /></RequirePermission>} />
             <Route path="/integrations" element={<Navigate to="/settings/integrations" replace />} />
             <Route path="/oauth-callback" element={<OAuthCallbackPage />} />
             <Route path="/oauth-error" element={<OAuthCallbackPage />} />

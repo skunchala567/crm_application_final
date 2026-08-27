@@ -164,6 +164,7 @@ export const REGISTRY = [
       { screen: 'meta_lead_ads', label: 'Meta Lead Ads (settings, lead forms, review queue, remarketing)', route: '/settings/meta-lead-ads', actions: ['view', 'edit', 'manage', 'import'] },
       { screen: 'callerdesk', label: 'CallerDesk', route: '/settings/callerdesk', actions: ['view', 'edit', 'manage'] },
       { screen: 'smartflo', label: 'Smartflo', route: '/settings/smartflo', actions: ['view', 'edit', 'manage'] },
+      { screen: 'bonvoice', label: 'BonVoice IVR', route: '/settings/bonvoice', actions: ['view', 'edit', 'manage'] },
     ],
   },
   {

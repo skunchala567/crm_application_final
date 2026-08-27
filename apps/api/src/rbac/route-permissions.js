@@ -181,6 +181,10 @@ export const ROUTE_RULES = [
   { method: '*', test: /^\/api\/callerdesk/, key: 'integrations.callerdesk.manage' },
   { method: 'GET', test: /^\/api\/smartflo/, key: 'integrations.smartflo.view' },
   { method: '*', test: /^\/api\/smartflo/, key: 'integrations.smartflo.manage' },
+  { method: 'POST', test: /^\/api\/bonvoice\/leads\//, key: 'leads.list.view' },
+  { method: 'GET', test: /^\/api\/bonvoice\/calls\//, key: 'leads.list.view' },
+  { method: 'GET', test: /^\/api\/bonvoice/, key: 'integrations.bonvoice.view' },
+  { method: '*', test: /^\/api\/bonvoice/, key: 'integrations.bonvoice.manage' },
   { method: 'GET', test: /^\/api\/hub\/google/, key: 'integrations.google_sheets.view' },
   { method: '*', test: /^\/api\/hub\/google/, key: 'integrations.google_sheets.manage' },
   // Smartping under /hub is the WhatsApp conversation feed the Leads screen

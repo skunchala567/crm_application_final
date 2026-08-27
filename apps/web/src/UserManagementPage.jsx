@@ -28,6 +28,8 @@ const initialForm = {
   smartfloAgentName: "",
   smartfloAgentNumber: "",
   smartfloDepartmentId: "",
+  bonvoiceEnabled: false,
+  bonvoiceAgentNumber: "",
 };
 
 function firstOptionArray(value) {
@@ -220,6 +222,8 @@ export default function UserManagementPage() {
       smartfloAgentName: user.smartfloAgentName || "",
       smartfloAgentNumber: user.smartfloAgentNumber || "",
       smartfloDepartmentId: user.smartfloDepartmentId || "",
+      bonvoiceEnabled: user.bonvoiceEnabled,
+      bonvoiceAgentNumber: user.bonvoiceAgentNumber || "",
     });
     setDrawer({
       mode: "edit",
@@ -585,6 +589,14 @@ export default function UserManagementPage() {
                     <label className="wide">Department<select value={form.smartfloDepartmentId} onChange={event=>setForm({...form,smartfloDepartmentId:event.target.value})}><option value="">Use branch/account default department</option>{form.smartfloDepartmentId&&!smartfloOptions.departments.some(item=>String(item.id??item.department_id)===String(form.smartfloDepartmentId))&&<option value={form.smartfloDepartmentId}>{form.smartfloDepartmentId} (saved)</option>}{smartfloOptions.departments.map((department,index)=><option key={department.id||department.department_id||index} value={department.id||department.department_id}>{department.name||department.department_name}</option>)}</select></label>
                   </>}
                 </div>}
+              </div>
+              <div className="form-section">
+                <h3>BonVoice one-click calling</h3>
+                <p className="section-help">Set the phone number BonVoice should ring for this CRM user before connecting the lead.</p>
+                <div className="form-grid">
+                  <label className="check-option wide"><input type="checkbox" checked={form.bonvoiceEnabled} onChange={event=>setForm({...form,bonvoiceEnabled:event.target.checked})}/>Enable BonVoice calling for this user</label>
+                  {form.bonvoiceEnabled&&<label className="wide">Agent destination *<input inputMode="tel" required pattern="[0-9]{10,12}" value={form.bonvoiceAgentNumber} onChange={event=>setForm({...form,bonvoiceAgentNumber:event.target.value.replace(/\D/g,'').slice(0,12)})} placeholder="10–12 digit phone number"/></label>}
+                </div>
               </div>
               <div className="form-section">
                 <h3>CRM role</h3>

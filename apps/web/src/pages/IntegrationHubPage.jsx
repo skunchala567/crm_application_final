@@ -83,6 +83,7 @@ export default function IntegrationHubPage({ embedded = false }) {
   const PROVIDER_SCREENS = {
     callerdesk: '/settings/callerdesk',
     smartflo: '/settings/smartflo',
+    bonvoice: '/settings/bonvoice',
     meta_lead_ads: '/settings/meta-lead-ads',
     google_sheets: '/settings/google-sheets',
     smtp: '/settings/email-configuration',
@@ -115,6 +116,9 @@ export default function IntegrationHubPage({ embedded = false }) {
       }
       if (String(integration.provider_name).toLowerCase() === 'smartflo') {
         await api.post('/smartflo/test', {}); alert('Smartflo connection is working'); fetchIntegrations(); return;
+      }
+      if (String(integration.provider_name).toLowerCase() === 'bonvoice') {
+        await api.post('/bonvoice/test', {}); alert('BonVoice connection is working'); fetchIntegrations(); return;
       }
       /*
        * Meta Lead Ads is not a sync-engine provider: pages, forms and leads
@@ -359,6 +363,7 @@ const INTEGRATION_TYPES = [
   { id: 'smartping', name: 'WhatsApp (Smartping)', providers: ['AiSensy Smartping'], available: true, Icon: MessageCircle, accent: '#25D366' },
   { id: 'callerdesk', name: 'Cloud Calling', providers: ['CallerDesk'], available: true, Icon: Phone, accent: '#3B82F6' },
   { id: 'smartflo', name: 'Tata Cloud Telephony', providers: ['Tata Smartflo'], available: true, Icon: PhoneCall, accent: '#6366F1' },
+  { id: 'bonvoice', name: 'BonVoice IVR', providers: ['BonVoice'], available: true, Icon: PhoneCall, accent: '#D97706' },
   { id: 'meta_lead_ads', name: 'Meta Lead Ads', providers: ['Facebook / Instagram Lead Ads'], available: true, Icon: Facebook, accent: '#1877F2' },
   { id: 'sms', name: 'SMS', providers: ['SmartPing SMS'], available: true, Icon: MessageSquare, accent: '#8B5CF6' },
   { id: 'email', name: 'Email', providers: ['SMTP'], available: true, Icon: Mail, accent: '#EA580C' },
@@ -372,6 +377,7 @@ const providerNameMap = {
   SMTP: 'smtp',
   CallerDesk: 'callerdesk',
   'Tata Smartflo': 'smartflo',
+  BonVoice: 'bonvoice',
   'Facebook / Instagram Lead Ads': 'meta_lead_ads',
 };
 
@@ -440,9 +446,9 @@ function ConnectionWizard({ presetType = null, onClose, onSuccess }) {
 
     setLoading(true);
     try {
-      if (formData.integrationType === 'callerdesk' || formData.integrationType === 'smartflo' || formData.integrationType === 'email') {
+      if (formData.integrationType === 'callerdesk' || formData.integrationType === 'smartflo' || formData.integrationType === 'bonvoice' || formData.integrationType === 'email') {
         onClose();
-        navigate(formData.integrationType==='email'?'/settings/email-configuration':formData.integrationType==='smartflo'?'/settings/smartflo':'/settings/callerdesk');
+        navigate(formData.integrationType==='email'?'/settings/email-configuration':formData.integrationType==='smartflo'?'/settings/smartflo':formData.integrationType==='bonvoice'?'/settings/bonvoice':'/settings/callerdesk');
         return;
       }
       // Map the display provider name to backend provider name

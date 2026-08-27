@@ -17,6 +17,7 @@ import { createBusinessPlatformRoutes } from './business-platform.routes.js';
 import { createUsageRoutes } from './usage.routes.js';
 import { createCallerDeskRoutes, createCallerDeskWebhookRoutes } from './callerdesk/callerdesk.routes.js';
 import { createSmartfloRoutes, createSmartfloWebhookRoutes } from './smartflo/smartflo.routes.js';
+import { createBonvoiceRoutes, createBonvoiceWebhookRoutes } from './bonvoice/bonvoice.routes.js';
 import { createJodoPaymentLinkRoutes } from './jodo-payment-links.routes.js';
 import { createPaymentLinkBatchRoutes } from './payment-link-batches.routes.js';
 import { createPaymentLinkBatchEngine } from './payment-link-batch-engine.js';
@@ -2375,10 +2376,12 @@ app.get('/api/leads/:id', authenticate, requireCrmAccess, async (req, res) => {
         `SELECT ca.id, ca.direction, ca.status, ca.call_result AS callResult, ca.disposition,
             ca.duration_seconds AS durationSeconds, ca.talk_seconds AS talkSeconds,
             ca.recording_url AS recordingUrl, ca.notes, ca.raw_payload AS rawPayload,
+            LOWER(ci.provider) AS callProvider,
             ca.destination_number AS destinationNumber, ca.agent_number AS agentNumber,
             COALESCE(ca.started_at_utc, ca.created_at_utc) AS occurredAt,
             COALESCE(agent_employee.employee_name, agent_email_employee.employee_name, 'CRM user') AS actorName
        FROM crm_call_activities ca
+       JOIN crm_integrations ci ON ci.id=ca.integration_id
        LEFT JOIN app_users agent_user ON agent_user.id = ca.agent_user_id
        LEFT JOIN employees agent_employee ON agent_employee.id = agent_user.employee_id
        LEFT JOIN employees agent_email_employee ON agent_user.employee_id IS NULL
@@ -2402,6 +2405,11 @@ app.get('/api/leads/:id', authenticate, requireCrmAccess, async (req, res) => {
         const hangupCode = providerCall.hangup_cause_code ?? providerCall.hangupcause_code ?? providerCall.$hangupcause_code ?? null;
         const hangupKey = providerCall.hangup_cause_key ?? providerCall.hangupcause_key ?? providerCall.$hangupcause_key ?? null;
         const hangupDescription = providerCall.hangup_cause_description ?? providerCall.hangupcause_desc ?? providerCall.$hangupcause_desc ?? providerCall.hangup_cause ?? null;
+        const recordingUrl = call.recordingUrl && call.callProvider === 'bonvoice' ? (() => {
+            const expires=Date.now()+15*60*1000;
+            const signature=crypto.createHmac('sha256',jwtSecret).update(`${call.id}:${expires}`).digest('hex');
+            return `${req.protocol}://${req.get('host')}/api/bonvoice/recordings/${call.id}?expires=${expires}&signature=${signature}`;
+        })() : call.recordingUrl;
         activities.push({
             // Prefixed so it cannot collide with a crm_lead_activities id, which
             // the front end uses as a React key and an expand/collapse key.
@@ -2416,7 +2424,7 @@ app.get('/api/leads/:id', authenticate, requireCrmAccess, async (req, res) => {
             actorName: call.actorName,
             commentText: call.notes || null,
             details: {
-                recordingUrl: call.recordingUrl || null,
+                recordingUrl: recordingUrl || null,
                 direction: call.direction || null,
                 outcome: call.callResult || call.status || null,
                 disposition: call.disposition || null,
@@ -3359,6 +3367,7 @@ app.get('/api/admin/users', authenticate, requireUserAdmin, async (req, res) => 
             u.callerdesk_enabled AS callerdeskEnabled,
             u.smartflo_user_id AS smartfloUserId,u.smartflo_agent_id AS smartfloAgentId,u.smartflo_agent_name AS smartfloAgentName,
             u.smartflo_agent_number AS smartfloAgentNumber,u.smartflo_department_id AS smartfloDepartmentId,u.smartflo_enabled AS smartfloEnabled,
+            u.bonvoice_agent_number AS bonvoiceAgentNumber,u.bonvoice_enabled AS bonvoiceEnabled,
             u.last_login_at_utc AS lastLoginAt
      FROM app_users u
      LEFT JOIN employees e ON e.id = u.employee_id
@@ -3371,13 +3380,14 @@ app.get('/api/admin/users', authenticate, requireUserAdmin, async (req, res) => 
      GROUP BY u.id, u.employee_id, u.email, u.is_active, cuas.is_active, e.employee_name,p.first_name,p.last_name,p.phone,e.employee_number,
               u.callerdesk_member_id,u.callerdesk_member_name,u.callerdesk_member_number,u.callerdesk_call_group,u.callerdesk_enabled,
               u.smartflo_user_id,u.smartflo_agent_id,u.smartflo_agent_name,u.smartflo_agent_number,u.smartflo_department_id,u.smartflo_enabled,u.last_login_at_utc
+              ,u.bonvoice_agent_number,u.bonvoice_enabled
      ORDER BY name`,
         scopeParams,
     );
     res.json({
         data: rows.map((row) => ({
             ...row, id: Number(row.id), employeeId: row.employeeId ? Number(row.employeeId) : null,
-            isActive: Boolean(row.isActive), callerdeskEnabled: Boolean(row.callerdeskEnabled), smartfloEnabled: Boolean(row.smartfloEnabled),
+            isActive: Boolean(row.isActive), callerdeskEnabled: Boolean(row.callerdeskEnabled), smartfloEnabled: Boolean(row.smartfloEnabled), bonvoiceEnabled: Boolean(row.bonvoiceEnabled),
             // A user holding only Attendance roles genuinely has no CRM role; saying
             // so is more useful than reporting the other application's ADMIN here.
             roles: row.crmRoles ? row.crmRoles.split(',') : [],
@@ -3408,6 +3418,7 @@ async function saveCrmUser(req, res, existingUserId = null) {
     const callerdeskMemberNumber = String(req.body.callerdeskMemberNumber || '').replace(/\D/g, '').slice(-15) || null;
     const callerdeskCallGroup = cleanOptional(req.body.callerdeskCallGroup, 120);
     const smartfloEnabled = Boolean(req.body.smartfloEnabled), smartfloUserId = cleanOptional(req.body.smartfloUserId, 100), smartfloAgentId = cleanOptional(req.body.smartfloAgentId, 100), smartfloAgentName = cleanOptional(req.body.smartfloAgentName, 150), smartfloAgentNumber = cleanOptional(req.body.smartfloAgentNumber, 30), smartfloDepartmentId = cleanOptional(req.body.smartfloDepartmentId, 100);
+    const bonvoiceEnabled=Boolean(req.body.bonvoiceEnabled),bonvoiceAgentNumber=String(req.body.bonvoiceAgentNumber||'').replace(/\D/g,'').slice(-12)||null;
     if (!externalUser && (!Number.isInteger(employeeId) || employeeId <= 0)) return res.status(400).json({ message: 'Select an employee' });
     if (externalUser && (!firstName || !lastName)) return res.status(400).json({ message: 'First name and last name are required' });
     if (externalUser && phone && !/^[6-9]\d{9}$/.test(phone)) return res.status(400).json({ message: 'Enter a valid 10-digit Indian mobile number' });
@@ -3416,6 +3427,7 @@ async function saveCrmUser(req, res, existingUserId = null) {
     if (!branchIds.length) return res.status(400).json({ message: 'Select at least one CRM branch' });
     if (callerdeskEnabled && (!callerdeskMemberId || !callerdeskMemberNumber)) return res.status(400).json({ message: 'Select a CallerDesk member for one-click calling' });
     if (smartfloEnabled && !smartfloAgentId) return res.status(400).json({ message: 'Select a Smartflo agent for one-click calling' });
+    if (bonvoiceEnabled && (!bonvoiceAgentNumber || bonvoiceAgentNumber.length < 10)) return res.status(400).json({ message: 'Enter a valid BonVoice agent destination' });
     for (const branchId of branchIds) {
         if (!(await accessibleBranch(req.user, branchId))) return res.status(403).json({ message: 'You cannot assign one or more selected branches' });
     }
@@ -3502,6 +3514,7 @@ async function saveCrmUser(req, res, existingUserId = null) {
         await connection.execute(`UPDATE app_users SET callerdesk_member_id=?,callerdesk_member_name=?,callerdesk_member_number=?,callerdesk_call_group=?,callerdesk_enabled=? WHERE id=?`,
             [callerdeskEnabled ? callerdeskMemberId : null, callerdeskEnabled ? callerdeskMemberName : null, callerdeskEnabled ? callerdeskMemberNumber : null, callerdeskEnabled ? callerdeskCallGroup : null, callerdeskEnabled ? 1 : 0, user.id]);
         await connection.execute(`UPDATE app_users SET smartflo_user_id=?,smartflo_agent_id=?,smartflo_agent_name=?,smartflo_agent_number=?,smartflo_department_id=?,smartflo_enabled=? WHERE id=?`, [smartfloEnabled ? smartfloUserId : null, smartfloEnabled ? smartfloAgentId : null, smartfloEnabled ? smartfloAgentName : null, smartfloEnabled ? smartfloAgentNumber : null, smartfloEnabled ? smartfloDepartmentId : null, smartfloEnabled ? 1 : 0, user.id]);
+        await connection.execute(`UPDATE app_users SET bonvoice_agent_number=?,bonvoice_enabled=? WHERE id=?`,[bonvoiceEnabled?bonvoiceAgentNumber:null,bonvoiceEnabled?1:0,user.id]);
         await connection.commit();
         res.status(existingUserId ? 200 : 201).json({ id: Number(user.id), message: existingUserId ? 'CRM user updated successfully' : 'CRM user added successfully' });
     } catch (error) {
@@ -6354,6 +6367,8 @@ app.use('/api/callerdesk', createCallerDeskRoutes(pool, authenticate, requireCrm
 app.use('/api/callerdesk', createCallerDeskWebhookRoutes(pool));
 app.use('/api/smartflo', createSmartfloRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
 app.use('/api/smartflo', createSmartfloWebhookRoutes(pool));
+app.use('/api/bonvoice', createBonvoiceRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
+app.use('/api/bonvoice', createBonvoiceWebhookRoutes(pool));
 app.use('/api/jodo/payment-links', createJodoPaymentLinkRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
 app.use('/api/jodo/payment-link-batches', createPaymentLinkBatchRoutes(pool, authenticate, requireCrmAccess, requireUserAdmin));
 app.use('/api/webhooks/jodo', createJodoWebhookRoutes(pool));

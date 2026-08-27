@@ -10,6 +10,7 @@ import BusinessUnitsPage from '../BusinessUnitsPage.jsx';
 import Toast from '../Toast.jsx';
 import CallerDeskSettings from '../pages/CallerDeskSettings.jsx';
 import SmartfloSettings from '../pages/SmartfloSettings.jsx';
+import BonvoiceSettings from '../pages/BonvoiceSettings.jsx';
 import BranchSettingsPage from '../pages/BranchSettingsPage.jsx';
 import PaymentsSettings from '../pages/PaymentsSettings.jsx';
 import EmailConfigurationSettings from '../pages/EmailConfigurationSettings.jsx';
@@ -159,6 +160,14 @@ const settingsTabs = [
     icon: PhoneCall,
     component: SmartfloSettings,
     permissions: ['integrations.smartflo.view'],
+  },
+  {
+    id: 'bonvoice',
+    path: '/settings/bonvoice',
+    label: 'BonVoice IVR',
+    icon: PhoneCall,
+    component: BonvoiceSettings,
+    permissions: ['integrations.bonvoice.view'],
   },
 ];
 

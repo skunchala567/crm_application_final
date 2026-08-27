@@ -59,6 +59,7 @@ const PROVIDERS = [
   { match: ['meta', 'facebook', 'instagram'], Mark: MetaMark, tone: 'bg-blue-50 text-blue-600' },
   { match: ['callerdesk'], Mark: () => <PhoneCall size={22} />, tone: 'bg-violet-50 text-violet-600' },
   { match: ['smartflo', 'tata'], Mark: () => <Radio size={22} />, tone: 'bg-teal-50 text-teal-600' },
+  { match: ['bonvoice'], Mark: () => <PhoneCall size={22} />, tone: 'bg-amber-50 text-amber-700' },
 ];
 
 function providerVisual(providerName) {

@@ -1094,11 +1094,12 @@ export default function LeadsPage() {
   const callProvidersRef=useRef(null);
   function loadCallProviders({refresh=false}={}){
     if(refresh||!callProvidersRef.current){
-      callProvidersRef.current=Promise.allSettled([api('/callerdesk/config'),api('/smartflo/config')])
-        .then(([callerdeskResult,smartfloResult])=>{
+      callProvidersRef.current=Promise.allSettled([api('/callerdesk/config'),api('/smartflo/config'),api('/bonvoice/config')])
+        .then(([callerdeskResult,smartfloResult,bonvoiceResult])=>{
           const providers=[];
           if(callerdeskResult.status==='fulfilled'&&callerdeskResult.value.data?.configured&&callerdeskResult.value.data?.isActive!==false&&callerdeskResult.value.data?.userAssigned)providers.push({key:'callerdesk',label:'CallerDesk'});
           if(smartfloResult.status==='fulfilled'&&smartfloResult.value.data?.configured&&smartfloResult.value.data?.isActive!==false&&smartfloResult.value.data?.userAssigned)providers.push({key:'smartflo',label:'Tata Smartflo',callingMode:smartfloResult.value.data?.callingMode||'AGENT_FIRST'});
+          if(bonvoiceResult.status==='fulfilled'&&bonvoiceResult.value.data?.configured&&bonvoiceResult.value.data?.isActive!==false&&bonvoiceResult.value.data?.userAssigned)providers.push({key:'bonvoice',label:'BonVoice IVR',callingMode:'TWO_LEG'});
           return providers;
         })
         .catch(error=>{callProvidersRef.current=null;throw error;});
@@ -1205,11 +1206,11 @@ export default function LeadsPage() {
   },[activeCall?.startedAt,activeCall?.status?.isTerminal]);
 
   useEffect(()=>{
-    if(activeCall?.providerKey!=='smartflo'||!activeCall.callActivityId||activeCall.status?.isTerminal)return undefined;
+    if(!['smartflo','bonvoice'].includes(activeCall?.providerKey)||!activeCall.callActivityId||activeCall.status?.isTerminal)return undefined;
     let cancelled=false;
     const refresh=async()=>{
       try{
-        const result=await api(`/smartflo/calls/${activeCall.callActivityId}/status`);
+        const result=await api(`/${activeCall.providerKey}/calls/${activeCall.callActivityId}/status`);
         if(cancelled)return;
         setActiveCall(current=>current?.callActivityId===activeCall.callActivityId?{...current,status:result.data,endedAt:result.data?.isTerminal?Date.now():current.endedAt}:current);
       }catch(error){
@@ -2536,7 +2537,7 @@ export default function LeadsPage() {
             {activeCall?.statusError&&<p className="mt-1 text-sm text-red-700">{activeCall.statusError}</p>}
             {activeCall?.status?.live&&<p className="mt-1 text-sm text-secondary-600">{[activeCall.status.live.agentName,activeCall.status.live.queueState,activeCall.status.live.callTime].filter(Boolean).join(' · ')}</p>}
             {activeCall?.status?.hangup?.description&&<p className="mt-1 text-sm text-secondary-700">Hang-up: {activeCall.status.hangup.description}{activeCall.status.hangup.code!=null?` (Q.850 ${activeCall.status.hangup.code}${activeCall.status.hangup.key?` · ${activeCall.status.hangup.key}`:''})`:''}</p>}
-            {activeCall?.status?.recordingUrl&&<a className="mt-2 inline-block text-sm font-semibold text-emerald-700 underline" href={activeCall.status.recordingUrl} target="_blank" rel="noreferrer">Play call recording</a>}
+            {activeCall?.status?.recordingUrl&&<audio className="mt-2 h-9 w-full max-w-md" controls preload="metadata" src={activeCall.status.recordingUrl}>Your browser cannot play this recording.</audio>}
           </div>}
           {followupModal.callAttempt&&<label className="wide">New comment *<textarea required rows="4" placeholder="Write a new comment…" value={followupForm.comment} onChange={e=>setFollowupForm({...followupForm,comment:e.target.value})}/></label>}
           {followupModal.callAttempt&&<SearchSuggestion label="Disposition" required options={meta.substages.filter(item=>{const parent=meta.stages.find(stage=>String(stage.id)===String(item.stageId));return !followupModal.pipelineId||String(parent?.pipelineId)===String(followupModal.pipelineId);}).map(item=>{const parent=meta.stages.find(stage=>String(stage.id)===String(item.stageId));return {id:item.id,label:`${item.displayName}${parent?` — ${parent.displayName}`:''}`};})} value={followupForm.substageId} onChange={substageId=>{const substage=meta.substages.find(item=>String(item.id)===String(substageId));setFollowupForm({...followupForm,substageId:substageId?String(substageId):"",stageId:substage?String(substage.stageId):"",callDisposition:substage?.displayName||"",nextFollowupAt:"",followupType:""});}} placeholder="Search disposition by sub-stage or stage…"/>}
