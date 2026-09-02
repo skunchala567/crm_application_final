@@ -3049,7 +3049,7 @@ app.put('/api/leads/:id/change-stage', authenticate, requireCrmAccess, requireLe
     if (!Number.isInteger(stageId) || stageId <= 0) return res.status(400).json({ message: 'Select a stage' });
     if (!Number.isInteger(substageId) || substageId <= 0) return res.status(400).json({ message: 'Select a sub-stage' });
     const scope = leadScopedWhere(req.user);
-    const [[lead]] = await pool.execute(`SELECT stage_id, substage_id FROM crm_leads WHERE id=? AND deleted_at_utc IS NULL AND ${scope.sql} LIMIT 1`, [leadId, ...scope.params]);
+    const [[lead]] = await pool.execute(`SELECT stage_id, substage_id FROM crm_leads l WHERE l.id=? AND l.deleted_at_utc IS NULL AND ${scope.sql} LIMIT 1`, [leadId, ...scope.params]);
     if (!lead) return res.status(404).json({ message: 'Lead not found' });
     const [[stage]] = await pool.execute(`SELECT id, display_name FROM crm_lead_stages WHERE id=? AND business_unit_id=? LIMIT 1`, [stageId, Number(req.businessUnit.id)]);
     const [[substage]] = await pool.execute(`SELECT id, display_name FROM crm_lead_substages WHERE id=? AND stage_id=? LIMIT 1`, [substageId, stageId]);

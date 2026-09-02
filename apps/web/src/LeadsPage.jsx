@@ -2827,27 +2827,6 @@ export default function LeadsPage() {
                       </table>
                     </div>}
                 </div>
-                {/* Everything that was the separate Lead history dialog. It
-                    keeps that dialog's classes, so it keeps its styling. */}
-                <div className={`form-section ${drawerTab!=="history"?"tab-hidden":""}`}>
-                  <h3>Lead history</h3>
-                  <div className="history-current-grid">
-                    <div><span>Current stage</span><strong>{form.stage||meta.stages.find(item=>String(item.id)===String(form.stageId))?.displayName||"—"}</strong></div>
-                    <div><span>Current sub-stage</span><strong>{meta.substages.find(item=>String(item.id)===String(form.substageId))?.displayName||"Not specified"}</strong></div>
-                    <div><span>Next follow-up</span><strong>{form.nextFollowupAt?new Date(form.nextFollowupAt).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}):"Not scheduled"}</strong></div>
-                    <div><span>Lead owner</span><strong>{form.owner||"Unassigned"}</strong></div>
-                  </div>
-                  <div className="history-body">
-                    <section className="form-section lead-dates-section">
-                      <h3>Lead timeline</h3>
-                      <LeadTimeline lead={form} />
-                    </section>
-                    <section className="activity-section modal-activity">
-                      <h3>Activity</h3>
-                      <ActivityTimeline activities={drawer.activities || []} />
-                    </section>
-                  </div>
-                </div>
                 </>}
                 {false && drawer.mode === "create" && <div className="form-section">
                   <h3>Follow-up and notes</h3>
@@ -2907,6 +2886,31 @@ export default function LeadsPage() {
                   </div>
                 </div>}
               </fieldset>
+              {/* Rendered outside the fieldset: History/Activity is a
+                  read-only view, not an editable form field, and a disabled
+                  ancestor fieldset disables every descendant control --
+                  including the activity type filter -- no matter how deep
+                  it's nested. Keeping it out of the fieldset lets the filter
+                  stay usable while the drawer is in view mode. */}
+              {drawer.mode!=="create"&&<div className={`form-section ${drawerTab!=="history"?"tab-hidden":""}`}>
+                <h3>Lead history</h3>
+                <div className="history-current-grid">
+                  <div><span>Current stage</span><strong>{form.stage||meta.stages.find(item=>String(item.id)===String(form.stageId))?.displayName||"—"}</strong></div>
+                  <div><span>Current sub-stage</span><strong>{meta.substages.find(item=>String(item.id)===String(form.substageId))?.displayName||"Not specified"}</strong></div>
+                  <div><span>Next follow-up</span><strong>{form.nextFollowupAt?new Date(form.nextFollowupAt).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"}):"Not scheduled"}</strong></div>
+                  <div><span>Lead owner</span><strong>{form.owner||"Unassigned"}</strong></div>
+                </div>
+                <div className="history-body">
+                  <section className="form-section lead-dates-section">
+                    <h3>Lead timeline</h3>
+                    <LeadTimeline lead={form} />
+                  </section>
+                  <section className="activity-section modal-activity">
+                    <h3>Activity</h3>
+                    <ActivityTimeline activities={drawer.activities || []} />
+                  </section>
+                </div>
+              </div>}
             </form>
           </aside>
         </>
