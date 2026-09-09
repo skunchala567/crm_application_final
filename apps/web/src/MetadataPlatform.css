@@ -612,3 +612,17 @@
 .colour-field-row input[type=color]{width:46px;min-width:46px;flex:none;padding:3px;height:38px;cursor:pointer}
 .colour-field-row input[type=text]{flex:1;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:lowercase;letter-spacing:.04em}
 .business-unit-switch-action{height:48px;white-space:nowrap}.business-unit-switch-action:disabled{opacity:.45;cursor:not-allowed}
+
+/* Branches panel: the "add existing" picker sits beside "Add branch", so both
+   ways of getting a branch into this unit are in one place. */
+.branch-panel-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.branch-link-existing{display:flex;align-items:center;gap:8px}
+.branch-link-existing select{height:38px;max-width:230px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:11px;color:var(--ink-600)}
+.branch-link-existing button{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+
+/* User management embedded in Business Unit configuration: the host page owns
+   the frame, so the embedded copy drops the page padding and stat cards' outer
+   margins rather than nesting a second page inside one. */
+.business-unit-users{padding:18px}
+.business-unit-users .user-management-page.embedded{margin:0;padding:0;background:transparent}
+.business-unit-users .user-management-page.embedded>.page-action-row{margin-top:0}

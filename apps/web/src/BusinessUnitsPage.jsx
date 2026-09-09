@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, Building2, CalendarRange, Check, ChevronDown, ChevronRight, Copy, CreditCard, Database, ExternalLink, GitBranch, Layers3, Pencil, Plug, Plus, Search, Settings2, Trash2, Waypoints, Workflow, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Building2, CalendarRange, Check, ChevronDown, ChevronRight, Copy, CreditCard, Database, ExternalLink, GitBranch, Layers3, Link2, Pencil, Plug, Plus, Search, Settings2, Trash2, UserCog, Waypoints, Workflow, X } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from './api';
 import { useBusinessUnit } from './BusinessUnitContext.jsx';
+import { usePermissions } from './PermissionContext.jsx';
 import { useIntegrationStatus } from './IntegrationStatusContext.jsx';
 import { applyBrandTheme, DEFAULT_BRAND_COLOR } from './brand-theme.js';
 import AcademicConfigurationPage from './AcademicConfigurationPage.jsx';
 import BusinessConfigurationPage from './BusinessConfigurationPage.jsx';
 import LeadConfiguration from './LeadConfiguration.jsx';
 import IntegrationHubPage from './pages/IntegrationHubPage.jsx';
+import UserManagementPage from './UserManagementPage.jsx';
 import ScrollableTabStrip from './components/ScrollableTabStrip.jsx';
 import './MetadataPlatform.css';
 import BranchWhatsAppSettings, { saveBranchWhatsApp } from './components/BranchWhatsAppSettings.jsx';
@@ -109,6 +111,7 @@ const filterControlOptions=(fieldType)=>{
 
 export default function BusinessUnitsPage({onMessage}){
   const context=useBusinessUnit();
+  const {can}=usePermissions();
   const [searchParams,setSearchParams]=useSearchParams();
   const [selectedId,setSelectedId]=useState(context.selectedId);
   // A committed switch from the shared sidebar must move this configuration
@@ -158,6 +161,10 @@ export default function BusinessUnitsPage({onMessage}){
   const unitPickerRef=useRef(null);
   const selected=context.units.find(unit=>unit.id===selectedId);
   const filteredUnits=context.units.filter(unit=>`${unit.name} ${unit.industryType} ${unit.description||''}`.toLowerCase().includes(unitSearch.toLowerCase().trim()));
+
+  /* Staff are only shown to somebody who may administer them; without this
+     the tab would open on an empty list and a permission error. */
+  const canSeeUsers=can('settings.users.view');
 
   const notify=(type,text)=>onMessage?.({type,text});
   const addStandardField=async (key,form)=>{
@@ -262,6 +269,27 @@ export default function BusinessUnitsPage({onMessage}){
       await saveBranchWhatsApp(branchId,selectedId,branchForm.whatsapp);
       await saveBranchPipelines(branchId,branchForm.pipelines);
       await loadConfig(selectedId);setDialog(null);setEditingId(null);setBranchForm(emptyBranchForm);notify('success',result.message);
+    }catch(error){notify('error',error.message);}finally{setSaving(false);}
+  };
+  /* Branch names are unique across the whole organisation, so a branch the
+     attendance side already created cannot be added by typing its name again.
+     It is brought into this unit instead. */
+  const linkBranch=async branchId=>{
+    if(!branchId)return;
+    setSaving(true);
+    try{
+      const result=await api(`/platform/business-units/${selectedId}/branches/${branchId}/link`,{method:'POST',body:'{}'});
+      await loadConfig(selectedId);notify('success',result.message);
+    }catch(error){notify('error',error.message);}finally{setSaving(false);}
+  };
+  /* Removes the branch from this business unit only. The branch, and anything
+     another unit does with it, is untouched. */
+  const removeBranchFromUnit=async branch=>{
+    if(!window.confirm(`Remove ${branch.name} from this business unit? The branch itself is not deleted.`))return;
+    setSaving(true);
+    try{
+      const result=await api(`/platform/business-units/${selectedId}/branches/${branch.id}`,{method:'DELETE'});
+      await loadConfig(selectedId);notify('success',result.message);
     }catch(error){notify('error',error.message);}finally{setSaving(false);}
   };
   const addPipelineStage=async event=>{
@@ -419,11 +447,11 @@ export default function BusinessUnitsPage({onMessage}){
                 page header's height has to be accounted for rather than the
                 title's as well -- its height changes with the description. */}
             <ScrollableTabStrip as="nav" className="metadata-tabs" label="configuration tabs">
-              {[['overview',Layers3,'Overview'],['branches',CreditCard,'Branches & payments'],['fields',Settings2,'Lead fields'],['pipeline',GitBranch,'Lead pipeline'],['sources',Waypoints,'Source configuration'],...(selected.compatibilityMode==='legacy_school'?[['academic',CalendarRange,'Academic configuration'],['configuration',Layers3,'Configuration']]:[['configuration',CalendarRange,'Configuration']]),['integrations',Plug,'Integrations'],['operations',Workflow,'Tracker'],['database',Database,'Database tables']].map(([id,Icon,label])=><button key={id} className={tab===id?'active':''} onClick={()=>changeTab(id)}><Icon size={16}/>{label}</button>)}
+              {[['overview',Layers3,'Overview'],['branches',CreditCard,'Branches & payments'],['fields',Settings2,'Lead fields'],['pipeline',GitBranch,'Lead pipeline'],['sources',Waypoints,'Source configuration'],...(selected.compatibilityMode==='legacy_school'?[['academic',CalendarRange,'Academic configuration'],['configuration',Layers3,'Configuration']]:[['configuration',CalendarRange,'Configuration']]),['integrations',Plug,'Integrations'],['operations',Workflow,'Tracker'],...(canSeeUsers?[['users',UserCog,'Users & access']]:[]),['database',Database,'Database tables']].map(([id,Icon,label])=><button key={id} className={tab===id?'active':''} onClick={()=>changeTab(id)}><Icon size={16}/>{label}</button>)}
             </ScrollableTabStrip>
             </div>
             {tab==='overview'&&<Overview config={config} selected={selected} onSaveDuplicateRule={saveDuplicateRule} saving={saving}/>}
-            {tab==='branches'&&<BranchesPaymentPanel config={config} onAdd={()=>{setEditingId(null);setBranchForm(emptyBranchForm);setDialog('branch')}} onEdit={branch=>{const{applicationAmount,applicationStageId,applicationPaymentComponent,...rest}=branch;setEditingId(branch.id);setBranchForm({...emptyBranchForm,...rest,jodoApiKey:'',jodoSecretKey:'',jodoAuthHeader:'',jodoBaseUrl:branch.jodoBaseUrl||'https://ext.jodo.in'});setDialog('branch')}}/>}
+            {tab==='branches'&&<BranchesPaymentPanel config={config} unitId={selectedId} onLink={linkBranch} onRemove={removeBranchFromUnit} onAdd={()=>{setEditingId(null);setBranchForm(emptyBranchForm);setDialog('branch')}} onEdit={branch=>{const{applicationAmount,applicationStageId,applicationPaymentComponent,...rest}=branch;setEditingId(branch.id);setBranchForm({...emptyBranchForm,...rest,jodoApiKey:'',jodoSecretKey:'',jodoAuthHeader:'',jodoBaseUrl:branch.jodoBaseUrl||'https://ext.jodo.in'});setDialog('branch')}}/>}
             {tab==='fields'&&<MetadataList title="Lead fields" description="Configure forms, list columns, filters, search, and import templates for this business unit." action="Add field" onAdd={()=>{setEditingId(null);setFieldForm(emptyField);setDialog('field')}} onEdit={row=>{const field=config.fields.find(item=>item.id===row.id);setEditingId(field.id);setFieldForm({...emptyField,...field,...fieldUsageFromValidation(field),options:(field.options||[]).join(', '),optionsSectionId:field.optionsSectionId?String(field.optionsSectionId):'',optionsSectionLevel:field.optionsSectionLevel||'parent'});setDialog('field')}} onDelete={row=>removeConfiguredItem('fields',row,'lead field')} rows={config.fields.map(field=>({id:field.id,title:field.displayName,subtitle:`${field.fieldType.replace('_',' ')} · ${field.fieldKey}`,badges:[field.isSystem?'System field':null,field.isRequired?'Lead form mandatory':null,field.showInList?'List column':null,field.isFilterable?'Filter':null,field.isSearchable?'Search':null,field.validation?.usage?.reports!==false?'Reports':null,field.isImportable?(field.isImportRequired?'Import required':'Import column'):null].filter(Boolean)}))}/>}
             {tab==='pipeline'&&(()=>{
               /* Everything below is scoped to one pipeline. A unit may run
@@ -494,6 +522,13 @@ export default function BusinessUnitsPage({onMessage}){
                     <Plug size={16}/> Switch to {selected.displayName}
                   </button>
                 </section>)}
+            {/*
+              * Who works in this business unit, configured beside the branches
+              * and pipeline they will be given -- rather than in a separate
+              * screen that never said which unit a branch belonged to. The
+              * branch picker inside narrows itself to this unit's branches.
+              */}
+            {tab==='users'&&canSeeUsers&&<section className="business-unit-users"><UserManagementPage key={selectedId} embedded businessUnitId={selectedId} onMessage={message=>message&&notify(message.type,message.text)}/></section>}
             {tab==='database'&&<BusinessUnitDatabaseTables selected={selected}/>}
           </>}
         </section>
@@ -586,13 +621,44 @@ function PipelineDefaults({config,saving,onSave}){
     <button className="primary" disabled={saving}>{saving?'Saving…':'Save defaults'}</button>
   </form>;
 }
-function BranchesPaymentPanel({config,onAdd,onEdit}){
+/**
+ * Pick a branch that exists elsewhere and bring it into this unit.
+ *
+ * Only rendered when there is something to bring in, so a unit that already
+ * has every branch does not carry a dead control.
+ */
+function LinkExistingBranch({unitId,refreshToken,onLink}){
+  const [available,setAvailable]=useState([]);
+  const [choice,setChoice]=useState('');
+  /* refreshToken is the loaded config: a new object every time the unit's
+     configuration is re-read, which is exactly when this list has changed.
+     The handler is deliberately not a dependency -- it is a fresh closure on
+     every render, and depending on it would refetch in a loop. */
+  useEffect(()=>{
+    let ignore=false;
+    if(!unitId){setAvailable([]);return undefined;}
+    api(`/platform/business-units/${unitId}/available-branches`)
+      .then(result=>{if(!ignore)setAvailable(result.data||[]);})
+      .catch(()=>{if(!ignore)setAvailable([]);});
+    return ()=>{ignore=true;};
+  },[unitId,refreshToken]);
+  if(!available.length)return null;
+  return <div className="branch-link-existing">
+    <select value={choice} onChange={event=>setChoice(event.target.value)} aria-label="Existing branch">
+      <option value="">Add an existing branch…</option>
+      {available.map(branch=><option key={branch.id} value={branch.id}>{branch.name}{branch.shortName?` · ${branch.shortName}`:''}</option>)}
+    </select>
+    <button type="button" className="secondary" disabled={!choice} onClick={()=>{onLink(Number(choice));setChoice('');}}><Link2 size={15}/>Add to this unit</button>
+  </div>;
+}
+
+function BranchesPaymentPanel({config,unitId,onAdd,onEdit,onLink,onRemove}){
   // A branch keeps its saved DID while its integration is switched off, but
   // the row stops advertising a number nobody can dial.
   const {isOff}=useIntegrationStatus();
   const branches=config.branches||[];
-  return <section className="metadata-list"><header><div><h3>Branches & online application payments</h3><p>Configure branch-wise calling routes and Jodo payment credentials. Amounts, payment components and paid-application stages are set on the payment form or public enquiry form.</p></div><button className="primary" onClick={onAdd}><Plus size={16}/>Add branch</button></header>
-    <div>{branches.map(branch=><article key={branch.id}><i style={{background:'var(--brand-50)',color:'var(--brand-600)'}}><CreditCard size={15}/></i><span><strong>{branch.name}</strong><small>{branch.shortName||'No short name'} · {branch.jodoCollectorCode?'Payment credentials set':'No payment credentials'}</small></span><div className="metadata-row-badges">{!isOff('callerdesk')&&<em>{branch.callerdeskDidNumber?`DID ${branch.callerdeskDidNumber}`:'No calling DID'}</em>}{!isOff('smartflo')&&<em>{branch.smartfloDidNumber?`Smartflo ${branch.smartfloDidNumber}`:'No Smartflo DID'}</em>}<em>{branch.jodoCollectorCode||'No collector code'}</em><em>{branch.isActive===false?'Inactive':'Active'}</em></div><div className="metadata-row-actions"><button className="icon-btn" title="Edit branch configuration" onClick={()=>onEdit(branch)}><Pencil size={15}/></button></div></article>)}{!branches.length&&<div className="empty"><CreditCard/><strong>No branches available</strong><span>Add a branch or configure existing branches.</span></div>}</div>
+  return <section className="metadata-list"><header><div><h3>Branches & online application payments</h3><p>The branches this business unit runs. Configure branch-wise calling routes and Jodo payment credentials. Amounts, payment components and paid-application stages are set on the payment form or public enquiry form.</p></div><div className="branch-panel-actions"><LinkExistingBranch unitId={unitId} refreshToken={config} onLink={onLink}/><button className="primary" onClick={onAdd}><Plus size={16}/>Add branch</button></div></header>
+    <div>{branches.map(branch=><article key={branch.id}><i style={{background:'var(--brand-50)',color:'var(--brand-600)'}}><CreditCard size={15}/></i><span><strong>{branch.name}</strong><small>{branch.shortName||'No short name'} · {branch.jodoCollectorCode?'Payment credentials set':'No payment credentials'}</small></span><div className="metadata-row-badges">{!isOff('callerdesk')&&<em>{branch.callerdeskDidNumber?`DID ${branch.callerdeskDidNumber}`:'No calling DID'}</em>}{!isOff('smartflo')&&<em>{branch.smartfloDidNumber?`Smartflo ${branch.smartfloDidNumber}`:'No Smartflo DID'}</em>}<em>{branch.jodoCollectorCode||'No collector code'}</em><em>{branch.isActive===false?'Inactive':'Active'}</em></div><div className="metadata-row-actions"><button className="icon-btn" title="Edit branch configuration" onClick={()=>onEdit(branch)}><Pencil size={15}/></button><button className="icon-btn danger" title={`Remove ${branch.name} from this business unit`} onClick={()=>onRemove(branch)}><Trash2 size={15}/></button></div></article>)}{!branches.length&&<div className="empty"><CreditCard/><strong>No branches in this business unit</strong><span>Each business unit runs its own branches. Add one, or bring in a branch that already exists.</span></div>}</div>
   </section>;
 }
 

@@ -92,3 +92,26 @@ export function canAccessBranch(user, branchId) {
 export function denyBranch(user, branchId) {
   return canAccessBranch(user, branchId) ? null : 'You do not have access to that branch';
 }
+
+/**
+ * A WHERE fragment limiting `column` to one business unit's branches.
+ *
+ * Branches used to be a single flat list every business unit could see, so a
+ * unit created for a different business opened with twenty branches belonging
+ * to School Admissions. crm_business_unit_branches records which unit each
+ * branch is part of, and this is how every picker and reference list asks.
+ *
+ * Membership is not permission: AND this with branchScopeSql (or
+ * referenceBranchScopeSql) rather than in place of it. "In this unit" and
+ * "granted to you" are separate questions and both still have to be asked.
+ */
+export function unitBranchScopeSql(businessUnitId, column) {
+  const unitId = Number(businessUnitId);
+  // No unit in hand means no basis to narrow on. Returning 1=0 here would
+  // empty every picker on any route that forgot to attach one.
+  if (!Number.isFinite(unitId) || unitId <= 0) return { sql: '1=1', params: [] };
+  return {
+    sql: `${column} IN (SELECT bub.branch_id FROM crm_business_unit_branches bub WHERE bub.business_unit_id = ?)`,
+    params: [unitId],
+  };
+}

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { branchScopeSql, canAccessBranch } from './rbac/branch-scope.js';
+import { branchScopeSql, canAccessBranch, unitBranchScopeSql } from './rbac/branch-scope.js';
 
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -9,12 +9,15 @@ export function createBranchesRoutes(pool, authenticate, requireCrmAccess) {
 
   router.get('/', wrap(async (req, res) => {
     const scope = branchScopeSql(req.user, 'id');
+    // Branches belong to a business unit, so a list drawn while working in one
+    // unit must not carry another unit's branches -- or their collector codes.
+    const unitScope = unitBranchScopeSql(req.businessUnit?.id, 'id');
     const [rows] = await pool.execute(
       `SELECT id, branch_name, jodo_payment_enabled, jodo_collector_code
        FROM mse_hrm_branches
-       WHERE is_active = 1 AND ${scope.sql}
+       WHERE is_active = 1 AND ${scope.sql} AND ${unitScope.sql}
        ORDER BY branch_name`,
-      scope.params
+      [...scope.params, ...unitScope.params]
     );
     res.json({ data: rows.map(row => ({
       id: Number(row.id),

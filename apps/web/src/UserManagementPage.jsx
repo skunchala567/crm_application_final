@@ -138,14 +138,43 @@ function UserManagementTabs({ activeTab, onChange, canSeeAccess }) {
   );
 }
 
-export default function UserManagementPage() {
+/**
+ * Which branches may be offered for a set of business units.
+ *
+ * A branch belongs to the units that run it, so a user working only in Real
+ * Estate must not be offered School Admissions' branches -- the save path
+ * refuses them, and offering them is offering access that cannot be given.
+ *
+ * A branch no unit has claimed stays on the list. On an installation whose
+ * branch memberships have not been filled in yet that is every branch, and
+ * hiding them all would leave the picker empty with nothing to explain it.
+ */
+function branchInUnits(branch, unitIds) {
+  if (!unitIds.length) return true;
+  const units = (branch.businessUnitIds || []).map(Number);
+  return !units.length || units.some((id) => unitIds.includes(Number(id)));
+}
+
+/**
+ * @param {object} props
+ * @param {boolean} [props.embedded] Rendered inside Business Unit configuration
+ *   rather than as its own page: no tabs, and everything is fixed to one unit.
+ * @param {number} [props.businessUnitId] The unit being configured, when embedded.
+ * @param {(message: {type: string, text: string}) => void} [props.onMessage]
+ *   Where to send notices when the host page shows them instead.
+ */
+export default function UserManagementPage({ embedded = false, businessUnitId = null, onMessage = null }) {
   const { can } = usePermissions();
+  /* Embedded, this screen is one business unit's staff list: users from other
+     units are not shown, and the ones added here join the unit being
+     configured rather than whichever the administrator happens to pick. */
+  const scopedUnitId = embedded && businessUnitId ? Number(businessUnitId) : null;
   /* A calling service switched off in Settings -> Integrations has no agent
      to map a CRM user to, so its section drops out of the user form. The
      mapping already saved on each user is left alone and reappears with the
      service. */
   const { isOff } = useIntegrationStatus();
-  const canSeeAccess = can('settings.access_control.view');
+  const canSeeAccess = can('settings.access_control.view') && !embedded;
   const [activeTab, setActiveTab] = useState('users');
   const [users, setUsers] = useState([]);
   const [meta, setMeta] = useState({ employees: [], branches: [], roles: [] });
@@ -155,6 +184,12 @@ export default function UserManagementPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
   const [loading, setLoading] = useState(true);
+  /* One place for every notice, so an embedded copy can hand them to the page
+     it sits in rather than drawing a second banner inside it. */
+  const notify = (next) => {
+    setMessage(next);
+    if (next && onMessage) onMessage(next);
+  };
   const [callingOptions,setCallingOptions]=useState({configured:false,members:[],groups:[]});
   const [smartfloOptions,setSmartfloOptions]=useState({configured:false,users:[],departments:[],error:''});
 
@@ -168,7 +203,7 @@ export default function UserManagementPage() {
       setUsers(userResult.data);
       setMeta(metaResult);
     } catch (error) {
-      setMessage({ type: "error", text: error.message });
+      notify({ type: "error", text: error.message });
     } finally {
       setLoading(false);
     }
@@ -186,21 +221,31 @@ export default function UserManagementPage() {
     }).catch(error=>setSmartfloOptions({configured:false,users:[],departments:[],error:error.message||'Could not load Smartflo configuration'}));
   }, []);
 
-  const filtered = users.filter((user) =>
-    `${user.name} ${user.email} ${user.employeeNumber || ""} ${user.branchNames || ""} ${user.roles.join(" ")}`
-      .toLowerCase()
-      .includes(search.toLowerCase()),
-  );
+  const filtered = users
+    .filter((user) => !scopedUnitId || (user.businessUnitIds || []).includes(scopedUnitId))
+    .filter((user) =>
+      `${user.name} ${user.email} ${user.employeeNumber || ""} ${user.branchNames || ""} ${user.roles.join(" ")}`
+        .toLowerCase()
+        .includes(search.toLowerCase()),
+    );
   const selectedEmployee = meta.employees.find(
     (employee) => String(employee.id) === String(form.employeeId),
   );
   const isExistingLogin = Boolean(selectedEmployee?.userId);
 
   function createUser() {
-    setForm(initialForm);
+    setForm({ ...initialForm, businessUnitIds: scopedUnitId ? [scopedUnitId] : [] });
     setDrawer({ mode: "create", title: "Add CRM user" });
   }
   function editUser(user) {
+    /* Branch grants are shown through the units that carry them, so the form
+       opens holding only what its picker can show -- a grant left over from
+       before a branch changed hands would otherwise be invisible here and
+       still be submitted, and the save would fail on a branch nobody could
+       untick. */
+    const units = scopedUnitId
+      ? [...new Set([scopedUnitId, ...(user.businessUnitIds || [])])]
+      : user.businessUnitIds || [];
     setForm({
       userType: user.employeeId ? "employee" : "external",
       employeeId: user.employeeId || "",
@@ -209,12 +254,12 @@ export default function UserManagementPage() {
       phone: user.phone || "",
       email: user.email,
       roleName: user.roles.find((role) => role !== "ADMIN") || "CRM_ADMIN",
-      branchIds: user.branchIds || [],
+      branchIds: branchesWithin(units, user.branchIds || []),
       // Was missing entirely, so form.businessUnitIds came back undefined and
       // the business unit picker threw on .includes -- taking the whole app
       // down with it. Invisible until a second business unit existed, because
       // that section only renders when there is more than one to choose from.
-      businessUnitIds: user.businessUnitIds || [],
+      businessUnitIds: units,
       password: "",
       isActive: user.isActive,
       callerdeskEnabled: user.callerdeskEnabled,
@@ -242,13 +287,33 @@ export default function UserManagementPage() {
      not a reason for the screen to stop existing. */
   const selectedIds = (key) => (Array.isArray(form[key]) ? form[key] : []);
 
+  /* The branches that may be granted with the units currently ticked. Every
+     branch when nothing is ticked, which is what a single-unit installation
+     always looks like -- there the section below is not even rendered. */
+  const visibleBranches = useMemo(() => {
+    const chosen = (Array.isArray(form.businessUnitIds) ? form.businessUnitIds : []).map(Number);
+    return (meta.branches || []).filter((branch) => branchInUnits(branch, chosen));
+  }, [meta.branches, form.businessUnitIds]);
+
+  /** Drops branch grants that the given units no longer make available. */
+  function branchesWithin(unitIds, branchIds) {
+    const chosen = unitIds.map(Number);
+    return (Array.isArray(branchIds) ? branchIds : []).filter((branchId) => {
+      const branch = (meta.branches || []).find((item) => Number(item.id) === Number(branchId));
+      // A branch the picker does not know about is left alone rather than
+      // quietly dropped: it is more likely out of this administrator's reach
+      // than genuinely wrong.
+      return !branch || branchInUnits(branch, chosen);
+    });
+  }
+
   function toggleBusinessUnit(id) {
     setForm((current) => {
       const chosen = Array.isArray(current.businessUnitIds) ? current.businessUnitIds : [];
-      return {
-        ...current,
-        businessUnitIds: chosen.includes(id) ? chosen.filter((value) => value !== id) : [...chosen, id],
-      };
+      const next = chosen.includes(id) ? chosen.filter((value) => value !== id) : [...chosen, id];
+      // Unticking a unit takes its branches with it, so the form cannot be
+      // saved holding branch access the chosen units do not include.
+      return { ...current, businessUnitIds: next, branchIds: branchesWithin(next, current.branchIds) };
     });
   }
   function toggleBranch(id) {
@@ -270,7 +335,7 @@ export default function UserManagementPage() {
       email: employee?.loginEmail || employee?.email || "",
       branchIds:
         employee?.employeeBranchId &&
-        meta.branches.some(
+        visibleBranches.some(
           (branch) => String(branch.id) === String(employee.employeeBranchId),
         )
           ? [Number(employee.employeeBranchId)]
@@ -289,7 +354,7 @@ export default function UserManagementPage() {
   async function save(event) {
     event.preventDefault();
     setSaving(true);
-    setMessage(null);
+    notify(null);
     try {
       const editing = drawer.mode === "edit";
       const result = await api(
@@ -297,10 +362,10 @@ export default function UserManagementPage() {
         { method: editing ? "PUT" : "POST", body: JSON.stringify(form) },
       );
       setDrawer(null);
-      setMessage({ type: "success", text: result.message });
+      notify({ type: "success", text: result.message });
       await load();
     } catch (error) {
-      setMessage({ type: "error", text: error.message });
+      notify({ type: "error", text: error.message });
     } finally {
       setSaving(false);
     }
@@ -311,12 +376,19 @@ export default function UserManagementPage() {
         method: "PUT",
         body: JSON.stringify({isActive:!user.isActive}),
       });
-      setMessage({ type: "success", text: result.message });
+      notify({ type: "success", text: result.message });
       await load();
     } catch (error) {
-      setMessage({ type: "error", text: error.message });
+      notify({ type: "error", text: error.message });
     }
   }
+
+  /* Embedded, the host page owns the frame and the notices; standalone, this
+     is the page and shows its own. */
+  const Shell = embedded ? "section" : "main";
+  const shellClass = embedded
+    ? "user-management-page embedded"
+    : "page user-management-page";
 
   if (activeTab === "access") {
     return (
@@ -328,7 +400,7 @@ export default function UserManagementPage() {
   }
 
   return (
-    <main className="page user-management-page">
+    <Shell className={shellClass}>
       <UserManagementTabs activeTab={activeTab} onChange={setActiveTab} canSeeAccess={canSeeAccess} />
       <div className="page-action-row">
         <Can do="settings.users.create">
@@ -337,7 +409,7 @@ export default function UserManagementPage() {
           </button>
         </Can>
       </div>
-      {message && (
+      {message && !onMessage && (
         <div className={`notice ${message.type}`}>
           <span>{message.text}</span>
           <button onClick={() => setMessage(null)}>
@@ -632,7 +704,7 @@ export default function UserManagementPage() {
               {/* Only shown when there is a choice to make. With a single
                   business unit configured, every CRM user belongs to it and
                   the control would be a checkbox that can never be unticked. */}
-              {meta.businessUnits?.length > 1 && (
+              {meta.businessUnits?.length > 1 && !scopedUnitId && (
                 <div className="form-section">
                   <h3>Business unit access</h3>
                   <p className="section-help">
@@ -659,11 +731,16 @@ export default function UserManagementPage() {
               )}
               <div className="form-section">
                 <h3>CRM branch access *</h3>
+                {/* Accurate in both places: standalone the units are the ones
+                    ticked above, embedded they are this unit plus any other
+                    the user already works in -- and the save replaces the
+                    whole set, so those must stay on the list. */}
                 <p className="section-help">
+                  Only branches belonging to the business units this user works in.
                   These assignments affect only CRM data access.
                 </p>
                 <div className="branch-options">
-                  {meta.branches.map((branch) => (
+                  {visibleBranches.map((branch) => (
                     <label
                       key={branch.id}
                       className={
@@ -684,6 +761,18 @@ export default function UserManagementPage() {
                     </label>
                   ))}
                 </div>
+                {/* Not an error -- a unit with no branches yet is a normal
+                    state for one that was just created. Say where they come
+                    from rather than leaving an empty box. */}
+                {!visibleBranches.length && (
+                  <div className="account-note">
+                    <strong>No branches to assign</strong>
+                    <span>
+                      Add branches under Business Units &rarr; Branches &amp; payments
+                      {scopedUnitId ? "" : ", or select a business unit that has some"}.
+                    </span>
+                  </div>
+                )}
               </div>
               <div className="drawer-actions">
                 <button
@@ -705,6 +794,6 @@ export default function UserManagementPage() {
           </aside>
         </>
       )}
-    </main>
+    </Shell>
   );
 }

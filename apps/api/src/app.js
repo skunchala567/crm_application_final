@@ -7,7 +7,7 @@ import path from 'node:path';
 import jwt from 'jsonwebtoken';
 import mysql from 'mysql2/promise';
 import axios from 'axios';
-import { branchScopeSql, canAccessBranch, referenceBranchScopeSql } from './rbac/branch-scope.js';
+import { branchScopeSql, canAccessBranch, referenceBranchScopeSql, unitBranchScopeSql } from './rbac/branch-scope.js';
 import { IntegrationHubService, createIntegrationHubRoutes } from './integration-hub/index.js';
 import { createWhatsAppTemplateRoutes } from './whatsapp/whatsapp-template.routes.js';
 import { createWebhookRoutes } from './whatsapp/webhook.routes.js';
@@ -1515,11 +1515,20 @@ app.post('/api/public/enquiry-forms/:formKey/payment-status', async (req, res) =
  */
 app.get('/api/branches', authenticate, requireCrmAccess, async (req, res) => {
     const scope = referenceBranchScopeSql(req.user, 'b.id');
+    /*
+     * And the branches this business unit is actually made of. Widening by
+     * role above answers "may you name this branch"; it never answered
+     * "is this branch part of the business you are working in", which is why
+     * a unit created for another business opened with School Admissions'
+     * whole branch list in every picker.
+     */
+    const unitScope = unitBranchScopeSql(req.businessUnit?.id, 'b.id');
     const [rows] = await pool.execute(
         `SELECT b.id, b.branch_name AS name, b.branch_name AS branch_name,
             b.short_name AS shortName, b.time_zone_id AS timeZoneId
-     FROM mse_hrm_branches b WHERE b.is_active = TRUE AND ${scope.sql} ORDER BY b.branch_name`,
-        scope.params,
+     FROM mse_hrm_branches b
+     WHERE b.is_active = TRUE AND ${scope.sql} AND ${unitScope.sql} ORDER BY b.branch_name`,
+        [...scope.params, ...unitScope.params],
     );
     res.json({ data: rows });
 });
@@ -3288,8 +3297,19 @@ app.get('/api/admin/users/meta', authenticate, requireUserAdmin, async (req, res
      */
     const grantableBranches = assignableBranchIds(req.user);
     const grantableUnits = await assignableBusinessUnitIds(req.user);
+    /*
+     * Each branch carries the business units it belongs to.
+     *
+     * Branch access is granted per business unit, so the picker has to be able
+     * to narrow itself to whichever units are ticked above it -- offering a
+     * branch from another business is offering access the save path now
+     * refuses. A branch with no units listed is one no unit has claimed yet;
+     * it stays visible rather than becoming unassignable.
+     */
     const [branches] = await pool.query(
-        `SELECT b.id, b.branch_name AS name, b.short_name AS shortName
+        `SELECT b.id, b.branch_name AS name, b.short_name AS shortName,
+            (SELECT GROUP_CONCAT(bub.business_unit_id ORDER BY bub.business_unit_id)
+               FROM crm_business_unit_branches bub WHERE bub.branch_id = b.id) AS businessUnitIds
      FROM mse_hrm_branches b WHERE b.is_active = TRUE
      ${grantableBranches ? `AND b.id IN (${grantableBranches.map(() => '?').join(',')})` : ''}
      ORDER BY b.branch_name`,
@@ -3315,7 +3335,16 @@ app.get('/api/admin/users/meta', authenticate, requireUserAdmin, async (req, res
      FROM mse_hrm_roles WHERE normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER')
      ORDER BY FIELD(normalized_name,'CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER')`,
     );
-    res.json({ branches, businessUnits, employees, roles });
+    res.json({
+        branches: branches.map((branch) => ({
+            ...branch,
+            id: Number(branch.id),
+            businessUnitIds: branch.businessUnitIds
+                ? String(branch.businessUnitIds).split(',').map(Number)
+                : [],
+        })),
+        businessUnits, employees, roles,
+    });
 });
 
 app.get('/api/admin/users', authenticate, requireUserAdmin, async (req, res) => {
@@ -3447,6 +3476,47 @@ async function saveCrmUser(req, res, existingUserId = null) {
     // be taken from someone the administrator has no authority over.
     if (existingUserId && !(await administersUser(req.user, existingUserId))) {
         return res.status(403).json({ message: 'This user belongs to a business unit or branch you do not administer' });
+    }
+    /*
+     * A branch can only be granted through a business unit that has it.
+     *
+     * Branches belong to units now, so "access to Nacharam" is meaningless in
+     * a business that does not run Nacharam -- and granting it would put that
+     * unit's leads in front of somebody working in another business. The
+     * picker already narrows to the ticked units; this is the same rule where
+     * it has to hold, because a request does not have to come from the picker.
+     */
+    const effectiveUnitIds = businessUnitIds.length
+        ? businessUnitIds
+        : existingUserId
+            ? (await pool.execute('SELECT business_unit_id AS id FROM crm_user_business_units WHERE user_id=?', [Number(existingUserId)]))[0].map((row) => Number(row.id))
+            : [];
+    if (effectiveUnitIds.length) {
+        const [allowedRows] = await pool.query(
+            `SELECT DISTINCT branch_id AS branchId FROM crm_business_unit_branches
+              WHERE business_unit_id IN (${effectiveUnitIds.map(() => '?').join(',')})`,
+            effectiveUnitIds,
+        );
+        const allowed = new Set(allowedRows.map((row) => Number(row.branchId)));
+        // A branch no unit has claimed is left assignable: on an installation
+        // that has not run the backfill yet, treating it as forbidden would
+        // lock every administrator out of editing anybody.
+        const [unclaimedRows] = await pool.query(
+            `SELECT b.id FROM mse_hrm_branches b
+              WHERE b.id IN (${branchIds.map(() => '?').join(',')})
+                AND NOT EXISTS (SELECT 1 FROM crm_business_unit_branches bub WHERE bub.branch_id = b.id)`,
+            branchIds,
+        );
+        for (const row of unclaimedRows) allowed.add(Number(row.id));
+        const outside = branchIds.filter((id) => !allowed.has(id));
+        if (outside.length) {
+            const [names] = await pool.query(
+                `SELECT branch_name AS name FROM mse_hrm_branches WHERE id IN (${outside.map(() => '?').join(',')})`,
+                outside,
+            );
+            const listed = names.map((row) => row.name).join(', ') || 'One of the selected branches';
+            return res.status(400).json({ message: `${listed} does not belong to the selected business unit${effectiveUnitIds.length === 1 ? '' : 's'}` });
+        }
     }
     const connection = await pool.getConnection();
     try {

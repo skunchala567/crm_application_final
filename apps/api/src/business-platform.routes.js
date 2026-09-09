@@ -4,6 +4,7 @@ import {
   branchScopeSql,
   denyBranch,
   referenceBranchScopeSql,
+  unitBranchScopeSql,
 } from "./rbac/branch-scope.js";
 
 const parseJson = (value, fallback = {}) => {
@@ -536,6 +537,13 @@ export function createBusinessPlatformRoutes(
      * branches they were never given.
      */
     const branchScope = referenceBranchScopeSql(req.user, "id");
+    /*
+     * ...and only the branches this unit is made of. A branch belongs to the
+     * units listed in crm_business_unit_branches, so a unit opened for a
+     * different business no longer inherits School Admissions' branch list --
+     * it starts empty and is filled with its own.
+     */
+    const unitBranchScope = unitBranchScopeSql(unitId, "id");
     // An enquiry form belongs to the branch its leads land in.
     const enquiryScope = branchScopeSql(req.user, "default_branch_id");
     const branchSelect = hasBranchPaymentColumns
@@ -549,12 +557,12 @@ export function createBusinessPlatformRoutes(
                 (jodo_auth_header IS NOT NULL AND jodo_auth_header<>'') AS jodoAuthHeaderSet,
                 application_amount AS applicationAmount,
                 application_stage_id AS applicationStageId,application_payment_component AS applicationPaymentComponent ${callerDeskSelect} ${smartfloSelect}
-         FROM mse_hrm_branches WHERE is_active=TRUE AND ${branchScope.sql} ORDER BY branch_name`
+         FROM mse_hrm_branches WHERE is_active=TRUE AND ${branchScope.sql} AND ${unitBranchScope.sql} ORDER BY branch_name`
       : `SELECT id,branch_name AS name,short_name AS shortName,is_active AS isActive,
                 0 AS jodoPaymentEnabled,NULL AS jodoCollectorCode,NULL AS jodoBaseUrl,
                 0 AS jodoApiKeySet,0 AS jodoSecretKeySet,0 AS jodoAuthHeaderSet,NULL AS applicationAmount,
                 NULL AS applicationStageId,'Payable Amount' AS applicationPaymentComponent ${callerDeskSelect} ${smartfloSelect}
-         FROM mse_hrm_branches WHERE is_active=TRUE AND ${branchScope.sql} ORDER BY branch_name`;
+         FROM mse_hrm_branches WHERE is_active=TRUE AND ${branchScope.sql} AND ${unitBranchScope.sql} ORDER BY branch_name`;
     const [
       [fields],
       [forms],
@@ -603,7 +611,7 @@ export function createBusinessPlatformRoutes(
         `SELECT id,module_key AS moduleKey,display_name AS displayName,module_type AS moduleType,description,layout_json AS layout,settings_json AS settings,position,is_active AS isActive FROM crm_business_modules WHERE business_unit_id=? ORDER BY position`,
         [unitId],
       ),
-      pool.query(branchSelect, branchScope.params),
+      pool.query(branchSelect, [...branchScope.params, ...unitBranchScope.params]),
       // channelId travels with the source so the enquiry form can narrow the
       // source list to the chosen channel, the same binding the Add/Edit lead
       // screens use. Without it the config screen offered every source under
@@ -903,10 +911,26 @@ export function createBusinessPlatformRoutes(
             req.body.smartfloOutboundEnabled === false ? 0 : 1,
           ],
         );
+        /*
+         * The branch belongs to the unit it was created in, and to no other.
+         * Without this row it would be a branch of every business at once --
+         * which is exactly what a new unit inheriting twenty unrelated
+         * branches was.
+         */
+        await pool.execute(
+          `INSERT IGNORE INTO crm_business_unit_branches (business_unit_id,branch_id,created_by_user_id)
+           VALUES (?,?,?)`,
+          [unitId, Number(result.insertId), Number(req.user.id) || null],
+        );
         res
           .status(201)
           .json({ id: Number(result.insertId), message: "Branch created" });
       } catch (error) {
+        if (error.code === "ER_DUP_ENTRY")
+          return res.status(409).json({
+            message:
+              "A branch with this name already exists. Use \u201cAdd existing branch\u201d to bring it into this business unit.",
+          });
         if (error.code === "ER_NO_DEFAULT_FOR_FIELD")
           return res
             .status(400)
@@ -962,6 +986,17 @@ export function createBusinessPlatformRoutes(
       const name = text(req.body.name, 150);
       if (!name)
         return res.status(400).json({ message: "Branch name is required" });
+      // A branch is edited from the unit it belongs to. Reaching another
+      // unit's branch through this URL would hand over its payment
+      // credentials and calling routes along with its name.
+      const [[membership]] = await pool.execute(
+        `SELECT 1 AS ok FROM crm_business_unit_branches WHERE business_unit_id=? AND branch_id=?`,
+        [unitId, Number(req.params.id)],
+      );
+      if (!membership)
+        return res
+          .status(404)
+          .json({ message: "That branch is not part of this business unit" });
       const [result] = await pool.execute(
         `UPDATE mse_hrm_branches
        SET branch_name=?,short_name=?,is_active=?,jodo_payment_enabled=?,jodo_api_key=COALESCE(?,jodo_api_key),
@@ -1008,6 +1043,140 @@ export function createBusinessPlatformRoutes(
       if (!result.affectedRows)
         return res.status(404).json({ message: "Branch not found" });
       res.json({ message: "Branch/payment configuration updated" });
+    },
+  );
+
+  /**
+   * Branches that exist but are not part of this unit yet.
+   *
+   * Branch names are unique across the master table, so a branch the
+   * attendance side already created cannot be added again by typing the same
+   * name -- it has to be brought in. This is the list to bring it in from.
+   */
+  router.get(
+    "/business-units/:id/available-branches",
+    requireUserAdmin,
+    async (req, res) => {
+      const unitId = Number(req.params.id),
+        unit = await accessibleUnit(req, unitId, true);
+      if (!unit)
+        return res
+          .status(403)
+          .json({ message: "Business unit management access required" });
+      /*
+       * The strict rule, not the picker-widening one: this list is what can
+       * actually be handed to the unit, and the link below refuses anything
+       * outside the caller's own branches. Offering more would only produce a
+       * dropdown entry that fails on click.
+       */
+      const scope = branchScopeSql(req.user, "id");
+      const [rows] = await pool.query(
+        `SELECT id, branch_name AS name, short_name AS shortName
+           FROM mse_hrm_branches
+          WHERE is_active=TRUE AND ${scope.sql}
+            AND id NOT IN (SELECT branch_id FROM crm_business_unit_branches WHERE business_unit_id=?)
+          ORDER BY branch_name`,
+        [...scope.params, unitId],
+      );
+      res.json({
+        data: rows.map((row) => ({
+          id: Number(row.id),
+          name: row.name,
+          shortName: row.shortName,
+        })),
+      });
+    },
+  );
+
+  /** Bring an existing branch into this business unit. */
+  router.post(
+    "/business-units/:id/branches/:branchId/link",
+    requireUserAdmin,
+    async (req, res) => {
+      const unitId = Number(req.params.id),
+        branchId = Number(req.params.branchId),
+        unit = await accessibleUnit(req, unitId, true);
+      if (!unit)
+        return res
+          .status(403)
+          .json({ message: "Business unit management access required" });
+      // Naming a branch is not the same as being allowed to hand it to a
+      // business, so this takes the stricter of the two branch rules.
+      const denied = denyBranch(req.user, branchId);
+      if (denied) return res.status(403).json({ message: denied });
+      const [[branch]] = await pool.execute(
+        `SELECT branch_name AS name FROM mse_hrm_branches WHERE id=? AND is_active=TRUE`,
+        [branchId],
+      );
+      if (!branch) return res.status(404).json({ message: "Branch not found" });
+      await pool.execute(
+        `INSERT IGNORE INTO crm_business_unit_branches (business_unit_id,branch_id,created_by_user_id)
+         VALUES (?,?,?)`,
+        [unitId, branchId, Number(req.user.id) || null],
+      );
+      res.json({ message: `${branch.name} added to this business unit` });
+    },
+  );
+
+  /**
+   * Take a branch out of this business unit.
+   *
+   * The branch itself is left alone -- it may belong to another unit, and its
+   * leads, payments and history are not this screen's to delete. Only the
+   * membership goes, which is what removes it from this unit's pickers.
+   */
+  router.delete(
+    "/business-units/:unitId/branches/:id",
+    requireUserAdmin,
+    async (req, res) => {
+      const unitId = Number(req.params.unitId),
+        branchId = Number(req.params.id),
+        unit = await accessibleUnit(req, unitId, true);
+      if (!unit)
+        return res
+          .status(403)
+          .json({ message: "Business unit management access required" });
+      /*
+       * A branch that has taken leads for this unit stays. Removing it would
+       * hide those leads from every branch-scoped list and report while
+       * leaving the rows behind, which reads as data loss.
+       */
+      const [[usage]] = await pool.execute(
+        `SELECT COUNT(*) AS leads FROM crm_leads
+          WHERE business_unit_id=? AND branch_id=? AND deleted_at_utc IS NULL`,
+        [unitId, branchId],
+      );
+      if (Number(usage.leads))
+        return res.status(409).json({
+          message: `This branch holds ${usage.leads} lead${Number(usage.leads) === 1 ? "" : "s"} in this business unit and cannot be removed from it`,
+        });
+      const [result] = await pool.execute(
+        `DELETE FROM crm_business_unit_branches WHERE business_unit_id=? AND branch_id=?`,
+        [unitId, branchId],
+      );
+      if (!result.affectedRows)
+        return res
+          .status(404)
+          .json({ message: "That branch is not part of this business unit" });
+      /*
+       * Nobody keeps CRM access to a branch their business no longer has.
+       * Leaving the grant behind would be a permission to a branch that is
+       * invisible here -- and would come back the moment the branch did.
+       */
+      await pool.execute(
+        `DELETE ub FROM crm_user_branches ub
+           JOIN crm_user_business_units ubu ON ubu.user_id = ub.user_id
+          WHERE ub.branch_id = ? AND ubu.business_unit_id = ?
+            AND NOT EXISTS (
+              SELECT 1 FROM crm_business_unit_branches other
+               JOIN crm_user_business_units mine
+                 ON mine.business_unit_id = other.business_unit_id
+                AND mine.user_id = ub.user_id
+               WHERE other.branch_id = ub.branch_id
+            )`,
+        [branchId, unitId],
+      );
+      res.json({ message: "Branch removed from this business unit" });
     },
   );
 
