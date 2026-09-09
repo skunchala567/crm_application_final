@@ -1,0 +1,162 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;700;800&family=Inter:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; background: #ffffff; }
+    a { color: #0b7a4f; text-decoration: none; }
+    a:hover { color: #07603f; }
+  </style>
+</helmet>
+
+<div style="width: 794px; height: 1123px; overflow: hidden; background: #ffffff; display: flex; flex-direction: column; font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif; color: #16241e;">
+
+  <!-- Masthead -->
+  <div style="background: #04301f; padding: 40px 56px 34px; display: flex; flex-direction: column; gap: 20px;">
+
+    <div style="display: flex; align-items: center; gap: 13px;">
+      <div style="width: 36px; height: 36px; flex: none; border-radius: 10px; background: {{accent}}; display: flex; align-items: center; justify-content: center;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 20.5V11.5"></path>
+          <path d="M12 11.5S8.4 11.6 6.9 10.1 6.2 5.2 6.2 5.2s3.4.5 4.9 2 .9 4.3.9 4.3z"></path>
+          <path d="M12 11.5s3.6.1 5.1-1.4.7-4.9.7-4.9-3.4.5-4.9 2-.9 4.3-.9 4.3z"></path>
+        </svg>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 2px;">
+        <div style="font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-weight: 800; font-size: 24px; line-height: 1; letter-spacing: -0.022em; color: #ffffff;">MarketFarmer</div>
+        <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: #a9e2c6;">Admissions CRM</div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 14px;">
+      <div style="font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-weight: 800; font-size: 40px; line-height: 1.08; letter-spacing: -0.028em; color: #ffffff; text-wrap: pretty; max-width: 620px;">From first enquiry to first fee.</div>
+      <div style="font-size: 16px; line-height: 1.55; color: #d8f2e6; max-width: 610px; text-wrap: pretty;">The admissions CRM for multi-branch education groups &mdash; capture, qualify, follow up and collect, all on one lead record.</div>
+    </div>
+
+  </div>
+
+  <!-- Feature grid -->
+  <div style="flex-grow: 1; padding: 26px 56px 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr)); gap: 14px;">
+
+    <div style="border: 1px solid #e4ece8; border-radius: 16px; background: #ffffff; padding: 17px 18px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="width: 32px; height: 32px; flex: none; border-radius: 10px; background: #eef9f4; display: flex; align-items: center; justify-content: center;">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 14v4a2 2 0 002 2h14a2 2 0 002-2v-4"></path>
+          <path d="M7.5 10.5L12 15l4.5-4.5"></path>
+          <path d="M12 3v12"></path>
+        </svg>
+      </div>
+      <div style="font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-weight: 800; font-size: 17px; line-height: 1.25; letter-spacing: -0.012em; color: #0d1a15;">Every enquiry, captured</div>
+      <div style="font-size: 16px; line-height: 1.48; color: #42544b; text-wrap: pretty;">Meta Lead Ads, Google Sheets, enquiry forms, WhatsApp and bulk imports land in one list, de-duplicated on mobile, branch and source.</div>
+    </div>
+
+    <div style="border: 1px solid #e4ece8; border-radius: 16px; background: #ffffff; padding: 17px 18px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="width: 32px; height: 32px; flex: none; border-radius: 10px; background: #eef9f4; display: flex; align-items: center; justify-content: center;">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="4" width="5" height="16" rx="1.5"></rect>
+          <rect x="9.5" y="4" width="5" height="11" rx="1.5"></rect>
+          <rect x="16" y="4" width="5" height="14" rx="1.5"></rect>
+        </svg>
+      </div>
+      <div style="font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-weight: 800; font-size: 17px; line-height: 1.25; letter-spacing: -0.012em; color: #0d1a15;">A pipeline you configure</div>
+      <div style="font-size: 16px; line-height: 1.48; color: #42544b; text-wrap: pretty;">Stages, sub-stages and lead fields are set per business unit. A Kanban tracker, saved views and a report builder suit each team.</div>
+    </div>
+
+    <div style="border: 1px solid #e4ece8; border-radius: 16px; background: #ffffff; padding: 17px 18px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="width: 32px; height: 32px; flex: none; border-radius: 10px; background: #eef9f4; display: flex; align-items: center; justify-content: center;">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M20 11.5A7.5 7.5 0 0112.5 19H9l-4.5 3v-4.3A7.5 7.5 0 0112.5 4A7.5 7.5 0 0120 11.5z"></path>
+          <path d="M9 11.5h.01"></path>
+          <path d="M12.5 11.5h.01"></path>
+          <path d="M16 11.5h.01"></path>
+        </svg>
+      </div>
+      <div style="font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-weight: 800; font-size: 17px; line-height: 1.25; letter-spacing: -0.012em; color: #0d1a15;">Follow up on every channel</div>
+      <div style="font-size: 16px; line-height: 1.48; color: #42544b; text-wrap: pretty;">Two-way WhatsApp with a shared inbox, click-to-call and dialler campaigns with recordings on the lead, plus SMS, email and IVR.</div>
+    </div>
+
+    <div style="border: 1px solid #e4ece8; border-radius: 16px; background: #ffffff; padding: 17px 18px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="width: 32px; height: 32px; flex: none; border-radius: 10px; background: #eef9f4; display: flex; align-items: center; justify-content: center;">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M20 12a8 8 0 01-13.4 5.9"></path>
+          <path d="M4 12a8 8 0 0113.4-5.9"></path>
+          <path d="M17.4 2.9v3.4H14"></path>
+          <path d="M6.6 21.1v-3.4H10"></path>
+        </svg>
+      </div>
+      <div style="font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-weight: 800; font-size: 17px; line-height: 1.25; letter-spacing: -0.012em; color: #0d1a15;">Automation that runs itself</div>
+      <div style="font-size: 16px; line-height: 1.48; color: #42544b; text-wrap: pretty;">Rules run every 30 seconds &mdash; auto-assignment, follow-up reminders, stage-based messaging &mdash; each run written to an audit log.</div>
+    </div>
+
+    <div style="border: 1px solid #e4ece8; border-radius: 16px; background: #ffffff; padding: 17px 18px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="width: 32px; height: 32px; flex: none; border-radius: 10px; background: #eef9f4; display: flex; align-items: center; justify-content: center;">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2.5" y="5" width="19" height="14" rx="2.5"></rect>
+          <path d="M2.5 10h19"></path>
+          <path d="M6.5 14.8h4.2"></path>
+        </svg>
+      </div>
+      <div style="font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-weight: 800; font-size: 17px; line-height: 1.25; letter-spacing: -0.012em; color: #0d1a15;">Fees collected in the CRM</div>
+      <div style="font-size: 16px; line-height: 1.48; color: #42544b; text-wrap: pretty;">Payment forms, per-branch links in single or bulk batches and a collections workspace keep fee status on the lead record.</div>
+    </div>
+
+    <div style="border: 1px solid #e4ece8; border-radius: 16px; background: #ffffff; padding: 17px 18px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="width: 32px; height: 32px; flex: none; border-radius: 10px; background: #eef9f4; display: flex; align-items: center; justify-content: center;">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3l7.5 3v6c0 4.4-3.1 7.7-7.5 9-4.4-1.3-7.5-4.6-7.5-9V6L12 3z"></path>
+          <path d="M8.9 12.1l2.3 2.3 4-4.5"></path>
+        </svg>
+      </div>
+      <div style="font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-weight: 800; font-size: 17px; line-height: 1.25; letter-spacing: -0.012em; color: #0d1a15;">Multi-branch, secured by role</div>
+      <div style="font-size: 16px; line-height: 1.48; color: #42544b; text-wrap: pretty;">Records are scoped by business unit and branch, with five roles, granular permissions and encrypted credentials. Installs as an app.</div>
+    </div>
+
+  </div>
+
+  <!-- Connects to -->
+  <div style="padding: 20px 56px 0;">
+    <div style="border-radius: 16px; background: #f2f7f4; padding: 15px 20px; display: flex; flex-direction: column; gap: 9px;">
+      <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: {{accent}};">Connects to</div>
+      <div style="display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; font-weight: 500; color: #2a3b33;">
+        <span>Meta Lead Ads</span>
+        <span>Google Sheets</span>
+        <span>WhatsApp (AiSensy / Smartping)</span>
+        <span>CallerDesk</span>
+        <span>Tata Smartflo</span>
+        <span>Jodo Payments</span>
+        <span>BonVoice IVR</span>
+        <span>Partner API</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div style="padding: 20px 56px 34px; display: flex; align-items: flex-end; justify-content: space-between; gap: 28px;">
+    <div style="display: flex; flex-direction: column; gap: 7px; max-width: 430px;">
+      <div style="font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-weight: 800; font-size: 20px; line-height: 1.25; letter-spacing: -0.018em; color: #0d1a15;">See it running on your own enquiries.</div>
+      <div style="font-size: 15px; line-height: 1.5; color: #5d7167; text-wrap: pretty;">Book a walkthrough &mdash; we import a sample of your leads and show the pipeline end to end.</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 5px; text-align: right; font-size: 13px; font-weight: 600; color: #2a3b33;">
+      <span>[YOUR WEBSITE]</span>
+      <span>[YOUR EMAIL]</span>
+      <span>[YOUR PHONE]</span>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":794,"height":1123},"accent":{"editor":"color","default":"#0b7a4f","options":["#0b7a4f","#07603f","#12915f","#2a6fb8"],"section":"Brand"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#0b7a4f' };
+  }
+}
+</script>
+</body>
+</html>

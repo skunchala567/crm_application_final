@@ -4,6 +4,7 @@ import { api } from "./api";
 import AccessControlPanel from "./components/AccessControlPanel.jsx";
 import { Can } from "./components/Can.jsx";
 import { usePermissions } from "./PermissionContext.jsx";
+import { useIntegrationStatus } from "./IntegrationStatusContext.jsx";
 
 const initialForm = {
   userType: "employee",
@@ -139,6 +140,11 @@ function UserManagementTabs({ activeTab, onChange, canSeeAccess }) {
 
 export default function UserManagementPage() {
   const { can } = usePermissions();
+  /* A calling service switched off in Settings -> Integrations has no agent
+     to map a CRM user to, so its section drops out of the user form. The
+     mapping already saved on each user is left alone and reappears with the
+     service. */
+  const { isOff } = useIntegrationStatus();
   const canSeeAccess = can('settings.access_control.view');
   const [activeTab, setActiveTab] = useState('users');
   const [users, setUsers] = useState([]);
@@ -169,11 +175,11 @@ export default function UserManagementPage() {
   }
   useEffect(() => {
     load();
-    api('/callerdesk/config').then(result=>result.data?.configured?Promise.allSettled([api('/callerdesk/members'),api('/callerdesk/groups')]):null).then(results=>{
+    api('/callerdesk/config').then(result=>result.data?.configured&&result.data?.isActive!==false?Promise.allSettled([api('/callerdesk/members'),api('/callerdesk/groups')]):null).then(results=>{
       if(!results)return;
       setCallingOptions({configured:true,members:results[0].status==='fulfilled'?firstOptionArray(results[0].value.data):[],groups:results[1].status==='fulfilled'?firstOptionArray(results[1].value.data):[]});
     }).catch(()=>setCallingOptions({configured:false,members:[],groups:[]}));
-    api('/smartflo/config').then(result=>result.data?.configured?Promise.allSettled([api('/smartflo/users'),api('/smartflo/departments')]):null).then(results=>{
+    api('/smartflo/config').then(result=>result.data?.configured&&result.data?.isActive!==false?Promise.allSettled([api('/smartflo/users'),api('/smartflo/departments')]):null).then(results=>{
       if(!results)return;
       const users=results[0].status==='fulfilled'?firstOptionArray(results[0].value.data):[];
       setSmartfloOptions({configured:true,users,departments:results[1].status==='fulfilled'?firstOptionArray(results[1].value.data):[],error:results[0].status==='rejected'?(results[0].reason?.message||'Could not fetch Smartflo users'):''});
@@ -563,7 +569,7 @@ export default function UserManagementPage() {
                   <button type="button" className={!form.isActive?"inactive":""} onClick={()=>setForm({...form,isActive:false})}><i/> Inactive<span>CRM access is paused; assignments and Attendance access remain unchanged.</span></button>
                 </div>
               </div>
-              <div className="form-section">
+              {!isOff('callerdesk')&&<div className="form-section">
                 <h3>CallerDesk one-click calling</h3>
                 <p className="section-help">Map this CRM user to a member returned by the connected CallerDesk account.</p>
                 {!callingOptions.configured?<div className="account-note"><strong>CallerDesk is not configured</strong><span>Connect CallerDesk from Settings → Integrations before mapping members.</span></div>:<div className="form-grid">
@@ -575,8 +581,8 @@ export default function UserManagementPage() {
                     <label className="wide">Call group<select value={form.callerdeskCallGroup} onChange={event=>setForm({...form,callerdeskCallGroup:event.target.value})}><option value="">Use branch/account default group</option>{form.callerdeskCallGroup&&!callingOptions.groups.some(item=>(item.group_name||item.name)===form.callerdeskCallGroup)&&<option value={form.callerdeskCallGroup}>{form.callerdeskCallGroup} (saved)</option>}{callingOptions.groups.map((group,index)=><option key={group.group_id||group.id||index} value={group.group_name||group.name}>{group.group_name||group.name}</option>)}</select></label>
                   </>}
                 </div>}
-              </div>
-              <div className="form-section">
+              </div>}
+              {!isOff('smartflo')&&<div className="form-section">
                 <h3>Tata Smartflo one-click calling</h3>
                 <p className="section-help">Map this CRM user to a user and agent returned by the connected Tata Smartflo account.</p>
                 {!smartfloOptions.configured?<div className="account-note"><strong>Smartflo is not configured</strong><span>Connect Tata Smartflo from Settings → Integrations before mapping agents.</span></div>:<div className="form-grid">
@@ -589,15 +595,15 @@ export default function UserManagementPage() {
                     <label className="wide">Department<select value={form.smartfloDepartmentId} onChange={event=>setForm({...form,smartfloDepartmentId:event.target.value})}><option value="">Use branch/account default department</option>{form.smartfloDepartmentId&&!smartfloOptions.departments.some(item=>String(item.id??item.department_id)===String(form.smartfloDepartmentId))&&<option value={form.smartfloDepartmentId}>{form.smartfloDepartmentId} (saved)</option>}{smartfloOptions.departments.map((department,index)=><option key={department.id||department.department_id||index} value={department.id||department.department_id}>{department.name||department.department_name}</option>)}</select></label>
                   </>}
                 </div>}
-              </div>
-              <div className="form-section">
+              </div>}
+              {!isOff('bonvoice')&&<div className="form-section">
                 <h3>BonVoice one-click calling</h3>
                 <p className="section-help">Set the phone number BonVoice should ring for this CRM user before connecting the lead.</p>
                 <div className="form-grid">
                   <label className="check-option wide"><input type="checkbox" checked={form.bonvoiceEnabled} onChange={event=>setForm({...form,bonvoiceEnabled:event.target.checked})}/>Enable BonVoice calling for this user</label>
                   {form.bonvoiceEnabled&&<label className="wide">Agent destination *<input inputMode="tel" required pattern="[0-9]{10,12}" value={form.bonvoiceAgentNumber} onChange={event=>setForm({...form,bonvoiceAgentNumber:event.target.value.replace(/\D/g,'').slice(0,12)})} placeholder="10–12 digit phone number"/></label>}
                 </div>
-              </div>
+              </div>}
               <div className="form-section">
                 <h3>CRM role</h3>
                 <div className="role-options">

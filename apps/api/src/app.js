@@ -629,9 +629,9 @@ async function loadDatabaseUser(email) {
             u.is_active AS isActive, COALESCE(cuas.is_active,1) AS crmActive, u.failed_login_count AS failedLoginCount,
             u.lockout_end_utc AS lockoutEndUtc,
             COALESCE(e.employee_name,CONCAT_WS(' ',p.first_name,p.last_name),u.email) AS name
-     FROM app_users u
+     FROM mse_hrm_app_users u
      LEFT JOIN crm_user_access_status cuas ON cuas.user_id=u.id
-     LEFT JOIN employees e ON e.id = u.employee_id
+     LEFT JOIN mse_hrm_employees e ON e.id = u.employee_id
      LEFT JOIN crm_user_profiles p ON p.user_id=u.id
      WHERE u.normalized_email = ? LIMIT 1`,
         [email.trim().toUpperCase()],
@@ -639,7 +639,7 @@ async function loadDatabaseUser(email) {
     if (!rows.length) return null;
     const user = rows[0];
     const [roles] = await pool.execute(
-        `SELECT r.normalized_name AS name FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = ?`,
+        `SELECT r.normalized_name AS name FROM mse_hrm_user_roles ur JOIN mse_hrm_roles r ON r.id = ur.role_id WHERE ur.user_id = ?`,
         [user.id],
     );
     // CRM branch access comes from crm_user_branches only.
@@ -678,7 +678,7 @@ app.post('/api/auth/login', async (req, res) => {
     if (!databaseUser || !databaseUser.isActive || locked || !verifyAttendancePassword(password, databaseUser.passwordHash)) {
         if (databaseUser && !locked) {
             await pool.execute(
-                `UPDATE app_users SET failed_login_count = failed_login_count + 1,
+                `UPDATE mse_hrm_app_users SET failed_login_count = failed_login_count + 1,
          lockout_end_utc = CASE WHEN failed_login_count + 1 >= 5 THEN DATE_ADD(CURRENT_TIMESTAMP(6), INTERVAL 15 MINUTE) ELSE lockout_end_utc END
          WHERE id = ?`, [databaseUser.id],
             );
@@ -687,7 +687,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     await pool.execute(
-        `UPDATE app_users SET failed_login_count = 0, lockout_end_utc = NULL, last_login_at_utc = CURRENT_TIMESTAMP(6) WHERE id = ?`,
+        `UPDATE mse_hrm_app_users SET failed_login_count = 0, lockout_end_utc = NULL, last_login_at_utc = CURRENT_TIMESTAMP(6) WHERE id = ?`,
         [databaseUser.id],
     );
     const user = {
@@ -704,7 +704,7 @@ app.get('/api/auth/me', authenticate, (req, res) => res.json({ user: req.user })
 /**
  * Change the signed-in user's own password.
  *
- * app_users is shared with the Attendance system, so this changes the single
+ * mse_hrm_app_users is shared with the Attendance system, so this changes the single
  * credential used by both. Rotating security_stamp mirrors what user creation
  * does and is what lets existing sessions be invalidated later.
  */
@@ -723,7 +723,7 @@ app.post('/api/auth/change-password', authenticate, async (req, res) => {
     }
 
     const [[row]] = await pool.execute(
-        'SELECT id, password_hash AS passwordHash, is_active AS isActive FROM app_users WHERE id = ? LIMIT 1',
+        'SELECT id, password_hash AS passwordHash, is_active AS isActive FROM mse_hrm_app_users WHERE id = ? LIMIT 1',
         [req.user.id],
     );
     if (!row || !row.isActive) return res.status(401).json({ message: 'Account is not active' });
@@ -735,7 +735,7 @@ app.post('/api/auth/change-password', authenticate, async (req, res) => {
     }
 
     await pool.execute(
-        `UPDATE app_users
+        `UPDATE mse_hrm_app_users
         SET password_hash = ?, security_stamp = ?, failed_login_count = 0,
             lockout_end_utc = NULL, updated_at_utc = CURRENT_TIMESTAMP(6)
       WHERE id = ?`,
@@ -927,7 +927,7 @@ async function resolvePublicTracking(form, trackingInput = {}) {
         attribution,
     };
     if (attribution.branchId) {
-        const [[branch]] = await pool.execute(`SELECT id FROM branches WHERE id=? AND is_active=TRUE LIMIT 1`, [attribution.branchId]);
+        const [[branch]] = await pool.execute(`SELECT id FROM mse_hrm_branches WHERE id=? AND is_active=TRUE LIMIT 1`, [attribution.branchId]);
         if (branch) resolved.branchId = attribution.branchId;
     }
     if (attribution.academicYearId) {
@@ -969,7 +969,7 @@ async function branchPaymentConfig(branchId) {
     try {
         const [columns] = await pool.execute(
             `SELECT column_name AS columnName FROM information_schema.columns
-       WHERE table_schema=DATABASE() AND table_name='branches'
+       WHERE table_schema=DATABASE() AND table_name='mse_hrm_branches'
          AND column_name IN ('jodo_payment_enabled','jodo_api_key','jodo_secret_key','jodo_collector_code','jodo_base_url','jodo_auth_header','application_amount','application_stage_id','application_payment_component')`,
         );
         hasPaymentColumns = columns.length >= 7;
@@ -982,12 +982,12 @@ async function branchPaymentConfig(branchId) {
             jodo_base_url AS baseUrl,jodo_auth_header AS authHeader,
             application_amount AS amount,application_stage_id AS applicationStageId,
             application_payment_component AS componentType
-     FROM branches
+     FROM mse_hrm_branches
      WHERE id=? AND is_active=TRUE LIMIT 1`
         : `SELECT id,branch_name AS branchName,0 AS paymentEnabled,
               NULL AS apiKey,NULL AS secretKey,NULL AS collectorCode,NULL AS amount,NULL AS applicationStageId,
               'Payable Amount' AS componentType
-       FROM branches
+       FROM mse_hrm_branches
        WHERE id=? AND is_active=TRUE LIMIT 1`;
     const [[branch]] = await pool.execute(
         sql,
@@ -1285,7 +1285,7 @@ app.post('/api/public/enquiry-forms/:formKey/submit', async (req, res) => {
         body.stageId = Number(paymentConfig.applicationStageId);
         body.customValues.websiteAttribution.paymentMovedStage = true;
     }
-    const [[branch]] = await pool.execute(`SELECT id FROM branches WHERE id=? AND is_active=TRUE LIMIT 1`, [body.branchId]);
+    const [[branch]] = await pool.execute(`SELECT id FROM mse_hrm_branches WHERE id=? AND is_active=TRUE LIMIT 1`, [body.branchId]);
     if (!branch) return res.status(400).json({ message: 'This enquiry form is not mapped to an active branch' });
     const [[stage]] = await pool.execute(`SELECT id FROM crm_lead_stages WHERE id=? AND business_unit_id=? AND is_active=TRUE LIMIT 1`, [body.stageId, Number(form.businessUnitId)]);
     if (!stage) return res.status(400).json({ message: 'This enquiry form is not mapped to an active stage' });
@@ -1385,7 +1385,7 @@ async function applyEnquiryPaymentCallback(form, orderId) {
     const [[lead]] = await pool.execute(
         `SELECT l.id,l.branch_id AS branchId,l.stage_id AS stageId,b.application_stage_id AS applicationStageId
      FROM crm_leads l
-     JOIN branches b ON b.id=l.branch_id
+     JOIN mse_hrm_branches b ON b.id=l.branch_id
      WHERE l.business_unit_id=? AND l.jodo_order_id=? AND l.deleted_at_utc IS NULL
      ORDER BY l.id DESC LIMIT 1`,
         [Number(form.businessUnitId), orderId],
@@ -1469,7 +1469,7 @@ app.post('/api/public/enquiry-forms/:formKey/payment-status', async (req, res) =
     if (!orderId) return res.status(400).json({ message: 'Order id is required' });
     const [[lead]] = await pool.execute(
         `SELECT l.id,l.branch_id AS branchId,l.stage_id AS stageId,b.application_stage_id AS applicationStageId
-     FROM crm_leads l JOIN branches b ON b.id=l.branch_id
+     FROM crm_leads l JOIN mse_hrm_branches b ON b.id=l.branch_id
      WHERE l.business_unit_id=? AND l.jodo_order_id=? AND l.deleted_at_utc IS NULL
      ORDER BY l.id DESC LIMIT 1`,
         [Number(form.businessUnitId), orderId],
@@ -1518,7 +1518,7 @@ app.get('/api/branches', authenticate, requireCrmAccess, async (req, res) => {
     const [rows] = await pool.execute(
         `SELECT b.id, b.branch_name AS name, b.branch_name AS branch_name,
             b.short_name AS shortName, b.time_zone_id AS timeZoneId
-     FROM branches b WHERE b.is_active = TRUE AND ${scope.sql} ORDER BY b.branch_name`,
+     FROM mse_hrm_branches b WHERE b.is_active = TRUE AND ${scope.sql} ORDER BY b.branch_name`,
         scope.params,
     );
     res.json({ data: rows });
@@ -1528,8 +1528,8 @@ app.get('/api/employees', authenticate, requireCrmAccess, async (req, res) => {
     const scope = scopedWhere(req.user, 'e.branch_id');
     const [rows] = await pool.execute(
         `SELECT e.id, e.employee_number AS employeeNumber, e.employee_name AS name,
-            e.department, e.designation, e.branch_id AS branchId, e.email, e.mobile_number AS mobileNumber
-     FROM employees e WHERE e.status = 'Active' AND ${scope.sql}
+            (SELECT dept.name FROM mse_hrm_departments dept WHERE dept.id = e.department_id) AS department, e.designation, e.branch_id AS branchId, e.email, e.mobile_number AS mobileNumber
+     FROM mse_hrm_employees e WHERE e.status = 'Active' AND ${scope.sql}
      ORDER BY e.employee_name LIMIT 500`, scope.params,
     );
     res.json({ data: rows });
@@ -1617,7 +1617,7 @@ app.get('/api/dashboard', authenticate, requireCrmAccess, async (req, res) => {
        AND NOT EXISTS (
          SELECT 1
          FROM crm_lead_comments touch_comment
-         JOIN app_users touch_user ON touch_user.id=touch_comment.created_by_user_id
+         JOIN mse_hrm_app_users touch_user ON touch_user.id=touch_comment.created_by_user_id
          WHERE touch_comment.lead_id=l.id
            AND touch_user.employee_id=l.owner_employee_id
            AND touch_comment.created_at_utc>=COALESCE(l.owner_assigned_at_utc,l.referred_at_utc,l.created_at_utc)
@@ -1820,7 +1820,7 @@ async function queryLeads(user, search, limit = null, options = {}) {
             l.referred_by_employee_id AS referredByEmployeeId,
             (SELECT MAX(touch_comment.created_at_utc)
              FROM crm_lead_comments touch_comment
-             JOIN app_users touch_user ON touch_user.id=touch_comment.created_by_user_id
+             JOIN mse_hrm_app_users touch_user ON touch_user.id=touch_comment.created_by_user_id
              WHERE touch_comment.lead_id=l.id
                AND touch_user.employee_id=l.owner_employee_id
                AND touch_comment.created_at_utc >= COALESCE(l.owner_assigned_at_utc,l.referred_at_utc,l.created_at_utc)) AS touchedAt,
@@ -1829,7 +1829,7 @@ async function queryLeads(user, search, limit = null, options = {}) {
               WHEN EXISTS (
                 SELECT 1
                 FROM crm_lead_comments touch_comment
-                JOIN app_users touch_user ON touch_user.id=touch_comment.created_by_user_id
+                JOIN mse_hrm_app_users touch_user ON touch_user.id=touch_comment.created_by_user_id
                 WHERE touch_comment.lead_id=l.id
                   AND touch_user.employee_id=l.owner_employee_id
                   AND touch_comment.created_at_utc >= COALESCE(l.owner_assigned_at_utc,l.referred_at_utc,l.created_at_utc)
@@ -1859,12 +1859,12 @@ async function queryLeads(user, search, limit = null, options = {}) {
              FROM crm_marketing_campaign_recipients mr
              JOIN crm_marketing_campaign_deliveries md ON md.recipient_id=mr.id
              WHERE mr.lead_id=l.id) AS marketingDeliveryPairs
-     FROM crm_leads l JOIN crm_lead_stages s ON s.id = l.stage_id LEFT JOIN branches b ON b.id = l.branch_id
+     FROM crm_leads l JOIN crm_lead_stages s ON s.id = l.stage_id LEFT JOIN mse_hrm_branches b ON b.id = l.branch_id
      LEFT JOIN crm_lead_substages ss ON ss.id = l.substage_id
      LEFT JOIN crm_classes cls ON cls.id = l.class_id LEFT JOIN crm_curricula cur ON cur.id = l.curriculum_id
      LEFT JOIN crm_lead_sources src ON src.id = l.source_id
      LEFT JOIN crm_lead_channels ch ON ch.id = l.channel_id LEFT JOIN crm_campaigns camp ON camp.id = l.campaign_id
-     LEFT JOIN employees e ON e.id = l.owner_employee_id
+     LEFT JOIN mse_hrm_employees e ON e.id = l.owner_employee_id
      WHERE l.deleted_at_utc IS NULL AND ${scope.sql}
        AND ${whereClause}${pipelineClause}
      ORDER BY l.created_at_utc DESC${limitClause}`,
@@ -2246,7 +2246,7 @@ app.get('/api/leads/meta', authenticate, requireCrmAccess, async (req, res) => {
     /* A sub-stage carries the pipeline of the stage it hangs off, so a Meta
        lead form pointed at a sub-stage id lands its leads in that pipeline. */
     const [substages] = await pool.execute(`SELECT ss.id, ss.stage_id AS stageId, s.pipeline_id AS pipelineId, ss.substage_code AS code, ss.display_name AS displayName FROM crm_lead_substages ss JOIN crm_lead_stages s ON s.id=ss.stage_id WHERE s.business_unit_id=? AND s.is_active=TRUE AND ss.is_active = TRUE ORDER BY s.position, ss.position`, [Number(req.businessUnit.id)]);
-    const [branches] = await pool.execute(`SELECT b.id, b.branch_name AS name, b.short_name AS shortName FROM branches b WHERE b.is_active = TRUE AND ${scope.sql} ORDER BY b.branch_name`, scope.params);
+    const [branches] = await pool.execute(`SELECT b.id, b.branch_name AS name, b.short_name AS shortName FROM mse_hrm_branches b WHERE b.is_active = TRUE AND ${scope.sql} ORDER BY b.branch_name`, scope.params);
     /* Which pipelines each branch is shown in. Attached rather than filtered
        here: this one payload feeds every screen, and several of them -- the
        branch picker in settings, assignment rules -- need all branches
@@ -2283,13 +2283,13 @@ app.get('/api/leads/meta', authenticate, requireCrmAccess, async (req, res) => {
     const [employees] = await pool.execute(
         `SELECT DISTINCT e.id, e.employee_name AS name,
             assigned_branch.id AS branchId, assigned_branch.branch_name AS branchName,
-            e.department, e.designation
-     FROM employees e
-     JOIN app_users u ON u.employee_id = e.id AND u.is_active = TRUE
-     JOIN user_roles ur ON ur.user_id = u.id
-     JOIN roles r ON r.id = ur.role_id
+            (SELECT dept.name FROM mse_hrm_departments dept WHERE dept.id = e.department_id) AS department, e.designation
+     FROM mse_hrm_employees e
+     JOIN mse_hrm_app_users u ON u.employee_id = e.id AND u.is_active = TRUE
+     JOIN mse_hrm_user_roles ur ON ur.user_id = u.id
+     JOIN mse_hrm_roles r ON r.id = ur.role_id
      JOIN crm_user_branches user_access ON user_access.user_id = u.id
-     JOIN branches assigned_branch ON assigned_branch.id = user_access.branch_id AND assigned_branch.is_active = TRUE
+     JOIN mse_hrm_branches assigned_branch ON assigned_branch.id = user_access.branch_id AND assigned_branch.is_active = TRUE
      WHERE e.status = 'Active'
        AND r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER','SUPER_ADMIN')
        AND ${employeeScope.sql}
@@ -2335,12 +2335,12 @@ app.get('/api/leads/:id', authenticate, requireCrmAccess, async (req, res) => {
       l.created_at_utc AS addedAt, l.updated_at_utc AS updatedAt, l.referred_at_utc AS referredAt, l.re_enquired_at_utc AS reEnquiredAt
      FROM crm_leads l JOIN crm_lead_stages s ON s.id = l.stage_id
      LEFT JOIN crm_lead_substages ss ON ss.id=l.substage_id
-     LEFT JOIN branches b ON b.id = l.branch_id LEFT JOIN crm_lead_sources src ON src.id = l.source_id
+     LEFT JOIN mse_hrm_branches b ON b.id = l.branch_id LEFT JOIN crm_lead_sources src ON src.id = l.source_id
      LEFT JOIN crm_classes cls ON cls.id = l.class_id LEFT JOIN crm_curricula cur ON cur.id = l.curriculum_id
-     LEFT JOIN employees e ON e.id = l.owner_employee_id
-     LEFT JOIN app_users editor_user ON editor_user.id=l.updated_by_user_id
-     LEFT JOIN employees editor_employee ON editor_employee.id=editor_user.employee_id
-     LEFT JOIN employees editor_email_employee ON editor_user.employee_id IS NULL AND LOWER(editor_email_employee.email)=LOWER(editor_user.email)
+     LEFT JOIN mse_hrm_employees e ON e.id = l.owner_employee_id
+     LEFT JOIN mse_hrm_app_users editor_user ON editor_user.id=l.updated_by_user_id
+     LEFT JOIN mse_hrm_employees editor_employee ON editor_employee.id=editor_user.employee_id
+     LEFT JOIN mse_hrm_employees editor_email_employee ON editor_user.employee_id IS NULL AND LOWER(editor_email_employee.email)=LOWER(editor_user.email)
      WHERE l.id = ? AND l.deleted_at_utc IS NULL AND ${scope.sql} LIMIT 1`,
         [Number(req.params.id), ...scope.params],
     );
@@ -2355,9 +2355,9 @@ app.get('/api/leads/:id', authenticate, requireCrmAccess, async (req, res) => {
               ORDER BY ABS(TIMESTAMPDIFF(MICROSECOND,c.created_at_utc,a.occurred_at_utc)) LIMIT 1
             ) ELSE NULL END AS commentText
      FROM crm_lead_activities a
-     LEFT JOIN app_users actor_user ON actor_user.id=a.actor_user_id
-     LEFT JOIN employees actor_employee ON actor_employee.id=actor_user.employee_id
-     LEFT JOIN employees actor_email_employee ON actor_user.employee_id IS NULL AND LOWER(actor_email_employee.email)=LOWER(actor_user.email)
+     LEFT JOIN mse_hrm_app_users actor_user ON actor_user.id=a.actor_user_id
+     LEFT JOIN mse_hrm_employees actor_employee ON actor_employee.id=actor_user.employee_id
+     LEFT JOIN mse_hrm_employees actor_email_employee ON actor_user.employee_id IS NULL AND LOWER(actor_email_employee.email)=LOWER(actor_user.email)
      WHERE a.lead_id=? ORDER BY a.occurred_at_utc DESC LIMIT 30`, [Number(req.params.id)],
     );
     /*
@@ -2382,9 +2382,9 @@ app.get('/api/leads/:id', authenticate, requireCrmAccess, async (req, res) => {
             COALESCE(agent_employee.employee_name, agent_email_employee.employee_name, 'CRM user') AS actorName
        FROM crm_call_activities ca
        JOIN crm_integrations ci ON ci.id=ca.integration_id
-       LEFT JOIN app_users agent_user ON agent_user.id = ca.agent_user_id
-       LEFT JOIN employees agent_employee ON agent_employee.id = agent_user.employee_id
-       LEFT JOIN employees agent_email_employee ON agent_user.employee_id IS NULL
+       LEFT JOIN mse_hrm_app_users agent_user ON agent_user.id = ca.agent_user_id
+       LEFT JOIN mse_hrm_employees agent_employee ON agent_employee.id = agent_user.employee_id
+       LEFT JOIN mse_hrm_employees agent_email_employee ON agent_user.employee_id IS NULL
             AND LOWER(agent_email_employee.email) = LOWER(agent_user.email)
       WHERE ca.lead_id = ?
       ORDER BY COALESCE(ca.started_at_utc, ca.created_at_utc) DESC LIMIT 30`,
@@ -2442,9 +2442,9 @@ app.get('/api/leads/:id', authenticate, requireCrmAccess, async (req, res) => {
     const [comments] = await pool.execute(
         `SELECT c.id,c.comment_text AS commentText,c.created_at_utc AS createdAt,
             COALESCE(e.employee_name,email_employee.employee_name,'CRM user') AS counsellorName
-     FROM crm_lead_comments c JOIN app_users u ON u.id=c.created_by_user_id
-     LEFT JOIN employees e ON e.id=u.employee_id
-     LEFT JOIN employees email_employee ON u.employee_id IS NULL AND LOWER(email_employee.email)=LOWER(u.email)
+     FROM crm_lead_comments c JOIN mse_hrm_app_users u ON u.id=c.created_by_user_id
+     LEFT JOIN mse_hrm_employees e ON e.id=u.employee_id
+     LEFT JOIN mse_hrm_employees email_employee ON u.employee_id IS NULL AND LOWER(email_employee.email)=LOWER(u.email)
      WHERE c.lead_id=? ORDER BY c.created_at_utc DESC`, [Number(req.params.id)],
     );
     const [sourceHistory] = await pool.execute(
@@ -2454,8 +2454,8 @@ app.get('/api/leads/:id', authenticate, requireCrmAccess, async (req, res) => {
      FROM crm_lead_source_history h
      JOIN crm_lead_sources src ON src.id=h.source_id JOIN crm_lead_channels ch ON ch.id=h.channel_id
      JOIN crm_campaigns c ON c.id=h.campaign_id
-     LEFT JOIN app_users u ON u.id=h.created_by_user_id LEFT JOIN employees e ON e.id=u.employee_id
-     LEFT JOIN employees email_employee ON u.employee_id IS NULL AND LOWER(email_employee.email)=LOWER(u.email)
+     LEFT JOIN mse_hrm_app_users u ON u.id=h.created_by_user_id LEFT JOIN mse_hrm_employees e ON e.id=u.employee_id
+     LEFT JOIN mse_hrm_employees email_employee ON u.employee_id IS NULL AND LOWER(email_employee.email)=LOWER(u.email)
      WHERE h.lead_id=? ORDER BY h.is_primary DESC,h.created_at_utc DESC`, [Number(req.params.id)],
     );
     const [[latestFollowup]] = await pool.execute(`SELECT followup_type AS followupType FROM crm_followups WHERE lead_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1`, [Number(req.params.id)]);
@@ -2520,7 +2520,7 @@ app.post('/api/leads', authenticate, requireCrmAccess, requireLeadWrite, async (
         the two academic_year columns is an illegal mix of collations. Stated
         explicitly here so the join works whichever way round the tables are. */
      JOIN crm_academic_years ay ON ay.academic_year=acc.academic_year COLLATE utf8mb4_unicode_ci AND ay.is_active=TRUE
-     JOIN branches b ON b.id=acc.branch_id AND b.is_active=TRUE
+     JOIN mse_hrm_branches b ON b.id=acc.branch_id AND b.is_active=TRUE
      JOIN crm_admission_types admission_type ON admission_type.id=acc.admission_type_id AND admission_type.is_active=TRUE
      JOIN crm_curricula curriculum ON curriculum.id=acc.curriculum_id AND curriculum.is_active=TRUE
      JOIN crm_classes class ON class.id=detail.class_id AND class.is_active=TRUE
@@ -2723,11 +2723,11 @@ app.put('/api/leads/:id/followup-notes', authenticate, requireCrmAccess, require
         if (!lead) { await connection.rollback(); return res.status(404).json({ message: 'Lead not found' }); }
         const [[counsellor]] = await connection.execute(
             `SELECT DISTINCT e.id,e.employee_name AS name,b.branch_name AS branchName
-       FROM employees e
-       JOIN app_users u ON u.employee_id=e.id AND u.is_active=TRUE
-       JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
+       FROM mse_hrm_employees e
+       JOIN mse_hrm_app_users u ON u.employee_id=e.id AND u.is_active=TRUE
+       JOIN mse_hrm_user_roles ur ON ur.user_id=u.id JOIN mse_hrm_roles r ON r.id=ur.role_id
        JOIN crm_user_branches cub ON cub.user_id=u.id AND cub.branch_id=?
-       JOIN branches b ON b.id=cub.branch_id AND b.is_active=TRUE
+       JOIN mse_hrm_branches b ON b.id=cub.branch_id AND b.is_active=TRUE
        LEFT JOIN crm_user_access_status cuas ON cuas.user_id=u.id
        WHERE e.id=? AND e.status='Active' AND COALESCE(cuas.is_active,1)=1
          AND r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','SUPER_ADMIN') LIMIT 1`,
@@ -2908,11 +2908,11 @@ app.put('/api/leads/actions/bulk-refer', authenticate, requireCrmAccess, require
     if (!Number.isInteger(branchId) || branchId <= 0) return res.status(400).json({ message: 'Select a referral branch' });
     if (!Number.isInteger(employeeId) || employeeId <= 0) return res.status(400).json({ message: 'Select a counsellor' });
     const [[counsellor]] = await pool.execute(
-        `SELECT DISTINCT e.id,e.employee_name AS name,b.branch_name AS branchName FROM employees e
-     JOIN app_users u ON u.employee_id=e.id AND u.is_active=TRUE
-     JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
+        `SELECT DISTINCT e.id,e.employee_name AS name,b.branch_name AS branchName FROM mse_hrm_employees e
+     JOIN mse_hrm_app_users u ON u.employee_id=e.id AND u.is_active=TRUE
+     JOIN mse_hrm_user_roles ur ON ur.user_id=u.id JOIN mse_hrm_roles r ON r.id=ur.role_id
      JOIN crm_user_branches cub ON cub.user_id=u.id AND cub.branch_id=?
-     JOIN branches b ON b.id=cub.branch_id AND b.is_active=TRUE
+     JOIN mse_hrm_branches b ON b.id=cub.branch_id AND b.is_active=TRUE
      LEFT JOIN crm_user_access_status cuas ON cuas.user_id=u.id
      WHERE e.id=? AND e.status='Active' AND COALESCE(cuas.is_active,1)=1
        AND r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','SUPER_ADMIN') LIMIT 1`, [branchId, employeeId]);
@@ -2923,8 +2923,8 @@ app.put('/api/leads/actions/bulk-refer', authenticate, requireCrmAccess, require
         `SELECT l.id,COALESCE(previous_owner.employee_name,'Unassigned') AS previousOwner,
             current_branch.branch_name AS previousBranch
      FROM crm_leads l
-     JOIN branches current_branch ON current_branch.id=l.branch_id
-     LEFT JOIN employees previous_owner ON previous_owner.id=l.owner_employee_id
+     JOIN mse_hrm_branches current_branch ON current_branch.id=l.branch_id
+     LEFT JOIN mse_hrm_employees previous_owner ON previous_owner.id=l.owner_employee_id
      WHERE l.id IN (${placeholders}) AND l.deleted_at_utc IS NULL AND ${scope.sql}`,
         [...leadIds, ...scope.params],
     );
@@ -2990,11 +2990,11 @@ app.put('/api/leads/:id/refer', authenticate, requireCrmAccess, requireLeadWrite
     const [[counsellor]] = await pool.execute(
         `SELECT DISTINCT e.id,e.employee_name AS name,referral_branch.branch_name AS branchName
      FROM crm_leads l
-     JOIN employees e ON e.id=? AND e.status='Active'
-     JOIN app_users u ON u.employee_id=e.id AND u.is_active=TRUE
-     JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
+     JOIN mse_hrm_employees e ON e.id=? AND e.status='Active'
+     JOIN mse_hrm_app_users u ON u.employee_id=e.id AND u.is_active=TRUE
+     JOIN mse_hrm_user_roles ur ON ur.user_id=u.id JOIN mse_hrm_roles r ON r.id=ur.role_id
      JOIN crm_user_branches cub ON cub.user_id=u.id AND cub.branch_id=?
-     JOIN branches referral_branch ON referral_branch.id=cub.branch_id AND referral_branch.is_active=TRUE
+     JOIN mse_hrm_branches referral_branch ON referral_branch.id=cub.branch_id AND referral_branch.is_active=TRUE
      LEFT JOIN crm_user_access_status cuas ON cuas.user_id=u.id
      WHERE l.id=? AND l.deleted_at_utc IS NULL AND COALESCE(cuas.is_active,1)=1
        AND r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','SUPER_ADMIN') AND ${scope.sql}
@@ -3150,7 +3150,7 @@ app.put('/api/leads/actions/bulk-change-stage', authenticate, requireCrmAccess, 
 });
 
 app.get('/api/leads/referral-options/all', authenticate, requireCrmAccess, async (req, res) => {
-    const [branches] = await pool.query(`SELECT id,branch_name AS name,short_name AS shortName FROM branches WHERE is_active=TRUE ORDER BY branch_name`);
+    const [branches] = await pool.query(`SELECT id,branch_name AS name,short_name AS shortName FROM mse_hrm_branches WHERE is_active=TRUE ORDER BY branch_name`);
     /*
      * Who may receive a referral: CRM users of THIS business unit.
      *
@@ -3161,17 +3161,17 @@ app.get('/api/leads/referral-options/all', authenticate, requireCrmAccess, async
      */
     const [employees] = await pool.execute(
         `SELECT DISTINCT e.id,e.employee_name AS name,b.id AS branchId,b.branch_name AS branchName
-     FROM employees e
-     JOIN app_users u ON u.employee_id=e.id AND u.is_active=TRUE
-     JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
+     FROM mse_hrm_employees e
+     JOIN mse_hrm_app_users u ON u.employee_id=e.id AND u.is_active=TRUE
+     JOIN mse_hrm_user_roles ur ON ur.user_id=u.id JOIN mse_hrm_roles r ON r.id=ur.role_id
      JOIN crm_user_branches cub ON cub.user_id=u.id
-     JOIN branches b ON b.id=cub.branch_id AND b.is_active=TRUE
+     JOIN mse_hrm_branches b ON b.id=cub.branch_id AND b.is_active=TRUE
      LEFT JOIN crm_user_access_status cuas ON cuas.user_id=u.id
      LEFT JOIN crm_user_business_units ubu ON ubu.user_id=u.id AND ubu.business_unit_id=?
      WHERE e.status='Active' AND COALESCE(cuas.is_active,1)=1
        AND r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','SUPER_ADMIN')
        AND (ubu.user_id IS NOT NULL OR EXISTS(
-             SELECT 1 FROM user_roles admin_role JOIN roles admin ON admin.id=admin_role.role_id
+             SELECT 1 FROM mse_hrm_user_roles admin_role JOIN mse_hrm_roles admin ON admin.id=admin_role.role_id
               WHERE admin_role.user_id=u.id AND admin.normalized_name IN ('CRM_ADMIN','SUPER_ADMIN')))
     ORDER BY b.branch_name,e.employee_name`,
         [Number(req.businessUnit.id)],
@@ -3188,7 +3188,7 @@ app.get('/api/leads/referral-options/all', authenticate, requireCrmAccess, async
         [Number(req.businessUnit.id)],
     );
     const [[currentEmployee]] = req.user.employeeId
-        ? await pool.execute(`SELECT branch_id AS branchId FROM employees WHERE id=? LIMIT 1`, [Number(req.user.employeeId)])
+        ? await pool.execute(`SELECT branch_id AS branchId FROM mse_hrm_employees WHERE id=? LIMIT 1`, [Number(req.user.employeeId)])
         : [[]];
     res.json({
         branches,
@@ -3290,7 +3290,7 @@ app.get('/api/admin/users/meta', authenticate, requireUserAdmin, async (req, res
     const grantableUnits = await assignableBusinessUnitIds(req.user);
     const [branches] = await pool.query(
         `SELECT b.id, b.branch_name AS name, b.short_name AS shortName
-     FROM branches b WHERE b.is_active = TRUE
+     FROM mse_hrm_branches b WHERE b.is_active = TRUE
      ${grantableBranches ? `AND b.id IN (${grantableBranches.map(() => '?').join(',')})` : ''}
      ORDER BY b.branch_name`,
         grantableBranches || [],
@@ -3306,13 +3306,13 @@ app.get('/api/admin/users/meta', authenticate, requireUserAdmin, async (req, res
         `SELECT e.id, e.employee_number AS employeeNumber, e.employee_name AS name, e.email,
             e.branch_id AS employeeBranchId, b.branch_name AS employeeBranch,
             u.id AS userId, u.email AS loginEmail, u.is_active AS userIsActive
-     FROM employees e LEFT JOIN branches b ON b.id = e.branch_id
-     LEFT JOIN app_users u ON u.employee_id = e.id
+     FROM mse_hrm_employees e LEFT JOIN mse_hrm_branches b ON b.id = e.branch_id
+     LEFT JOIN mse_hrm_app_users u ON u.employee_id = e.id
      WHERE e.status = 'Active' ORDER BY e.employee_name LIMIT 5000`,
     );
     const [roles] = await pool.query(
         `SELECT id, normalized_name AS name, name AS displayName, description
-     FROM roles WHERE normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER')
+     FROM mse_hrm_roles WHERE normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER')
      ORDER BY FIELD(normalized_name,'CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER')`,
     );
     res.json({ branches, businessUnits, employees, roles });
@@ -3369,12 +3369,12 @@ app.get('/api/admin/users', authenticate, requireUserAdmin, async (req, res) => 
             u.smartflo_agent_number AS smartfloAgentNumber,u.smartflo_department_id AS smartfloDepartmentId,u.smartflo_enabled AS smartfloEnabled,
             u.bonvoice_agent_number AS bonvoiceAgentNumber,u.bonvoice_enabled AS bonvoiceEnabled,
             u.last_login_at_utc AS lastLoginAt
-     FROM app_users u
-     LEFT JOIN employees e ON e.id = u.employee_id
+     FROM mse_hrm_app_users u
+     LEFT JOIN mse_hrm_employees e ON e.id = u.employee_id
      LEFT JOIN crm_user_profiles p ON p.user_id=u.id
      LEFT JOIN crm_user_access_status cuas ON cuas.user_id=u.id
-     JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id
-     LEFT JOIN crm_user_branches cub ON cub.user_id = u.id LEFT JOIN branches b ON b.id = cub.branch_id
+     JOIN mse_hrm_user_roles ur ON ur.user_id = u.id JOIN mse_hrm_roles r ON r.id = ur.role_id
+     LEFT JOIN crm_user_branches cub ON cub.user_id = u.id LEFT JOIN mse_hrm_branches b ON b.id = cub.branch_id
      WHERE r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER','SUPER_ADMIN')
            ${scopeSql}
      GROUP BY u.id, u.employee_id, u.email, u.is_active, cuas.is_active, e.employee_name,p.first_name,p.last_name,p.phone,e.employee_number,
@@ -3454,11 +3454,11 @@ async function saveCrmUser(req, res, existingUserId = null) {
         let employeeRows = [];
         let userRows = [];
         if (externalUser) {
-            if (existingUserId) [userRows] = await connection.execute(`SELECT id,email,is_active AS isActive,employee_id AS employeeId FROM app_users WHERE id=? LIMIT 1`, [Number(existingUserId)]);
+            if (existingUserId) [userRows] = await connection.execute(`SELECT id,email,is_active AS isActive,employee_id AS employeeId FROM mse_hrm_app_users WHERE id=? LIMIT 1`, [Number(existingUserId)]);
         } else {
-            [employeeRows] = await connection.execute(`SELECT id, email FROM employees WHERE id = ? AND status = 'Active' LIMIT 1`, [employeeId]);
+            [employeeRows] = await connection.execute(`SELECT id, email FROM mse_hrm_employees WHERE id = ? AND status = 'Active' LIMIT 1`, [employeeId]);
             if (!employeeRows.length) { await connection.rollback(); return res.status(404).json({ message: 'Active employee not found' }); }
-            [userRows] = await connection.execute(`SELECT id, email, is_active AS isActive FROM app_users WHERE employee_id = ? LIMIT 1`, [employeeId]);
+            [userRows] = await connection.execute(`SELECT id, email, is_active AS isActive FROM mse_hrm_app_users WHERE employee_id = ? LIMIT 1`, [employeeId]);
         }
         let user = userRows[0];
         if (existingUserId && (!user || Number(user.id) !== Number(existingUserId))) { await connection.rollback(); return res.status(409).json({ message: externalUser ? 'External account does not match this CRM user' : 'Employee account does not match this CRM user' }); }
@@ -3468,7 +3468,7 @@ async function saveCrmUser(req, res, existingUserId = null) {
             if (!loginEmail || !/^\S+@\S+\.\S+$/.test(loginEmail)) { await connection.rollback(); return res.status(400).json({ message: 'A valid login email is required for a new account' }); }
             if (password.length < 8) { await connection.rollback(); return res.status(400).json({ message: 'New accounts require a password of at least 8 characters' }); }
             const [result] = await connection.execute(
-                `INSERT INTO app_users (employee_id, email, normalized_email, password_hash, security_stamp, is_active, created_at_utc)
+                `INSERT INTO mse_hrm_app_users (employee_id, email, normalized_email, password_hash, security_stamp, is_active, created_at_utc)
          VALUES (?, ?, ?, ?, ?, TRUE, CURRENT_TIMESTAMP(6))`,
                 [externalUser ? null : employeeId, loginEmail, loginEmail.toUpperCase(), hashAttendancePassword(password), crypto.randomUUID()],
             );
@@ -3478,7 +3478,7 @@ async function saveCrmUser(req, res, existingUserId = null) {
         }
         if (password) {
             if (password.length < 8) { await connection.rollback(); return res.status(400).json({ message: 'Password must contain at least 8 characters' }); }
-            await connection.execute(`UPDATE app_users SET password_hash = ?, security_stamp = ?, failed_login_count = 0, lockout_end_utc = NULL, updated_at_utc = CURRENT_TIMESTAMP(6) WHERE id = ?`, [hashAttendancePassword(password), crypto.randomUUID(), user.id]);
+            await connection.execute(`UPDATE mse_hrm_app_users SET password_hash = ?, security_stamp = ?, failed_login_count = 0, lockout_end_utc = NULL, updated_at_utc = CURRENT_TIMESTAMP(6) WHERE id = ?`, [hashAttendancePassword(password), crypto.randomUUID(), user.id]);
         }
         if (externalUser) {
             await connection.execute(
@@ -3488,12 +3488,12 @@ async function saveCrmUser(req, res, existingUserId = null) {
             );
         }
         await connection.execute(
-            `DELETE ur FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+            `DELETE ur FROM mse_hrm_user_roles ur JOIN mse_hrm_roles r ON r.id = ur.role_id
        WHERE ur.user_id = ? AND r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER')`, [user.id],
         );
         await connection.execute(
-            `INSERT INTO user_roles (user_id, role_id, created_at_utc)
-       SELECT ?, id, CURRENT_TIMESTAMP(6) FROM roles WHERE normalized_name = ?`, [user.id, roleName],
+            `INSERT INTO mse_hrm_user_roles (user_id, role_id, created_at_utc)
+       SELECT ?, id, CURRENT_TIMESTAMP(6) FROM mse_hrm_roles WHERE normalized_name = ?`, [user.id, roleName],
         );
         if (businessUnitIds.length) {
             // Replaced wholesale so unticking a unit actually removes it. The first
@@ -3511,10 +3511,10 @@ async function saveCrmUser(req, res, existingUserId = null) {
             await connection.execute(`INSERT INTO crm_user_branches (user_id, branch_id, created_by_user_id) VALUES (?, ?, ?)`, [user.id, branchId, Number(req.user.id)]);
         }
         await connection.execute(`INSERT INTO crm_user_access_status(user_id,is_active,updated_by_user_id) VALUES(?,?,?) ON DUPLICATE KEY UPDATE is_active=VALUES(is_active),updated_by_user_id=VALUES(updated_by_user_id)`, [user.id, req.body.isActive === false ? 0 : 1, Number(req.user.id)]);
-        await connection.execute(`UPDATE app_users SET callerdesk_member_id=?,callerdesk_member_name=?,callerdesk_member_number=?,callerdesk_call_group=?,callerdesk_enabled=? WHERE id=?`,
+        await connection.execute(`UPDATE mse_hrm_app_users SET callerdesk_member_id=?,callerdesk_member_name=?,callerdesk_member_number=?,callerdesk_call_group=?,callerdesk_enabled=? WHERE id=?`,
             [callerdeskEnabled ? callerdeskMemberId : null, callerdeskEnabled ? callerdeskMemberName : null, callerdeskEnabled ? callerdeskMemberNumber : null, callerdeskEnabled ? callerdeskCallGroup : null, callerdeskEnabled ? 1 : 0, user.id]);
-        await connection.execute(`UPDATE app_users SET smartflo_user_id=?,smartflo_agent_id=?,smartflo_agent_name=?,smartflo_agent_number=?,smartflo_department_id=?,smartflo_enabled=? WHERE id=?`, [smartfloEnabled ? smartfloUserId : null, smartfloEnabled ? smartfloAgentId : null, smartfloEnabled ? smartfloAgentName : null, smartfloEnabled ? smartfloAgentNumber : null, smartfloEnabled ? smartfloDepartmentId : null, smartfloEnabled ? 1 : 0, user.id]);
-        await connection.execute(`UPDATE app_users SET bonvoice_agent_number=?,bonvoice_enabled=? WHERE id=?`,[bonvoiceEnabled?bonvoiceAgentNumber:null,bonvoiceEnabled?1:0,user.id]);
+        await connection.execute(`UPDATE mse_hrm_app_users SET smartflo_user_id=?,smartflo_agent_id=?,smartflo_agent_name=?,smartflo_agent_number=?,smartflo_department_id=?,smartflo_enabled=? WHERE id=?`, [smartfloEnabled ? smartfloUserId : null, smartfloEnabled ? smartfloAgentId : null, smartfloEnabled ? smartfloAgentName : null, smartfloEnabled ? smartfloAgentNumber : null, smartfloEnabled ? smartfloDepartmentId : null, smartfloEnabled ? 1 : 0, user.id]);
+        await connection.execute(`UPDATE mse_hrm_app_users SET bonvoice_agent_number=?,bonvoice_enabled=? WHERE id=?`,[bonvoiceEnabled?bonvoiceAgentNumber:null,bonvoiceEnabled?1:0,user.id]);
         await connection.commit();
         res.status(existingUserId ? 200 : 201).json({ id: Number(user.id), message: existingUserId ? 'CRM user updated successfully' : 'CRM user added successfully' });
     } catch (error) {
@@ -3542,7 +3542,7 @@ app.delete('/api/admin/users/:id/access', authenticate, requireUserAdmin, async 
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
-        await connection.execute(`DELETE ur FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = ? AND r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER')`, [userId]);
+        await connection.execute(`DELETE ur FROM mse_hrm_user_roles ur JOIN mse_hrm_roles r ON r.id = ur.role_id WHERE ur.user_id = ? AND r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER')`, [userId]);
         await connection.execute(`DELETE FROM crm_user_branches WHERE user_id = ?`, [userId]);
         await connection.commit();
         res.json({ message: 'CRM access removed. Attendance access was not changed.' });
@@ -3752,8 +3752,8 @@ app.get('/api/automations', authenticate, requireCrmAccess, async (req, res) => 
            x.lastRunAt,x.lastStatus,x.completedCount,x.failedCount,x.skippedCount,
            COALESCE(q.pendingCount,0) AS pendingCount
     FROM crm_automation_workflows w
-    JOIN app_users u ON u.id=w.created_by
-    LEFT JOIN employees e ON e.id=u.employee_id
+    JOIN mse_hrm_app_users u ON u.id=w.created_by
+    LEFT JOIN mse_hrm_employees e ON e.id=u.employee_id
     -- Run totals come from the append-only log. Reading them from
     -- crm_automation_executions reported 0 for any workflow whose rules had
     -- been edited, because that queue is cleared on every rule change.
@@ -3924,8 +3924,8 @@ app.get('/api/assignment-rules', authenticate, requireCrmAccess, async (req, res
             r.employee_ids_json AS employeeIds,r.is_active AS isActive,r.created_at_utc AS createdAt,
             COALESCE(e.employee_name,u.email) AS createdBy
      FROM crm_assignment_rules r
-     JOIN app_users u ON u.id=r.created_by
-     LEFT JOIN employees e ON e.id=u.employee_id
+     JOIN mse_hrm_app_users u ON u.id=r.created_by
+     LEFT JOIN mse_hrm_employees e ON e.id=u.employee_id
      WHERE r.business_unit_id=?
      ORDER BY r.created_at_utc DESC`,
         [Number(req.businessUnit.id)],
@@ -3940,7 +3940,7 @@ app.get('/api/assignment-rules', authenticate, requireCrmAccess, async (req, res
      * the full set, and editing rules already requires automations.*.edit.
      */
     const [ruleBranches] = await pool.query(
-        'SELECT id, branch_name AS name, short_name AS shortName FROM branches WHERE is_active=TRUE ORDER BY branch_name',
+        'SELECT id, branch_name AS name, short_name AS shortName FROM mse_hrm_branches WHERE is_active=TRUE ORDER BY branch_name',
     );
     res.json({
         branches: ruleBranches,
@@ -4044,8 +4044,8 @@ app.get('/api/marketing-campaigns', authenticate, requireCrmAccess, async (req, 
            COALESCE(d.readDeliveries,0) AS readDeliveries
     FROM crm_marketing_campaigns c
     JOIN crm_integrations i ON i.id=c.integration_id
-    JOIN app_users u ON u.id=c.created_by
-    LEFT JOIN employees e ON e.id=u.employee_id
+    JOIN mse_hrm_app_users u ON u.id=c.created_by
+    LEFT JOIN mse_hrm_employees e ON e.id=u.employee_id
     LEFT JOIN (
       SELECT campaign_id,COUNT(*) recipientCount,
              SUM(phone_type='primary') primaryCount,
@@ -4111,7 +4111,7 @@ app.post('/api/marketing-campaigns', authenticate, requireCrmAccess, requireLead
         CONSTRAINT fk_whatsapp_template_visibility_template FOREIGN KEY (template_id)
           REFERENCES crm_whatsapp_templates(id) ON DELETE CASCADE,
         CONSTRAINT fk_whatsapp_template_visibility_user FOREIGN KEY (user_id)
-          REFERENCES app_users(id) ON DELETE CASCADE
+          REFERENCES mse_hrm_app_users(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
         const templateVisibilitySql = req.user.roles?.some(role => ['CRM_ADMIN', 'SUPER_ADMIN'].includes(String(role).toUpperCase()))
@@ -4307,7 +4307,7 @@ app.get('/api/leads', authenticate, requireCrmAccess, async (req, res) => {
        AND NOT EXISTS (
          SELECT 1
          FROM crm_lead_comments touch_comment
-         JOIN app_users touch_user ON touch_user.id = touch_comment.created_by_user_id
+         JOIN mse_hrm_app_users touch_user ON touch_user.id = touch_comment.created_by_user_id
          WHERE touch_comment.lead_id = l.id
            AND touch_user.employee_id = l.owner_employee_id
            AND touch_comment.created_at_utc >= COALESCE(l.owner_assigned_at_utc,l.referred_at_utc,l.created_at_utc)
@@ -4357,7 +4357,7 @@ app.get('/api/bulk-uploads/download-template', authenticate, requireCrmAccess, r
         try { [classData] = await pool.query(`SELECT id FROM crm_classes WHERE is_active=TRUE ORDER BY position LIMIT 1`); } catch (e) { classData = []; }
         try { [campaignData] = await pool.query(`SELECT display_name FROM crm_campaigns WHERE is_active=TRUE ORDER BY display_name LIMIT 1`); } catch (e) { campaignData = []; }
         try { [substageData] = await pool.query(`SELECT id FROM crm_lead_substages WHERE is_active=TRUE ORDER BY position LIMIT 1`); } catch (e) { substageData = []; }
-        try { [userData] = await pool.query(`SELECT email FROM app_users WHERE is_active=TRUE LIMIT 1`); } catch (e) { userData = []; }
+        try { [userData] = await pool.query(`SELECT email FROM mse_hrm_app_users WHERE is_active=TRUE LIMIT 1`); } catch (e) { userData = []; }
         try { [sourceData] = await pool.query(`SELECT id, display_name FROM crm_lead_sources WHERE is_active=TRUE ORDER BY display_name LIMIT 1`); } catch (e) { sourceData = []; }
 
         // Use real values from database or fallbacks
@@ -4417,7 +4417,7 @@ app.get('/api/bulk-uploads/download-template', authenticate, requireCrmAccess, r
 
 app.get('/api/bulk-uploads/config', authenticate, requireCrmAccess, requireLeadWrite, async (req, res) => {
     const scope = scopedWhere(req.user, 'b.id');
-    const [branches] = await pool.execute(`SELECT b.id, b.branch_name AS name FROM branches b WHERE b.is_active=TRUE AND ${scope.sql} ORDER BY b.branch_name`, scope.params);
+    const [branches] = await pool.execute(`SELECT b.id, b.branch_name AS name FROM mse_hrm_branches b WHERE b.is_active=TRUE AND ${scope.sql} ORDER BY b.branch_name`, scope.params);
     const [stages] = await pool.query(`SELECT id, display_name AS displayName FROM crm_lead_stages WHERE is_active=TRUE ORDER BY position`);
     const [substages] = await pool.query(`SELECT id, stage_id AS stageId, display_name AS displayName FROM crm_lead_substages WHERE is_active=TRUE ORDER BY stage_id, position`);
     const [sources] = await pool.query(`SELECT id, display_name AS displayName FROM crm_lead_sources WHERE is_active=TRUE ORDER BY display_name`);
@@ -4445,7 +4445,7 @@ app.get('/api/admission-class-master-data', authenticate, requireUserAdmin, asyn
     try {
         const [[academicYears], [branches], [curricula], [admissionTypes], [classes]] = await Promise.all([
             pool.query(`SELECT id, academic_year AS academicYear, display_name AS displayName FROM crm_academic_years WHERE is_active=TRUE ORDER BY academic_year DESC`),
-            pool.query(`SELECT id, branch_name AS name, short_name AS shortName FROM branches WHERE is_active=TRUE ORDER BY branch_name`),
+            pool.query(`SELECT id, branch_name AS name, short_name AS shortName FROM mse_hrm_branches WHERE is_active=TRUE ORDER BY branch_name`),
             pool.query(`SELECT id, curriculum_code AS code, display_name AS displayName, position, is_active AS isActive FROM crm_curricula ORDER BY position, display_name`),
             pool.query(`SELECT id, type_code AS code, display_name AS displayName, is_active AS isActive FROM crm_admission_types ORDER BY display_name`),
             pool.query(`SELECT id, class_code AS code, display_name AS displayName, position, is_active AS isActive FROM crm_classes WHERE is_active=TRUE ORDER BY position, display_name`),
@@ -4527,7 +4527,7 @@ app.get('/api/admission-class-configurations', authenticate, requireUserAdmin, a
         GROUP_CONCAT(cl.display_name ORDER BY cl.display_name SEPARATOR ', ') AS classes,
         COUNT(DISTINCT accd.class_id) AS classCount
       FROM crm_admission_class_configurations acc
-      LEFT JOIN branches b ON b.id = acc.branch_id
+      LEFT JOIN mse_hrm_branches b ON b.id = acc.branch_id
       LEFT JOIN crm_curricula c ON c.id = acc.curriculum_id
       LEFT JOIN crm_admission_types aat ON aat.id = acc.admission_type_id
       LEFT JOIN crm_admission_class_configuration_details accd ON accd.configuration_id = acc.id AND accd.is_active = TRUE
@@ -4927,8 +4927,8 @@ app.get('/api/bulk-operations', authenticate, requireCrmAccess, requireLeadWrite
             bo.created_at_utc AS createdAt,bo.completed_at_utc AS completedAt,
             COALESCE(e.employee_name,u.email) AS createdBy
      FROM crm_bulk_operations bo
-     JOIN app_users u ON u.id=bo.created_by_user_id
-     LEFT JOIN employees e ON e.id=u.employee_id
+     JOIN mse_hrm_app_users u ON u.id=bo.created_by_user_id
+     LEFT JOIN mse_hrm_employees e ON e.id=u.employee_id
     WHERE bo.business_unit_id=? AND ${where.join(' AND ')}
      ORDER BY bo.created_at_utc DESC LIMIT 250`,
         [Number(req.businessUnit.id), ...values],
@@ -4978,9 +4978,9 @@ app.get('/api/leads/comments/recent', authenticate, requireCrmAccess, async (req
             COALESCE(e.employee_name, email_employee.employee_name, u.email, 'CRM user') AS authorName
        FROM crm_lead_comments c
        JOIN crm_leads l ON l.id = c.lead_id
-       LEFT JOIN app_users u ON u.id = c.created_by_user_id
-       LEFT JOIN employees e ON e.id = u.employee_id
-       LEFT JOIN employees email_employee ON u.employee_id IS NULL
+       LEFT JOIN mse_hrm_app_users u ON u.id = c.created_by_user_id
+       LEFT JOIN mse_hrm_employees e ON e.id = u.employee_id
+       LEFT JOIN mse_hrm_employees email_employee ON u.employee_id IS NULL
             AND LOWER(email_employee.email) = LOWER(u.email)
       WHERE c.lead_id IN (${placeholders}) AND l.deleted_at_utc IS NULL AND ${scope.sql}
       ORDER BY c.lead_id, c.created_at_utc DESC`,
@@ -5126,10 +5126,10 @@ app.get('/api/bulk-operations/:id/export', authenticate, requireCrmAccess, requi
             b.branch_name AS branch,COALESCE(c.display_name,l.applying_class) AS className,
             s.display_name AS stage,COALESCE(e.employee_name,'Unassigned') AS owner
      FROM crm_leads l
-     JOIN branches b ON b.id=l.branch_id
+     JOIN mse_hrm_branches b ON b.id=l.branch_id
      LEFT JOIN crm_classes c ON c.id=l.class_id
      LEFT JOIN crm_lead_stages s ON s.id=l.stage_id
-     LEFT JOIN employees e ON e.id=l.owner_employee_id
+     LEFT JOIN mse_hrm_employees e ON e.id=l.owner_employee_id
      WHERE l.id IN (${placeholders}) AND l.business_unit_id=?
      ORDER BY FIELD(l.id,${placeholders})`,
         [...leadIds, Number(req.businessUnit.id), ...leadIds],
@@ -5170,8 +5170,8 @@ app.get('/api/bulk-uploads', authenticate, requireCrmAccess, requireLeadWrite, a
       bu.duplicate_records AS duplicateRecords, bu.created_at_utc AS createdAt,
       bu.processing_completed_at_utc AS completedAt
      FROM crm_bulk_uploads bu
-     JOIN app_users u ON u.id=bu.uploaded_by_user_id
-     LEFT JOIN employees e ON e.id=u.employee_id
+     JOIN mse_hrm_app_users u ON u.id=bu.uploaded_by_user_id
+     LEFT JOIN mse_hrm_employees e ON e.id=u.employee_id
      WHERE bu.business_unit_id=? AND ${scope.sql}
      ORDER BY bu.created_at_utc DESC
      LIMIT 100`,
@@ -5191,8 +5191,8 @@ app.get('/api/bulk-uploads/:id', authenticate, requireCrmAccess, requireLeadWrit
             bu.processing_started_at_utc AS startedAt, bu.processing_completed_at_utc AS completedAt,
             bu.error_summary AS errorSummary
      FROM crm_bulk_uploads bu
-     JOIN app_users u ON u.id=bu.uploaded_by_user_id
-     LEFT JOIN employees e ON e.id=u.employee_id
+     JOIN mse_hrm_app_users u ON u.id=bu.uploaded_by_user_id
+     LEFT JOIN mse_hrm_employees e ON e.id=u.employee_id
      WHERE bu.id=? AND bu.business_unit_id=? AND ${scope.sql}`,
         [Number(req.params.id), Number(req.businessUnit.id), ...scope.params]
     );
@@ -5264,7 +5264,7 @@ app.get('/api/bulk-uploads/:id/download-successful', authenticate, requireCrmAcc
      FROM crm_bulk_upload_records bur
      LEFT JOIN crm_leads l ON l.id=bur.lead_id
      LEFT JOIN crm_campaigns camp ON camp.id=l.campaign_id
-     LEFT JOIN app_users owner_user ON owner_user.employee_id=l.owner_employee_id
+     LEFT JOIN mse_hrm_app_users owner_user ON owner_user.employee_id=l.owner_employee_id
      WHERE bur.bulk_upload_id=?
      ORDER BY bur.\`row_number\``,
         [Number(req.params.id)]
@@ -5319,7 +5319,7 @@ app.post('/api/bulk-uploads', authenticate, requireCrmAccess, requireLeadWrite, 
 
     // If no valid class found, use a default branch (validation will catch invalid records)
     if (!branchId) {
-        const [[defaultBranch]] = await pool.query(`SELECT id FROM branches WHERE is_active=TRUE LIMIT 1`);
+        const [[defaultBranch]] = await pool.query(`SELECT id FROM mse_hrm_branches WHERE is_active=TRUE LIMIT 1`);
         branchId = defaultBranch?.id || 1;
     }
     if (!(await accessibleBranch(req.user, branchId))) return res.status(403).json({ message: 'You do not have access to the branch for the selected Class' });
@@ -5717,8 +5717,8 @@ app.post('/api/bulk-leads/validate', authenticate, requireCrmAccess, requireLead
             } else {
                 try {
                     const [[userRecord]] = await pool.execute(
-                        `SELECT e.id as employeeId FROM app_users u
-             LEFT JOIN employees e ON e.id = u.employee_id
+                        `SELECT e.id as employeeId FROM mse_hrm_app_users u
+             LEFT JOIN mse_hrm_employees e ON e.id = u.employee_id
              WHERE LOWER(u.email) = LOWER(?) AND u.is_active = TRUE LIMIT 1`,
                         [String(record.assignTo).trim()]
                     );
@@ -5952,8 +5952,8 @@ app.post('/api/bulk-leads/import', authenticate, requireCrmAccess, requireLeadWr
             } else {
                 try {
                     const [[userRecord]] = await connection.execute(
-                        `SELECT e.id as employeeId FROM app_users u
-             LEFT JOIN employees e ON e.id = u.employee_id
+                        `SELECT e.id as employeeId FROM mse_hrm_app_users u
+             LEFT JOIN mse_hrm_employees e ON e.id = u.employee_id
              WHERE LOWER(u.email) = LOWER(?) AND u.is_active = TRUE LIMIT 1`,
                         [String(record.assignTo).trim()]
                     );

@@ -11,7 +11,7 @@ export function createBranchesRoutes(pool, authenticate, requireCrmAccess) {
     const scope = branchScopeSql(req.user, 'id');
     const [rows] = await pool.execute(
       `SELECT id, branch_name, jodo_payment_enabled, jodo_collector_code
-       FROM branches
+       FROM mse_hrm_branches
        WHERE is_active = 1 AND ${scope.sql}
        ORDER BY branch_name`,
       scope.params
@@ -115,7 +115,7 @@ export function createBranchesRoutes(pool, authenticate, requireCrmAccess) {
               (jodo_api_key IS NOT NULL AND jodo_api_key <> '') AS apiKeySet,
               (jodo_secret_key IS NOT NULL AND jodo_secret_key <> '') AS secretKeySet,
               (jodo_auth_header IS NOT NULL AND jodo_auth_header <> '') AS authHeaderSet
-       FROM branches
+       FROM mse_hrm_branches
        WHERE id = ? AND is_active = 1`,
       [Number(req.params.id)]
     );
@@ -147,7 +147,7 @@ export function createBranchesRoutes(pool, authenticate, requireCrmAccess) {
       return res.status(404).json({ message: 'Branch not found' });
     }
     const [[branch]] = await pool.execute(
-      'SELECT id FROM branches WHERE id = ? AND is_active = 1',
+      'SELECT id FROM mse_hrm_branches WHERE id = ? AND is_active = 1',
       [branchId]
     );
     if (!branch) return res.status(404).json({ message: 'Branch not found' });
@@ -162,7 +162,7 @@ export function createBranchesRoutes(pool, authenticate, requireCrmAccess) {
     };
 
     await pool.execute(
-      `UPDATE branches
+      `UPDATE mse_hrm_branches
           SET jodo_payment_enabled = ?,
               jodo_api_key = COALESCE(?, jodo_api_key),
               jodo_secret_key = COALESCE(?, jodo_secret_key),

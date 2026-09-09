@@ -11,6 +11,9 @@ export const MERGE_FIELDS = [
   'counsellor_phone','application_number','application_date','followup_date','company_name'
 ];
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+/* A live integration. 'CONNECTED' is what saving the email screen writes and
+   'ACTIVE' is what the switch in Settings -> Integrations writes; both mean on. */
+const ACTIVE_STATUSES = new Set(['ACTIVE', 'CONNECTED']);
 const allowedMime = /^(image\/(jpeg|png|gif|webp)|application\/(pdf|msword|vnd\.openxmlformats-officedocument\.|vnd\.ms-excel|vnd\.ms-powerpoint)|text\/(plain|csv))/i;
 
 const json = (value, fallback = {}) => {
@@ -86,7 +89,10 @@ export class EmailService {
             GROUP BY i.id, i.name, i.status, i.config
             ORDER BY isDefault DESC, i.name, i.id`,
           [organizationId, ...unit.params, ...branchIds]);
-    return rows.map(row => {
+    /* An account switched off in Settings -> Integrations leaves the composer
+       entirely: this list is both what the picker shows and what authorises a
+       send, so dropping it here also refuses a send aimed at it by id. */
+    return rows.filter(row => ACTIVE_STATUSES.has(String(row.status || '').toUpperCase())).map(row => {
       const config = json(row.config, {});
       return {
         id: Number(row.id), name: row.name, status: row.status,
@@ -102,7 +108,7 @@ export class EmailService {
     const [rows] = await this.pool.execute(
       `SELECT b.id, b.branch_name AS name, bea.is_default AS isDefault
          FROM crm_branch_email_accounts bea
-         JOIN branches b ON b.id = bea.branch_id AND b.is_active = TRUE
+         JOIN mse_hrm_branches b ON b.id = bea.branch_id AND b.is_active = TRUE
         WHERE bea.integration_id = ? ORDER BY b.branch_name`,
       [Number(integrationId)]);
     return rows.map(row => ({ ...row, id: Number(row.id), isDefault: Boolean(row.isDefault) }));
@@ -210,9 +216,9 @@ export class EmailService {
         COALESCE(owner.employee_name,actor_employee.employee_name,actor.email) counsellor_name,
         COALESCE(owner.mobile_number,actor_employee.mobile_number,'') counsellor_phone,
         COALESCE(o.name,'Admissions Team') company_name
-       FROM crm_leads l LEFT JOIN crm_classes cls ON cls.id=l.class_id LEFT JOIN branches b ON b.id=l.branch_id
-       LEFT JOIN employees owner ON owner.id=l.owner_employee_id LEFT JOIN app_users actor ON actor.id=?
-       LEFT JOIN employees actor_employee ON actor_employee.id=actor.employee_id LEFT JOIN crm_organizations o ON o.id=?
+       FROM crm_leads l LEFT JOIN crm_classes cls ON cls.id=l.class_id LEFT JOIN mse_hrm_branches b ON b.id=l.branch_id
+       LEFT JOIN mse_hrm_employees owner ON owner.id=l.owner_employee_id LEFT JOIN mse_hrm_app_users actor ON actor.id=?
+       LEFT JOIN mse_hrm_employees actor_employee ON actor_employee.id=actor.employee_id LEFT JOIN crm_organizations o ON o.id=?
        WHERE l.id=? AND l.deleted_at_utc IS NULL LIMIT 1`, [userId, organizationId, leadId]
     );
     if (!row) throw Object.assign(new Error('Lead not found'), { status: 404 });
@@ -283,7 +289,13 @@ export class EmailService {
       }
     }
     const integration = await this.integration(organizationId, true, integrationId, requestUnitId(req));
-    if (!integration || !integration.config.enabled) throw Object.assign(new Error('Email is not configured or enabled'), { status: 400 });
+    /* Two switches have to be on: the account's own Enabled flag on the email
+       screen, and the integration switch in Settings -> Integrations. The
+       calling providers already refuse this way, and an integration switched
+       off has to stop sending rather than merely stop being listed. */
+    if (!integration || !integration.config.enabled || !ACTIVE_STATUSES.has(String(integration.status || '').toUpperCase())) {
+      throw Object.assign(new Error('Email is not configured or enabled'), { status: 400 });
+    }
     const to = this.parseAddresses(input.to, 'recipient', true), cc = this.parseAddresses(input.cc, 'CC'), bcc = this.parseAddresses(input.bcc, 'BCC');
     if (!clean(input.subject, 500)) throw Object.assign(new Error('Email subject is required'), { status: 400 });
     if (!clean(input.bodyHtml, 500000)) throw Object.assign(new Error('Email body is required'), { status: 400 });

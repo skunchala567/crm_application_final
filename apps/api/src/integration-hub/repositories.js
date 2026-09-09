@@ -82,7 +82,10 @@ export class IntegrationRepository {
 
   async list(organizationId, filters = {}) {
     await this.ensureWhatsAppPricingSchema();
-    const whereConditions = ['organization_id = ?'];
+    /* Deleted accounts are soft-deleted, so without this they stayed in the
+       hub list -- and would now carry an on/off switch that could never turn
+       anything back on. Every provider lookup already reads deleted_at. */
+    const whereConditions = ['organization_id = ?', 'deleted_at IS NULL'];
     const params = [organizationId];
 
     /* An account belongs to a business unit, so the hub lists the accounts of
@@ -485,6 +488,56 @@ export class IntegrationRepository {
     // TODO: Implement after migration 005 is applied
     console.warn('updateWebhook: Webhook columns not available in current schema. Migration 005 required.');
     return;
+  }
+
+  /**
+   * Switch one account on or off, and nothing else.
+   *
+   * Deliberately not `update()`: that one round-trips the config through
+   * getById(), which redacts CallerDesk and Smartflo credentials down to
+   * `hasApiKey` booleans, so writing the redacted copy back would erase the
+   * encrypted secrets. A switch only ever touches the status column.
+   */
+  async setStatus(integrationId, organizationId, status, { userId = null, businessUnitId = null } = {}) {
+    const unit = unitScopeFilter(businessUnitId);
+    const mappedStatus = status === 'active' ? 'ACTIVE' : 'INACTIVE';
+    const [result] = await this.pool.execute(`
+      UPDATE crm_integrations
+      SET status = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND organization_id = ? AND deleted_at IS NULL${unit.sql}
+    `, [mappedStatus, userId, integrationId, organizationId, ...unit.params]);
+
+    return result.affectedRows > 0;
+  }
+
+  /**
+   * provider -> normalised status, for every live account of one unit.
+   *
+   * What the screens that merely *mention* an integration read: the branch
+   * form asks whether Smartflo is switched on before offering a Smartflo DID,
+   * and it has no business loading credentials to find out. Only the columns
+   * needed to answer that are selected, and `deleted_at IS NULL` is applied
+   * here because list() does not apply it.
+   *
+   * A provider configured more than once in a unit counts as on when any of
+   * its accounts is on.
+   */
+  async listProviderStatuses(organizationId, businessUnitId = null) {
+    const unit = unitScopeFilter(businessUnitId);
+    const [rows] = await this.pool.execute(`
+      SELECT provider, status FROM crm_integrations
+      WHERE organization_id = ? AND deleted_at IS NULL${unit.sql}
+    `, [organizationId, ...unit.params]);
+
+    const statuses = {};
+    for (const row of rows || []) {
+      const provider = String(row.provider || '').toLowerCase();
+      if (!provider) continue;
+      const status = this.normalizeStatus(row.status);
+      // 'active' wins over anything else already recorded for this provider.
+      if (statuses[provider] !== 'active') statuses[provider] = status;
+    }
+    return statuses;
   }
 
   /**

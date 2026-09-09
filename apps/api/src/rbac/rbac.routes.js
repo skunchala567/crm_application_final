@@ -35,7 +35,7 @@ export function createRbacRoutes(pool, authenticate, requireCrmAccess, logger = 
               COALESCE(s.is_super_admin, FALSE) AS isSuperAdmin,
               COALESCE(s.is_protected, FALSE) AS isProtected,
               COALESCE(s.is_crm_role, FALSE) AS isCrmRole
-         FROM roles r LEFT JOIN crm_role_settings s ON s.role_id = r.id
+         FROM mse_hrm_roles r LEFT JOIN crm_role_settings s ON s.role_id = r.id
         WHERE r.id = ? LIMIT 1`,
       [Number(roleId)],
     );
@@ -94,9 +94,9 @@ export function createRbacRoutes(pool, authenticate, requireCrmAccess, logger = 
               COALESCE(s.is_super_admin,FALSE) AS isSuperAdmin,
               COALESCE(s.is_protected, FALSE)  AS isProtected,
               COALESCE(s.is_crm_role, FALSE)   AS isCrmRole,
-              (SELECT COUNT(*) FROM user_roles ur WHERE ur.role_id = r.id) AS userCount,
+              (SELECT COUNT(*) FROM mse_hrm_user_roles ur WHERE ur.role_id = r.id) AS userCount,
               (SELECT COUNT(*) FROM crm_role_permissions p WHERE p.role_id = r.id AND p.is_allowed) AS grantCount
-         FROM roles r LEFT JOIN crm_role_settings s ON s.role_id = r.id
+         FROM mse_hrm_roles r LEFT JOIN crm_role_settings s ON s.role_id = r.id
         ORDER BY COALESCE(s.is_super_admin,FALSE) DESC, r.name`,
     );
     res.json({
@@ -118,11 +118,11 @@ export function createRbacRoutes(pool, authenticate, requireCrmAccess, logger = 
     const name = String(req.body?.name || '').trim().slice(0, 50);
     if (!name) return res.status(400).json({ success: false, error: 'Role name is required' });
     const normalized = slug(name);
-    const [[clash]] = await pool.execute('SELECT id FROM roles WHERE normalized_name = ? LIMIT 1', [normalized]);
+    const [[clash]] = await pool.execute('SELECT id FROM mse_hrm_roles WHERE normalized_name = ? LIMIT 1', [normalized]);
     if (clash) return res.status(409).json({ success: false, error: 'A role with that name already exists' });
 
     const [result] = await pool.execute(
-      'INSERT INTO roles (name, normalized_name, description, is_system) VALUES (?,?,?,0)',
+      'INSERT INTO mse_hrm_roles (name, normalized_name, description, is_system) VALUES (?,?,?,0)',
       [name, normalized, String(req.body?.description || '').slice(0, 255) || null],
     );
     await pool.execute(
@@ -143,11 +143,11 @@ export function createRbacRoutes(pool, authenticate, requireCrmAccess, logger = 
     if (!source) return res.status(404).json({ success: false, error: 'Role not found' });
     const name = String(req.body?.name || `${source.name} copy`).trim().slice(0, 50);
     const normalized = slug(name);
-    const [[clash]] = await pool.execute('SELECT id FROM roles WHERE normalized_name = ? LIMIT 1', [normalized]);
+    const [[clash]] = await pool.execute('SELECT id FROM mse_hrm_roles WHERE normalized_name = ? LIMIT 1', [normalized]);
     if (clash) return res.status(409).json({ success: false, error: 'A role with that name already exists' });
 
     const [result] = await pool.execute(
-      'INSERT INTO roles (name, normalized_name, description, is_system) VALUES (?,?,?,0)',
+      'INSERT INTO mse_hrm_roles (name, normalized_name, description, is_system) VALUES (?,?,?,0)',
       [name, normalized, source.description || null],
     );
     await pool.execute(
@@ -183,7 +183,7 @@ export function createRbacRoutes(pool, authenticate, requireCrmAccess, logger = 
 
     if (req.body.name || req.body.description !== undefined) {
       await pool.execute(
-        'UPDATE roles SET name = COALESCE(?, name), description = COALESCE(?, description) WHERE id = ?',
+        'UPDATE mse_hrm_roles SET name = COALESCE(?, name), description = COALESCE(?, description) WHERE id = ?',
         [req.body.name ? String(req.body.name).slice(0, 50) : null,
           req.body.description !== undefined ? String(req.body.description).slice(0, 255) : null, role.id],
       );
@@ -213,14 +213,14 @@ export function createRbacRoutes(pool, authenticate, requireCrmAccess, logger = 
     if (Number(role.isProtected)) {
       return res.status(400).json({ success: false, error: `"${role.name}" is protected and cannot be deleted` });
     }
-    const [[assigned]] = await pool.execute('SELECT COUNT(*) n FROM user_roles WHERE role_id = ?', [role.id]);
+    const [[assigned]] = await pool.execute('SELECT COUNT(*) n FROM mse_hrm_user_roles WHERE role_id = ?', [role.id]);
     if (Number(assigned.n) > 0) {
       return res.status(409).json({
         success: false,
         error: `"${role.name}" is assigned to ${assigned.n} user(s). Remove them first, or deactivate the role instead.`,
       });
     }
-    await pool.execute('DELETE FROM roles WHERE id = ?', [role.id]);
+    await pool.execute('DELETE FROM mse_hrm_roles WHERE id = ?', [role.id]);
     invalidatePermissionCache();
     await writeAudit(pool, {
       ...actor(req), eventType: 'role_deleted',
@@ -313,8 +313,8 @@ export function createRbacRoutes(pool, authenticate, requireCrmAccess, logger = 
   router.get('/roles/:id/users', wrap(async (req, res) => {
     const [rows] = await pool.execute(
       `SELECT u.id, u.email, COALESCE(e.employee_name, u.email) AS name
-         FROM user_roles ur JOIN app_users u ON u.id = ur.user_id
-         LEFT JOIN employees e ON e.id = u.employee_id
+         FROM mse_hrm_user_roles ur JOIN mse_hrm_app_users u ON u.id = ur.user_id
+         LEFT JOIN mse_hrm_employees e ON e.id = u.employee_id
         WHERE ur.role_id = ? ORDER BY name`,
       [Number(req.params.id)],
     );
@@ -325,10 +325,10 @@ export function createRbacRoutes(pool, authenticate, requireCrmAccess, logger = 
     const role = await loadRole(req.params.id);
     if (!role) return res.status(404).json({ success: false, error: 'Role not found' });
     const userId = Number(req.body?.userId);
-    const [[user]] = await pool.execute('SELECT id, email FROM app_users WHERE id = ? LIMIT 1', [userId]);
+    const [[user]] = await pool.execute('SELECT id, email FROM mse_hrm_app_users WHERE id = ? LIMIT 1', [userId]);
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });
 
-    await pool.execute('INSERT IGNORE INTO user_roles (user_id, role_id) VALUES (?,?)', [userId, role.id]);
+    await pool.execute('INSERT IGNORE INTO mse_hrm_user_roles (user_id, role_id) VALUES (?,?)', [userId, role.id]);
     invalidatePermissionCache(userId);
     await writeAudit(pool, {
       ...actor(req), eventType: 'user_role_assigned',
@@ -346,13 +346,13 @@ export function createRbacRoutes(pool, authenticate, requireCrmAccess, logger = 
 
     // Removing the last Super Admin would leave nobody able to grant it back.
     if (Number(role.isSuperAdmin)) {
-      const [[count]] = await pool.execute('SELECT COUNT(*) n FROM user_roles WHERE role_id = ?', [role.id]);
+      const [[count]] = await pool.execute('SELECT COUNT(*) n FROM mse_hrm_user_roles WHERE role_id = ?', [role.id]);
       if (Number(count.n) <= 1) {
         return res.status(400).json({ success: false, error: 'At least one user must keep the Super Admin role' });
       }
     }
-    const [[user]] = await pool.execute('SELECT email FROM app_users WHERE id = ? LIMIT 1', [userId]);
-    await pool.execute('DELETE FROM user_roles WHERE role_id = ? AND user_id = ?', [role.id, userId]);
+    const [[user]] = await pool.execute('SELECT email FROM mse_hrm_app_users WHERE id = ? LIMIT 1', [userId]);
+    await pool.execute('DELETE FROM mse_hrm_user_roles WHERE role_id = ? AND user_id = ?', [role.id, userId]);
     invalidatePermissionCache(userId);
     await writeAudit(pool, {
       ...actor(req), eventType: 'user_role_removed',

@@ -506,12 +506,12 @@ export function createBusinessPlatformRoutes(
       return res.status(403).json({ message: "Business unit access denied" });
     const [branchPaymentColumns] = await pool.execute(
       `SELECT column_name AS columnName FROM information_schema.columns
-       WHERE table_schema=DATABASE() AND table_name='branches'
+       WHERE table_schema=DATABASE() AND table_name='mse_hrm_branches'
          AND column_name IN ('jodo_payment_enabled','jodo_collector_code','jodo_api_key','jodo_base_url','jodo_auth_header','application_amount','application_stage_id','application_payment_component')`,
     );
     const hasBranchPaymentColumns = branchPaymentColumns.length >= 6;
     const [callerDeskColumns] = await pool.execute(
-      `SELECT column_name AS columnName FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='branches'
+      `SELECT column_name AS columnName FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='mse_hrm_branches'
        AND column_name IN ('callerdesk_did_id','callerdesk_did_number','callerdesk_call_group','callerdesk_inbound_enabled','callerdesk_outbound_enabled')`,
     );
     const callerDeskSelect =
@@ -520,7 +520,7 @@ export function createBusinessPlatformRoutes(
            callerdesk_inbound_enabled AS callerdeskInboundEnabled,callerdesk_outbound_enabled AS callerdeskOutboundEnabled`
         : `,NULL AS callerdeskDidId,NULL AS callerdeskDidNumber,NULL AS callerdeskCallGroup,1 AS callerdeskInboundEnabled,1 AS callerdeskOutboundEnabled`;
     const [smartfloColumns] = await pool.execute(
-      `SELECT column_name AS columnName FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='branches'
+      `SELECT column_name AS columnName FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='mse_hrm_branches'
        AND column_name IN ('smartflo_did_id','smartflo_did_number','smartflo_ivr_id','smartflo_ivr_name','smartflo_department_id','smartflo_inbound_enabled','smartflo_outbound_enabled')`,
     );
     const smartfloSelect =
@@ -549,12 +549,12 @@ export function createBusinessPlatformRoutes(
                 (jodo_auth_header IS NOT NULL AND jodo_auth_header<>'') AS jodoAuthHeaderSet,
                 application_amount AS applicationAmount,
                 application_stage_id AS applicationStageId,application_payment_component AS applicationPaymentComponent ${callerDeskSelect} ${smartfloSelect}
-         FROM branches WHERE is_active=TRUE AND ${branchScope.sql} ORDER BY branch_name`
+         FROM mse_hrm_branches WHERE is_active=TRUE AND ${branchScope.sql} ORDER BY branch_name`
       : `SELECT id,branch_name AS name,short_name AS shortName,is_active AS isActive,
                 0 AS jodoPaymentEnabled,NULL AS jodoCollectorCode,NULL AS jodoBaseUrl,
                 0 AS jodoApiKeySet,0 AS jodoSecretKeySet,0 AS jodoAuthHeaderSet,NULL AS applicationAmount,
                 NULL AS applicationStageId,'Payable Amount' AS applicationPaymentComponent ${callerDeskSelect} ${smartfloSelect}
-         FROM branches WHERE is_active=TRUE AND ${branchScope.sql} ORDER BY branch_name`;
+         FROM mse_hrm_branches WHERE is_active=TRUE AND ${branchScope.sql} ORDER BY branch_name`;
     const [
       [fields],
       [forms],
@@ -621,14 +621,14 @@ export function createBusinessPlatformRoutes(
         `SELECT DISTINCT e.id, u.id AS userId,
                 COALESCE(e.employee_name,CONCAT_WS(' ',p.first_name,p.last_name),u.email) AS name,
                 u.email
-         FROM app_users u
-         JOIN employees e ON e.id=u.employee_id
+         FROM mse_hrm_app_users u
+         JOIN mse_hrm_employees e ON e.id=u.employee_id
          LEFT JOIN crm_user_profiles p ON p.user_id=u.id
          LEFT JOIN crm_user_business_units ubu ON ubu.user_id=u.id AND ubu.business_unit_id=?
          WHERE u.is_active=TRUE
            AND e.status='Active'
            AND (ubu.user_id IS NOT NULL OR EXISTS(
-             SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id
+             SELECT 1 FROM mse_hrm_user_roles ur JOIN mse_hrm_roles r ON r.id=ur.role_id
              WHERE ur.user_id=u.id AND r.normalized_name IN ('CRM_ADMIN','SUPER_ADMIN')
            ))
          ORDER BY name
@@ -832,7 +832,7 @@ export function createBusinessPlatformRoutes(
           .status(403)
           .json({ message: "Business unit management access required" });
       const [[schema]] = await pool.execute(
-        `SELECT COUNT(*) AS count FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='branches' AND column_name='jodo_payment_enabled'`,
+        `SELECT COUNT(*) AS count FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='mse_hrm_branches' AND column_name='jodo_payment_enabled'`,
       );
       if (!Number(schema.count))
         return res
@@ -842,7 +842,7 @@ export function createBusinessPlatformRoutes(
               "Run database migration 050_branch_jodo_payment_configuration.sql before configuring branch payments",
           });
       const [[callingSchema]] = await pool.execute(
-        `SELECT COUNT(*) AS count FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='branches' AND column_name='callerdesk_did_number'`,
+        `SELECT COUNT(*) AS count FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='mse_hrm_branches' AND column_name='callerdesk_did_number'`,
       );
       if (!Number(callingSchema.count))
         return res
@@ -852,7 +852,7 @@ export function createBusinessPlatformRoutes(
               "Run database migration 051_callerdesk_calling.sql before configuring branch calling",
           });
       const [[smartfloSchema]] = await pool.execute(
-        `SELECT COUNT(*) AS count FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='branches' AND column_name IN ('smartflo_did_number','smartflo_ivr_id')`,
+        `SELECT COUNT(*) AS count FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='mse_hrm_branches' AND column_name IN ('smartflo_did_number','smartflo_ivr_id')`,
       );
       if (Number(smartfloSchema.count) < 2)
         return res
@@ -867,7 +867,7 @@ export function createBusinessPlatformRoutes(
         return res.status(400).json({ message: "Branch name is required" });
       try {
         const [result] = await pool.execute(
-          `INSERT INTO branches
+          `INSERT INTO mse_hrm_branches
          (branch_name,short_name,is_active,jodo_payment_enabled,jodo_api_key,jodo_secret_key,jodo_collector_code,jodo_base_url,jodo_auth_header,application_amount,application_stage_id,application_payment_component,
           callerdesk_did_id,callerdesk_did_number,callerdesk_call_group,callerdesk_inbound_enabled,callerdesk_outbound_enabled,
           smartflo_did_id,smartflo_did_number,smartflo_ivr_id,smartflo_ivr_name,smartflo_department_id,smartflo_inbound_enabled,smartflo_outbound_enabled)
@@ -930,7 +930,7 @@ export function createBusinessPlatformRoutes(
           .status(403)
           .json({ message: "Business unit management access required" });
       const [[schema]] = await pool.execute(
-        `SELECT COUNT(*) AS count FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='branches' AND column_name='jodo_payment_enabled'`,
+        `SELECT COUNT(*) AS count FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='mse_hrm_branches' AND column_name='jodo_payment_enabled'`,
       );
       if (!Number(schema.count))
         return res
@@ -940,7 +940,7 @@ export function createBusinessPlatformRoutes(
               "Run database migration 050_branch_jodo_payment_configuration.sql before configuring branch payments",
           });
       const [[callingSchema]] = await pool.execute(
-        `SELECT COUNT(*) AS count FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='branches' AND column_name='callerdesk_did_number'`,
+        `SELECT COUNT(*) AS count FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='mse_hrm_branches' AND column_name='callerdesk_did_number'`,
       );
       if (!Number(callingSchema.count))
         return res
@@ -950,7 +950,7 @@ export function createBusinessPlatformRoutes(
               "Run database migration 051_callerdesk_calling.sql before configuring branch calling",
           });
       const [[smartfloSchema]] = await pool.execute(
-        `SELECT COUNT(*) AS count FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='branches' AND column_name IN ('smartflo_did_number','smartflo_ivr_id')`,
+        `SELECT COUNT(*) AS count FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='mse_hrm_branches' AND column_name IN ('smartflo_did_number','smartflo_ivr_id')`,
       );
       if (Number(smartfloSchema.count) < 2)
         return res
@@ -963,7 +963,7 @@ export function createBusinessPlatformRoutes(
       if (!name)
         return res.status(400).json({ message: "Branch name is required" });
       const [result] = await pool.execute(
-        `UPDATE branches
+        `UPDATE mse_hrm_branches
        SET branch_name=?,short_name=?,is_active=?,jodo_payment_enabled=?,jodo_api_key=COALESCE(?,jodo_api_key),
            jodo_secret_key=COALESCE(?,jodo_secret_key),jodo_collector_code=?,
            jodo_base_url=?,jodo_auth_header=COALESCE(?,jodo_auth_header),
@@ -3410,7 +3410,7 @@ export function createBusinessPlatformRoutes(
               dl.custom_values_json AS customValues,dl.next_followup_at_utc AS nextFollowupAt,dl.created_at_utc AS createdAt
        FROM crm_dynamic_leads dl
        JOIN crm_metadata_pipeline_stages ps ON ps.id=dl.stage_id
-       LEFT JOIN employees e ON e.id=dl.owner_employee_id
+       LEFT JOIN mse_hrm_employees e ON e.id=dl.owner_employee_id
        WHERE ${where.join(" AND ")} ORDER BY dl.updated_at_utc DESC,dl.created_at_utc DESC LIMIT 500`,
       values,
     );
@@ -3771,7 +3771,7 @@ export function createBusinessPlatformRoutes(
        FROM crm_operation_records opr
        JOIN crm_operation_workflows ow ON ow.id=opr.workflow_id
        JOIN crm_operation_stages os ON os.id=opr.stage_id
-       LEFT JOIN employees e ON e.id=opr.owner_employee_id
+       LEFT JOIN mse_hrm_employees e ON e.id=opr.owner_employee_id
        LEFT JOIN crm_tracker_guest_owners go ON go.id=opr.guest_owner_id
        WHERE opr.business_unit_id=? ORDER BY opr.updated_at_utc DESC,opr.created_at_utc DESC LIMIT 500`,
       [unitId],
@@ -3793,13 +3793,13 @@ export function createBusinessPlatformRoutes(
     const [rows] = await pool.execute(
       `SELECT DISTINCT u.id AS userId,e.id AS employeeId,
               COALESCE(e.employee_name,CONCAT_WS(' ',p.first_name,p.last_name),u.email) AS name,u.email
-       FROM app_users u
-       LEFT JOIN employees e ON e.id=u.employee_id
+       FROM mse_hrm_app_users u
+       LEFT JOIN mse_hrm_employees e ON e.id=u.employee_id
        LEFT JOIN crm_user_profiles p ON p.user_id=u.id
        LEFT JOIN crm_user_business_units ubu ON ubu.user_id=u.id AND ubu.business_unit_id=?
        WHERE u.is_active=TRUE
          AND (ubu.user_id IS NOT NULL OR EXISTS(
-           SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id
+           SELECT 1 FROM mse_hrm_user_roles ur JOIN mse_hrm_roles r ON r.id=ur.role_id
            WHERE ur.user_id=u.id AND r.normalized_name IN ('CRM_ADMIN','SUPER_ADMIN')
          ))
        ORDER BY name`,
@@ -3837,8 +3837,8 @@ export function createBusinessPlatformRoutes(
               s.started_at_utc AS startedAt,s.ended_at_utc AS endedAt,
               COALESCE(e.employee_name,CONCAT_WS(' ',p.first_name,p.last_name),u.email) AS createdBy
        FROM crm_mom_sessions s
-       JOIN app_users u ON u.id=s.created_by_user_id
-       LEFT JOIN employees e ON e.id=u.employee_id
+       JOIN mse_hrm_app_users u ON u.id=s.created_by_user_id
+       LEFT JOIN mse_hrm_employees e ON e.id=u.employee_id
        LEFT JOIN crm_user_profiles p ON p.user_id=u.id
        WHERE s.business_unit_id=? ORDER BY s.ended_at_utc DESC LIMIT 100`,
       [unitId],
@@ -3859,14 +3859,14 @@ export function createBusinessPlatformRoutes(
                  ORDER BY approval.id SEPARATOR ', '
                )
                FROM crm_operation_approvals approval
-               JOIN app_users approver_user ON approver_user.id=approval.approver_user_id
-               LEFT JOIN employees approver_employee ON approver_employee.id=approver_user.employee_id
+               JOIN mse_hrm_app_users approver_user ON approver_user.id=approval.approver_user_id
+               LEFT JOIN mse_hrm_employees approver_employee ON approver_employee.id=approver_user.employee_id
                LEFT JOIN crm_user_profiles approver_profile ON approver_profile.user_id=approver_user.id
                WHERE approval.operation_record_id=opr.id) AS approvers,
               opr.minutes_spent AS minutesSpent,opr.created_at_utc AS createdAt
        FROM crm_mom_session_points p
        LEFT JOIN crm_operation_records opr ON opr.id=p.operation_record_id
-       LEFT JOIN employees e ON e.id=opr.owner_employee_id
+       LEFT JOIN mse_hrm_employees e ON e.id=opr.owner_employee_id
        LEFT JOIN crm_tracker_guest_owners go ON go.id=opr.guest_owner_id
        WHERE p.session_id IN (${ids.map(() => "?").join(",")})
        ORDER BY p.session_id,p.position`,
@@ -3883,8 +3883,8 @@ export function createBusinessPlatformRoutes(
               oa.decision_remarks AS comments,
               COALESCE(e.employee_name,CONCAT_WS(' ',p.first_name,p.last_name),u.email) AS approver
        FROM crm_operation_approvals oa
-       JOIN app_users u ON u.id=oa.approver_user_id
-       LEFT JOIN employees e ON e.id=u.employee_id
+       JOIN mse_hrm_app_users u ON u.id=oa.approver_user_id
+       LEFT JOIN mse_hrm_employees e ON e.id=u.employee_id
        LEFT JOIN crm_user_profiles p ON p.user_id=u.id
        WHERE oa.operation_record_id IN (${operationIds.map(() => "?").join(",")})
        ORDER BY oa.operation_record_id,oa.id`,
@@ -3939,8 +3939,8 @@ export function createBusinessPlatformRoutes(
     const approvalScope = admin
       ? ""
       : `WHERE (oa.approver_user_id=? OR EXISTS(
-      SELECT 1 FROM app_users signed_in_user
-      JOIN app_users assigned_user ON assigned_user.id=oa.approver_user_id
+      SELECT 1 FROM mse_hrm_app_users signed_in_user
+      JOIN mse_hrm_app_users assigned_user ON assigned_user.id=oa.approver_user_id
       WHERE signed_in_user.id=? AND signed_in_user.employee_id IS NOT NULL
         AND assigned_user.employee_id=signed_in_user.employee_id
     ))`;
@@ -3954,15 +3954,15 @@ export function createBusinessPlatformRoutes(
               COALESCE(decider_employee.employee_name,CONCAT_WS(' ',decider_profile.first_name,decider_profile.last_name),decider.email) AS decidedBy
        FROM crm_operation_approvals oa
        JOIN crm_operation_records opr ON opr.id=oa.operation_record_id AND opr.business_unit_id=?
-       LEFT JOIN employees owner ON owner.id=opr.owner_employee_id
+       LEFT JOIN mse_hrm_employees owner ON owner.id=opr.owner_employee_id
        LEFT JOIN crm_tracker_guest_owners guest_owner ON guest_owner.id=opr.guest_owner_id
-       JOIN app_users requester ON requester.id=oa.requested_by_user_id
-       LEFT JOIN employees requester_employee ON requester_employee.id=requester.employee_id
-       JOIN app_users approver ON approver.id=oa.approver_user_id
-       LEFT JOIN employees approver_employee ON approver_employee.id=approver.employee_id
+       JOIN mse_hrm_app_users requester ON requester.id=oa.requested_by_user_id
+       LEFT JOIN mse_hrm_employees requester_employee ON requester_employee.id=requester.employee_id
+       JOIN mse_hrm_app_users approver ON approver.id=oa.approver_user_id
+       LEFT JOIN mse_hrm_employees approver_employee ON approver_employee.id=approver.employee_id
        LEFT JOIN crm_user_profiles approver_profile ON approver_profile.user_id=approver.id
-       LEFT JOIN app_users decider ON decider.id=oa.decided_by_user_id
-       LEFT JOIN employees decider_employee ON decider_employee.id=decider.employee_id
+       LEFT JOIN mse_hrm_app_users decider ON decider.id=oa.decided_by_user_id
+       LEFT JOIN mse_hrm_employees decider_employee ON decider_employee.id=decider.employee_id
        LEFT JOIN crm_user_profiles decider_profile ON decider_profile.user_id=decider.id
        ${approvalScope}
        ORDER BY COALESCE(oa.decided_at_utc,oa.requested_at_utc) DESC,oa.id DESC`,
@@ -3988,7 +3988,7 @@ export function createBusinessPlatformRoutes(
               opr.owner_employee_id AS ownerEmployeeId,opr.guest_owner_id AS guestOwnerId,opr.minutes_spent AS minutesSpent,
               opr.approval_required AS approvalRequired,opr.approval_status AS approvalStatus,
               COALESCE(e.employee_name,go.display_name,'Unassigned') AS owner
-       FROM crm_operation_records opr LEFT JOIN employees e ON e.id=opr.owner_employee_id
+       FROM crm_operation_records opr LEFT JOIN mse_hrm_employees e ON e.id=opr.owner_employee_id
        LEFT JOIN crm_tracker_guest_owners go ON go.id=opr.guest_owner_id
        WHERE opr.id=? AND opr.business_unit_id=?`,
       [Number(req.params.id), unitId],
@@ -3998,8 +3998,8 @@ export function createBusinessPlatformRoutes(
     const [timeLogs] = await pool.execute(
       `SELECT tl.id,tl.minutes_spent AS minutesSpent,tl.work_note AS workNote,tl.created_at_utc AS createdAt,
               COALESCE(e.employee_name,u.email) AS loggedBy
-       FROM crm_operation_time_logs tl JOIN app_users u ON u.id=tl.logged_by_user_id
-       LEFT JOIN employees e ON e.id=u.employee_id
+       FROM crm_operation_time_logs tl JOIN mse_hrm_app_users u ON u.id=tl.logged_by_user_id
+       LEFT JOIN mse_hrm_employees e ON e.id=u.employee_id
        WHERE tl.operation_record_id=? ORDER BY tl.created_at_utc DESC`,
       [Number(req.params.id)],
     );
@@ -4007,8 +4007,8 @@ export function createBusinessPlatformRoutes(
       `SELECT oa.id,oa.approver_user_id AS approverUserId,oa.decision,oa.decision_remarks AS remarks,
               oa.document_references_json AS documentReferences,oa.requested_at_utc AS requestedAt,oa.decided_at_utc AS decidedAt,
               COALESCE(e.employee_name,u.email) AS approver
-       FROM crm_operation_approvals oa JOIN app_users u ON u.id=oa.approver_user_id
-       LEFT JOIN employees e ON e.id=u.employee_id
+       FROM crm_operation_approvals oa JOIN mse_hrm_app_users u ON u.id=oa.approver_user_id
+       LEFT JOIN mse_hrm_employees e ON e.id=u.employee_id
        WHERE oa.operation_record_id=? ORDER BY oa.requested_at_utc`,
       [Number(req.params.id)],
     );

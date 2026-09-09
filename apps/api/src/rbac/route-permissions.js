@@ -22,6 +22,7 @@ export const OPEN_ROUTES = [
   { test: /^\/api\/notifications/, why: 'each signed-in user may read and acknowledge only their own notifications' },
   { test: /^\/api\/rbac\/me$/, why: 'a user must be able to read their own permissions' },
   { test: /^\/api\/platform\/business-units$/, why: 'the shell cannot render before it knows the units' },
+  { test: /^\/api\/hub\/integrations\/provider-statuses$/, why: 'every screen asks which integrations are switched off before deciding what to show; it carries no credentials, only provider names and on/off' },
   { test: /^\/api\/oauth\//, why: 'OAuth redirect handling' },
   { test: /^\/api\/partner\//, why: 'partner write-back, authenticated by an API key rather than a user session' },
 ];

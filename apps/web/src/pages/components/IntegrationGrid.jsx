@@ -77,7 +77,7 @@ function formatStamp(value) {
   });
 }
 
-export default function IntegrationGrid({ integrations, onSync, onSettings, onDelete, deletingId = null, loading }) {
+export default function IntegrationGrid({ integrations, onSync, onSettings, onDelete, onToggleActive, deletingId = null, togglingId = null, loading }) {
   if (loading) {
     return (
       <div className="grid gap-5 [grid-template-columns:repeat(auto-fill,minmax(310px,1fr))]">
@@ -104,6 +104,10 @@ export default function IntegrationGrid({ integrations, onSync, onSettings, onDe
         const status = STATUS[integration.status]
           || { label: integration.status || 'Unknown', dot: 'bg-secondary-300', chip: 'bg-surface-3 text-secondary-500' };
         const { Mark, tone } = providerVisual(integration.provider_name);
+        /* Only 'active' is on. Everything else -- switched off, never
+           authorised, errored -- is off, and is what the rest of the CRM
+           treats as "do not offer this service". */
+        const active = integration.status === 'active';
 
         return (
           <article
@@ -142,6 +146,35 @@ export default function IntegrationGrid({ integrations, onSync, onSettings, onDe
                 </dd>
               </div>
             </dl>
+
+            {onToggleActive && (
+              /* The switch, not Delete, is how a service is taken out of
+                 circulation: everything it is mapped to on branches, users and
+                 leads stops being offered while it is off, and comes back
+                 untouched when it is switched on again. */
+              <div className="mt-4 flex items-center justify-between gap-3 rounded-xl bg-surface-2 px-3 py-2">
+                <span className="text-[11.5px] font-semibold text-secondary-600">
+                  {active ? 'Active in this business unit' : 'Hidden from other screens'}
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={active}
+                  aria-label={`${active ? 'Deactivate' : 'Activate'} ${integration.integration_name}`}
+                  title={active
+                    ? 'Switch off: this service stops appearing on branches, users and leads'
+                    : 'Switch on: this service appears again wherever it is used'}
+                  disabled={togglingId === integration.id}
+                  onClick={() => onToggleActive(integration, !active)}
+                  className={`relative w-9 h-5 flex-none rounded-full transition-colors active:scale-95
+                              disabled:opacity-50 disabled:pointer-events-none
+                              ${active ? 'bg-primary-600' : 'bg-secondary-300'}`}
+                >
+                  <i className={`absolute top-[3px] block w-3.5 h-3.5 rounded-full bg-white shadow transition-[left] duration-200
+                                 ${active ? 'left-[19px]' : 'left-[3px]'}`} />
+                </button>
+              </div>
+            )}
 
             <div className="mt-5 flex items-center gap-2">
               <button

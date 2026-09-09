@@ -105,8 +105,8 @@ export function createUsageRoutes(pool, authenticate, requireCrmAccess, requireU
               COALESCE(e.employee_name, CONCAT_WS(' ', p.first_name, p.last_name), a.email) AS userName,
               a.email
          FROM crm_user_daily_usage u
-         JOIN app_users a ON a.id = u.user_id
-         LEFT JOIN employees e ON e.id = a.employee_id
+         JOIN mse_hrm_app_users a ON a.id = u.user_id
+         LEFT JOIN mse_hrm_employees e ON e.id = a.employee_id
          LEFT JOIN crm_user_profiles p ON p.user_id = a.id
         WHERE u.usage_date BETWEEN ? AND ?${filter}
         ORDER BY u.usage_date DESC, activeSeconds DESC`,

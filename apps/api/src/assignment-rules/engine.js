@@ -56,7 +56,7 @@ export async function resolveAssignmentRuleOwner(pool, { businessUnitId, branchI
     // Employees can leave or lose CRM access after a rule is built; skip
     // anyone no longer eligible rather than assigning a lead to them.
     const [activeRows] = await connection.query(
-      `SELECT e.id FROM employees e JOIN app_users u ON u.employee_id=e.id
+      `SELECT e.id FROM mse_hrm_employees e JOIN mse_hrm_app_users u ON u.employee_id=e.id
        WHERE e.id IN (${ruleEmployeeIds.map(() => '?').join(',')}) AND e.status='Active' AND u.is_active=TRUE`,
       ruleEmployeeIds,
     );

@@ -18,7 +18,7 @@ export async function ensureMessageTemplateVisibilitySchema(pool) {
       PRIMARY KEY (template_id,user_id),
       KEY ix_email_template_visibility_user (user_id),
       CONSTRAINT fk_email_template_visibility_template FOREIGN KEY (template_id) REFERENCES crm_email_templates(id) ON DELETE CASCADE,
-      CONSTRAINT fk_email_template_visibility_user FOREIGN KEY (user_id) REFERENCES app_users(id) ON DELETE CASCADE
+      CONSTRAINT fk_email_template_visibility_user FOREIGN KEY (user_id) REFERENCES mse_hrm_app_users(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
   await pool.query(`
@@ -29,7 +29,7 @@ export async function ensureMessageTemplateVisibilitySchema(pool) {
       PRIMARY KEY (template_id,user_id),
       KEY ix_sms_template_visibility_user (user_id),
       CONSTRAINT fk_sms_template_visibility_template FOREIGN KEY (template_id) REFERENCES crm_sms_templates(id) ON DELETE CASCADE,
-      CONSTRAINT fk_sms_template_visibility_user FOREIGN KEY (user_id) REFERENCES app_users(id) ON DELETE CASCADE
+      CONSTRAINT fk_sms_template_visibility_user FOREIGN KEY (user_id) REFERENCES mse_hrm_app_users(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
   readyPools.add(pool);
@@ -49,8 +49,8 @@ export async function attachAndFilterVisibility(pool, channel, templates, user) 
     `SELECT v.template_id AS templateId,v.user_id AS userId,
             COALESCE(e.employee_name,CONCAT_WS(' ',p.first_name,p.last_name),u.email) AS name,u.email
        FROM ${tableFor(channel)} v
-       JOIN app_users u ON u.id=v.user_id AND u.is_active=TRUE
-       LEFT JOIN employees e ON e.id=u.employee_id
+       JOIN mse_hrm_app_users u ON u.id=v.user_id AND u.is_active=TRUE
+       LEFT JOIN mse_hrm_employees e ON e.id=u.employee_id
        LEFT JOIN crm_user_profiles p ON p.user_id=u.id
       WHERE v.template_id IN (${ids.map(() => '?').join(',')}) ORDER BY name`,
     ids,
@@ -78,7 +78,7 @@ export async function saveTemplateVisibility(pool, channel, templateId, userIds)
     for (const userId of ids) {
       await connection.execute(
         `INSERT IGNORE INTO ${tableFor(channel)}(template_id,user_id)
-         SELECT ?,id FROM app_users WHERE id=? AND is_active=TRUE`,
+         SELECT ?,id FROM mse_hrm_app_users WHERE id=? AND is_active=TRUE`,
         [Number(templateId), userId],
       );
     }

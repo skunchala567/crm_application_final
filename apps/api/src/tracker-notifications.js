@@ -20,8 +20,8 @@ const CONTACT_SQL = `
   SELECT u.id AS userId,
          COALESCE(NULLIF(p.phone,''), NULLIF(e.mobile_number,'')) AS phone,
          COALESCE(e.employee_name, CONCAT_WS(' ', p.first_name, p.last_name), u.email) AS name
-    FROM app_users u
-    LEFT JOIN employees e ON e.id = u.employee_id
+    FROM mse_hrm_app_users u
+    LEFT JOIN mse_hrm_employees e ON e.id = u.employee_id
     LEFT JOIN crm_user_profiles p ON p.user_id = u.id
    WHERE u.id = ?`;
 
@@ -75,8 +75,8 @@ async function contactForEmployee(pool, employeeId) {
     `SELECT u.id AS userId,
             COALESCE(NULLIF(p.phone,''), NULLIF(e.mobile_number,'')) AS phone,
             COALESCE(e.employee_name, u.email) AS name
-       FROM employees e
-       LEFT JOIN app_users u ON u.employee_id = e.id
+       FROM mse_hrm_employees e
+       LEFT JOIN mse_hrm_app_users u ON u.employee_id = e.id
        LEFT JOIN crm_user_profiles p ON p.user_id = u.id
       WHERE e.id = ? LIMIT 1`,
     [Number(employeeId)],

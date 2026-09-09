@@ -12,10 +12,10 @@ async function request(path, options = {}) {
   return body;
 }
 
-const [users] = await connection.query(`SELECT u.id, u.employee_id AS employeeId, u.email, COALESCE(e.employee_name, u.email) AS name FROM app_users u JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id LEFT JOIN employees e ON e.id = u.employee_id WHERE r.normalized_name = 'ADMIN' AND u.is_active = TRUE LIMIT 1`);
+const [users] = await connection.query(`SELECT u.id, u.employee_id AS employeeId, u.email, COALESCE(e.employee_name, u.email) AS name FROM mse_hrm_app_users u JOIN mse_hrm_user_roles ur ON ur.user_id = u.id JOIN mse_hrm_roles r ON r.id = ur.role_id LEFT JOIN mse_hrm_employees e ON e.id = u.employee_id WHERE r.normalized_name = 'ADMIN' AND u.is_active = TRUE LIMIT 1`);
 if (!users.length) throw new Error('No active ADMIN user exists for the smoke test.');
 const user = users[0];
-const [branchRows] = await connection.execute(`SELECT branch_id AS id FROM user_branches WHERE user_id = ? UNION SELECT branch_id AS id FROM app_users WHERE id = ? AND branch_id IS NOT NULL`, [user.id, user.id]);
+const [branchRows] = await connection.execute(`SELECT branch_id AS id FROM mse_hrm_user_branches WHERE user_id = ? UNION SELECT branch_id AS id FROM mse_hrm_app_users WHERE id = ? AND branch_id IS NOT NULL`, [user.id, user.id]);
 const token = jwt.sign({ id: Number(user.id), employeeId: user.employeeId ? Number(user.employeeId) : null, name: user.name, email: user.email, role: 'ADMIN', roles: ['ADMIN'], branchIds: branchRows.map(row => Number(row.id)) }, process.env.JWT_SECRET, { expiresIn: '10m' });
 
 try {

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Settings, Activity, AlertCircle, CheckCircle, Link as LinkIcon, ChevronLeft, FileSpreadsheet, MessageCircle, Phone, PhoneCall, Facebook, MessageSquare, Mail} from 'lucide-react';
 import { api } from '../api';
+import { useIntegrationStatus } from '../IntegrationStatusContext.jsx';
 import FieldMappingPanel from './FieldMappingPanel';
 import SmartpingConfig from './SmartpingConfig';
 import SmartpingSmsConfig from './SmartpingSmsConfig';
@@ -28,7 +29,11 @@ export default function IntegrationHubPage({ embedded = false }) {
   // null = the tiles; otherwise the type whose integrations are open.
   const [openTypeId, setOpenTypeId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [togglingId, setTogglingId] = useState(null);
   const navigate = useNavigate();
+  // The rest of the CRM reads this to decide what to offer, so a switch
+  // flipped here has to reach it without a page reload.
+  const { refresh: refreshIntegrationStatuses } = useIntegrationStatus();
 
   useEffect(() => {
     fetchIntegrations();
@@ -72,6 +77,32 @@ export default function IntegrationHubPage({ embedded = false }) {
       setError(err.message);
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  /**
+   * Switch one account on or off.
+   *
+   * Not a delete and not a disconnect: nothing is removed, and the account
+   * comes back with its credentials, DIDs and agent mappings intact. While it
+   * is off it stops being offered anywhere else in the CRM -- branch DIDs, a
+   * user's agent mapping, the call button on a lead -- and the provider routes
+   * refuse to send through it.
+   *
+   * PATCH .../status rather than PUT .../: the account payload this screen
+   * holds has its credentials redacted, so sending it back would erase them.
+   */
+  const handleToggleActive = async (integration, active) => {
+    setTogglingId(integration.id);
+    try {
+      await api.patch(`/hub/integrations/${integration.id}/status`, { active });
+      setError(null);
+      await fetchIntegrations();
+      refreshIntegrationStatuses();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -344,7 +375,9 @@ export default function IntegrationHubPage({ embedded = false }) {
           onSync={handleSync}
           onSettings={(integration) => openIntegrationSettings(integration)}
           onDelete={handleDelete}
+          onToggleActive={handleToggleActive}
           deletingId={deletingId}
+          togglingId={togglingId}
           loading={loading}
         />
       )}

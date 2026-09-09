@@ -1,14 +1,24 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Download, Eye, GitBranch, PhoneCall, RefreshCw, RotateCcw, Search, X, Upload, CheckCircle, AlertCircle, Clock } from 'lucide-react';
 import { api } from '../api';
 import { usePermissions } from '../PermissionContext.jsx';
 import { useBusinessUnit } from '../BusinessUnitContext';
+import { useIntegrationStatus } from '../IntegrationStatusContext.jsx';
 import { Button, Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Select, Tabs, TabsList, TabsTrigger, TabsContent, Badge, Skeleton } from './ui';
 import PageContainer from './PageContainer';
 import { recordDownload } from '../downloadAudit.js';
 
 export default function BulkActionsPageModern() {
   const { selectedId } = useBusinessUnit();
+  /* Dialer campaigns are CallerDesk's; with CallerDesk switched off there is
+     nothing to dial, so the tab and its polling go with it. */
+  const { isOff } = useIntegrationStatus();
+  const dialerOff = isOff('callerdesk');
+  /* Read through a ref inside loadData: the 10s poll is set up once per
+     business unit and would otherwise keep asking for campaigns with the
+     value of dialerOff it captured before the statuses had loaded. */
+  const dialerOffRef = useRef(dialerOff);
+  useEffect(() => { dialerOffRef.current = dialerOff; }, [dialerOff]);
   /* Re-downloading a stored export needs its own permission, so the button is
      hidden from anyone the API would refuse rather than shown and then failing. */
   const { can } = usePermissions();
@@ -28,6 +38,10 @@ export default function BulkActionsPageModern() {
   const [detailsLoading, setDetailsLoading] = useState(false);
 
   useEffect(() => {
+    if (dialerOff && activeTab === 'campaigns') setActiveTab('uploads');
+  }, [dialerOff, activeTab]);
+
+  useEffect(() => {
     setUploads([]);
     setOperations([]);
     setDialerCampaigns([]);
@@ -43,7 +57,7 @@ export default function BulkActionsPageModern() {
       const [uploadData, operationData, dialerData] = await Promise.all([
         api('/bulk-uploads'),
         api('/bulk-operations'),
-        api('/callerdesk/campaigns').catch(() => ({ data: [] }))
+        dialerOffRef.current ? { data: [] } : api('/callerdesk/campaigns').catch(() => ({ data: [] }))
       ]);
       setUploads((uploadData.data || []).map(item=>({
         ...item,type:item.type||'Lead import',
@@ -239,6 +253,7 @@ export default function BulkActionsPageModern() {
                 {downloads.length}
               </span>
             </TabsTrigger>
+            {!dialerOff && (
             <TabsTrigger value="campaigns">
               <PhoneCall size={18} className="mr-2" />
               <span>Campaigns</span>
@@ -246,6 +261,7 @@ export default function BulkActionsPageModern() {
                 {dialerCampaigns.length}
               </span>
             </TabsTrigger>
+            )}
             </TabsList>
             <div className="flex gap-2 flex-shrink-0">
               <Button onClick={refreshData} disabled={refreshing} variant="secondary" size="icon" aria-label="Refresh bulk action history" title="Refresh" data-tooltip="Refresh records">

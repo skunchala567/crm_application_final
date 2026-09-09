@@ -10,6 +10,7 @@ import { useIsDesktop } from '../lib/useMediaQuery';
 import { useBusinessUnit } from '../BusinessUnitContext';
 import { useLeadQuickActions } from '../LeadQuickActionsContext';
 import { usePermissions } from '../PermissionContext';
+import { useIntegrationStatus } from '../IntegrationStatusContext.jsx';
 
 /** Any one of these makes the Settings entry worth showing. */
 const SETTINGS_PERMISSIONS = [
@@ -70,6 +71,7 @@ export function Header({ user, onLogout, onMenuClick, navCollapsed = false, mobi
   // Published by whichever screen is open; empty everywhere except Leads.
   const quickActions = useLeadQuickActions();
   const { can, canAny } = usePermissions();
+  const { isOff } = useIntegrationStatus();
   const isDesktop = useIsDesktop();
   const navLabel = isDesktop
     ? (navCollapsed ? 'Expand navigation' : 'Collapse navigation')
@@ -385,8 +387,10 @@ export function Header({ user, onLogout, onMenuClick, navCollapsed = false, mobi
           )}
 
           {/* Messages -> WhatsApp inbox. Hidden without inbox access, since
-              the destination itself refuses to render for those users. */}
-          {can('whatsapp.inbox.view') && (
+              the destination itself refuses to render for those users, and
+              hidden while WhatsApp is switched off in Integrations -- there is
+              no account left to receive on. */}
+          {can('whatsapp.inbox.view') && !isOff('smartping') && (
           <button
             onClick={() => navigate('/whatsapp-inbox')}
             className="relative grid place-items-center w-[38px] h-[38px] rounded-[11px] text-secondary-500 hover:bg-surface-3 hover:text-primary-600 active:scale-95 transition-all"

@@ -95,9 +95,9 @@ export function createPaymentLinkBatchRoutes(pool, authenticate, requireCrmAcces
               b.created_at_utc AS createdAt,b.completed_at_utc AS completedAt,b.branch_id AS branchId,
               br.branch_name AS branchName,COALESCE(e.employee_name,u.email) AS createdBy,${COUNTS}
        FROM crm_payment_link_batches b
-       JOIN branches br ON br.id=b.branch_id
-       LEFT JOIN app_users u ON u.id=b.created_by_user_id
-       LEFT JOIN employees e ON e.id=u.employee_id
+       JOIN mse_hrm_branches br ON br.id=b.branch_id
+       LEFT JOIN mse_hrm_app_users u ON u.id=b.created_by_user_id
+       LEFT JOIN mse_hrm_employees e ON e.id=u.employee_id
        WHERE b.business_unit_id=? AND ${scope.sql}
        ORDER BY b.created_at_utc DESC LIMIT 100`,
       [req.businessUnit.id, ...scope.params],
@@ -109,7 +109,7 @@ export function createPaymentLinkBatchRoutes(pool, authenticate, requireCrmAcces
     const scope = branchScopeSql(req.user, 'b.branch_id');
     const [[batch]] = await pool.execute(
       `SELECT b.*,br.branch_name AS branchName,${COUNTS}
-       FROM crm_payment_link_batches b JOIN branches br ON br.id=b.branch_id
+       FROM crm_payment_link_batches b JOIN mse_hrm_branches br ON br.id=b.branch_id
        WHERE b.id=? AND b.business_unit_id=? AND ${scope.sql}`,
       [req.params.id, req.businessUnit.id, ...scope.params],
     );

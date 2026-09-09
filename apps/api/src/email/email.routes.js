@@ -64,8 +64,8 @@ export function createEmailRoutes(pool, authenticate, requireCrmAccess, uploadRo
       `SELECT t.id,t.template_name AS templateName,t.category,t.subject,t.body_html AS bodyHtml,t.body_text AS bodyText,
        t.status,t.created_at_utc AS createdAt,t.updated_at_utc AS updatedAt,
        COALESCE(ce.employee_name,cu.email) AS createdBy,COALESCE(ue.employee_name,uu.email) AS updatedBy
-       FROM crm_email_templates t LEFT JOIN app_users cu ON cu.id=t.created_by_user_id LEFT JOIN employees ce ON ce.id=cu.employee_id
-       LEFT JOIN app_users uu ON uu.id=t.updated_by_user_id LEFT JOIN employees ue ON ue.id=uu.employee_id
+       FROM crm_email_templates t LEFT JOIN mse_hrm_app_users cu ON cu.id=t.created_by_user_id LEFT JOIN mse_hrm_employees ce ON ce.id=cu.employee_id
+       LEFT JOIN mse_hrm_app_users uu ON uu.id=t.updated_by_user_id LEFT JOIN mse_hrm_employees ue ON ue.id=uu.employee_id
        WHERE ${where.join(' AND ')} ORDER BY COALESCE(t.updated_at_utc,t.created_at_utc) DESC`, values
     );
     res.json({ data: await attachAndFilterVisibility(pool, 'email', rows, req.user) });
@@ -143,7 +143,7 @@ export function createEmailRoutes(pool, authenticate, requireCrmAccess, uploadRo
     const [rows] = await pool.execute(
       `SELECT m.id,m.subject,m.to_json AS recipients,m.from_email AS fromEmail,m.body_html AS bodyHtml,m.status,m.error_message AS errorMessage,
        m.sent_at_utc AS sentAt,m.created_at_utc AS createdAt,COALESCE(e.employee_name,u.email) AS sentBy
-       FROM crm_email_messages m LEFT JOIN app_users u ON u.id=m.sender_user_id LEFT JOIN employees e ON e.id=u.employee_id
+       FROM crm_email_messages m LEFT JOIN mse_hrm_app_users u ON u.id=m.sender_user_id LEFT JOIN mse_hrm_employees e ON e.id=u.employee_id
        WHERE m.organization_id=? AND m.lead_id=? ORDER BY m.created_at_utc DESC`, [service.org(req),req.params.leadId]
     );
     res.json({ data: rows.map(row => ({ ...row, recipients: parse(row.recipients) })) });

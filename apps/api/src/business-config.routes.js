@@ -652,7 +652,7 @@ export function createBusinessConfigRoutes(pool, authenticate, requireCrmAccess,
     const [rows] = await pool.execute(
       `SELECT lr.id, lr.branch_id AS branchId, b.branch_name AS branchName, lr.is_active AS isActive
        FROM crm_config_link_rows lr
-       LEFT JOIN branches b ON b.id = lr.branch_id
+       LEFT JOIN mse_hrm_branches b ON b.id = lr.branch_id
        WHERE lr.rule_id=? ORDER BY b.branch_name, lr.id`,
       [rule.id],
     );

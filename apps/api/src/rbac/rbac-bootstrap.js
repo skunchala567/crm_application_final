@@ -126,7 +126,7 @@ export async function bootstrapRbac(pool, logger = console) {
   for (const [normalizedName, spec] of Object.entries(DEFAULTS)) {
     try {
       const [[role]] = await pool.execute(
-        'SELECT id FROM roles WHERE normalized_name = ? LIMIT 1',
+        'SELECT id FROM mse_hrm_roles WHERE normalized_name = ? LIMIT 1',
         [normalizedName],
       );
       if (!role) continue;
@@ -168,10 +168,10 @@ export async function bootstrapRbac(pool, logger = console) {
   // Whoever administers the CRM today keeps a way in after enforcement starts.
   try {
     await pool.execute(
-      `INSERT IGNORE INTO user_roles (user_id, role_id)
-       SELECT ur.user_id, (SELECT id FROM roles WHERE normalized_name='SUPER_ADMIN')
-         FROM user_roles ur
-         JOIN roles r ON r.id = ur.role_id
+      `INSERT IGNORE INTO mse_hrm_user_roles (user_id, role_id)
+       SELECT ur.user_id, (SELECT id FROM mse_hrm_roles WHERE normalized_name='SUPER_ADMIN')
+         FROM mse_hrm_user_roles ur
+         JOIN mse_hrm_roles r ON r.id = ur.role_id
         WHERE r.normalized_name IN ('ADMIN','CRM_ADMIN')`,
     );
   } catch (error) {

@@ -165,6 +165,41 @@ export class IntegrationHubService {
     }
   }
 
+  /**
+   * Switch one account on or off.
+   *
+   * Switching off is not deleting: the credentials, history and mappings all
+   * stay, and switching back on restores the account exactly as it was. What
+   * changes is that every screen that merely surfaces this integration --
+   * branch DIDs, a user's agent mapping, the call button on a lead -- stops
+   * offering it, and the provider routes refuse to send through it.
+   */
+  async setIntegrationStatus(integrationId, organizationId, active, userId, businessUnitId = null) {
+    try {
+      const config = await this.configs.getById(integrationId, organizationId, businessUnitId);
+      if (!config) throw Object.assign(new Error('Integration not found'), { status: 404 });
+
+      const status = active ? 'active' : 'inactive';
+      const changed = await this.configs.setStatus(integrationId, organizationId, status, { userId, businessUnitId });
+      if (!changed) throw Object.assign(new Error('Integration not found'), { status: 404 });
+
+      return { ...config, status };
+    } catch (error) {
+      this.logger.error('Error changing integration status', error);
+      throw error;
+    }
+  }
+
+  /** provider -> status, for the screens that only need to know what is on. */
+  async getProviderStatuses(organizationId, businessUnitId = null) {
+    try {
+      return await this.configs.listProviderStatuses(organizationId, businessUnitId);
+    } catch (error) {
+      this.logger.error('Error listing provider statuses', error);
+      throw error;
+    }
+  }
+
   async deleteIntegration(integrationId, organizationId, userId, businessUnitId = null) {
     try {
       const config = await this.configs.getById(integrationId, organizationId, businessUnitId);
@@ -731,7 +766,7 @@ export class IntegrationHubService {
       throw new Error('Spreadsheet and branch are required');
     }
     const [[branch]] = await this.pool.execute(
-      'SELECT id, branch_name AS name FROM branches WHERE id=? AND is_active=TRUE LIMIT 1',
+      'SELECT id, branch_name AS name FROM mse_hrm_branches WHERE id=? AND is_active=TRUE LIMIT 1',
       [branchId]
     );
     if (!branch) throw new Error('Selected branch is not available');
@@ -1822,7 +1857,7 @@ export class IntegrationHubService {
        FROM crm_whatsapp_conversations c
        JOIN crm_integrations i ON i.id=c.integration_id
        LEFT JOIN crm_leads l ON l.id=c.lead_id AND l.deleted_at_utc IS NULL
-       LEFT JOIN branches b ON b.id=l.branch_id
+       LEFT JOIN mse_hrm_branches b ON b.id=l.branch_id
        LEFT JOIN crm_lead_stages s ON s.id=l.stage_id
        WHERE c.organization_id = ? AND c.business_unit_id = ?
              ${ownerSql} ${searchSql} ${incomingSql}

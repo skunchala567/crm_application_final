@@ -128,15 +128,15 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
       `SELECT u.id,
               COALESCE(e.employee_name, CONCAT_WS(' ', p.first_name, p.last_name), u.email) AS name,
               u.email
-         FROM app_users u
+         FROM mse_hrm_app_users u
          LEFT JOIN crm_user_access_status cuas ON cuas.user_id = u.id
-         LEFT JOIN employees e ON e.id = u.employee_id
+         LEFT JOIN mse_hrm_employees e ON e.id = u.employee_id
          LEFT JOIN crm_user_profiles p ON p.user_id = u.id
         WHERE u.is_active = TRUE
           AND COALESCE(cuas.is_active, 1) = 1
           AND EXISTS (
-            SELECT 1 FROM user_roles ur
-              JOIN roles r ON r.id = ur.role_id
+            SELECT 1 FROM mse_hrm_user_roles ur
+              JOIN mse_hrm_roles r ON r.id = ur.role_id
              WHERE ur.user_id = u.id
                AND r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER','SUPER_ADMIN'))
         ORDER BY name`,
@@ -144,7 +144,7 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
     // Routing sends leads into a branch, so only offer the caller's own.
     const branchScope = referenceBranchScopeSql(req.user, 'id');
     const [branches] = await pool.execute(
-      `SELECT id, branch_name AS name FROM branches WHERE is_active = 1 AND ${branchScope.sql} ORDER BY branch_name`,
+      `SELECT id, branch_name AS name FROM mse_hrm_branches WHERE is_active = 1 AND ${branchScope.sql} ORDER BY branch_name`,
       branchScope.params,
     );
     const [businessUnits] = await pool.execute(
@@ -802,20 +802,20 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
     }
 
     if (body.branchId) {
-      const [[branch]] = await pool.execute('SELECT id FROM branches WHERE id=? AND is_active=TRUE LIMIT 1', [Number(body.branchId)]);
+      const [[branch]] = await pool.execute('SELECT id FROM mse_hrm_branches WHERE id=? AND is_active=TRUE LIMIT 1', [Number(body.branchId)]);
       if (!branch) throw Object.assign(new Error('That branch is not available'), { status: 400 });
       overrides.branchId = Number(branch.id);
     }
 
     if (body.ownerEmployeeId) {
       const [[owner]] = await pool.execute(
-        `SELECT DISTINCT e.id FROM employees e
-           JOIN app_users u ON u.employee_id=e.id AND u.is_active=TRUE
+        `SELECT DISTINCT e.id FROM mse_hrm_employees e
+           JOIN mse_hrm_app_users u ON u.employee_id=e.id AND u.is_active=TRUE
            LEFT JOIN crm_user_access_status cuas ON cuas.user_id=u.id
            LEFT JOIN crm_user_business_units ubu ON ubu.user_id=u.id AND ubu.business_unit_id=?
           WHERE e.id=? AND e.status='Active' AND COALESCE(cuas.is_active,1)=1
             AND (ubu.user_id IS NOT NULL OR EXISTS(
-                  SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id
+                  SELECT 1 FROM mse_hrm_user_roles ur JOIN mse_hrm_roles r ON r.id=ur.role_id
                    WHERE ur.user_id=u.id AND r.normalized_name IN ('CRM_ADMIN','SUPER_ADMIN')))
           LIMIT 1`,
         [unitId, Number(body.ownerEmployeeId)],

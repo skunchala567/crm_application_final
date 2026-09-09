@@ -22,7 +22,7 @@ export async function ensureMarketingCampaignSchema(pool) {
       KEY ix_crm_marketing_campaign_status (status, first_communication_at),
       KEY ix_crm_marketing_campaign_org (organization_id, created_at_utc),
       CONSTRAINT fk_crm_marketing_campaign_creator FOREIGN KEY (created_by)
-        REFERENCES app_users(id) ON DELETE RESTRICT,
+        REFERENCES mse_hrm_app_users(id) ON DELETE RESTRICT,
       CONSTRAINT fk_crm_marketing_campaign_integration FOREIGN KEY (integration_id)
         REFERENCES crm_integrations(id) ON DELETE RESTRICT
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci

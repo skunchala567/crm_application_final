@@ -72,8 +72,8 @@ export async function loadUserPermissions(pool, userId) {
       `SELECT r.id, r.name, r.normalized_name AS normalizedName,
               COALESCE(s.is_active, TRUE) AS isActive,
               COALESCE(s.is_super_admin, FALSE) AS isSuperAdmin
-         FROM user_roles ur
-         JOIN roles r ON r.id = ur.role_id
+         FROM mse_hrm_user_roles ur
+         JOIN mse_hrm_roles r ON r.id = ur.role_id
          LEFT JOIN crm_role_settings s ON s.role_id = r.id
         WHERE ur.user_id = ?`,
       [id],
@@ -191,16 +191,16 @@ export async function leadScopePredicate(pool, user, scope, alias = 'l') {
   }
 
   if (scope === 'department') {
-    // employees.department is a free-text column, so match on the department
-    // string of this user's own employee record.
+    // Department is a foreign key to mse_hrm_departments, so match on the
+    // department id of this user's own employee record.
     const [[me]] = await pool.execute(
-      'SELECT department FROM employees WHERE id = ? LIMIT 1',
+      'SELECT department_id AS departmentId FROM mse_hrm_employees WHERE id = ? LIMIT 1',
       [employeeId],
     );
-    if (!me?.department) return leadScopePredicate(pool, user, 'team', alias);
+    if (!me?.departmentId) return leadScopePredicate(pool, user, 'team', alias);
     return {
-      sql: `${alias}.owner_employee_id IN (SELECT id FROM employees WHERE department = ?)`,
-      params: [me.department],
+      sql: `${alias}.owner_employee_id IN (SELECT id FROM mse_hrm_employees WHERE department_id = ?)`,
+      params: [me.departmentId],
     };
   }
 
@@ -246,9 +246,9 @@ export function scopeNarrowingSql(user, scope, alias = 'l') {
     if (!employeeId) return scopeNarrowingSql(user, 'own', alias);
     return {
       sql: `${alias}.owner_employee_id IN (
-              SELECT e.id FROM employees e
-               WHERE e.department IS NOT NULL
-                 AND e.department = (SELECT d.department FROM employees d WHERE d.id = ?))`,
+              SELECT e.id FROM mse_hrm_employees e
+               WHERE e.department_id IS NOT NULL
+                 AND e.department_id = (SELECT d.department_id FROM mse_hrm_employees d WHERE d.id = ?))`,
       params: [employeeId],
     };
   }

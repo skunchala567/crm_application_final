@@ -168,7 +168,7 @@ export class SyncEngine {
       try {
         // Get default branch and stage
         const [branches] = await this.pool.execute(
-          'SELECT id FROM branches LIMIT 1'
+          'SELECT id FROM mse_hrm_branches LIMIT 1'
         );
         const [stages] = await this.pool.execute(
           'SELECT id FROM crm_lead_stages WHERE is_active = true LIMIT 1'

@@ -17,7 +17,7 @@ export async function notifyUser(connection, {
 export async function notifyEmployee(connection, notification) {
   if (!Number(notification.employeeId)) return;
   const [users] = await connection.execute(
-    `SELECT DISTINCT u.id FROM app_users u
+    `SELECT DISTINCT u.id FROM mse_hrm_app_users u
      JOIN crm_user_business_units ubu ON ubu.user_id=u.id AND ubu.business_unit_id=?
      WHERE u.employee_id=? AND u.is_active=TRUE`,
     [Number(notification.businessUnitId),Number(notification.employeeId)],

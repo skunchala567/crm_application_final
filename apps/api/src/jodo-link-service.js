@@ -58,7 +58,7 @@ export async function branchJodoConfig(pool, id) {
     `SELECT id,branch_name AS name,jodo_payment_enabled AS enabled,jodo_api_key AS apiKey,jodo_secret_key AS secretKey,
             jodo_collector_code AS collectorCode,jodo_base_url AS baseUrl,jodo_auth_header AS authHeader,
             application_payment_component AS paymentComponent
-     FROM branches WHERE id=? AND is_active=1 LIMIT 1`,
+     FROM mse_hrm_branches WHERE id=? AND is_active=1 LIMIT 1`,
     [id],
   );
   if (!branch) throw Object.assign(new Error('Active branch not found'), { status: 404 });

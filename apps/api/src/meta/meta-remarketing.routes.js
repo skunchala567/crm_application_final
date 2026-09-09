@@ -136,8 +136,8 @@ export function createMetaRemarketingRoutes(pool, authenticate, requireCrmAccess
               a.created_at_utc AS createdAt, COALESCE(e.employee_name, u.email) AS createdBy
          FROM crm_remarketing_audiences a
          LEFT JOIN crm_meta_ad_accounts acc ON acc.ad_account_id = a.ad_account_id
-         LEFT JOIN app_users u ON u.id = a.created_by_user_id
-         LEFT JOIN employees e ON e.id = u.employee_id
+         LEFT JOIN mse_hrm_app_users u ON u.id = a.created_by_user_id
+         LEFT JOIN mse_hrm_employees e ON e.id = u.employee_id
         WHERE a.business_unit_id=? AND a.status <> 'deleted'
         ORDER BY a.created_at_utc DESC`,
       [req.businessUnit.id],
@@ -310,8 +310,8 @@ export function createMetaRemarketingRoutes(pool, authenticate, requireCrmAccess
               COALESCE(e.employee_name, u.email) AS triggeredByUser
          FROM crm_remarketing_sync_logs s
          JOIN crm_remarketing_audiences a ON a.id = s.audience_id
-         LEFT JOIN app_users u ON u.id = s.triggered_by_user_id
-         LEFT JOIN employees e ON e.id = u.employee_id
+         LEFT JOIN mse_hrm_app_users u ON u.id = s.triggered_by_user_id
+         LEFT JOIN mse_hrm_employees e ON e.id = u.employee_id
         WHERE a.business_unit_id=? ${audienceId ? 'AND s.audience_id=?' : ''}
         ORDER BY s.started_at_utc DESC LIMIT 200`,
       audienceId ? [req.businessUnit.id, audienceId] : [req.businessUnit.id],

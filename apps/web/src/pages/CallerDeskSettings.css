@@ -359,6 +359,22 @@
   font-size: 11px;
   color: var(--ink-500);
 }
+.bonvoice-did-list { display: grid; gap: 12px; }
+.bonvoice-did-card { border: 1px solid var(--ink-200); border-radius: 10px; padding: 14px; display: grid; gap: 12px; }
+.bonvoice-did-fields { display: grid; grid-template-columns: 1.2fr 1.4fr .7fr auto; gap: 10px; align-items: end; }
+.bonvoice-did-fields label,.bonvoice-primary { display: grid; gap: 4px; font-size: 12px; }
+.bonvoice-did-fields input,.bonvoice-primary select { height: 38px; border: 1px solid var(--ink-200); border-radius: 8px; padding: 0 10px; background: #fff; }
+.bonvoice-did-fields .did-enabled { display: flex; align-items: center; gap: 6px; height: 38px; }
+.bonvoice-directions { display: flex; gap: 16px; font-size: 12px; }
+.bonvoice-directions label,.bonvoice-branch-grid label { display: flex; gap: 6px; align-items: center; }
+.bonvoice-branch-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
+.bonvoice-branch-grid > div { border: 1px solid var(--ink-100); border-radius: 8px; padding: 9px; display: grid; gap: 7px; }
+.bonvoice-branch-grid > div.selected { border-color: var(--brand-300); background: var(--brand-50); }
+.bonvoice-branch-grid .sub-option { margin-left: 20px; color: var(--ink-500); font-size: 11px; }
+.bonvoice-primary { max-width: 420px; }
+.bonvoice-primary b { color: #805b0b; font-weight: 500; }
+.bonvoice-did-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.callerdesk-settings button.danger { color: #b42318; border-color: #f3b7b2; }
 @media (max-width: 900px) {
   .callerdesk-grid {
     grid-template-columns: 1fr;
@@ -375,4 +391,5 @@
   .callerdesk-guide {
     flex-wrap: wrap;
   }
+  .bonvoice-did-fields,.bonvoice-branch-grid { grid-template-columns: 1fr; }
 }

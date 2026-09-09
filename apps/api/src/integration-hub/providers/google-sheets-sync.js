@@ -398,7 +398,7 @@ export class GoogleSheetsSyncService {
         `SELECT e.id,u.id AS userId,
                 (SELECT ubu.business_unit_id FROM crm_user_business_units ubu
                  WHERE ubu.user_id=u.id ORDER BY ubu.is_default DESC,ubu.business_unit_id LIMIT 1) AS businessUnitId
-         FROM app_users u JOIN employees e ON e.id=u.employee_id
+         FROM mse_hrm_app_users u JOIN mse_hrm_employees e ON e.id=u.employee_id
          WHERE LOWER(u.email)=LOWER(?) AND u.is_active=TRUE AND e.status='Active' LIMIT 1`,
         [String(assign_to).trim()]
       )

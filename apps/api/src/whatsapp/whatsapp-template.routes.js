@@ -52,7 +52,7 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
                   bwa.is_default AS isDefault
              FROM crm_branch_whatsapp_accounts bwa
              JOIN crm_integrations i ON i.id = bwa.integration_id
-             JOIN branches b ON b.id = bwa.branch_id AND b.is_active = 1
+             JOIN mse_hrm_branches b ON b.id = bwa.branch_id AND b.is_active = 1
              JOIN crm_user_branches cub ON cub.branch_id = bwa.branch_id AND cub.user_id = ?
             WHERE 1=1${unit.sql}
             ORDER BY bwa.is_default DESC, i.name`,
@@ -132,7 +132,7 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
       );
       const [branches] = await pool.execute(
         `SELECT b.id, b.branch_name AS name FROM crm_branch_whatsapp_accounts bwa
-         JOIN branches b ON b.id = bwa.branch_id AND b.is_active = TRUE
+         JOIN mse_hrm_branches b ON b.id = bwa.branch_id AND b.is_active = TRUE
          WHERE bwa.integration_id = ? ORDER BY b.branch_name`,
         [integrationId],
       );
@@ -303,7 +303,7 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
         CONSTRAINT fk_whatsapp_template_visibility_template FOREIGN KEY (template_id)
           REFERENCES crm_whatsapp_templates(id) ON DELETE CASCADE,
         CONSTRAINT fk_whatsapp_template_visibility_user FOREIGN KEY (user_id)
-          REFERENCES app_users(id) ON DELETE CASCADE
+          REFERENCES mse_hrm_app_users(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
     visibilitySchemaReady = true;
@@ -320,8 +320,8 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
               COALESCE(e.employee_name,CONCAT_WS(' ',p.first_name,p.last_name),u.email) AS name,
               u.email
        FROM crm_whatsapp_template_user_visibility v
-       JOIN app_users u ON u.id=v.user_id AND u.is_active=TRUE
-       LEFT JOIN employees e ON e.id=u.employee_id
+       JOIN mse_hrm_app_users u ON u.id=v.user_id AND u.is_active=TRUE
+       LEFT JOIN mse_hrm_employees e ON e.id=u.employee_id
        LEFT JOIN crm_user_profiles p ON p.user_id=u.id
        WHERE v.template_id IN (${ids.map(() => '?').join(',')})
        ORDER BY name`,
@@ -475,7 +475,7 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
       }
       const [branchOptions] = await pool.query(`
         SELECT id, branch_name AS name
-        FROM branches
+        FROM mse_hrm_branches
         WHERE is_active=TRUE
         ORDER BY branch_name
       `);
@@ -496,7 +496,7 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
         JOIN crm_integrations i ON i.id=m.integration_id
         LEFT JOIN crm_whatsapp_conversations wc ON wc.id=m.conversation_id
         LEFT JOIN crm_leads l ON l.id=COALESCE(m.lead_id,wc.lead_id) AND l.deleted_at_utc IS NULL
-        LEFT JOIN branches b ON b.id=l.branch_id
+        LEFT JOIN mse_hrm_branches b ON b.id=l.branch_id
         WHERE i.organization_id=?
           AND i.deleted_at IS NULL
           AND UPPER(COALESCE(m.status,'UNKNOWN')) NOT IN ('FAILED','REJECTED','ERROR')
@@ -576,10 +576,10 @@ export function createWhatsAppTemplateRoutes(pool, authenticate, logger = consol
         SELECT DISTINCT u.id,
                COALESCE(e.employee_name,CONCAT_WS(' ',p.first_name,p.last_name),u.email) AS name,
                u.email
-        FROM app_users u
-        JOIN user_roles ur ON ur.user_id=u.id
-        JOIN roles r ON r.id=ur.role_id
-        LEFT JOIN employees e ON e.id=u.employee_id
+        FROM mse_hrm_app_users u
+        JOIN mse_hrm_user_roles ur ON ur.user_id=u.id
+        JOIN mse_hrm_roles r ON r.id=ur.role_id
+        LEFT JOIN mse_hrm_employees e ON e.id=u.employee_id
         LEFT JOIN crm_user_profiles p ON p.user_id=u.id
         WHERE u.is_active=TRUE
           AND r.normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER','SUPER_ADMIN')

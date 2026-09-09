@@ -14,35 +14,35 @@ try {
   const [tables] = await connection.query(`
     SELECT table_name AS tableName FROM information_schema.tables
     WHERE table_schema = DATABASE()
-      AND table_name IN ('branches','employees','app_users','roles','user_roles','user_branches','role_permissions','role_screen_access')
+      AND table_name IN ('mse_hrm_branches','mse_hrm_employees','mse_hrm_app_users','mse_hrm_roles','mse_hrm_user_roles','mse_hrm_user_branches','mse_hrm_role_permissions','mse_hrm_role_screen_access')
     ORDER BY table_name`);
   const [[counts]] = await connection.query(`
-    SELECT (SELECT COUNT(*) FROM branches) AS branches,
-           (SELECT COUNT(*) FROM employees) AS employees,
-           (SELECT COUNT(*) FROM app_users) AS appUsers,
-           (SELECT COUNT(*) FROM roles) AS roles`);
+    SELECT (SELECT COUNT(*) FROM mse_hrm_branches) AS branches,
+           (SELECT COUNT(*) FROM mse_hrm_employees) AS employees,
+           (SELECT COUNT(*) FROM mse_hrm_app_users) AS appUsers,
+           (SELECT COUNT(*) FROM mse_hrm_roles) AS roles`);
   const [columns] = await connection.query(`
     SELECT table_name AS tableName, column_name AS columnName, column_type AS columnType
     FROM information_schema.columns WHERE table_schema = DATABASE()
-      AND ((table_name = 'branches' AND column_name = 'id')
-        OR (table_name = 'employees' AND column_name IN ('id','branch_id'))
-        OR (table_name = 'app_users' AND column_name IN ('id','branch_id','employee_id','password_hash')))
+      AND ((table_name = 'mse_hrm_branches' AND column_name = 'id')
+        OR (table_name = 'mse_hrm_employees' AND column_name IN ('id','branch_id'))
+        OR (table_name = 'mse_hrm_app_users' AND column_name IN ('id','branch_id','employee_id','password_hash')))
     ORDER BY table_name, column_name`);
   const [crmTables] = await connection.query(`
     SELECT table_name AS tableName FROM information_schema.tables
     WHERE table_schema = DATABASE() AND table_name LIKE 'crm\\_%' ESCAPE '\\\\'
     ORDER BY table_name`);
   const [crmRoles] = await connection.query(`
-    SELECT normalized_name AS name FROM roles
+    SELECT normalized_name AS name FROM mse_hrm_roles
     WHERE normalized_name IN ('CRM_ADMIN','ADMISSION_MANAGER','COUNSELLOR','CRM_VIEWER')
     ORDER BY normalized_name`);
   const [[crmCounts]] = await connection.query(`
     SELECT (SELECT COUNT(*) FROM crm_lead_stages) AS stages,
            (SELECT COUNT(*) FROM crm_lead_sources) AS sources,
-           (SELECT COUNT(*) FROM role_permissions WHERE permission_key LIKE 'crm.%' AND is_allowed = TRUE) AS allowedPermissions`);
+           (SELECT COUNT(*) FROM mse_hrm_role_permissions WHERE permission_key LIKE 'crm.%' AND is_allowed = TRUE) AS allowedPermissions`);
   const [userRoleCounts] = await connection.query(`
     SELECT r.normalized_name AS role, COUNT(DISTINCT ur.user_id) AS users
-    FROM roles r LEFT JOIN user_roles ur ON ur.role_id = r.id
+    FROM mse_hrm_roles r LEFT JOIN mse_hrm_user_roles ur ON ur.role_id = r.id
     GROUP BY r.id, r.normalized_name ORDER BY r.normalized_name`);
   console.log(JSON.stringify({ server, tables: tables.map((row) => row.tableName), counts, columns,
     crmTables: crmTables.map((row) => row.tableName), crmRoles: crmRoles.map((row) => row.name), crmCounts,

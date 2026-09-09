@@ -46,7 +46,7 @@ async function jodo(config, environment, method, path, data) {
 }
 
 async function branchConfig(pool, id) {
-  const [[branch]] = await pool.execute(`SELECT id, branch_name, jodo_payment_enabled, jodo_api_key, jodo_secret_key FROM branches WHERE id=? AND is_active=1`, [id]);
+  const [[branch]] = await pool.execute(`SELECT id, branch_name, jodo_payment_enabled, jodo_api_key, jodo_secret_key FROM mse_hrm_branches WHERE id=? AND is_active=1`, [id]);
   if (!branch) throw Object.assign(new Error('Branch not found'), { status: 404 });
   if (!branch.jodo_payment_enabled || !branch.jodo_api_key || !branch.jodo_secret_key) throw Object.assign(new Error('Enable Jodo and configure credentials for this branch'), { status: 400 });
   return { apiKey: branch.jodo_api_key, secretKey: branch.jodo_secret_key };
@@ -114,7 +114,7 @@ export function createPaymentFormsRoutes(pool, authenticate, requireCrmAccess, r
               ${NOT_EXPIRED} AS isLive,
               COUNT(DISTINCT pfc.id) as categoryCount, COUNT(DISTINCT pfms.id) as submissionCount
        FROM crm_payment_forms pf
-       JOIN branches b ON b.id=pf.branch_id
+       JOIN mse_hrm_branches b ON b.id=pf.branch_id
        LEFT JOIN crm_payment_form_categories pfc ON pfc.payment_form_id=pf.id
        LEFT JOIN crm_payment_form_submissions pfms ON pfms.payment_form_id=pf.id
        WHERE pf.business_unit_id=? AND ${scope.sql}

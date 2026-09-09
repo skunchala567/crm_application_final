@@ -24,13 +24,13 @@ export function createJodoPaymentLinkRoutes(pool,authenticate,requireCrmAccess,r
 
   router.get('/branches',canView,wrap(async(req,res)=>{
     const scope=branchScopeSql(req.user,'id');
-    const [rows]=await pool.execute(`SELECT id,branch_name AS name,jodo_payment_enabled AS enabled,jodo_collector_code AS collectorCode,(jodo_auth_header IS NOT NULL OR (jodo_api_key IS NOT NULL AND jodo_secret_key IS NOT NULL)) AS configured FROM branches WHERE is_active=1 AND ${scope.sql} ORDER BY branch_name`,scope.params);
+    const [rows]=await pool.execute(`SELECT id,branch_name AS name,jodo_payment_enabled AS enabled,jodo_collector_code AS collectorCode,(jodo_auth_header IS NOT NULL OR (jodo_api_key IS NOT NULL AND jodo_secret_key IS NOT NULL)) AS configured FROM mse_hrm_branches WHERE is_active=1 AND ${scope.sql} ORDER BY branch_name`,scope.params);
     res.json({data:rows.map(row=>({...row,configured:Boolean(row.configured),enabled:Boolean(row.configured)}))});
   }));
 
   router.get('/',canView,wrap(async(req,res)=>{
     const scope=branchScopeSql(req.user,'p.branch_id');
-    const [rows]=await pool.execute(`SELECT p.id,p.order_id AS orderId,p.redirect_url AS redirectUrl,p.environment,p.payer_name AS payerName,p.payer_phone AS payerPhone,p.payer_email AS payerEmail,p.student_name AS studentName,p.identifier,p.amount,p.status,p.transaction_id AS transactionId,p.expires_at_utc AS expiresAt,p.paid_at_utc AS paidAt,p.settlement_utr AS settlementUtr,p.created_at_utc AS createdAt,p.branch_id AS branchId,b.branch_name AS branchName,p.lead_id AS leadId,l.lead_number AS leadNumber FROM crm_jodo_payment_links p JOIN branches b ON b.id=p.branch_id LEFT JOIN crm_leads l ON l.id=p.lead_id WHERE p.business_unit_id=? AND ${scope.sql} ORDER BY p.created_at_utc DESC LIMIT 250`,[req.businessUnit.id,...scope.params]);
+    const [rows]=await pool.execute(`SELECT p.id,p.order_id AS orderId,p.redirect_url AS redirectUrl,p.environment,p.payer_name AS payerName,p.payer_phone AS payerPhone,p.payer_email AS payerEmail,p.student_name AS studentName,p.identifier,p.amount,p.status,p.transaction_id AS transactionId,p.expires_at_utc AS expiresAt,p.paid_at_utc AS paidAt,p.settlement_utr AS settlementUtr,p.created_at_utc AS createdAt,p.branch_id AS branchId,b.branch_name AS branchName,p.lead_id AS leadId,l.lead_number AS leadNumber FROM crm_jodo_payment_links p JOIN mse_hrm_branches b ON b.id=p.branch_id LEFT JOIN crm_leads l ON l.id=p.lead_id WHERE p.business_unit_id=? AND ${scope.sql} ORDER BY p.created_at_utc DESC LIMIT 250`,[req.businessUnit.id,...scope.params]);
     res.json({data:rows});
   }));
 
@@ -64,7 +64,7 @@ export function createJodoPaymentLinkRoutes(pool,authenticate,requireCrmAccess,r
       -- LEFT, because a lead may have no branch yet: WhatsApp intake creates
       -- leads with a null branch when no assignment rule matches, and money
       -- they pay must still be counted rather than dropped by the join.
-      FROM crm_leads l LEFT JOIN branches b ON b.id=l.branch_id
+      FROM crm_leads l LEFT JOIN mse_hrm_branches b ON b.id=l.branch_id
       -- LEFT as well: leads created before the form was recorded, and leads
       -- from any other intake, still have to appear with their payment.
       LEFT JOIN crm_public_enquiry_forms ef ON ef.id=l.enquiry_form_id
@@ -72,11 +72,11 @@ export function createJodoPaymentLinkRoutes(pool,authenticate,requireCrmAccess,r
       UNION ALL
       SELECT s.business_unit_id,pf.branch_id,b.branch_name,NULL,NULL,'payment_form',s.jodo_order_id,s.transaction_id,s.payer_name,s.payer_email,s.payer_phone,
        s.amount,s.status,s.paid_at_utc,s.settled_at_utc,s.settlement_utr,s.created_at_utc,pf.title COLLATE utf8mb4_unicode_ci
-      FROM crm_payment_form_submissions s JOIN crm_payment_forms pf ON pf.id=s.payment_form_id JOIN branches b ON b.id=pf.branch_id
+      FROM crm_payment_form_submissions s JOIN crm_payment_forms pf ON pf.id=s.payment_form_id JOIN mse_hrm_branches b ON b.id=pf.branch_id
       UNION ALL
       SELECT p.business_unit_id,p.branch_id,b.branch_name,p.lead_id,l.lead_number,'payment_link',p.order_id,p.transaction_id,p.payer_name,p.payer_email,p.payer_phone,
        p.amount,p.status,p.paid_at_utc,p.settled_at_utc,p.settlement_utr,p.created_at_utc,COALESCE(p.identifier,p.custom_identifier) COLLATE utf8mb4_unicode_ci
-      FROM crm_jodo_payment_links p JOIN branches b ON b.id=p.branch_id LEFT JOIN crm_leads l ON l.id=p.lead_id
+      FROM crm_jodo_payment_links p JOIN mse_hrm_branches b ON b.id=p.branch_id LEFT JOIN crm_leads l ON l.id=p.lead_id
     ) x WHERE ${where.join(' AND ')} ORDER BY x.createdAt DESC LIMIT 2000`,params);
     const summary=rows.reduce((s,row)=>{const status=String(row.status||'unknown').toLowerCase();s.count+=1;s.total+=Number(row.amount||0);if(['paid','settled','success','completed','captured'].includes(status)){s.collectedCount+=1;s.collectedAmount+=Number(row.amount||0);}return s;},{count:0,total:0,collectedCount:0,collectedAmount:0});
     res.json({data:rows,summary});

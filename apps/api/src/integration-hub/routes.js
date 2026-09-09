@@ -22,7 +22,7 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
         CONSTRAINT fk_whatsapp_template_visibility_template FOREIGN KEY (template_id)
           REFERENCES crm_whatsapp_templates(id) ON DELETE CASCADE,
         CONSTRAINT fk_whatsapp_template_visibility_user FOREIGN KEY (user_id)
-          REFERENCES app_users(id) ON DELETE CASCADE
+          REFERENCES mse_hrm_app_users(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
     templateVisibilitySchemaReady = true;
@@ -149,6 +149,29 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
     }
   });
 
+  /*
+   * Which providers this unit has switched on.
+   *
+   * Every screen that only *mentions* an integration reads this: the branch
+   * form before it offers a Smartflo DID, user management before it offers a
+   * CallerDesk member. It carries no credentials, so it is safe for any CRM
+   * user to read, and it is deliberately one request rather than a /config
+   * call per provider.
+   *
+   * Registered before '/integrations/:id' -- Express matches in order, and
+   * that route would otherwise swallow this path and try to parse the word
+   * as an id.
+   */
+  router.get('/integrations/provider-statuses', async (req, res, next) => {
+    try {
+      const organizationId = req.user?.organizationId || 1;
+      const statuses = await service.getProviderStatuses(organizationId, req.businessUnit?.id || null);
+      res.json({ success: true, data: statuses });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // Get integration details
   router.get('/integrations/:id', async (req, res, next) => {
     try {
@@ -237,6 +260,42 @@ export function createIntegrationHubRoutes(service, authenticate, requireCrmAcce
         integrationId,
         organizationId,
         updateData,
+        req.user?.id || null,
+        req.businessUnit?.id || null
+      );
+
+      res.json({ success: true, data: updated });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /*
+   * Switch one account on or off.
+   *
+   * Separate from PUT /integrations/:id on purpose: that route rewrites the
+   * whole config, and the config it is handed by the client is the redacted
+   * one, so using it to flip a switch would erase CallerDesk and Smartflo
+   * credentials. This touches the status column and nothing else.
+   */
+  router.patch('/integrations/:id/status', async (req, res, next) => {
+    try {
+      const admin = req.user?.roles?.some((role) => ['CRM_ADMIN', 'SUPER_ADMIN'].includes(String(role).toUpperCase()));
+      if (!admin) return res.status(403).json({ success: false, message: 'Only CRM administrators can activate or deactivate an integration' });
+
+      const integrationId = parseInt(req.params.id);
+      if (!Number.isInteger(integrationId) || integrationId < 1) {
+        return res.status(400).json({ success: false, message: 'Unknown integration account' });
+      }
+      if (typeof req.body?.active !== 'boolean') {
+        return res.status(400).json({ success: false, message: 'active must be true or false' });
+      }
+
+      const organizationId = req.user?.organizationId || 1;
+      const updated = await service.setIntegrationStatus(
+        integrationId,
+        organizationId,
+        req.body.active,
         req.user?.id || null,
         req.businessUnit?.id || null
       );

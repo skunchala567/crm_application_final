@@ -84,9 +84,9 @@ async function createLeadFromWhatsApp(pool, { businessUnitId, integrationId, mob
     const [[creator]] = await connection.query(
       `SELECT COALESCE(
          i.created_by,
-         (SELECT u.id FROM app_users u
-          JOIN user_roles ur ON ur.user_id=u.id
-          JOIN roles r ON r.id=ur.role_id
+         (SELECT u.id FROM mse_hrm_app_users u
+          JOIN mse_hrm_user_roles ur ON ur.user_id=u.id
+          JOIN mse_hrm_roles r ON r.id=ur.role_id
           WHERE r.normalized_name IN ('CRM_ADMIN','SUPER_ADMIN')
           ORDER BY u.id LIMIT 1)
        ) AS id

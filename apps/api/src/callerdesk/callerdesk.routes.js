@@ -62,7 +62,7 @@ export function createCallerDeskRoutes(pool, authenticate, requireCrmAccess, req
 
   router.get('/config', authenticate, requireCrmAccess, asyncRoute(async (req, res) => {
     const config = await loadConfig(pool, req, false);
-    const [[mapping]] = await pool.execute(`SELECT id FROM app_users WHERE id=? AND callerdesk_enabled=1 AND NULLIF(callerdesk_member_id,'') IS NOT NULL AND NULLIF(callerdesk_member_number,'') IS NOT NULL LIMIT 1`,[req.user.id]);
+    const [[mapping]] = await pool.execute(`SELECT id FROM mse_hrm_app_users WHERE id=? AND callerdesk_enabled=1 AND NULLIF(callerdesk_member_id,'') IS NOT NULL AND NULLIF(callerdesk_member_number,'') IS NOT NULL LIMIT 1`,[req.user.id]);
     res.json({ data: config ? {
       id: Number(config.id), accountName: config.name, defaultDeskphone: config.defaultDeskphone || '',
       defaultGroupName: config.defaultGroupName || '', recordCalls: config.recordCalls !== false, isActive: ['ACTIVE','CONNECTED'].includes(String(config.status).toUpperCase()), configured: true,
@@ -81,10 +81,15 @@ export function createCallerDeskRoutes(pool, authenticate, requireCrmAccess, req
       integrationKeyEncrypted: clean(req.body.integrationKey) ? encryptToken(clean(req.body.integrationKey),getMasterKey()) : existing?.integrationKeyEncrypted || null,
       defaultDeskphone: clean(req.body.defaultDeskphone)||'', defaultGroupName: clean(req.body.defaultGroupName)||'', recordCalls:req.body.recordCalls!==false, defaultBusinessUnitId:req.businessUnit.id,
       webhookSecret: existing?.webhookSecret || crypto.randomBytes(24).toString('hex') };
-    if(existing) await pool.execute(`UPDATE crm_integrations SET name=?,config=?,status=?,updated_by=? WHERE id=?`,
-      [clean(req.body.accountName)||'CallerDesk',JSON.stringify(stored),req.body.isActive===false?'INACTIVE':'ACTIVE',req.user.id,existing.id]);
+    /* The on/off switch lives in Settings -> Integrations, and this screen has
+       no control for it, so saving credentials here leaves the status alone
+       unless the body actually carries one. Without COALESCE every save
+       switched a deactivated account back on. */
+    const status = typeof req.body.isActive === 'boolean' ? (req.body.isActive ? 'ACTIVE' : 'INACTIVE') : null;
+    if(existing) await pool.execute(`UPDATE crm_integrations SET name=?,config=?,status=COALESCE(?,status),updated_by=? WHERE id=?`,
+      [clean(req.body.accountName)||'CallerDesk',JSON.stringify(stored),status,req.user.id,existing.id]);
     else await pool.execute(`INSERT INTO crm_integrations(organization_id,business_unit_id,name,type,provider,config,status,created_by)
-      VALUES(?,?,?,'SMS','callerdesk',?,?,?)`,[organizationId,requestUnitId(req),clean(req.body.accountName)||'CallerDesk',JSON.stringify(stored),req.body.isActive===false?'INACTIVE':'ACTIVE',req.user.id]);
+      VALUES(?,?,?,'SMS','callerdesk',?,COALESCE(?,'ACTIVE'),?)`,[organizationId,requestUnitId(req),clean(req.body.accountName)||'CallerDesk',JSON.stringify(stored),status,req.user.id]);
     res.json({ success: true, message: 'CallerDesk configuration saved' });
   }));
 
@@ -117,7 +122,7 @@ export function createCallerDeskRoutes(pool, authenticate, requireCrmAccess, req
     await loadConfig(pool, req);
     const [rows] = await pool.execute(`SELECT u.id,u.id userId,u.employee_id employeeId,u.callerdesk_member_id memberId,
       COALESCE(u.callerdesk_member_name,e.employee_name,u.email) memberName,u.callerdesk_member_number memberNumber,
-      u.callerdesk_call_group callGroup,u.callerdesk_enabled isActive FROM app_users u LEFT JOIN employees e ON e.id=u.employee_id
+      u.callerdesk_call_group callGroup,u.callerdesk_enabled isActive FROM mse_hrm_app_users u LEFT JOIN mse_hrm_employees e ON e.id=u.employee_id
       WHERE u.callerdesk_enabled=1 ORDER BY memberName`);
     res.json({ data: rows });
   }));
@@ -127,7 +132,7 @@ export function createCallerDeskRoutes(pool, authenticate, requireCrmAccess, req
     if (!clean(req.body.memberName) || !digits(req.body.memberNumber)) return res.status(400).json({ message: 'Member name and a valid number are required' });
     const userId=Number(req.body.userId);
     if(!Number.isInteger(userId)||userId<1)return res.status(400).json({message:'Select a CRM user'});
-    const [updated]=await pool.execute(`UPDATE app_users SET callerdesk_member_id=?,callerdesk_member_name=?,callerdesk_member_number=?,
+    const [updated]=await pool.execute(`UPDATE mse_hrm_app_users SET callerdesk_member_id=?,callerdesk_member_name=?,callerdesk_member_number=?,
       callerdesk_call_group=?,callerdesk_enabled=1 WHERE id=?`,[clean(req.body.memberId)||null,clean(req.body.memberName),digits(req.body.memberNumber),clean(req.body.callGroup)||null,userId]);
     if(!updated.affectedRows)return res.status(404).json({message:'CRM user not found'});
     res.status(201).json({ success: true });
@@ -139,18 +144,18 @@ export function createCallerDeskRoutes(pool, authenticate, requireCrmAccess, req
     const scope=branchScopeSql(req.user,'b.id');
     const [rows] = await pool.execute(`SELECT b.id branchId,b.branch_name branchName,b.callerdesk_did_id didId,b.callerdesk_did_number didNumber,
       b.callerdesk_call_group callGroup,b.callerdesk_inbound_enabled inboundEnabled,b.callerdesk_outbound_enabled outboundEnabled
-      FROM branches b WHERE b.is_active=1 AND ${scope.sql} ORDER BY b.branch_name`,scope.params);
+      FROM mse_hrm_branches b WHERE b.is_active=1 AND ${scope.sql} ORDER BY b.branch_name`,scope.params);
     res.json({data:rows});
   }));
 
   router.put('/branch-dids/:branchId', authenticate, requireCrmAccess, requireUserAdmin, asyncRoute(async (req,res) => {
     await loadConfig(pool, req);
     if(!canAccessBranch(req.user,req.params.branchId))return res.status(404).json({message:'Branch not found in this business unit'});
-    const [[branch]] = await pool.execute('SELECT id FROM branches WHERE id=? AND is_active=1 LIMIT 1',[req.params.branchId]);
+    const [[branch]] = await pool.execute('SELECT id FROM mse_hrm_branches WHERE id=? AND is_active=1 LIMIT 1',[req.params.branchId]);
     if(!branch)return res.status(404).json({message:'Branch not found in this business unit'});
     const didNumber=clean(req.body.didNumber);
     if(!didNumber)return res.status(400).json({message:'DID number is required'});
-    await pool.execute(`UPDATE branches SET callerdesk_did_id=?,callerdesk_did_number=?,callerdesk_call_group=?,callerdesk_inbound_enabled=?,callerdesk_outbound_enabled=? WHERE id=?`,
+    await pool.execute(`UPDATE mse_hrm_branches SET callerdesk_did_id=?,callerdesk_did_number=?,callerdesk_call_group=?,callerdesk_inbound_enabled=?,callerdesk_outbound_enabled=? WHERE id=?`,
       [clean(req.body.didId)||null,didNumber,clean(req.body.callGroup)||null,req.body.inboundEnabled===false?0:1,req.body.outboundEnabled===false?0:1,branch.id]);
     res.json({success:true});
   }));
@@ -169,10 +174,10 @@ export function createCallerDeskRoutes(pool, authenticate, requireCrmAccess, req
     if (!lead) return res.status(404).json({ message: 'Lead not found' });
     const agentUserId=Number(req.body.agentUserId||req.user.id);
     const [[agent]] = await pool.execute(`SELECT callerdesk_member_id member_id,callerdesk_member_number member_number,
-      callerdesk_call_group call_group FROM app_users WHERE id=? AND callerdesk_enabled=1 LIMIT 1`,[agentUserId]);
+      callerdesk_call_group call_group FROM mse_hrm_app_users WHERE id=? AND callerdesk_enabled=1 LIMIT 1`,[agentUserId]);
     if (!agent) return res.status(400).json({ message: 'Map this CRM user to a CallerDesk member, or select an agent' });
     const mode = clean(req.body.mode) || 'member';
-    const [[branchDid]] = await pool.execute('SELECT callerdesk_did_number did_number,callerdesk_call_group call_group FROM branches WHERE id=? AND callerdesk_outbound_enabled=1 LIMIT 1',[lead.branch_id]);
+    const [[branchDid]] = await pool.execute('SELECT callerdesk_did_number did_number,callerdesk_call_group call_group FROM mse_hrm_branches WHERE id=? AND callerdesk_outbound_enabled=1 LIMIT 1',[lead.branch_id]);
     const deskphone = clean(req.body.deskphone) || branchDid?.did_number || config.defaultDeskphone;
     if (!deskphone && mode !== 'mobile') return res.status(400).json({ message: 'Choose or configure a CallerDesk deskphone' });
     let endpoint = 'click_to_call_v4', method = 'GET', params = { call_from_did: 1, deskphone, member_id: agent.member_id, calling_party_b: digits(lead.phone) };
@@ -230,7 +235,7 @@ export function createCallerDeskRoutes(pool, authenticate, requireCrmAccess, req
       c.created_at_utc createdAt,COALESCE(e.employee_name,u.email) createdBy,
       COUNT(q.id) total,SUM(q.status IN ('queued','retry')) pending,SUM(q.status='connected') connected,SUM(q.status IN ('completed','failed','skipped')) finished
       FROM crm_dialer_campaigns c LEFT JOIN crm_dialer_queue q ON q.campaign_id=c.id
-      LEFT JOIN app_users u ON u.id=c.created_by_user_id LEFT JOIN employees e ON e.id=u.employee_id
+      LEFT JOIN mse_hrm_app_users u ON u.id=c.created_by_user_id LEFT JOIN mse_hrm_employees e ON e.id=u.employee_id
       WHERE c.business_unit_id=? GROUP BY c.id,e.employee_name,u.email ORDER BY c.created_at_utc DESC`,[req.businessUnit.id]);
     res.json({data:rows});
   }));
@@ -269,7 +274,7 @@ export function createCallerDeskWebhookRoutes(pool) {
     const inbound = clean(body.Direction).toUpperCase()==='IVR';
     const customer = digits(inbound ? body.SourceNumber : (body.DestinationNumber || body.SourceNumber));
     const destinationDid = clean(body.DestinationNumber);
-    const [[didMap]] = destinationDid ? await pool.execute(`SELECT id branch_id FROM branches WHERE callerdesk_did_number=? AND callerdesk_inbound_enabled=1 AND is_active=1 LIMIT 1`,[destinationDid]) : [[]];
+    const [[didMap]] = destinationDid ? await pool.execute(`SELECT id branch_id FROM mse_hrm_branches WHERE callerdesk_did_number=? AND callerdesk_inbound_enabled=1 AND is_active=1 LIMIT 1`,[destinationDid]) : [[]];
     const businessUnitId = Number(config.defaultBusinessUnitId || 1);
     const [[lead]] = customer ? await pool.execute(`SELECT id,business_unit_id FROM crm_leads WHERE ${didMap?.branch_id?'branch_id=? AND ':''}
       (normalized_phone=? OR RIGHT(REGEXP_REPLACE(phone,'[^0-9]',''),10)=?) AND deleted_at_utc IS NULL ORDER BY id DESC LIMIT 1`,

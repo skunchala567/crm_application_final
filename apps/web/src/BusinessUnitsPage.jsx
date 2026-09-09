@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, Building2, CalendarRange, Check, ChevronDown, Chevr
 import { useSearchParams } from 'react-router-dom';
 import { api } from './api';
 import { useBusinessUnit } from './BusinessUnitContext.jsx';
+import { useIntegrationStatus } from './IntegrationStatusContext.jsx';
 import { applyBrandTheme, DEFAULT_BRAND_COLOR } from './brand-theme.js';
 import AcademicConfigurationPage from './AcademicConfigurationPage.jsx';
 import BusinessConfigurationPage from './BusinessConfigurationPage.jsx';
@@ -187,13 +188,13 @@ export default function BusinessUnitsPage({onMessage}){
   useEffect(()=>{loadConfig(selectedId);},[selectedId]);
   useEffect(()=>{
     let ignore=false;
-    api('/callerdesk/config').then(result=>result.data?.configured?Promise.allSettled([api('/callerdesk/deskphones'),api('/callerdesk/groups')]):null).then(results=>{
+    api('/callerdesk/config').then(result=>result.data?.configured&&result.data?.isActive!==false?Promise.allSettled([api('/callerdesk/deskphones'),api('/callerdesk/groups')]):null).then(results=>{
       if(ignore||!results)return;
       const dids=results[0].status==='fulfilled'?optionArray(results[0].value.data).map(item=>({id:String(item.did_id??item.deskphone_id??item.id??''),number:String(item.did_number??item.deskphone??item.ivr_number??item.number??item.virtual_number??'')})).filter(item=>item.number):[];
       const groups=results[1].status==='fulfilled'?optionArray(results[1].value.data).map(item=>({id:String(item.group_id??item.id??item.group_name??''),name:String(item.group_name??item.name??'')})).filter(item=>item.name):[];
       setCallingOptions(current=>({...current,dids,groups}));
     }).catch(()=>{if(!ignore)setCallingOptions(current=>({...current,dids:[],groups:[]}));});
-    api('/smartflo/config').then(result=>result.data?.configured?Promise.allSettled([api('/smartflo/numbers'),api('/smartflo/departments'),api('/smartflo/ivrs')]):null).then(results=>{
+    api('/smartflo/config').then(result=>result.data?.configured&&result.data?.isActive!==false?Promise.allSettled([api('/smartflo/numbers'),api('/smartflo/departments'),api('/smartflo/ivrs')]):null).then(results=>{
       if(ignore||!results)return;
       const smartfloDids=results[0].status==='fulfilled'?optionArray(results[0].value.data).map(item=>({id:String(item.id??item.did_id??''),number:String(item.did??item.number??item.did_number??item.phone_number??'')})).filter(item=>item.number):[];
       const smartfloDepartments=results[1].status==='fulfilled'?optionArray(results[1].value.data).map(item=>({id:String(item.id??item.department_id??''),name:String(item.name??item.department_name??'')})).filter(item=>item.id&&item.name):[];
@@ -586,14 +587,22 @@ function PipelineDefaults({config,saving,onSave}){
   </form>;
 }
 function BranchesPaymentPanel({config,onAdd,onEdit}){
+  // A branch keeps its saved DID while its integration is switched off, but
+  // the row stops advertising a number nobody can dial.
+  const {isOff}=useIntegrationStatus();
   const branches=config.branches||[];
   return <section className="metadata-list"><header><div><h3>Branches & online application payments</h3><p>Configure branch-wise calling routes and Jodo payment credentials. Amounts, payment components and paid-application stages are set on the payment form or public enquiry form.</p></div><button className="primary" onClick={onAdd}><Plus size={16}/>Add branch</button></header>
-    <div>{branches.map(branch=><article key={branch.id}><i style={{background:'var(--brand-50)',color:'var(--brand-600)'}}><CreditCard size={15}/></i><span><strong>{branch.name}</strong><small>{branch.shortName||'No short name'} · {branch.jodoCollectorCode?'Payment credentials set':'No payment credentials'}</small></span><div className="metadata-row-badges"><em>{branch.callerdeskDidNumber?`DID ${branch.callerdeskDidNumber}`:'No calling DID'}</em><em>{branch.smartfloDidNumber?`Smartflo ${branch.smartfloDidNumber}`:'No Smartflo DID'}</em><em>{branch.jodoCollectorCode||'No collector code'}</em><em>{branch.isActive===false?'Inactive':'Active'}</em></div><div className="metadata-row-actions"><button className="icon-btn" title="Edit branch configuration" onClick={()=>onEdit(branch)}><Pencil size={15}/></button></div></article>)}{!branches.length&&<div className="empty"><CreditCard/><strong>No branches available</strong><span>Add a branch or configure existing branches.</span></div>}</div>
+    <div>{branches.map(branch=><article key={branch.id}><i style={{background:'var(--brand-50)',color:'var(--brand-600)'}}><CreditCard size={15}/></i><span><strong>{branch.name}</strong><small>{branch.shortName||'No short name'} · {branch.jodoCollectorCode?'Payment credentials set':'No payment credentials'}</small></span><div className="metadata-row-badges">{!isOff('callerdesk')&&<em>{branch.callerdeskDidNumber?`DID ${branch.callerdeskDidNumber}`:'No calling DID'}</em>}{!isOff('smartflo')&&<em>{branch.smartfloDidNumber?`Smartflo ${branch.smartfloDidNumber}`:'No Smartflo DID'}</em>}<em>{branch.jodoCollectorCode||'No collector code'}</em><em>{branch.isActive===false?'Inactive':'Active'}</em></div><div className="metadata-row-actions"><button className="icon-btn" title="Edit branch configuration" onClick={()=>onEdit(branch)}><Pencil size={15}/></button></div></article>)}{!branches.length&&<div className="empty"><CreditCard/><strong>No branches available</strong><span>Add a branch or configure existing branches.</span></div>}</div>
   </section>;
 }
 
 function BranchPaymentForm({form,setForm,callingOptions,saving,onCancel,onSubmit,branchId,whatsappMeta}){
   const patch=changes=>setForm({...form,...changes});
+  /* A service switched off in Settings -> Integrations has nothing to
+     configure here: its DIDs, groups and IVRs cannot be loaded and would not
+     be dialled. What the branch already has stays in the record untouched and
+     comes straight back when the service is switched on again. */
+  const {isOff}=useIntegrationStatus();
   return <form className="branch-config-form" onSubmit={onSubmit}>
     <fieldset>
       <legend>Branch</legend>
@@ -604,7 +613,7 @@ function BranchPaymentForm({form,setForm,callingOptions,saving,onCancel,onSubmit
       <label className="check-option"><input type="checkbox" checked={form.isActive!==false} onChange={e=>patch({isActive:e.target.checked})}/>Active branch</label>
     </fieldset>
 
-    <fieldset>
+    {!isOff('callerdesk')&&<fieldset>
       <legend>CallerDesk calling</legend>
       <div className="branch-field-grid">
         <label>Branch DID<select value={form.callerdeskDidNumber||''} onChange={e=>{const selected=callingOptions.dids.find(item=>item.number===e.target.value);patch({callerdeskDidNumber:e.target.value,callerdeskDidId:selected?.id||''});}}><option value="">No DID assigned</option>{form.callerdeskDidNumber&&!callingOptions.dids.some(item=>item.number===form.callerdeskDidNumber)&&<option value={form.callerdeskDidNumber}>{form.callerdeskDidNumber} (saved)</option>}{callingOptions.dids.map(item=><option key={`${item.id}-${item.number}`} value={item.number}>{item.number}{item.id?` · DID ID ${item.id}`:''}</option>)}</select></label>
@@ -615,9 +624,9 @@ function BranchPaymentForm({form,setForm,callingOptions,saving,onCancel,onSubmit
         <label className="check-option"><input type="checkbox" checked={form.callerdeskOutboundEnabled!==false} onChange={e=>patch({callerdeskOutboundEnabled:e.target.checked})}/>Outbound calls</label>
       </div>
       <small>DID options load from the connected CallerDesk account. Calling and webhook routing read these values directly from the branch.</small>
-    </fieldset>
+    </fieldset>}
 
-    <fieldset>
+    {!isOff('smartflo')&&<fieldset>
       <legend>Tata Smartflo calling</legend>
       <div className="branch-field-grid">
         <label>Smartflo DID<select value={form.smartfloDidNumber||''} onChange={e=>{const selected=callingOptions.smartfloDids.find(item=>item.number===e.target.value);patch({smartfloDidNumber:e.target.value,smartfloDidId:selected?.id||''});}}><option value="">Use account default DID</option>{form.smartfloDidNumber&&!callingOptions.smartfloDids.some(item=>item.number===form.smartfloDidNumber)&&<option value={form.smartfloDidNumber}>{form.smartfloDidNumber} (saved)</option>}{callingOptions.smartfloDids.map(item=><option key={`${item.id}-${item.number}`} value={item.number}>{item.number}</option>)}</select></label>
@@ -629,7 +638,7 @@ function BranchPaymentForm({form,setForm,callingOptions,saving,onCancel,onSubmit
         <label className="check-option"><input type="checkbox" checked={form.smartfloOutboundEnabled!==false} onChange={e=>patch({smartfloOutboundEnabled:e.target.checked})}/>Outbound calls</label>
       </div>
       <small>DIDs and departments load from Tata Smartflo. Lead calls use this branch mapping before the account fallback.</small>
-    </fieldset>
+    </fieldset>}
 
     <fieldset>
       <legend>Pipeline visibility</legend>
@@ -640,7 +649,7 @@ function BranchPaymentForm({form,setForm,callingOptions,saving,onCancel,onSubmit
       />
     </fieldset>
 
-    <fieldset>
+    {!isOff('smartping')&&<fieldset>
       <legend>WhatsApp settings</legend>
       <BranchWhatsAppSettings
         branchId={branchId}
@@ -648,7 +657,7 @@ function BranchPaymentForm({form,setForm,callingOptions,saving,onCancel,onSubmit
         onChange={update=>setForm(prev=>({...prev,whatsapp:typeof update==='function'?update(prev.whatsapp):update}))}
         meta={whatsappMeta}
       />
-    </fieldset>
+    </fieldset>}
 
     <fieldset>
       <legend>Jodo payment credentials</legend>

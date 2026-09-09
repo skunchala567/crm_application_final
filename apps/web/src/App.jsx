@@ -12,6 +12,7 @@ import PublicEnquiryForm from "./PublicEnquiryForm.jsx";
 import PublicPaymentPage from "./pages/PublicPaymentPage.jsx";
 import { BusinessUnitProvider, useBusinessUnit } from "./BusinessUnitContext.jsx";
 import { LeadQuickActionsProvider } from "./LeadQuickActionsContext.jsx";
+import { IntegrationStatusProvider } from "./IntegrationStatusContext.jsx";
 import { PermissionProvider, usePermissions } from "./PermissionContext.jsx";
 import { RequirePermission } from "./components/Can.jsx";
 import { DASHBOARD_HEIGHT_LABELS, DASHBOARD_WIDGETS, dashboardMoveTarget, defaultDashboardLayout, isSameDashboardLayout, normalizeDashboardLayout, readDashboardLayout, writeDashboardLayout } from "./lib/dashboardLayout.js";
@@ -822,9 +823,11 @@ export default function App() {
           user ? (
             <BusinessUnitProvider>
               <PermissionProvider>
-                <LeadQuickActionsProvider>
-                  <Shell user={user} onLogout={logout} />
-                </LeadQuickActionsProvider>
+                <IntegrationStatusProvider>
+                  <LeadQuickActionsProvider>
+                    <Shell user={user} onLogout={logout} />
+                  </LeadQuickActionsProvider>
+                </IntegrationStatusProvider>
               </PermissionProvider>
             </BusinessUnitProvider>
           ) : (
