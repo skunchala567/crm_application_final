@@ -14,7 +14,7 @@
  * Behaviour
  *   - DROP TABLE IF EXISTS + CREATE for the CRM-owned tables and the shared
  *     identity/master tables the CRM has foreign keys into.
- *   - CREATE TABLE IF NOT EXISTS (never dropped, no data) for attendance-only
+ *   - CREATE TABLE IF NOT EXISTS (never dropped, no data) for the non-CRM
  *     tables, unless --include-attendance is passed.
  *   - AUTO_INCREMENT=<n> is stripped from every CREATE TABLE, so a table that
  *     receives no rows starts its sequence at 1. Populated tables get an
@@ -39,7 +39,13 @@ const REPO_ROOT = path.resolve(HERE, '../../../..');
 const TARGET_COLLATION = 'utf8mb4_unicode_ci';
 const SOURCE_COLLATION = /utf8mb4_0900_ai_ci/g; // MySQL-8-only, absent in MariaDB
 
-/** Shared identity/master tables the CRM has foreign keys into or seeds. */
+/**
+ * Shared identity/master tables the CRM has foreign keys into or seeds.
+ *
+ * The HRM side renamed these to an `mse_hrm_` prefix. Both spellings are listed
+ * because only the names a deployment actually has are matched, and the older
+ * migrations here still refer to the unprefixed ones.
+ */
 const SHARED_TABLES = [
   'branches',
   'employees',
@@ -49,6 +55,14 @@ const SHARED_TABLES = [
   'role_screen_access',
   'user_branches',
   'user_roles',
+  'mse_hrm_branches',
+  'mse_hrm_employees',
+  'mse_hrm_app_users',
+  'mse_hrm_roles',
+  'mse_hrm_role_permissions',
+  'mse_hrm_role_screen_access',
+  'mse_hrm_user_branches',
+  'mse_hrm_user_roles',
 ];
 
 /** Rows-per-INSERT and bytes-per-INSERT ceilings. */
@@ -388,7 +402,7 @@ async function main() {
   write(`--   Source database : ${info.db}\n`);
   write(`--   Target server   : MariaDB 10.11 (utf8mb4 / ${TARGET_COLLATION})\n`);
   write(`--   Managed tables  : ${managedOrder.length} (dropped and recreated, data included)\n`);
-  write(`--   Untouched tables: ${attendanceSchemaOrder.length} attendance-only (CREATE IF NOT EXISTS`);
+  write(`--   Untouched tables: ${attendanceSchemaOrder.length} non-CRM (CREATE IF NOT EXISTS`);
   write(INCLUDE_ATTENDANCE ? ', data included)\n' : ', no data)\n');
   write(`--   Views           : ${selectedViews.length}\n`);
   write(`--   Mode            : ${SCHEMA_ONLY ? 'SCHEMA ONLY' : 'SCHEMA + DATA'}\n`);
@@ -433,7 +447,7 @@ async function main() {
   write(rule);
   write(`-- SECTION 1 - DROP MANAGED TABLES (${managedOrder.length})\n`);
   write(rule);
-  write('-- Children first. Attendance-only tables are deliberately not dropped.\n\n');
+  write('-- Children first. Non-CRM tables are deliberately not dropped.\n\n');
   for (const t of [...managedOrder].reverse()) {
     write(`DROP TABLE IF EXISTS \`${t}\`;\n`);
   }
@@ -451,12 +465,12 @@ async function main() {
   }
   write('\n');
 
-  // --- Section 3: attendance-only DDL --------------------------------------
+  // --- Section 3: non-CRM DDL ----------------------------------------------
   write(rule);
-  write(`-- SECTION 3 - ATTENDANCE-ONLY TABLES (${attendanceSchemaOrder.length})\n`);
+  write(`-- SECTION 3 - NON-CRM TABLES (${attendanceSchemaOrder.length})\n`);
   write(rule);
-  write('-- Owned by the Attendance system. Never dropped; created only when the\n');
-  write('-- target database does not already have them.\n\n');
+  write('-- Owned by the attendance, HRM and finance systems. Never dropped; created\n');
+  write('-- only when the target database does not already have them.\n\n');
   for (const t of attendanceSchemaOrder) {
     const [[row]] = await conn.query(`SHOW CREATE TABLE \`${t}\``);
     write(`-- ${'-'.repeat(60)}\n-- ${t}\n-- ${'-'.repeat(60)}\n`);
