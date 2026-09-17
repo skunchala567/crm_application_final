@@ -499,6 +499,18 @@ function parseJson(value, fallback = {}) {
 }
 
 /**
+ * Meta's own shorthand ('fb'/'ig') to ours. Only reported for ad-driven
+ * leads -- an organic Page-form submission carries no platform at all, and
+ * that is left null rather than guessed.
+ */
+function resolvePlatform(payload) {
+  const raw = String(payload?.platform || '').toLowerCase();
+  if (raw === 'fb') return 'facebook';
+  if (raw === 'ig') return 'instagram';
+  return raw ? 'unknown' : null;
+}
+
+/**
  * Import a single Meta lead end to end.
  *
  * @param {import('mysql2/promise').Pool} pool
@@ -734,10 +746,11 @@ export async function importMetaLead(pool, {
       `UPDATE crm_meta_lead_imports
           SET campaign_name = COALESCE(campaign_name, ?), adgroup_name = COALESCE(adgroup_name, ?),
               ad_name = COALESCE(ad_name, ?), form_name = COALESCE(form_name, ?),
-              page_name = COALESCE(page_name, ?)
+              page_name = COALESCE(page_name, ?), platform = COALESCE(platform, ?)
         WHERE leadgen_id=?`,
       [payload?.campaign_name || null, payload?.adset_name || null, payload?.ad_name || null,
-        resolvedForm?.form_name || null, resolvedPage?.page_name || null, String(leadgenId)],
+        resolvedForm?.form_name || null, resolvedPage?.page_name || null, resolvePlatform(payload),
+        String(leadgenId)],
     ).catch((error) => logger.warn?.(`[Meta] could not record attribution names: ${error.message}`));
 
     return { status: result.outcome, leadId: result.leadId, leadNumber: result.leadNumber };
@@ -748,4 +761,4 @@ export async function importMetaLead(pool, {
   }
 }
 
-export const __testing = { autoDetect, claimLeadgen, parseJson };
+export const __testing = { autoDetect, claimLeadgen, parseJson, resolvePlatform };

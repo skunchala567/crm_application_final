@@ -171,6 +171,7 @@ export function buildLeadFilterSql(filters = {}, { alias = 'l' } = {}) {
   const metaFilters = [
     ['metaCampaignId', 'mi.campaign_meta_id'], ['metaAdsetId', 'mi.adgroup_id'],
     ['metaAdId', 'mi.ad_id'], ['metaFormId', 'mi.form_id'], ['metaPageId', 'mi.page_id'],
+    ['metaPlatform', 'mi.platform'],
   ];
   for (const [key, column] of metaFilters) {
     const values = list(filters[key]);

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Copy, Download,
-  LayoutList, Link2, Loader2, Plus, RefreshCw, Save, Search, ShieldCheck, Users, X, XCircle,
+  Instagram, LayoutList, Link2, Loader2, Plus, RefreshCw, Save, Search, ShieldCheck, Users, X, XCircle,
 } from 'lucide-react';
 import { api } from '../api';
 import { SearchSelect } from '../FilterWorkspace.jsx';
@@ -446,6 +446,7 @@ export default function MetaLeadAdsSettings() {
     { label: 'Account', get: (r) => r.meta_account_name || r.meta_account_id || '' },
     { label: 'Page', get: (r) => r.page_name || '' },
     { label: 'Page ID', get: (r) => r.page_id },
+    { label: 'Instagram', get: (r) => (r.instagram_username ? `@${r.instagram_username}` : '') },
     { label: 'Receiving leads', get: (r) => (r.is_subscribed ? 'Yes' : 'No') },
     { label: 'Business unit', get: (r) => unitName(r.business_unit_id) || 'Default' },
     { label: 'Branch', get: (r) => branchName(r.branch_id) || 'Default' },
@@ -761,6 +762,11 @@ export default function MetaLeadAdsSettings() {
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm font-semibold truncate">{page.name || page.pageId}</span>
                         <span className="block text-[11px] text-secondary-500">{page.pageId}</span>
+                        {page.instagramUsername && (
+                          <span className="flex items-center gap-1 text-[11px] text-secondary-500">
+                            <Instagram size={11} /> @{page.instagramUsername}
+                          </span>
+                        )}
                       </span>
                       {page.alreadyConnected && (
                         <span className="text-[10px] font-bold uppercase tracking-wide text-primary-700 bg-primary-50 rounded-full px-2 py-0.5">
@@ -857,6 +863,11 @@ export default function MetaLeadAdsSettings() {
                           <td>
                             <div className="font-semibold">{page.page_name || '(unnamed)'}</div>
                             <div className="text-xs text-secondary-500">{page.page_id}</div>
+                            {page.instagram_username && (
+                              <div className="text-xs text-secondary-500 inline-flex items-center gap-1 mt-1">
+                                <Instagram size={12} /> @{page.instagram_username}
+                              </div>
+                            )}
                             {page.subscribe_error && (
                               <div className="text-xs text-red-600 mt-1">{page.subscribe_error}</div>
                             )}

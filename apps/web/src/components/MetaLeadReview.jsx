@@ -37,6 +37,7 @@ function exportWaiting(rows) {
     { label: 'Leadgen ID', get: (r) => r.leadgenId },
     { label: 'Form', get: (r) => r.formName || r.formId || '' },
     { label: 'Page', get: (r) => r.pageName || r.pageId || '' },
+    { label: 'Platform', get: (r) => (r.platform ? r.platform[0].toUpperCase() + r.platform.slice(1) : '') },
     { label: 'Student name', get: (r) => r.mapped?.studentName || '' },
     { label: 'Phone', get: (r) => r.mapped?.phone || '' },
     { label: 'Email', get: (r) => r.mapped?.email || '' },
@@ -382,6 +383,7 @@ export default function MetaLeadReview({ onMessage, meta = null }) {
                 <th>Lead</th>
                 <th>Phone</th>
                 <th>Form</th>
+                <th>Platform</th>
                 <th>Received</th>
                 <th />
               </tr>
@@ -417,6 +419,9 @@ export default function MetaLeadReview({ onMessage, meta = null }) {
                       {row.formName || row.formId}
                       <small className="block text-secondary-500">{row.pageName || row.pageId}</small>
                     </td>
+                    <td className="text-xs">
+                      {row.platform ? row.platform[0].toUpperCase() + row.platform.slice(1) : '—'}
+                    </td>
                     <td className="text-xs">{row.receivedAt ? new Date(row.receivedAt).toLocaleString('en-IN') : '—'}</td>
                     <td>
                       {/* Icons rather than labels: the same two words on
@@ -440,7 +445,7 @@ export default function MetaLeadReview({ onMessage, meta = null }) {
                   </tr>,
                   open && (
                     <tr key={`${row.leadgenId}-detail`} className="review-detail-row">
-                      <td colSpan={7}>
+                      <td colSpan={8}>
                         <div className="meta-review-mapped">
                           <span className={name ? '' : 'missing'}>Name: <b>{name || 'not mapped'}</b></span>
                           <span className={phone ? '' : 'missing'}>Phone: <b>{phone || 'not mapped'}</b></span>

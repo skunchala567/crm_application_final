@@ -192,7 +192,12 @@ export default function BusinessUnitsPage({onMessage}){
     const school=context.units.find(unit=>unit.compatibilityMode==='legacy_school');
     if(school&&selectedId!==school.id)setSelectedId(school.id);
   },[context.units,searchParams,selectedId]);
-  useEffect(()=>{loadConfig(selectedId);},[selectedId]);
+  // On a direct/first load the provider is still fetching the unit list (and
+  // resolving auth), so firing this immediately can race a not-yet-ready
+  // session and fail silently, leaving the page stuck until the unit is
+  // switched. Waiting for the provider to finish loading guarantees the
+  // first attempt happens once the app has actually settled.
+  useEffect(()=>{if(!context.loading)loadConfig(selectedId);},[selectedId,context.loading]);
   useEffect(()=>{
     let ignore=false;
     api('/callerdesk/config').then(result=>result.data?.configured&&result.data?.isActive!==false?Promise.allSettled([api('/callerdesk/deskphones'),api('/callerdesk/groups')]):null).then(results=>{
@@ -434,7 +439,7 @@ export default function BusinessUnitsPage({onMessage}){
           ))}
         </aside>
         <section className="business-unit-config">
-          {!selected||!config?<div className="empty big"><Database/><strong>Select a business unit</strong></div>:<>
+          {!selected||!config?<div className="empty big"><Database/><strong>{context.loading?'Loading business units…':'Select a business unit'}</strong></div>:<>
             <div className="unit-config-sticky">
             <div className="unit-config-title">
               <i style={{background:selected.color}}><Building2/></i>

@@ -177,6 +177,16 @@ function AudienceEditor({ meta, adAccounts, audience, onClose, onSaved, onMessag
                 <option value="yes">Only leads from Meta ads</option>
               </select>
             </label>
+            <label>Platform
+              <select
+                value={(form.filters.metaPlatform || [])[0] || ''}
+                onChange={(e) => setFilter('metaPlatform', e.target.value ? [e.target.value] : [])}
+              >
+                <option value="">Any</option>
+                <option value="facebook">Facebook</option>
+                <option value="instagram">Instagram</option>
+              </select>
+            </label>
           </div>
 
           <h4>Exclude</h4>

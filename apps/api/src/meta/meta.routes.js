@@ -193,6 +193,7 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
     const filter = integrationFilter(await unitIntegrationIds(req), 'integration_id');
     const [rows] = await pool.execute(
       `SELECT id, page_id, page_name, meta_account_id, meta_account_name,
+              instagram_account_id, instagram_username,
               is_subscribed, subscribed_at_utc, subscribe_error,
               business_unit_id, branch_id, is_active, updated_at_utc
          FROM crm_meta_pages
@@ -254,6 +255,7 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
         pages: pages.map(page => ({
           pageId: String(page.id),
           name: page.name || null,
+          instagramUsername: page.instagram_business_account?.username || null,
           alreadyConnected: byId.has(String(page.id)),
           alreadySubscribed: Boolean(byId.get(String(page.id))?.isSubscribed),
         })),
@@ -321,13 +323,16 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
       await pool.execute(
         `INSERT INTO crm_meta_pages
            (integration_id, meta_account_id, meta_account_name, page_id, page_name,
+            instagram_account_id, instagram_username,
             access_token_encrypted, is_subscribed, subscribed_at_utc, subscribe_error)
-         VALUES (?,?,?,?,?,?,?,${subscribed ? 'CURRENT_TIMESTAMP(6)' : 'NULL'},?)
+         VALUES (?,?,?,?,?,?,?,?,?,${subscribed ? 'CURRENT_TIMESTAMP(6)' : 'NULL'},?)
          ON DUPLICATE KEY UPDATE
            integration_id=VALUES(integration_id),
            meta_account_id=VALUES(meta_account_id),
            meta_account_name=VALUES(meta_account_name),
            page_name=VALUES(page_name),
+           instagram_account_id=VALUES(instagram_account_id),
+           instagram_username=VALUES(instagram_username),
            access_token_encrypted=VALUES(access_token_encrypted),
            is_subscribed=VALUES(is_subscribed),
            subscribed_at_utc=COALESCE(VALUES(subscribed_at_utc), subscribed_at_utc),
@@ -336,6 +341,8 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
         [
           Number(config.integrationId), account.id, account.name,
           pageId, page.name || null,
+          page.instagram_business_account?.id || null,
+          page.instagram_business_account?.username || null,
           page.access_token ? encryptToken(page.access_token, masterKey) : null,
           subscribed ? 1 : 0, subscribeError,
         ],
@@ -705,6 +712,7 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
               i.intake_source AS intakeSource, i.raw_payload AS rawPayload,
               i.meta_created_time AS metaCreatedTime, i.created_at_utc AS receivedAt,
               i.campaign_name AS campaignName, i.adgroup_name AS adgroupName, i.ad_name AS adName,
+              i.platform AS platform,
               f.form_name AS formName, f.field_mapping AS fieldMapping,
               p.page_name AS pageName
          FROM crm_meta_lead_imports i
@@ -733,6 +741,7 @@ export function createMetaRoutes(pool, authenticate, requireCrmAccess, requireUs
         formId: row.formId, formName: row.formName,
         pageId: row.pageId, pageName: row.pageName,
         campaignName: row.campaignName, adgroupName: row.adgroupName, adName: row.adName,
+        platform: row.platform,
         intakeSource: row.intakeSource,
         receivedAt: row.receivedAt,
         metaCreatedTime: row.metaCreatedTime,

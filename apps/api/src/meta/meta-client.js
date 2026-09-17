@@ -130,7 +130,14 @@ async function graphPaginate(startUrl, { params, logger = console, maxPages = 20
  */
 export async function listPages(userToken, { logger = console } = {}) {
   return graphPaginate(`${GRAPH_BASE}/me/accounts`, {
-    params: { limit: 100, fields: 'id,name,access_token,category', access_token: userToken },
+    params: {
+      limit: 100,
+      // instagram_business_account is only populated when the Page has one
+      // linked and the token carries instagram_basic; otherwise Graph just
+      // omits the key, so no fallback is needed.
+      fields: 'id,name,access_token,category,instagram_business_account{id,username}',
+      access_token: userToken,
+    },
     logger,
   });
 }
@@ -185,7 +192,10 @@ export async function listLeadForms(pageId, pageAccessToken, { logger = console 
  * to the original list rather than losing the lead.
  */
 const LEAD_FIELDS = 'id,created_time,ad_id,adset_id,campaign_id,form_id,is_organic,field_data';
-const LEAD_NAME_FIELDS = 'campaign_name,adset_name,ad_name';
+// platform ('fb'|'ig') travels with the names: Meta only reports it for
+// ad-driven leads, and an older Graph version that refuses it should not
+// cost us the lead any more than a missing campaign_name would.
+const LEAD_NAME_FIELDS = 'campaign_name,adset_name,ad_name,platform';
 
 /**
  * Fetch one lead by its leadgen_id. This is the webhook path -- the
@@ -217,7 +227,7 @@ export async function getLead(leadgenId, pageAccessToken, { logger = console } =
 export async function listFormLeads(formId, pageAccessToken, { sinceEpochSeconds = null, logger = console, maxPages = 200 } = {}) {
   const params = {
     limit: 100,
-    fields: 'id,created_time,ad_id,adset_id,campaign_id,form_id,is_organic,field_data',
+    fields: 'id,created_time,ad_id,adset_id,campaign_id,form_id,is_organic,field_data,platform',
     access_token: pageAccessToken,
   };
   if (sinceEpochSeconds) params.filtering = JSON.stringify([
